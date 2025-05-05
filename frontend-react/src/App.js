@@ -45,11 +45,20 @@ function App() {
       .then(data => {
         console.log(data);
         let tmp_players = [];
-        for (let i = 0; i < data.length; i++) {
-          let tmp = new Player(data[i]['playerNum'], data[i]['x'], data[i]['y']);
-          console.log("tmp: ", tmp);
-          tmp_players.push(tmp);
-        }
+
+        data.map( p => {
+          let new_player = new Player(p['id'], 
+                                      p['x_pos'],
+                                      p['y_pos'], 
+                                      p['x_vel'],
+                                      p['x_vel'],
+                                      p['x_acc'],
+                                      p['y_acc'],
+                                      );
+
+          console.log("tmp: ", new_player);
+          tmp_players.push(new_player);
+        });
         console.log("tmp_players: ", tmp_players);
         setPlayers(tmp_players);
       });

@@ -27,11 +27,19 @@ void GamePiece::remove_partition(Partition* partition)
   }
 }
 
+
+
 std::string GamePiece::jsonify_pos()
 {
   std::stringstream ss;
   //ss << "{\"playerNum\":\"" << id << "\", \"x\": \"" << position.x << "\", \"y\": \"" << position.y << "\"}";
   
-  ss << "{\"playerNum\":" << id << ", \"x\": " << position.x << ", \"y\": " << position.y << "}";
+  ss << "{\"id\":" << id << ", ";
+  ss << "\"x_pos\": " << position.x << ", ";
+  ss << "\"y_pos\": " << position.y << ", ";
+  ss << "\nx_vel\:: " << velocity.x << ", ";
+  ss << "\ny_vel\:: " << velocity.x << ", ";
+  ss << "\nx_acc\:: " << acceleration.x << ", ";
+  ss << "\ny_acc\:: " << acceleration.x << "}";
   return ss.str();
 }

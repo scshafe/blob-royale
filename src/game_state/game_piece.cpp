@@ -30,6 +30,8 @@ void GamePiece::remove_partition(Partition* partition)
 std::string GamePiece::jsonify_pos()
 {
   std::stringstream ss;
-  ss << "{\"playerNum\":\"" << id << "\", \"x\": \"" << position.x << "\", \"y\": \"" << position.y << "\"}";
+  //ss << "{\"playerNum\":\"" << id << "\", \"x\": \"" << position.x << "\", \"y\": \"" << position.y << "\"}";
+  
+  ss << "{\"playerNum\":" << id << ", \"x\": " << position.x << ", \"y\": " << position.y << "}";
   return ss.str();
 }

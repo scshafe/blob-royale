@@ -172,7 +172,7 @@ private:
           beast::ostream(response_.body())
             << gs.game_info();
         }
-
+        
         else
         {
             response_.result(http::status::not_found);

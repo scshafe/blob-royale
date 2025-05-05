@@ -4,11 +4,21 @@ import logo from './logo.svg';
 import './App.css';
 import GameCanvas from './GameCanvas';
 
+class Player {
+  constructor(num, x_pos, y_pos) {
+    this.num = num;
+    this.x_pos = x_pos;
+    this.y_pos = y_pos;
+    this.radius = 20;
+  }
+
+}
+
 
 function App() {
 
   const [count, setCount] = React.useState(null);
-  const [playerLocs, setPlayerLocs] = React.useState([]);
+  const [players, setPlayers] = React.useState([]);
 
   axios.defaults.baseURL = "http://192.168.86.12:8000";
 
@@ -20,6 +30,7 @@ function App() {
   }, []);
 
   const getNewCount = () => {
+    console.log("players: ", players);
     axios.get("react-count")
       .then((response) => {
         setCount(response.data);
@@ -32,11 +43,23 @@ function App() {
         return response.data;
       })
       .then(data => {
-        setPlayerLocs(data);
+        console.log(data);
+        let tmp_players = [];
+        for (let i = 0; i < data.length; i++) {
+          let tmp = new Player(data[i]['playerNum'], data[i]['x'], data[i]['y']);
+          console.log("tmp: ", tmp);
+          tmp_players.push(tmp);
+        }
+        console.log("tmp_players: ", tmp_players);
+        setPlayers(tmp_players);
       });
   }, []);
 
   if (!count) return null;
+  if (players === null) {
+    console.log("Error! players === null");
+    return null;
+  }
 
   return (
     <div className="App">
@@ -45,12 +68,12 @@ function App() {
       <h1>{count}</h1>
       <button onClick={getNewCount}>get updated count</button>
       <ul>
-        {playerLocs.map(playerLoc => (
-          <li key={playerLoc.playerNum}>{playerLoc.x}, {playerLoc.y}</li>
+        {players.map(player => (
+          <li key={player.num}>num: {player.num}, coordinates: ({player.x_pos}, {player.y_pos})</li>
         ))}
       </ul>
 
-      <GameCanvas />
+      <GameCanvas players={players} />
     </div>
   );
 }

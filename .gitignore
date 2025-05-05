@@ -2,6 +2,8 @@ build
 *.swp
 *~
 
+frontend-react/node-modules/
+
 # Logs
 logs
 *.log

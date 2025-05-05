@@ -1,7 +1,8 @@
 #include "game_piece.hpp"
 
 
-GamePiece::GamePiece(float x, float y, float vel_x, float vel_y, float accel_x, float accel_y) :
+GamePiece::GamePiece(int id_, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y) :
+  id(id_),
   position(x, y),
   velocity(vel_x, vel_y),
   acceleration(accel_x, accel_y)
@@ -29,6 +30,6 @@ void GamePiece::remove_partition(Partition* partition)
 std::string GamePiece::jsonify_pos()
 {
   std::stringstream ss;
-  ss << "{" << position.x << ", " << position.y << "}";
+  ss << "{\"playerNum\":\"" << id << "\", \"x\": \"" << position.x << "\", \"y\": \"" << position.y << "\"}";
   return ss.str();
 }

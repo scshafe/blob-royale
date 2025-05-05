@@ -15,6 +15,7 @@ class Partition;
 class GamePiece
 {
 private:
+  int id;
   PhyVector position;
   PhyVector velocity;
   PhyVector acceleration;
@@ -24,7 +25,7 @@ private:
 
   bool fixed;
 public:
-  GamePiece(float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
+  GamePiece(int id_, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   GamePiece();
   void add_partition(Partition* partition);
   void remove_partition(Partition* partition);

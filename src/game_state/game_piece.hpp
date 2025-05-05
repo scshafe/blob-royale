@@ -7,6 +7,9 @@
 #include <vector>
 #include <string>
 #include <sstream>
+
+#include <boost/json.hpp>
+
 #include "phy_vector.hpp"
 #include "partition.hpp"
 
@@ -14,7 +17,7 @@ class Partition;
 
 class GamePiece
 {
-private:
+protected:
   int id;
   PhyVector position;
   PhyVector velocity;
@@ -30,7 +33,9 @@ public:
   void add_partition(Partition* partition);
   void remove_partition(Partition* partition);
 
-  std::string jsonify_pos();
+  boost::json::object getJson();
+  std::string JsonStringify();
+  //void JsonParse(const std::string& rawJson);
 };
 
 #endif

@@ -3,12 +3,30 @@
 
 #include "game_state.hpp"
 
+// -------- Boost Logging ---------
 
+#include <boost/log/trivial.hpp>
+#include <boost/log/expressions.hpp>
+#include <boost/log/sources/severity_logger.hpp>
+#include <boost/log/sources/record_ostream.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/console.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/support/date_time.hpp>
 
+namespace logging = boost::log;
+namespace src = boost::log::sources;
+namespace expr = boost::log::expressions;
+namespace keywords = boost::log::keywords;
+
+// -------- Boost Json ---------
+
+#include <boost/json.hpp>
 
 
 GameState::GameState()
 {
+  BOOST_LOG_TRIVIAL(info) << "Initializing GameState";
   height = float(PARTITION_SIZE * 18);
   width = float(PARTITION_SIZE * 24);
 
@@ -34,26 +52,24 @@ GameState::~GameState() {}
 
 void GameState::run_sim()
 {
-  std::cout << "Running Sim" << std::endl;
+  BOOST_LOG_TRIVIAL(info) << "GameState::run_sim()";
+  for (auto p : players)
+  {
+    p->run_sim();
+  }
 }
 
 std::string GameState::game_info()
 {
-  std::stringstream ss;
-  //ss << "'[";
-  ss << "[";
-  for (int i = 0; i < players.size(); i++)
+  boost::json::array json_players;
+
+  for (auto p : players)
   {
-    ss << players[i]->jsonify_pos();
-    if (i == players.size() - 1)
-    {
-      break;
-    }
-    ss << ',';
+    json_players.push_back(p->getJson());
   }
-  ss << "]";
-  return ss.str();
+  return boost::json::serialize(json_players);
 }
+
 
 void GameState::build_partition()
 {

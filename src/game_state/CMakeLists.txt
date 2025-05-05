@@ -2,24 +2,40 @@
 
 file(GLOB game_state_sources *.cpp)
 
+#find_package(Threads REQUIRED)
+
+#find_package(PkgConfig)
+#pkg_check_modules(JSONCPP jsoncpp)
 
 add_library(game_state 
             STATIC )
 
 target_sources(game_state
                PUBLIC
-            #${game_state_sources}
-            phy_vector.cpp
-            game_piece.cpp
-            partition.cpp
-            player.cpp
-            game_state.cpp
+               ${game_state_sources}
+               #            #${game_state_sources}
+               #            phy_vector.cpp
+               #            game_piece.cpp
+               #            partition.cpp
+               #            player.cpp
+               #            game_state.cpp
             )
 
 target_include_directories(game_state
                            PUBLIC
                            ${CMAKE_CURRENT_SOURCE_DIR}
+                           #${JSONCPP_INCLUDE_DIRS}
 )
+
+target_link_directories(game_state
+                        PUBLIC
+                        #${JSONCPP_LIBRARY_DIRS}
+                      )
+
+target_link_libraries(game_state
+                      PUBLIC
+                      #${JSONCPP_LIBRARIES}
+                    )
 
 
 

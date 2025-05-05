@@ -14,11 +14,11 @@ ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
 # using the static libary for logging
 #set(Boost_USE_STATIC_LIBS ON)
 
-
 find_package(Boost REQUIRED COMPONENTS 
   log 
   log_setup        # log_setup is also needed for some of the Boost::log functionality
   program_options 
+  json
 )
 
 

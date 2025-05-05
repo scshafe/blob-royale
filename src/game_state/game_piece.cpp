@@ -1,5 +1,6 @@
 #include "game_piece.hpp"
 
+#include <boost/json.hpp>
 
 GamePiece::GamePiece(int id_, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y) :
   id(id_),
@@ -27,19 +28,31 @@ void GamePiece::remove_partition(Partition* partition)
   }
 }
 
-
-
-std::string GamePiece::jsonify_pos()
+boost::json::object GamePiece::getJson()
 {
+  boost::json::object root;
+
+  root["id"] = id;
+  root["x_pos"] = position.x;
+  root["y_pos"] = position.y;
+  root["x_vel"] = velocity.x;
+  root["y_vel"] = velocity.y;
+  root["x_acc"] = acceleration.x;
+  root["y_acc"] = acceleration.y;
+  return root;
+}
+
+std::string GamePiece::JsonStringify()
+{
+
   std::stringstream ss;
-  //ss << "{\"playerNum\":\"" << id << "\", \"x\": \"" << position.x << "\", \"y\": \"" << position.y << "\"}";
   
   ss << "{\"id\":" << id << ", ";
   ss << "\"x_pos\": " << position.x << ", ";
   ss << "\"y_pos\": " << position.y << ", ";
-  ss << "\nx_vel\:: " << velocity.x << ", ";
-  ss << "\ny_vel\:: " << velocity.x << ", ";
-  ss << "\nx_acc\:: " << acceleration.x << ", ";
-  ss << "\ny_acc\:: " << acceleration.x << "}";
+  ss << "\nx_vel\": " << velocity.x << ", ";
+  ss << "\ny_vel\": " << velocity.x << ", ";
+  ss << "\nx_acc\": " << acceleration.x << ", ";
+  ss << "\ny_acc\": " << acceleration.x << "}";
   return ss.str();
 }

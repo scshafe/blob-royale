@@ -2,6 +2,8 @@ import  axios  from 'axios';
 import  React from 'react';
 import logo from './logo.svg';
 import './App.css';
+import GameCanvas from './GameCanvas';
+
 
 function App() {
 
@@ -47,6 +49,8 @@ function App() {
           <li key={playerLoc.playerNum}>{playerLoc.x}, {playerLoc.y}</li>
         ))}
       </ul>
+
+      <GameCanvas />
     </div>
   );
 }

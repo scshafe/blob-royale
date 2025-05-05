@@ -35,6 +35,8 @@
 #include <boost/log/utility/setup/common_attributes.hpp>
 #include <boost/log/support/date_time.hpp>
 
+#include "game_state.hpp"
+
 namespace beast = boost::beast;         // from <boost/beast.hpp>
 namespace http = beast::http;           // from <boost/beast/http.hpp>
 namespace net = boost::asio;            // from <boost/asio.hpp>
@@ -63,6 +65,8 @@ namespace my_program_state
         return std::time(0);
     }
 }
+
+GameState gs;
 
 class http_connection : public std::enable_shared_from_this<http_connection>
 {
@@ -158,6 +162,15 @@ private:
           response_.set(http::field::access_control_allow_headers, "*");
           beast::ostream(response_.body())
             << my_program_state::request_count();
+        }
+        else if (request_.target() == "/game-state")
+        {
+          BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+          response_.set(http::field::content_type, "application/json");
+          response_.set(http::field::access_control_allow_origin, "*");
+          response_.set(http::field::access_control_allow_headers, "*");
+          beast::ostream(response_.body())
+            << gs.game_info();
         }
 
         else

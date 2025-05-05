@@ -27,14 +27,18 @@ add_executable (blob-royale
     main.cpp
 )
 
+add_subdirectory(src/game_state)
+
 
 target_link_libraries(blob-royale
   ${Boost_LIBRARIES}
+  game_state
 )
 
 # Boost_LIBRARIES is required for beast which is header only
 target_include_directories(blob-royale PUBLIC 
   ${Boost_INCLUDE_DIRS}
+  game_state
 )
 
 #set_property(TARGET blob-royale PROPERTY FOLDER "example-http-server")

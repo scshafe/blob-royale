@@ -16,6 +16,24 @@ std::ostream& operator<<(std::ostream& os, const GamePiece& gp)
      << "--velocity: " << gp.velocity << std::endl;
 }
 
+PhyVector GamePiece::get_position()
+{
+  return position;
+}
+
+
+PhyVector GamePiece::get_velocity()
+{
+  return velocity;
+}
+
+
+PhyVector GamePiece::get_acceleration()
+{
+  return acceleration;
+}
+
+
 void GamePiece::add_partition(Partition* partition)
 {
   piece_partitions.push_back(partition);
@@ -47,13 +65,39 @@ boost::json::object GamePiece::getJson()
   return root;
 }
 
-
-PhyVector GamePiece::detect_collision(const GamePiece& other)
+PhyVector GamePiece::phy_vector_to_other_player(const GamePiece& other)
 {
-  float x_dist = position.x - other.position.x;
-  float y_dist = position.y - other.position.y;
-  PhyVector dist(x_dist, y_dist);
-  return dist;
+  return PhyVector(position.x - other.position.x, position.y - other.position.y);
+}
+
+bool GamePiece::detect_player_on_player_collision(const GamePiece& other)
+{
+//  float x_dist = position.x - other.position.x;
+//  float y_dist = position.y - other.position.y;
+  PhyVector collision_vector = phy_vector_to_other_player(other);
+  return collision_vector.get_magnitude() < PLAYER_ON_PLAYER_COLLISION;
+}
+
+void GamePiece::handle_player_on_player_collision(const GamePiece& other)
+{
+  BOOST_LOG_TRIVIAL(info) << "collision between players " << id << " and " << other.id;
+  PhyVector collision_vector = phy_vector_to_other_player(other);
+}
+
+void GamePiece::handle_possible_collision_with_wall()
+{
+  if ((position.x <=             PLAYER_ON_WALL_COLLISION && velocity.x < 0.0) || 
+      (position.x >= MAP_WIDTH - PLAYER_ON_WALL_COLLISION && velocity.x > 0.0))
+  {
+    BOOST_LOG_TRIVIAL(info) << "collision with wall. Velocity x: " << velocity.x << " --> " << -velocity.x;
+    velocity.x = -velocity.x;
+  }
+  if ((position.y <=              PLAYER_ON_WALL_COLLISION && velocity.y < 0.0) ||
+      (position.y >= MAP_HEIGHT - PLAYER_ON_WALL_COLLISION && velocity.y > 0.0))
+  {
+    BOOST_LOG_TRIVIAL(info) << "collision with wall. Velocity x: " << velocity.x << " --> " << -velocity.x;
+    velocity.y = -velocity.y;
+  }
 }
 
 void GamePiece::run_sim()
@@ -67,23 +111,19 @@ void GamePiece::run_sim()
       {
         continue;
       }
-      PhyVector possible_collision = detect_collision(*nearby);
-      if (possible_collision.get_magnitude() < 10)
+      if (detect_player_on_player_collision(*nearby))
       {
-        BOOST_LOG_TRIVIAL(info) << "possible_collision: " << possible_collision;
-        BOOST_LOG_TRIVIAL(info) << *this;
-        velocity.x = -velocity.x;
-        velocity.y = -velocity.y;
+        handle_player_on_player_collision(*nearby);
       }
-
+      handle_possible_collision_with_wall();
     }
   }
 
   position.x += velocity.x;
   position.y += velocity.y;
 
-  velocity.x += acceleration.x;
-  velocity.y += acceleration.y;
+//  velocity.x += acceleration.x;
+//  velocity.y += acceleration.y;
 }
 
 

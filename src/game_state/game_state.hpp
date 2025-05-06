@@ -2,6 +2,7 @@
 #define _GAME_STATE_HPP_
 
 #include <vector>
+#include <string>
 
 #include "player.hpp"
 //#include "map_object.hpp"
@@ -12,6 +13,7 @@
 
 class GameState {
 public:
+  GameState(std::string testfile);
   GameState();
   ~GameState();
 

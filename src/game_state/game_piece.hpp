@@ -25,19 +25,27 @@ protected:
 
   std::vector<Partition*> piece_partitions;
   //Shape shape;
-
   bool fixed;
+
 public:
+
   GamePiece(int id_, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   GamePiece();
   friend std::ostream& operator<<(std::ostream& os, const GamePiece& gp);
+
+  PhyVector get_position();
+  PhyVector get_velocity();
+  PhyVector get_acceleration();
 
   void add_partition(Partition* partition);
   void remove_partition(Partition* partition);
 
   boost::json::object getJson();
+  PhyVector phy_vector_to_other_player(const GamePiece& other);
+  bool detect_player_on_player_collision(const GamePiece& other);
+  void handle_player_on_player_collision(const GamePiece& other);
+  void handle_possible_collision_with_wall();
   void run_sim();
-  PhyVector detect_collision(const GamePiece& other);
 };
 
 #endif

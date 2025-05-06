@@ -1,0 +1,115 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.9~svn20110310	//
+Clear	rapidcsv.h	/^    void Clear()$/;"	f	class:rapidcsv::Document
+Converter	rapidcsv.h	/^    Converter(const ConverterParams& pConverterParams)$/;"	f	class:rapidcsv::Converter
+Converter	rapidcsv.h	/^  class Converter$/;"	c	namespace:rapidcsv
+ConverterParams	rapidcsv.h	/^    explicit ConverterParams(const bool pHasDefaultConverter = false,$/;"	f	struct:rapidcsv::ConverterParams
+ConverterParams	rapidcsv.h	/^  struct ConverterParams$/;"	s	namespace:rapidcsv
+Document	rapidcsv.h	/^    explicit Document(const std::string& pPath = std::string(),$/;"	f	class:rapidcsv::Document
+Document	rapidcsv.h	/^    explicit Document(std::istream& pStream,$/;"	f	class:rapidcsv::Document
+Document	rapidcsv.h	/^  class Document$/;"	c	namespace:rapidcsv
+GetCell	rapidcsv.h	/^    T GetCell(const size_t pColumnIdx, const size_t pRowIdx) const$/;"	f	class:rapidcsv::Document
+GetCell	rapidcsv.h	/^    T GetCell(const size_t pColumnIdx, const size_t pRowIdx, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetCell	rapidcsv.h	/^    T GetCell(const size_t pColumnIdx, const std::string& pRowName) const$/;"	f	class:rapidcsv::Document
+GetCell	rapidcsv.h	/^    T GetCell(const size_t pColumnIdx, const std::string& pRowName, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetCell	rapidcsv.h	/^    T GetCell(const std::string& pColumnName, const size_t pRowIdx) const$/;"	f	class:rapidcsv::Document
+GetCell	rapidcsv.h	/^    T GetCell(const std::string& pColumnName, const size_t pRowIdx, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetCell	rapidcsv.h	/^    T GetCell(const std::string& pColumnName, const std::string& pRowName) const$/;"	f	class:rapidcsv::Document
+GetCell	rapidcsv.h	/^    T GetCell(const std::string& pColumnName, const std::string& pRowName, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetColumn	rapidcsv.h	/^    std::vector<T> GetColumn(const size_t pColumnIdx) const$/;"	f	class:rapidcsv::Document
+GetColumn	rapidcsv.h	/^    std::vector<T> GetColumn(const size_t pColumnIdx, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetColumn	rapidcsv.h	/^    std::vector<T> GetColumn(const std::string& pColumnName) const$/;"	f	class:rapidcsv::Document
+GetColumn	rapidcsv.h	/^    std::vector<T> GetColumn(const std::string& pColumnName, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetColumnCount	rapidcsv.h	/^    size_t GetColumnCount() const$/;"	f	class:rapidcsv::Document
+GetColumnIdx	rapidcsv.h	/^    int GetColumnIdx(const std::string& pColumnName) const$/;"	f	class:rapidcsv::Document
+GetColumnName	rapidcsv.h	/^    std::string GetColumnName(const size_t pColumnIdx) const$/;"	f	class:rapidcsv::Document
+GetColumnNames	rapidcsv.h	/^    std::vector<std::string> GetColumnNames() const$/;"	f	class:rapidcsv::Document
+GetDataColumnCount	rapidcsv.h	/^    size_t GetDataColumnCount() const$/;"	f	class:rapidcsv::Document
+GetDataColumnIndex	rapidcsv.h	/^    inline size_t GetDataColumnIndex(const size_t pColumnIdx) const$/;"	f	class:rapidcsv::Document
+GetDataRowCount	rapidcsv.h	/^    size_t GetDataRowCount() const$/;"	f	class:rapidcsv::Document
+GetDataRowIndex	rapidcsv.h	/^    inline size_t GetDataRowIndex(const size_t pRowIdx) const$/;"	f	class:rapidcsv::Document
+GetRow	rapidcsv.h	/^    std::vector<T> GetRow(const size_t pRowIdx) const$/;"	f	class:rapidcsv::Document
+GetRow	rapidcsv.h	/^    std::vector<T> GetRow(const size_t pRowIdx, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetRow	rapidcsv.h	/^    std::vector<T> GetRow(const std::string& pRowName) const$/;"	f	class:rapidcsv::Document
+GetRow	rapidcsv.h	/^    std::vector<T> GetRow(const std::string& pRowName, ConvFunc<T> pToVal) const$/;"	f	class:rapidcsv::Document
+GetRowCount	rapidcsv.h	/^    size_t GetRowCount() const$/;"	f	class:rapidcsv::Document
+GetRowIdx	rapidcsv.h	/^    int GetRowIdx(const std::string& pRowName) const$/;"	f	class:rapidcsv::Document
+GetRowName	rapidcsv.h	/^    std::string GetRowName(const size_t pRowIdx) const$/;"	f	class:rapidcsv::Document
+GetRowNames	rapidcsv.h	/^    std::vector<std::string> GetRowNames() const$/;"	f	class:rapidcsv::Document
+InsertColumn	rapidcsv.h	/^    void InsertColumn(const size_t pColumnIdx, const std::vector<T>& pColumn = std::vector<T>(),$/;"	f	class:rapidcsv::Document
+InsertRow	rapidcsv.h	/^    void InsertRow(const size_t pRowIdx, const std::vector<T>& pRow = std::vector<T>(),$/;"	f	class:rapidcsv::Document
+LabelParams	rapidcsv.h	/^    explicit LabelParams(const int pColumnNameIdx = 0, const int pRowNameIdx = -1)$/;"	f	struct:rapidcsv::LabelParams
+LabelParams	rapidcsv.h	/^  struct LabelParams$/;"	s	namespace:rapidcsv
+LineReaderParams	rapidcsv.h	/^    explicit LineReaderParams(const bool pSkipCommentLines = false,$/;"	f	struct:rapidcsv::LineReaderParams
+LineReaderParams	rapidcsv.h	/^  struct LineReaderParams$/;"	s	namespace:rapidcsv
+Load	rapidcsv.h	/^    void Load(const std::string& pPath,$/;"	f	class:rapidcsv::Document
+Load	rapidcsv.h	/^    void Load(std::istream& pStream,$/;"	f	class:rapidcsv::Document
+ParseCsv	rapidcsv.h	/^    void ParseCsv(std::istream& pStream, std::streamsize p_FileLength)$/;"	f	class:rapidcsv::Document
+ReadCsv	rapidcsv.h	/^    void ReadCsv()$/;"	f	class:rapidcsv::Document
+ReadCsv	rapidcsv.h	/^    void ReadCsv(std::istream& pStream)$/;"	f	class:rapidcsv::Document
+RemoveColumn	rapidcsv.h	/^    void RemoveColumn(const size_t pColumnIdx)$/;"	f	class:rapidcsv::Document
+RemoveColumn	rapidcsv.h	/^    void RemoveColumn(const std::string& pColumnName)$/;"	f	class:rapidcsv::Document
+RemoveRow	rapidcsv.h	/^    void RemoveRow(const size_t pRowIdx)$/;"	f	class:rapidcsv::Document
+RemoveRow	rapidcsv.h	/^    void RemoveRow(const std::string& pRowName)$/;"	f	class:rapidcsv::Document
+ReplaceString	rapidcsv.h	/^    static void ReplaceString(std::string& pStr, const std::string& pSearch, const std::string& pReplace)$/;"	f	class:rapidcsv::Document
+Save	rapidcsv.h	/^    void Save(const std::string& pPath = std::string())$/;"	f	class:rapidcsv::Document
+Save	rapidcsv.h	/^    void Save(std::ostream& pStream) const$/;"	f	class:rapidcsv::Document
+SeparatorParams	rapidcsv.h	/^    explicit SeparatorParams(const char pSeparator = ',', const bool pTrim = false,$/;"	f	struct:rapidcsv::SeparatorParams
+SeparatorParams	rapidcsv.h	/^  struct SeparatorParams$/;"	s	namespace:rapidcsv
+SetCell	rapidcsv.h	/^    void SetCell(const size_t pColumnIdx, const size_t pRowIdx, const T& pCell)$/;"	f	class:rapidcsv::Document
+SetCell	rapidcsv.h	/^    void SetCell(const size_t pColumnIdx, const std::string& pRowName, const T& pCell)$/;"	f	class:rapidcsv::Document
+SetCell	rapidcsv.h	/^    void SetCell(const std::string& pColumnName, const size_t pRowIdx, const T& pCell)$/;"	f	class:rapidcsv::Document
+SetCell	rapidcsv.h	/^    void SetCell(const std::string& pColumnName, const std::string& pRowName, const T& pCell)$/;"	f	class:rapidcsv::Document
+SetColumn	rapidcsv.h	/^    void SetColumn(const size_t pColumnIdx, const std::vector<T>& pColumn)$/;"	f	class:rapidcsv::Document
+SetColumn	rapidcsv.h	/^    void SetColumn(const std::string& pColumnName, const std::vector<T>& pColumn)$/;"	f	class:rapidcsv::Document
+SetColumnName	rapidcsv.h	/^    void SetColumnName(size_t pColumnIdx, const std::string& pColumnName)$/;"	f	class:rapidcsv::Document
+SetRow	rapidcsv.h	/^    void SetRow(const size_t pRowIdx, const std::vector<T>& pRow)$/;"	f	class:rapidcsv::Document
+SetRow	rapidcsv.h	/^    void SetRow(const std::string& pRowName, const std::vector<T>& pRow)$/;"	f	class:rapidcsv::Document
+SetRowName	rapidcsv.h	/^    void SetRowName(size_t pRowIdx, const std::string& pRowName)$/;"	f	class:rapidcsv::Document
+ToStr	rapidcsv.h	/^    void ToStr(const T& pVal, std::string& pStr) const$/;"	f	class:rapidcsv::Converter
+ToStr	rapidcsv.h	/^  inline void Converter<std::string>::ToStr(const std::string& pVal, std::string& pStr) const$/;"	f	class:rapidcsv::Converter
+ToString	rapidcsv.h	/^    static std::string ToString(const std::wstring& pWStr)$/;"	f	class:rapidcsv::Document
+ToVal	rapidcsv.h	/^    void ToVal(const std::string& pStr, T& pVal) const$/;"	f	class:rapidcsv::Converter
+ToVal	rapidcsv.h	/^  inline void Converter<std::string>::ToVal(const std::string& pStr, std::string& pVal) const$/;"	f	class:rapidcsv::Converter
+ToWString	rapidcsv.h	/^    static std::wstring ToWString(const std::string& pStr)$/;"	f	class:rapidcsv::Document
+Trim	rapidcsv.h	/^    std::string Trim(const std::string& pStr) const$/;"	f	class:rapidcsv::Document
+Unquote	rapidcsv.h	/^    std::string Unquote(const std::string& pStr) const$/;"	f	class:rapidcsv::Document
+UpdateColumnNames	rapidcsv.h	/^    void UpdateColumnNames()$/;"	f	class:rapidcsv::Document
+UpdateRowNames	rapidcsv.h	/^    void UpdateRowNames()$/;"	f	class:rapidcsv::Document
+WriteCsv	rapidcsv.h	/^    void WriteCsv() const$/;"	f	class:rapidcsv::Document
+WriteCsv	rapidcsv.h	/^    void WriteCsv(std::ostream& pStream) const$/;"	f	class:rapidcsv::Document
+mAutoQuote	rapidcsv.h	/^    bool mAutoQuote;$/;"	m	struct:rapidcsv::SeparatorParams
+mColumnNameIdx	rapidcsv.h	/^    int mColumnNameIdx;$/;"	m	struct:rapidcsv::LabelParams
+mColumnNames	rapidcsv.h	/^    std::map<std::string, size_t> mColumnNames;$/;"	m	class:rapidcsv::Document
+mCommentPrefix	rapidcsv.h	/^    char mCommentPrefix;$/;"	m	struct:rapidcsv::LineReaderParams
+mConverterParams	rapidcsv.h	/^    ConverterParams mConverterParams;$/;"	m	class:rapidcsv::Document
+mConverterParams	rapidcsv.h	/^    const ConverterParams& mConverterParams;$/;"	m	class:rapidcsv::Converter
+mData	rapidcsv.h	/^    std::vector<std::vector<std::string>> mData;$/;"	m	class:rapidcsv::Document
+mDefaultFloat	rapidcsv.h	/^    long double mDefaultFloat;$/;"	m	struct:rapidcsv::ConverterParams
+mDefaultInteger	rapidcsv.h	/^    long long mDefaultInteger;$/;"	m	struct:rapidcsv::ConverterParams
+mHasCR	rapidcsv.h	/^    bool mHasCR;$/;"	m	struct:rapidcsv::SeparatorParams
+mHasDefaultConverter	rapidcsv.h	/^    bool mHasDefaultConverter;$/;"	m	struct:rapidcsv::ConverterParams
+mHasUtf8BOM	rapidcsv.h	/^    bool mHasUtf8BOM = false;$/;"	m	class:rapidcsv::Document
+mIsLE	rapidcsv.h	/^    bool mIsLE = false;$/;"	m	class:rapidcsv::Document
+mIsUtf16	rapidcsv.h	/^    bool mIsUtf16 = false;$/;"	m	class:rapidcsv::Document
+mLabelParams	rapidcsv.h	/^    LabelParams mLabelParams;$/;"	m	class:rapidcsv::Document
+mLineReaderParams	rapidcsv.h	/^    LineReaderParams mLineReaderParams;$/;"	m	class:rapidcsv::Document
+mNumericLocale	rapidcsv.h	/^    bool mNumericLocale;$/;"	m	struct:rapidcsv::ConverterParams
+mPath	rapidcsv.h	/^    std::string mPath;$/;"	m	class:rapidcsv::Document
+mQuoteChar	rapidcsv.h	/^    char mQuoteChar;$/;"	m	struct:rapidcsv::SeparatorParams
+mQuotedLinebreaks	rapidcsv.h	/^    bool mQuotedLinebreaks;$/;"	m	struct:rapidcsv::SeparatorParams
+mRowNameIdx	rapidcsv.h	/^    int mRowNameIdx;$/;"	m	struct:rapidcsv::LabelParams
+mRowNames	rapidcsv.h	/^    std::map<std::string, size_t> mRowNames;$/;"	m	class:rapidcsv::Document
+mSeparator	rapidcsv.h	/^    char mSeparator;$/;"	m	struct:rapidcsv::SeparatorParams
+mSeparatorParams	rapidcsv.h	/^    SeparatorParams mSeparatorParams;$/;"	m	class:rapidcsv::Document
+mSkipCommentLines	rapidcsv.h	/^    bool mSkipCommentLines;$/;"	m	struct:rapidcsv::LineReaderParams
+mSkipEmptyLines	rapidcsv.h	/^    bool mSkipEmptyLines;$/;"	m	struct:rapidcsv::LineReaderParams
+mTrim	rapidcsv.h	/^    bool mTrim;$/;"	m	struct:rapidcsv::SeparatorParams
+no_converter	rapidcsv.h	/^  class no_converter : public std::exception$/;"	c	namespace:rapidcsv
+rapidcsv	rapidcsv.h	/^namespace rapidcsv$/;"	n
+sPlatformHasCR	rapidcsv.h	/^  static const bool sPlatformHasCR = true;$/;"	m	namespace:rapidcsv
+s_Utf8BOM	rapidcsv.h	/^  static const std::vector<char> s_Utf8BOM = { '\\xef', '\\xbb', '\\xbf' };$/;"	m	namespace:rapidcsv

@@ -76,7 +76,7 @@ function App() {
   }
 
   const beginFetching = () => {
-    let tmp = setInterval(getGameState, 500);
+    let tmp = setInterval(getGameState, 15);
     setFetchInterval(tmp);
   }
 

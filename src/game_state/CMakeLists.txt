@@ -31,6 +31,7 @@ target_include_directories(game_state
                            PUBLIC
                            ${Boost_INCLUDE_DIRS}
                            ${CMAKE_CURRENT_SOURCE_DIR}
+                           "../../open-source-libs/rapidcsv"
 )
 
 target_link_directories(game_state

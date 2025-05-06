@@ -36,7 +36,6 @@ public:
   void remove_partition(Partition* partition);
 
   boost::json::object getJson();
-  std::string JsonStringify();
   void run_sim();
   PhyVector detect_collision(const GamePiece& other);
 };

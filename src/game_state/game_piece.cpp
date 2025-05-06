@@ -47,20 +47,6 @@ boost::json::object GamePiece::getJson()
   return root;
 }
 
-std::string GamePiece::JsonStringify()
-{
-
-  std::stringstream ss;
-  
-  ss << "{\"id\":" << id << ", ";
-  ss << "\"x_pos\": " << position.x << ", ";
-  ss << "\"y_pos\": " << position.y << ", ";
-  ss << "\nx_vel\": " << velocity.x << ", ";
-  ss << "\ny_vel\": " << velocity.x << ", ";
-  ss << "\nx_acc\": " << acceleration.x << ", ";
-  ss << "\ny_acc\": " << acceleration.x << "}";
-  return ss.str();
-}
 
 PhyVector GamePiece::detect_collision(const GamePiece& other)
 {

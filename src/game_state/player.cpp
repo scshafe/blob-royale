@@ -6,9 +6,5 @@ Player::Player(int id, float x, float y, float vel_x, float vel_y, float accel_x
 {}
 
 
-void Player::run_sim()
-{
-  position.x += velocity.x;
-  position.y += velocity.y;
-}
+
 

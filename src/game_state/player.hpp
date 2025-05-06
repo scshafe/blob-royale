@@ -18,7 +18,6 @@ public:
   Player();
   Player(int id, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   
-  void run_sim();
 
 };
 

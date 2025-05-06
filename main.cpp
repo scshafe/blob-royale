@@ -1,56 +1,7 @@
-//
-// Copyright (c) 2017 Christopher M. Kohlhoff (chris at kohlhoff dot com)
-//
-// Distributed under the Boost Software License, Version 1.0. (See accompanying
-// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-//
-// Official repository: https://github.com/boostorg/beast
-//
 
-//------------------------------------------------------------------------------
-//
-// Example: HTTP server, small
-//
-//------------------------------------------------------------------------------
-
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/beast/version.hpp>
-#include <boost/asio.hpp>
-#include <chrono>
-#include <cstdlib>
-#include <ctime>
-#include <iostream>
-#include <memory>
-#include <string>
-
-#include <boost/program_options.hpp>
-
-#include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
-#include <boost/log/sources/severity_logger.hpp>
-#include <boost/log/sources/record_ostream.hpp>
-#include <boost/log/utility/setup/file.hpp>
-#include <boost/log/utility/setup/console.hpp>
-#include <boost/log/utility/setup/common_attributes.hpp>
-#include <boost/log/support/date_time.hpp>
-
+#include "boost_config.hpp"
 #include "game_state.hpp"
-
-namespace beast = boost::beast;         // from <boost/beast.hpp>
-namespace http = beast::http;           // from <boost/beast/http.hpp>
-namespace net = boost::asio;            // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
-
-
-namespace po = boost::program_options;
-
 #include <thread>
-
-namespace logging = boost::log;
-namespace src = boost::log::sources;
-namespace expr = boost::log::expressions;
-namespace keywords = boost::log::keywords;
 
 namespace my_program_state
 {
@@ -232,11 +183,7 @@ http_server(tcp::acceptor& acceptor, tcp::socket& socket)
       });
 }
 
-void init_logging()
-{
-  logging::add_console_log(std::clog, keywords::format = "%TimeStamp%: %Message%");
 
-}
 
 
 

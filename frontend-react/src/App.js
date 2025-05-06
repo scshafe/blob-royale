@@ -23,12 +23,12 @@ function App() {
 
   axios.defaults.baseURL = "http://192.168.86.12:8000";
 
-  React.useEffect(() => {
-    axios.get("react-count")
-         .then((response) => {
-          setCount(response.data);
-         });
-  }, []);
+//  React.useEffect(() => {
+//    axios.get("react-count")
+//         .then((response) => {
+//          setCount(response.data);
+//         });
+//  }, []);
 
   const getNewCount = () => {
     console.log("players: ", players);
@@ -72,22 +72,22 @@ function App() {
 
   const pauseFetching = () => {
     clearInterval(fetchInterval);
+    setFetchInterval(null);
   }
 
   const beginFetching = () => {
-    const tmp = setInterval(getGameState, 2000);
+    let tmp = setInterval(getGameState, 500);
     setFetchInterval(tmp);
   }
 
-  React.useEffect(() => {
-    beginFetching();
-  }, []);
+//  React.useEffect(() => {
+//    beginFetching();
+//  }, []);
 
-  if (!count) return null;
-  if (players === null) {
-    console.log("Error! players === null");
-    return null;
-  }
+//  if (players === null) {
+//    console.log("Error! players === null");
+//    return null;
+//  }
 
   return (
     <div className="App">
@@ -95,7 +95,11 @@ function App() {
 
       <h1>{count}</h1>
       <button onClick={getNewCount}>get updated count</button>
-      <button onClick={pauseFetching}>pause</button>
+      
+      { fetchInterval === null ? 
+        (<button onClick={beginFetching}>fetch</button>) :
+        (<button onClick={pauseFetching}>pause</button>)
+      }
       <ul>
         {players.map(player => (
           <li key={player.num}>num: {player.num}, coordinates: ({player.x_pos}, {player.y_pos})</li>

@@ -16,12 +16,7 @@ ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
 
 find_package(Threads REQUIRED)
 
-find_package(Boost REQUIRED COMPONENTS 
-  log 
-  log_setup        # log_setup is also needed for some of the Boost::log functionality
-  program_options 
-  json
-)
+
 
 
 add_executable (blob-royale

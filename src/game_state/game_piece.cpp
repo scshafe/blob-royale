@@ -1,6 +1,6 @@
+#include "boost_config.hpp"
 #include "game_piece.hpp"
 
-#include <boost/json.hpp>
 
 GamePiece::GamePiece(int id_, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y) :
   id(id_),
@@ -9,7 +9,12 @@ GamePiece::GamePiece(int id_, float x, float y, float vel_x, float vel_y, float 
   acceleration(accel_x, accel_y)
 {}
 
-
+std::ostream& operator<<(std::ostream& os, const GamePiece& gp)
+{
+  os << "GamePiece:" << std::endl 
+     << "--position: " << gp.position << std::endl 
+     << "--velocity: " << gp.velocity << std::endl;
+}
 
 void GamePiece::add_partition(Partition* partition)
 {
@@ -56,3 +61,44 @@ std::string GamePiece::JsonStringify()
   ss << "\ny_acc\": " << acceleration.x << "}";
   return ss.str();
 }
+
+PhyVector GamePiece::detect_collision(const GamePiece& other)
+{
+  float x_dist = position.x - other.position.x;
+  float y_dist = position.y - other.position.y;
+  PhyVector dist(x_dist, y_dist);
+  return dist;
+}
+
+void GamePiece::run_sim()
+{
+  for (auto partition : piece_partitions)
+  {
+    std::vector<GamePiece*> nearby_pieces = partition->get_game_pieces();
+    for (auto nearby : nearby_pieces)
+    {
+      if (nearby == this)
+      {
+        continue;
+      }
+      PhyVector possible_collision = detect_collision(*nearby);
+      if (possible_collision.get_magnitude() < 10)
+      {
+        BOOST_LOG_TRIVIAL(info) << "possible_collision: " << possible_collision;
+        BOOST_LOG_TRIVIAL(info) << *this;
+        velocity.x = -velocity.x;
+        velocity.y = -velocity.y;
+      }
+
+    }
+  }
+
+  position.x += velocity.x;
+  position.y += velocity.y;
+
+  velocity.x += acceleration.x;
+  velocity.y += acceleration.y;
+}
+
+
+

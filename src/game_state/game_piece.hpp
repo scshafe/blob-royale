@@ -30,12 +30,15 @@ protected:
 public:
   GamePiece(int id_, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   GamePiece();
+  friend std::ostream& operator<<(std::ostream& os, const GamePiece& gp);
+
   void add_partition(Partition* partition);
   void remove_partition(Partition* partition);
 
   boost::json::object getJson();
   std::string JsonStringify();
-  //void JsonParse(const std::string& rawJson);
+  void run_sim();
+  PhyVector detect_collision(const GamePiece& other);
 };
 
 #endif

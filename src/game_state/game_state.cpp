@@ -2,30 +2,7 @@
 #include <sstream>
 
 #include "game_state.hpp"
-
-// -------- Boost Logging ---------
-
-#include <boost/log/trivial.hpp>
-#include <boost/log/expressions.hpp>
-#include <boost/log/sources/severity_logger.hpp>
-#include <boost/log/sources/record_ostream.hpp>
-#include <boost/log/utility/setup/file.hpp>
-#include <boost/log/utility/setup/console.hpp>
-#include <boost/log/utility/setup/common_attributes.hpp>
-#include <boost/log/support/date_time.hpp>
-
-namespace logging = boost::log;
-namespace src = boost::log::sources;
-namespace expr = boost::log::expressions;
-namespace keywords = boost::log::keywords;
-
-// -------- Boost Json ---------
-
-#include <boost/json.hpp>
-
-// ------- Threads --------
-
-#include <thread>
+#include "boost_config.hpp"
 
 GameState::GameState()
 {
@@ -37,7 +14,7 @@ GameState::GameState()
   Player* p1 = new Player(1, 50.0, 70.0, 1.0, 0.2, 0.3, 0.0);
   players.push_back(p1);
 
-  Player* p2 = new Player(2, 100.0, 200.0, 0.5, 0.8, 0.1, 0.1);
+  Player* p2 = new Player(2, 600.0, 300.0, 0.5, 0.8, 0.1, 0.1);
   players.push_back(p2);
 
   for (int i = 0; i < PARTITION_SIZE; i++)
@@ -68,7 +45,7 @@ void GameState::run_sim()
     {
       p->run_sim();
     }
-    usleep(200000);
+    usleep(1000000);
   }
 }
 

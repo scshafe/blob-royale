@@ -29,3 +29,8 @@ void Partition::remove_game_piece(GamePiece* game_piece)
     }
   }
 }
+
+std::vector<GamePiece*> Partition::get_game_pieces()
+{
+  return pieces;
+}

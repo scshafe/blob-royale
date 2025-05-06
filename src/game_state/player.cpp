@@ -6,5 +6,12 @@ Player::Player(int id, float x, float y, float vel_x, float vel_y, float accel_x
 {}
 
 
+boost::json::object Player::getPlayerJson()
+{
+  boost::json::object root;
 
+  root["type"] = "player";
+  root["gamepiece"] = getGamePieceJson();
+  return root;
+}
 

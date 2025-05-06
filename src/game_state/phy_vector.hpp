@@ -3,6 +3,8 @@
 
 #include <ostream>
 
+#include <boost_config.hpp>
+
 #define PARTITION_SIZE 20
 
 class PhyVector
@@ -22,6 +24,7 @@ public:
   int y_part();
 
   float get_magnitude();
+  boost::json::array getPhyVectorJson();
 };
 
 

@@ -40,7 +40,7 @@ public:
   void add_partition(Partition* partition);
   void remove_partition(Partition* partition);
 
-  boost::json::object getJson();
+  boost::json::object getGamePieceJson();
   PhyVector phy_vector_to_other_player(const GamePiece& other);
   bool detect_player_on_player_collision(const GamePiece& other);
   void handle_player_on_player_collision(const GamePiece& other);

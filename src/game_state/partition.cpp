@@ -1,3 +1,4 @@
+#include "boost_config.hpp"
 #include "partition.hpp"
 
 
@@ -13,6 +14,7 @@
 
 void Partition::add_game_piece(GamePiece* game_piece)
 {
+  BOOST_LOG_TRIVIAL(info) << "Partition::add_game_piece()";
   pieces.push_back(game_piece);
   game_piece->add_partition(this);
 }

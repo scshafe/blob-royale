@@ -196,6 +196,7 @@ int main(int argc, char** argv)
     ("IPv4", po::value<std::string>(), "set an IPv4 address")
     ("IPv6", po::value<std::string>(), "set an IPv6 address")
     ("port", po::value<std::string>(), "port")
+    ("testfile", po::value<std::string>(), "testfile with map and player information")
   ;
 
   po::variables_map vm;
@@ -209,6 +210,17 @@ int main(int argc, char** argv)
   }
   init_logging();
 
+  std::string testfile;
+  if (vm.count("testfile"))
+  {
+    testfile = vm["testfile"].as<std::string>();
+  }
+  else
+  {
+    testfile = "../src/game_state/test-data/player-on-wall-collision-test";
+  }
+
+  gs.initialize(testfile);
   std::thread simulation(gs);
 
   try

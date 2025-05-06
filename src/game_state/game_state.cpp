@@ -13,6 +13,17 @@ Player* build_player(std::vector<std::string> row, size_t row_num)
   int id;
   float px, py, vx, vy, ax, ay;
   Player* p;
+
+  BOOST_LOG_TRIVIAL(info) << "Adding Player: (" 
+                          << row[0] << ", " 
+                          << row[1] << ", " 
+                          << row[2] << ", " 
+                          << row[3] << ", " 
+                          << row[4] << ", " 
+                          << row[5] << ", " 
+                          << row[6] << ", " 
+                          << row[7] << ")"; 
+
   try
   {
     id = std::stoi(row[1]);
@@ -33,10 +44,12 @@ Player* build_player(std::vector<std::string> row, size_t row_num)
 }
 
 
-GameState::GameState(std::string testfile)
+void GameState::initialize(std::string testfile)
 {
+  BOOST_LOG_TRIVIAL(info) << "Initializing GameState";
   rapidcsv::Document doc(testfile);
 
+  BOOST_LOG_TRIVIAL(info) << "Reading in GamePieces";
   for (size_t i = 0; i < doc.GetRowCount(); i++)
   {
     std::vector<std::string> row = doc.GetRow<std::string>(i);
@@ -57,9 +70,11 @@ GameState::GameState(std::string testfile)
 
 GameState::GameState()
 {
-  BOOST_LOG_TRIVIAL(info) << "Initializing GameState";
+
+  BOOST_LOG_TRIVIAL(info) << "Constructing GameState";
   height = float(MAP_HEIGHT);
   width = float(MAP_WIDTH);
+}
 
 //  Player* p1 = new Player(1, 15.0, 70.0, -1.0, 0.2, 0.0, 0.0);
 //  players.push_back(p1);
@@ -67,14 +82,9 @@ GameState::GameState()
 //  Player* p2 = new Player(2, 500.0, 780.0, 0.5, 0.8, 0.0, 0.0);
 //  players.push_back(p2);
 
-  for (int i = 0; i < SPATIAL_PARTITION_COUNT; i++)
-  {
-    Partition* p = new Partition();
-    spatial_partition.push_back(p);
-  }
-  build_partition();
 
-}
+
+
 
 GameState::~GameState() {}
 
@@ -105,7 +115,7 @@ std::string GameState::game_info()
 
   for (auto p : players)
   {
-    json_players.push_back(p->getJson());
+    json_players.push_back(p->getPlayerJson());
   }
   return boost::json::serialize(json_players);
 }
@@ -125,10 +135,18 @@ size_t get_partition_index(GamePiece* game_piece)
 }
 
 void GameState::build_partition()
-{
+{ 
+  for (int i = 0; i < SPATIAL_PARTITION_COUNT; i++)
+  {
+    Partition* p = new Partition();
+    spatial_partition.push_back(p);
+  }
+
+  BOOST_LOG_TRIVIAL(info) << "Populating Spatial Partition";
   for (auto player : players)
   {
     size_t index = get_partition_index(player);
+    BOOST_LOG_TRIVIAL(info) << "Adding " << *player << " to partition " << index;
     spatial_partition[index]->add_game_piece(player);
   }
 }

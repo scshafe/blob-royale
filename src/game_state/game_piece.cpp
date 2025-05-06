@@ -11,9 +11,10 @@ GamePiece::GamePiece(int id_, float x, float y, float vel_x, float vel_y, float 
 
 std::ostream& operator<<(std::ostream& os, const GamePiece& gp)
 {
-  os << "GamePiece:" << std::endl 
-     << "--position: " << gp.position << std::endl 
-     << "--velocity: " << gp.velocity << std::endl;
+  os << "GamePiece: (" 
+     << "--pos: " << gp.position
+     << "--vel: " << gp.velocity << ")";
+  return os;
 }
 
 PhyVector GamePiece::get_position()
@@ -36,6 +37,7 @@ PhyVector GamePiece::get_acceleration()
 
 void GamePiece::add_partition(Partition* partition)
 {
+  BOOST_LOG_TRIVIAL(info) << "GamePiece::add_partition()";
   piece_partitions.push_back(partition);
 }
 
@@ -51,17 +53,14 @@ void GamePiece::remove_partition(Partition* partition)
   }
 }
 
-boost::json::object GamePiece::getJson()
+boost::json::object GamePiece::getGamePieceJson()
 {
   boost::json::object root;
 
   root["id"] = id;
-  root["x_pos"] = position.x;
-  root["y_pos"] = position.y;
-  root["x_vel"] = velocity.x;
-  root["y_vel"] = velocity.y;
-  root["x_acc"] = acceleration.x;
-  root["y_acc"] = acceleration.y;
+  root["pos"] = position.getPhyVectorJson();
+  root["vel"] = velocity.getPhyVectorJson();
+  root["acc"] = acceleration.getPhyVectorJson();
   return root;
 }
 

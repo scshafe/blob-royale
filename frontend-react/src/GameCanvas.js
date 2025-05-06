@@ -21,7 +21,7 @@ function GameCanvas(props) {
       //ctx.fillStyle = player_color_coding[parseInt(player.num)];
       ctx.beginPath();
       ctx.arc(player.x_pos, player.y_pos, player.radius, 0, 2 * Math.PI);
-      ctx.fillStyle = "red";
+      ctx.fillStyle = player_color_coding[player.id];
       ctx.fill();
       ctx.strokeStyle = "green";
       ctx.stroke();

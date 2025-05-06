@@ -13,7 +13,7 @@
 
 class GameState {
 public:
-  GameState(std::string testfile);
+  void initialize(std::string testfile);
   GameState();
   ~GameState();
 

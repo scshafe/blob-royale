@@ -5,8 +5,8 @@ import './App.css';
 import GameCanvas from './GameCanvas';
 
 class Player {
-  constructor(num, x_pos, y_pos) {
-    this.num = num;
+  constructor(id, x_pos, y_pos) {
+    this.id = id;
     this.x_pos = x_pos;
     this.y_pos = y_pos;
     this.radius = 20;
@@ -38,7 +38,18 @@ function App() {
       });
   };
 
-
+  const build_player = (gp) => {
+    let new_player = new Player(gp["id"],
+                                gp["pos"][0],
+                                gp["pos"][1],
+                                gp["vel"][0],
+                                gp["vel"][1],
+                                gp["acc"][0],
+                                gp["acc"][1]
+                                );
+    console.log("player: ", new_player);
+    return new_player;
+  };
 
   const getGameState = () => {
     axios.get("game-state")
@@ -50,17 +61,11 @@ function App() {
         let tmp_players = [];
 
         data.map( p => {
-          let new_player = new Player(p['id'], 
-                                      p['x_pos'],
-                                      p['y_pos'], 
-                                      p['x_vel'],
-                                      p['x_vel'],
-                                      p['x_acc'],
-                                      p['y_acc'],
-                                      );
-
-          console.log("tmp: ", new_player);
-          tmp_players.push(new_player);
+          if (p["type"] === "player")
+          {
+            let new_player = build_player(p["gamepiece"]);
+            tmp_players.push(new_player);
+          }
         });
         console.log("tmp_players: ", tmp_players);
         setPlayers(tmp_players);

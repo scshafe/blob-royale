@@ -36,3 +36,9 @@ int PhyVector::y_part()
 float PhyVector::get_magnitude() {
   return sqrt(pow(x, 2.0) + pow(y, 2.0));
 }
+
+
+boost::json::array PhyVector::getPhyVectorJson()
+{
+  return {x, y};
+}

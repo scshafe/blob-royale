@@ -18,7 +18,7 @@ public:
   Player();
   Player(int id, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   
-
+  boost::json::object getPlayerJson();
 };
 
 

@@ -14,6 +14,8 @@ ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
 # using the static libary for logging
 #set(Boost_USE_STATIC_LIBS ON)
 
+find_package(Threads REQUIRED)
+
 find_package(Boost REQUIRED COMPONENTS 
   log 
   log_setup        # log_setup is also needed for some of the Boost::log functionality
@@ -29,11 +31,16 @@ add_executable (blob-royale
 
 add_subdirectory(src/game_state)
 
+#target_link_directories(blob-royale
+#                        PUBLIC
+#                        Threads::Threads
+#                      )
 
 target_link_libraries(blob-royale
-  ${Boost_LIBRARIES}
-  game_state
-)
+                      Threads::Threads
+                      ${Boost_LIBRARIES}
+                      game_state
+                      )
 
 # Boost_LIBRARIES is required for beast which is header only
 target_include_directories(blob-royale PUBLIC 

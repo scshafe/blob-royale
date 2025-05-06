@@ -45,6 +45,8 @@ using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
 
 namespace po = boost::program_options;
 
+#include <thread>
+
 namespace logging = boost::log;
 namespace src = boost::log::sources;
 namespace expr = boost::log::expressions;
@@ -260,6 +262,7 @@ int main(int argc, char** argv)
   }
   init_logging();
 
+  std::thread simulation(gs);
 
   try
   {

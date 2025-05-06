@@ -2,7 +2,7 @@
 
 file(GLOB game_state_sources *.cpp)
 
-#find_package(Threads REQUIRED)
+find_package(Threads REQUIRED)
 
 #find_package(PkgConfig)
 #pkg_check_modules(JSONCPP jsoncpp)
@@ -24,17 +24,15 @@ target_sources(game_state
 target_include_directories(game_state
                            PUBLIC
                            ${CMAKE_CURRENT_SOURCE_DIR}
-                           #${JSONCPP_INCLUDE_DIRS}
 )
 
 target_link_directories(game_state
                         PUBLIC
-                        #${JSONCPP_LIBRARY_DIRS}
+                        Threads::Threads
                       )
 
 target_link_libraries(game_state
                       PUBLIC
-                      #${JSONCPP_LIBRARIES}
                     )
 
 

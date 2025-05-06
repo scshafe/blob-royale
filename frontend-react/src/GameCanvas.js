@@ -12,9 +12,9 @@ function GameCanvas(props) {
   const players = props.players;
 
   React.useEffect(() => {
-    //console.log("drawPlayers() called, players: ", players); 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 1200, 800);
 
     players.map( player => {
       console.log('player: ', player.num, player.x_pos, player.y_pos);

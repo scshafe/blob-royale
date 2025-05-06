@@ -15,6 +15,7 @@ public:
   GameState();
   ~GameState();
 
+  void operator()();
   void run_sim();
   std::string game_info();
 

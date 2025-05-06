@@ -19,6 +19,7 @@ function App() {
 
   const [count, setCount] = React.useState(null);
   const [players, setPlayers] = React.useState([]);
+  const [fetchInterval, setFetchInterval] = React.useState(null);
 
   axios.defaults.baseURL = "http://192.168.86.12:8000";
 
@@ -37,7 +38,9 @@ function App() {
       });
   };
 
-  React.useEffect(() => {
+
+
+  const getGameState = () => {
     axios.get("game-state")
       .then((response) => {
         return response.data;
@@ -61,7 +64,23 @@ function App() {
         });
         console.log("tmp_players: ", tmp_players);
         setPlayers(tmp_players);
+      })
+      .catch((err) => {
+        console.log("Failed to fetch game-state");
       });
+  };
+
+  const pauseFetching = () => {
+    clearInterval(fetchInterval);
+  }
+
+  const beginFetching = () => {
+    const tmp = setInterval(getGameState, 2000);
+    setFetchInterval(tmp);
+  }
+
+  React.useEffect(() => {
+    beginFetching();
   }, []);
 
   if (!count) return null;
@@ -76,6 +95,7 @@ function App() {
 
       <h1>{count}</h1>
       <button onClick={getNewCount}>get updated count</button>
+      <button onClick={pauseFetching}>pause</button>
       <ul>
         {players.map(player => (
           <li key={player.num}>num: {player.num}, coordinates: ({player.x_pos}, {player.y_pos})</li>

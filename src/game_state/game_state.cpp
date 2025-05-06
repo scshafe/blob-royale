@@ -23,6 +23,9 @@ namespace keywords = boost::log::keywords;
 
 #include <boost/json.hpp>
 
+// ------- Threads --------
+
+#include <thread>
 
 GameState::GameState()
 {
@@ -43,19 +46,29 @@ GameState::GameState()
     spatial_partition.push_back(p);
   }
   build_partition();
+
 }
 
 GameState::~GameState() {}
 
-
+// allows the class object to be passed to a new thread
+void GameState::operator()()
+{
+  run_sim();
+}
 
 
 void GameState::run_sim()
 {
-  BOOST_LOG_TRIVIAL(info) << "GameState::run_sim()";
-  for (auto p : players)
+  unsigned int tick_count = 0;
+  while (true)
   {
-    p->run_sim();
+    //BOOST_LOG_TRIVIAL(info) << "GameState::run_sim()" << tick_count++;
+    for (auto p : players)
+    {
+      p->run_sim();
+    }
+    usleep(200000);
   }
 }
 

@@ -3,9 +3,8 @@
 
 #include <ostream>
 
-#include <boost_config.hpp>
+#include "boost-json.hpp"
 
-#define PARTITION_SIZE 20
 
 class PhyVector
 {
@@ -18,6 +17,7 @@ public:
   PhyVector(const float& x_in, const float& y_in);
   ~PhyVector();
 
+  PhyVector& operator=(const PhyVector& other);
   friend std::ostream& operator<<(std::ostream& os, PhyVector const & pv);
 
   int x_part();
@@ -25,6 +25,8 @@ public:
 
   float get_magnitude();
   boost::json::array getPhyVectorJson();
+  PhyVector get_inverse();
+  float dot_product(const PhyVector& other);
 };
 
 

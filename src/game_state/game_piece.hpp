@@ -8,7 +8,7 @@
 #include <string>
 #include <sstream>
 
-#include <boost/json.hpp>
+#include "boost-json.hpp"
 
 #include "phy_vector.hpp"
 #include "partition.hpp"

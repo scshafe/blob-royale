@@ -1,0 +1,51 @@
+#include <fstream>
+
+#include "boost-program-options.hpp"
+#include "boost-log.hpp"
+
+
+po::variables_map handle_configuration(int argc, char** argv)
+{
+  po::options_description desc("Allowed options");
+  desc.add_options()
+    ("help", "produce help message")
+    ("IPv4", po::value<std::string>()->default_value("192.168.86.12"), "set an IPv4 address")
+    ("IPv6", po::value<std::string>(),                                 "set an IPv6 address")
+    ("port", po::value<unsigned int>()->default_value(8000), "port")
+    ("config", po::value<std::string>()->default_value("../config/blob-royale.cfg"), "configuration file with game engine parameters")
+    ("testfile", po::value<std::string>()->default_value("../test/player-on-wall-collision-test"), "testfile with map and player information")
+  ;
+
+  BOOST_LOG_TRIVIAL(info) << "parsing command line options";
+
+  po::variables_map vm;
+  po::store(po::parse_command_line(argc, argv, desc), vm);
+  po::notify(vm);
+
+  if (vm.count("help"))
+  {
+    BOOST_LOG_TRIVIAL(info) << desc;
+    return 0;
+  }
+
+  po::options_description config("Configuration");
+  config.add_options()
+    ("game_constants.MAP_HEIGHT"            , po::value<int>()->default_value(800), "map height")
+    ("game_constants.MAP_WIDTH"             , po::value<int>()->default_value(1200), "map width")
+    ("game_constants.GAME_TICKS_PER_SECOND" , po::value<int>()->default_value(60), "number of game ticks per second")
+    ("game_constants.PLAYER_RADIUS"         , po::value<float>()->default_value(10.0), "radius of players")
+    ("game_constants.SPATIAL_PARTITION_COLS", po::value<int>()->default_value(8), "number of partitions used to divide the map widthwise")
+    ("game_constants.SPATIAL_PARTITION_ROWS", po::value<int>()->default_value(8), "number of partitions used to divided the map heightwise")
+    ;
+
+
+  // ----- Initialize Config values -----
+
+  std::ifstream ifs(vm["config"].as<std::string>());
+  po::store(po::parse_config_file(ifs, config), vm);
+
+
+  return vm;
+}
+
+

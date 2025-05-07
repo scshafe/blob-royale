@@ -1,0 +1,54 @@
+
+#
+# source this file from the root directory to set up local development environment
+#
+
+read -p "Are you in the root blob-royale directory? [y/n]" confirmation
+if [[ $confirmation != "y" ]]; then
+  echo -e "Go to the root blob-royale directory and then run:\n$ source scripts/run-blob-royale-dev-env-set"
+  exit
+fi
+
+
+export BLOB_ROYALE_DIR="$PWD"
+
+echo -e "\nIf you have already run the setup, you may press [Enter] to use previously set values or defaults"
+echo -e "Defaults are:"
+echo -e "Configuration: 'blob-royale.cfg'"
+echo -e "Test:          'player-on-player-collision-test'\n"
+
+# ----- Setup default config file ------
+
+read -p "Enter configuration file name:  " TMP_CONFIG_FILE
+
+if [[ -z "$TMP_CONFIG_FILE" ]]; then
+  if [[ -z "$BLOB_ROYALE_CONFIG_FILE" ]]; then
+    BLOB_ROYALE_CONFIG_FILE="blob-royale.cfg"
+  fi
+else
+  BLOB_ROYALE_CONFIG_FILE="$TMP_CONFIG_FILE"
+fi
+
+export BLOB_ROYALE_CONFIG_FILE
+
+
+# ----- Setup default test file -----
+
+read -p "Enter test file name:  " TMP_TEST_FILE
+if [[ -z "$TMP_TEST_FILE" ]]; then
+  if [[ -z "$BLOB_ROYALE_TEST_FILE" ]]; then
+    BLOB_ROYALE_TEST_FILE="player-on-player-collision-test"
+  fi
+else
+  BLOB_ROYALE_TEST_FILE="$TMP_TEST_FILE"
+fi
+
+export BLOB_ROYALE_TEST_FILE
+
+
+# ----- Create alias for quickly running program -----
+
+alias runblobroyale="$BLOB_ROYALE_DIR/build/blob-royale --IPv4 192.168.86.12 --port 8000 --testfile $BLOB_ROYALE_DIR/tests/$BLOB_ROYALE_TEST_FILE --config $BLOB_ROYALE_DIR/config/$BLOB_ROYALE_CONFIG"
+
+
+

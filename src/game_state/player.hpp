@@ -1,16 +1,14 @@
 #ifndef _PLAYER_HPP_
 #define _PLAYER_HPP_
 
+// boost-headers
+#include "boost-json.hpp"
+
+// game-state
 #include "game_piece.hpp"
 
 
-class MapObject : public GamePiece
-{
-public:
-  MapObject();
 
-private:
-};
 
 class Player : public GamePiece
 {

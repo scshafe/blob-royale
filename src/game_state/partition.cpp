@@ -1,6 +1,9 @@
-#include "boost_config.hpp"
-#include "partition.hpp"
 
+#include "boost-log.hpp"
+
+#include "game_engine_parameters.hpp"
+#include "partition.hpp"
+#include "game_piece.hpp"
 
 
 //Partition::Partition() {}

@@ -2,47 +2,29 @@
 cmake_minimum_required(VERSION 3.15)
 project(blob-royale)
 
-
-set(Boost_DEBUG 1)
-
-#find_package(Boost REQUIRED COMPONENTS system)
-
-
-# using the shared libary for logging
-ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
-
-# using the static libary for logging
-#set(Boost_USE_STATIC_LIBS ON)
-
 find_package(Threads REQUIRED)
 
-
-
-
 add_executable (blob-royale
-    ${BOOST_BEAST_FILES}
     main.cpp
 )
 
+add_subdirectory(src/boost-headers)
 add_subdirectory(src/game_state)
-
-#target_link_directories(blob-royale
-#                        PUBLIC
-#                        Threads::Threads
-#                      )
+add_subdirectory(src/server)
 
 target_link_libraries(blob-royale
                       Threads::Threads
-                      ${Boost_LIBRARIES}
+                      my_boost_config
                       game_state
+                      my_server
                       )
 
 # Boost_LIBRARIES is required for beast which is header only
 target_include_directories(blob-royale PUBLIC 
-  ${Boost_INCLUDE_DIRS}
+  my_boost_config
   game_state
+  my_server
 )
 
-#set_property(TARGET blob-royale PROPERTY FOLDER "example-http-server")
 
 

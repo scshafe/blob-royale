@@ -1,5 +1,6 @@
 
-#include "boost_config.hpp"
+#include "boost-log.hpp"
+
 
 void init_logging()
 {

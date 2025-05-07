@@ -1,4 +1,6 @@
-#include "boost_config.hpp"
+#include "boost-log.hpp"
+#include "boost-json.hpp"
+#include "game_engine_parameters.hpp"
 #include "game_piece.hpp"
 
 
@@ -71,16 +73,23 @@ PhyVector GamePiece::phy_vector_to_other_player(const GamePiece& other)
 
 bool GamePiece::detect_player_on_player_collision(const GamePiece& other)
 {
-//  float x_dist = position.x - other.position.x;
-//  float y_dist = position.y - other.position.y;
   PhyVector collision_vector = phy_vector_to_other_player(other);
-  return collision_vector.get_magnitude() < PLAYER_ON_PLAYER_COLLISION;
+  if (collision_vector.get_magnitude() > PLAYER_ON_PLAYER_COLLISION)
+  {
+    return false;
+  }
+
+  float dot_product = velocity.dot_product(collision_vector);
+  BOOST_LOG_TRIVIAL(info) << "dot product: " << dot_product;
+  return dot_product > 0;
+         
 }
 
 void GamePiece::handle_player_on_player_collision(const GamePiece& other)
 {
   BOOST_LOG_TRIVIAL(info) << "collision between players " << id << " and " << other.id;
   PhyVector collision_vector = phy_vector_to_other_player(other);
+  velocity = collision_vector.get_inverse();
 }
 
 void GamePiece::handle_possible_collision_with_wall()
@@ -112,6 +121,7 @@ void GamePiece::run_sim()
       }
       if (detect_player_on_player_collision(*nearby))
       {
+        BOOST_LOG_TRIVIAL(info) << "detected player on player collision";
         handle_player_on_player_collision(*nearby);
       }
       handle_possible_collision_with_wall();

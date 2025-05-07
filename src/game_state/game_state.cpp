@@ -3,10 +3,17 @@
 #include <cassert>
 #include <stdexcept>
 
-#include "game_state.hpp"
-#include "boost_config.hpp"
-
+// open-source-libs
 #include "rapidcsv.h"
+
+// boost-headers
+#include "boost-log.hpp"
+#include "boost-json.hpp"
+
+// game-state
+#include "game_engine_parameters.hpp"
+#include "game_state.hpp"
+
 
 Player* build_player(std::vector<std::string> row, size_t row_num)
 {
@@ -46,7 +53,7 @@ Player* build_player(std::vector<std::string> row, size_t row_num)
 
 void GameState::initialize(std::string testfile)
 {
-  BOOST_LOG_TRIVIAL(info) << "Initializing GameState";
+  BOOST_LOG_TRIVIAL(info) << "Initializing GameState with: " << testfile;
   rapidcsv::Document doc(testfile);
 
   BOOST_LOG_TRIVIAL(info) << "Reading in GamePieces";
@@ -100,12 +107,12 @@ void GameState::run_sim()
   unsigned int tick_count = 0;
   while (true)
   {
-    //BOOST_LOG_TRIVIAL(info) << "GameState::run_sim()" << tick_count++;
+    BOOST_LOG_TRIVIAL(info) << "GameState::run_sim() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
     for (auto p : players)
     {
       p->run_sim();
     }
-    usleep(10000);
+    usleep(GAME_TICK_PERIOD_US);
   }
 }
 
@@ -121,17 +128,15 @@ std::string GameState::game_info()
 }
 
 
+inline size_t get_partition_index_from_coordinates(const float& x, const float&y)
+{
+  return floor(x / PARTITION_WIDTH) + SPATIAL_PARTITION_COLS * floor(y / PARTITION_HEIGHT);
+}
+
 size_t get_partition_index(GamePiece* game_piece)
 { 
   PhyVector gp_pos = game_piece->get_position();
-  size_t index = GET_PARTITION_INDEX_FROM_COORDINATES(gp_pos.x, gp_pos.y);
-  size_t index_test = 0;
-  size_t col = floor(gp_pos.x / PARTITION_WIDTH);
-  size_t row = SPATIAL_PARTITION_COL_COUNT * floor(gp_pos.y / PARTITION_HEIGHT);
-  BOOST_LOG_TRIVIAL(info) << "partition selected. row: " << row << ", col: " << col;
-  index_test = col + row;
-  assert(index_test == index);
-  return index;
+  return get_partition_index_from_coordinates(gp_pos.x, gp_pos.y);
 }
 
 void GameState::build_partition()

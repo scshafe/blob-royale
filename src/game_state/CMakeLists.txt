@@ -2,15 +2,15 @@
 
 file(GLOB game_state_sources *.cpp)
 
-ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
+#ADD_DEFINITIONS(-DBOOST_LOG_DYN_LINK)
 
 
-find_package(Boost REQUIRED COMPONENTS 
-  log 
-  log_setup        # log_setup is also needed for some of the Boost::log functionality
-  program_options 
-  json
-)
+#find_package(Boost REQUIRED COMPONENTS 
+#  log 
+#  log_setup        # log_setup is also needed for some of the Boost::log functionality
+#  program_options 
+#  json
+#)
 
 
 add_library(game_state 
@@ -29,20 +29,20 @@ target_sources(game_state
 
 target_include_directories(game_state
                            PUBLIC
-                           ${Boost_INCLUDE_DIRS}
+                           my_boost_config
                            ${CMAKE_CURRENT_SOURCE_DIR}
                            "../../open-source-libs/rapidcsv"
 )
 
 target_link_directories(game_state
                         PUBLIC
-                        ${Boost_LIBRARY_DIRS}
+                        my_boost_config
                         Threads::Threads
                       )
 
 target_link_libraries(game_state
                       PUBLIC
-                      ${Boost_LIBRARIES}
+                      my_boost_config
                     )
 
 

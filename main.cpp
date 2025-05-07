@@ -1,6 +1,5 @@
 #include <thread>
 
-#include "boost-beast.hpp"
 #include "boost-log.hpp"
 #include "boost-program-options.hpp"
 
@@ -10,7 +9,6 @@
 #include "server.hpp"
 
 GameState gs;
-
 
 
 int main(int argc, char** argv)
@@ -33,19 +31,10 @@ int main(int argc, char** argv)
   // initialize the game state engine
   gs.initialize(vm["testfile"].as<std::string>());
 
-  // begin the game simulation
   std::thread simulation(gs);
-
-  BOOST_LOG_TRIVIAL(info) << "yeet1";
-
+  
   std::string address = vm["IPv4"].as<std::string>();
-  
-  BOOST_LOG_TRIVIAL(info) << "yeet2";
-  
   unsigned int port = vm["port"].as<unsigned int>();
-
-  BOOST_LOG_TRIVIAL(info) << "yeet3";
-
   start_server(address, port);
 
   return EXIT_FAILURE;

@@ -1,4 +1,6 @@
+#include <stdlib.h>
 #include <fstream>
+#include <cassert>
 
 #include "boost-program-options.hpp"
 #include "boost-log.hpp"
@@ -20,12 +22,12 @@ po::variables_map handle_configuration(int argc, char** argv)
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
-  po::notify(vm);
+  //po::notify(vm);
 
   if (vm.count("help"))
   {
     BOOST_LOG_TRIVIAL(info) << desc;
-    return 0;
+    exit(0);
   }
 
   po::options_description config("Configuration");
@@ -40,9 +42,13 @@ po::variables_map handle_configuration(int argc, char** argv)
 
 
   // ----- Initialize Config values -----
+  BOOST_LOG_TRIVIAL(info) << "Reading config: " << vm["config"].as<std::string>();
+  po::store(po::parse_config_file(vm["config"].as<std::string>().c_str(), config), vm);
+  po::notify(vm);
 
-  std::ifstream ifs(vm["config"].as<std::string>());
-  po::store(po::parse_config_file(ifs, config), vm);
+  BOOST_LOG_TRIVIAL(info) << "vm[\"game_constants.GAME_TICKS_PER_SECOND\"]:  " << vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>();
+
+  assert(vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>() == 3);
 
 
   return vm;

@@ -83,15 +83,6 @@ GameState::GameState()
   width = float(MAP_WIDTH);
 }
 
-//  Player* p1 = new Player(1, 15.0, 70.0, -1.0, 0.2, 0.0, 0.0);
-//  players.push_back(p1);
-//
-//  Player* p2 = new Player(2, 500.0, 780.0, 0.5, 0.8, 0.0, 0.0);
-//  players.push_back(p2);
-
-
-
-
 
 GameState::~GameState() {}
 

@@ -2,6 +2,13 @@
 cmake_minimum_required(VERSION 3.15)
 project(blob-royale)
 
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+
+message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
+
+
 find_package(Threads REQUIRED)
 
 add_executable (blob-royale

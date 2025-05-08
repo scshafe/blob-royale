@@ -87,7 +87,7 @@ bool GamePiece::detect_player_on_player_collision(const GamePiece& other)
 
 void GamePiece::handle_player_on_player_collision(const GamePiece& other)
 {
-  BOOST_LOG_TRIVIAL(info) << "collision between players " << id << " and " << other.id;
+  BOOST_LOG_TRIVIAL(trace) << "collision between players " << id << " and " << other.id;
   PhyVector collision_vector = phy_vector_to_other_player(other);
   velocity = collision_vector.get_inverse();
 }

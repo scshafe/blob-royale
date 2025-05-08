@@ -53,10 +53,11 @@ Player* build_player(std::vector<std::string> row, size_t row_num)
 
 void GameState::initialize(std::string testfile)
 {
+  verbose_log("Verbose: Init GameState");
   BOOST_LOG_TRIVIAL(info) << "Initializing GameState with: " << testfile;
   rapidcsv::Document doc(testfile);
 
-  BOOST_LOG_TRIVIAL(info) << "Reading in GamePieces";
+  BOOST_LOG_TRIVIAL(trace) << "Reading in GamePieces";
   for (size_t i = 0; i < doc.GetRowCount(); i++)
   {
     std::vector<std::string> row = doc.GetRow<std::string>(i);
@@ -66,7 +67,7 @@ void GameState::initialize(std::string testfile)
     }
     else
     {
-      BOOST_LOG_TRIVIAL(info) << "Error: unable to read testfile row [" << i << "]";
+      BOOST_LOG_TRIVIAL(fatal) << "Error: unable to read testfile row [" << i << "]";
       exit(1);
     }
 
@@ -98,7 +99,7 @@ void GameState::run_sim()
   unsigned int tick_count = 0;
   while (true)
   {
-    BOOST_LOG_TRIVIAL(info) << "GameState::run_sim() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
+    BOOST_LOG_TRIVIAL(trace) << "GameState::run_sim() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
     for (auto p : players)
     {
       p->run_sim();

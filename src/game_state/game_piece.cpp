@@ -11,7 +11,7 @@ GamePiece::GamePiece() :
   velocity(0.0, 0.0),
   acceleration(0.0, 0.0),
   current_part(nullptr),
-  parts(std::set<Partition*>()),
+  parts(std::set<std::shared_ptr<Partition>>()),
   fixed(false)
 {
   ERROR << "GamePiece() constructor should not be called.";
@@ -109,15 +109,15 @@ PhyVector GamePiece::get_acceleration() const
 void GamePiece::update_partitions()
 {
   ENTRANCE << "update_partitions";
-  Partition* tmp = GameState::get_instance()->get_partition(this);
+  std::shared_ptr<Partition> tmp = GameState::get_instance()->get_partition(this);
   TRACE << "yup";
   if (current_part != tmp) // if this doesn't change no need to update the set which is costly
   {
     return;
   }
 
-  std::set<Partition*> new_parts = GameState::get_instance()->get_partition_and_nearby(this);
-  std::set<Partition*> tmp_parts;
+  std::set<std::shared_ptr<Partition>> new_parts = GameState::get_instance()->get_partition_and_nearby(this);
+  std::set<std::shared_ptr<Partition>> tmp_parts;
 
   while (!new_parts.empty() && !parts.empty())
   {
@@ -125,13 +125,13 @@ void GamePiece::update_partitions()
     // - Iterator
     //    - shared_ptr
     //      - Partition
-    if (*new_parts.begin() == *parts.begin()) // overlap
+    if ((*new_parts.begin()).get() == (*parts.begin()).get()) // overlap
     {
       tmp_parts.insert(*new_parts.begin());
       new_parts.erase(new_parts.begin());
       parts.erase(    parts.begin());
     }
-    else if (*new_parts.begin() < *parts.begin()) // only in new, add self to partition
+    else if ((*new_parts.begin()).get() < (*parts.begin()).get()) // only in new, add self to partition
     {
       (*new_parts.begin())->add_game_piece(this);
       tmp_parts.insert(*new_parts.begin());

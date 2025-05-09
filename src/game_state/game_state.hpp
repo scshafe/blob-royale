@@ -16,7 +16,6 @@
 
 
 
-
 class GameState {
 public:
   void initialize(std::string testfile);
@@ -29,8 +28,8 @@ public:
   void run_sim();
   std::string game_info();
 
-  Partition* get_partition(const GamePiece* gp);
-  std::set<Partition*> get_partition_and_nearby(const GamePiece* gp);
+  std::shared_ptr<Partition> get_partition(const GamePiece* gp);
+  std::set<std::shared_ptr<Partition>> get_partition_and_nearby(const GamePiece* gp);
 
 private:
   static GameState* p_inst;
@@ -39,8 +38,8 @@ private:
   float width;
   float height;
 
-  std::vector<std::vector<Partition*>> spatial_partition;
-
+  //std::vector<std::vector<Partition*>> spatial_partition;
+  std::vector<std::vector<std::shared_ptr<Partition>>> spatial_partition;
 };
 
 #endif

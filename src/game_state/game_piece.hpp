@@ -24,8 +24,8 @@ public:
   PhyVector velocity;
   PhyVector acceleration;
 
-  Partition* current_part;
-  std::set<Partition*> parts;
+  std::shared_ptr<Partition> current_part;
+  std::set<std::shared_ptr<Partition>> parts;
 
   //Shape shape;
   bool fixed;

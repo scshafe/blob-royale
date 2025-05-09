@@ -71,12 +71,11 @@ void GameState::initialize(std::string testfile)
   }
 }
 
-
 GameState::GameState() :
   players(),
   width(MAP_WIDTH),
   height(MAP_HEIGHT),
-  spatial_partition(std::vector<std::vector<Partition*>>(SPATIAL_PARTITION_ROWS, std::vector<Partition*>(SPATIAL_PARTITION_COLS, new Partition)))
+  spatial_partition(std::vector<std::vector<std::shared_ptr<Partition>>>(SPATIAL_PARTITION_ROWS, std::vector<std::shared_ptr<Partition>>(SPATIAL_PARTITION_COLS)))
 {}
 
 GameState* GameState::get_instance()
@@ -121,15 +120,15 @@ std::string GameState::game_info()
   return boost::json::serialize(json_players);
 }
 
-Partition* GameState::get_partition(const GamePiece* gp)
+std::shared_ptr<Partition> GameState::get_partition(const GamePiece* gp)
 {
   Cell tmp (gp);
   return spatial_partition[tmp.row][tmp.col];
 }
 
-std::set<Partition*> GameState::get_partition_and_nearby(const GamePiece* gp)
+std::set<std::shared_ptr<Partition>> GameState::get_partition_and_nearby(const GamePiece* gp)
 {
-  std::set<Partition*> tmp_parts;
+  std::set<std::shared_ptr<Partition>> tmp_parts;
   Cell tmp (gp); 
 
   for (int row = tmp.row - 1; row <= tmp.row + 1; row++)

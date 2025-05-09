@@ -3,11 +3,17 @@
 
 #include <vector>
 #include <string>
+#include <memory>
+#include <set>
 
 #include "player.hpp"
 //#include "map_object.hpp"
 #include "game_piece.hpp"
 #include "partition.hpp"
+
+
+
+
 
 
 
@@ -17,20 +23,24 @@ public:
   GameState();
   ~GameState();
 
+  static GameState* get_instance();
+
   void operator()();
   void run_sim();
   std::string game_info();
 
+  Partition* get_partition(const GamePiece* gp);
+  std::set<Partition*> get_partition_and_nearby(const GamePiece* gp);
+
 private:
-  std::vector<Player*> players;
+  static GameState* p_inst;
+  std::vector<GamePiece*> players;
  // std::vector<MapObject*> map_objects;
   float width;
   float height;
 
-  std::vector<Partition*> spatial_partition;
+  std::vector<std::vector<Partition*>> spatial_partition;
 
-  void build_partition();
-  
 };
 
 #endif

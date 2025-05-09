@@ -14,76 +14,79 @@
 #include "game_engine_parameters.hpp"
 #include "game_state.hpp"
 
+GameState* GameState::p_inst = nullptr;
 
-Player* build_player(std::vector<std::string> row, size_t row_num)
+extern src::severity_logger< severity_level > lg;
+
+
+struct Cell
 {
-  int id;
-  float px, py, vx, vy, ax, ay;
-  Player* p;
-
-  BOOST_LOG_TRIVIAL(info) << "Adding Player: (" 
-                          << row[0] << ", " 
-                          << row[1] << ", " 
-                          << row[2] << ", " 
-                          << row[3] << ", " 
-                          << row[4] << ", " 
-                          << row[5] << ", " 
-                          << row[6] << ", " 
-                          << row[7] << ")"; 
-
-  try
+  size_t row;
+  size_t col; 
+  
+  Cell(const GamePiece* gp)
   {
-    id = std::stoi(row[1]);
-    px = std::stof(row[2]);
-    py = std::stof(row[3]);
-    vx = std::stof(row[4]);
-    vy = std::stof(row[5]);
-    ax = std::stof(row[6]);
-    ay = std::stof(row[7]);
-    p = new Player(id, px, py, vx, vy, ax, ay);
+    row = floor(gp->get_position().y / PARTITION_HEIGHT);
+    col = floor(gp->get_position().x / PARTITION_WIDTH);
   }
-  catch (...)
+
+  Cell(const float& x, const float& y)
   {
-    BOOST_LOG_TRIVIAL(fatal) << "Fatal: unable to create person from row [" << row_num << "]";
-    exit(1);
+    row = floor(y / PARTITION_HEIGHT);
+    col = floor(x / PARTITION_WIDTH);
   }
-  return p;
+
+  Cell(const GamePiece& gp)
+  {
+    row = floor(gp.get_position().y / PARTITION_HEIGHT);
+    col = floor(gp.get_position().x / PARTITION_WIDTH);
+  }
+};
+
+std::ostream& operator<<(std::ostream& os, const Cell& c)
+{
+  return os << "[" << c.row << "," << c.col << "]";
 }
 
 
 void GameState::initialize(std::string testfile)
 {
-  verbose_log("Verbose: Init GameState");
-  BOOST_LOG_TRIVIAL(info) << "Initializing GameState with: " << testfile;
+  ENTRANCE << "GameState::initialize()";
+
   rapidcsv::Document doc(testfile);
 
-  BOOST_LOG_TRIVIAL(trace) << "Reading in GamePieces";
   for (size_t i = 0; i < doc.GetRowCount(); i++)
   {
     std::vector<std::string> row = doc.GetRow<std::string>(i);
     if (row[0] == "player")
     {
-      players.push_back(build_player(row, i));
+      players.emplace_back(new Player(row));
+
     }
     else
     {
-      BOOST_LOG_TRIVIAL(fatal) << "Error: unable to read testfile row [" << i << "]";
+      ERROR << "Error: failed to add player";
       exit(1);
     }
-
   }
-  build_partition();
 }
 
 
-GameState::GameState()
+GameState::GameState() :
+  players(),
+  width(MAP_WIDTH),
+  height(MAP_HEIGHT),
+  spatial_partition(std::vector<std::vector<Partition*>>(SPATIAL_PARTITION_ROWS, std::vector<Partition*>(SPATIAL_PARTITION_COLS, new Partition)))
+{}
+
+GameState* GameState::get_instance()
 {
-
-  BOOST_LOG_TRIVIAL(info) << "Constructing GameState";
-  height = float(MAP_HEIGHT);
-  width = float(MAP_WIDTH);
+  if (!p_inst)
+  {
+    GameState::p_inst = new GameState();
+  }
+  return p_inst;
 }
-
 
 GameState::~GameState() {}
 
@@ -99,10 +102,10 @@ void GameState::run_sim()
   unsigned int tick_count = 0;
   while (true)
   {
-    BOOST_LOG_TRIVIAL(trace) << "GameState::run_sim() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
-    for (auto p : players)
+    LOG << "GameState::run_sim() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
+    for (auto p_it = players.begin(); p_it != players.end(); ++p_it)
     {
-      p->run_sim();
+      (*p_it)->run_sim();
     }
     usleep(GAME_TICK_PERIOD_US);
   }
@@ -111,42 +114,42 @@ void GameState::run_sim()
 std::string GameState::game_info()
 {
   boost::json::array json_players;
-
-  for (auto p : players)
+  for (auto p_it = players.begin(); p_it != players.end(); ++p_it)
   {
-    json_players.push_back(p->getPlayerJson());
+    json_players.push_back((*p_it)->getGamePieceJson());
   }
   return boost::json::serialize(json_players);
 }
 
-
-inline size_t get_partition_index_from_coordinates(const float& x, const float&y)
+Partition* GameState::get_partition(const GamePiece* gp)
 {
-  return floor(x / PARTITION_WIDTH) + SPATIAL_PARTITION_COLS * floor(y / PARTITION_HEIGHT);
+  Cell tmp (gp);
+  return spatial_partition[tmp.row][tmp.col];
 }
 
-size_t get_partition_index(GamePiece* game_piece)
-{ 
-  PhyVector gp_pos = game_piece->get_position();
-  return get_partition_index_from_coordinates(gp_pos.x, gp_pos.y);
-}
+std::set<Partition*> GameState::get_partition_and_nearby(const GamePiece* gp)
+{
+  std::set<Partition*> tmp_parts;
+  Cell tmp (gp); 
 
-void GameState::build_partition()
-{ 
-  for (int i = 0; i < SPATIAL_PARTITION_COUNT; i++)
+  for (int row = tmp.row - 1; row <= tmp.row + 1; row++)
   {
-    Partition* p = new Partition();
-    spatial_partition.push_back(p);
+    for (int col = tmp.col - 1; col <= tmp.col + 1; col++)
+    {
+      try
+      {
+        tmp_parts.insert(spatial_partition.at(row).at(col));
+      }
+      catch (const std::out_of_range& oor)
+      {
+        // Nothing to do here... could add logs
+      }
+    }
   }
-
-  BOOST_LOG_TRIVIAL(info) << "Populating Spatial Partition";
-  for (auto player : players)
-  {
-    size_t index = get_partition_index(player);
-    BOOST_LOG_TRIVIAL(info) << "Adding " << *player << " to partition " << index;
-    spatial_partition[index]->add_game_piece(player);
-  }
+  return tmp_parts;
 }
+
+
 
 
 

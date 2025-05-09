@@ -16,6 +16,12 @@ PhyVector::PhyVector(const float& x_in, const float& y_in)
   y = y_in;
 }
 
+//PhyVector::PhyVector(const float x_in, const float y_in)
+//{
+//  x = x_in;
+//  y = y_in;
+//}
+
 PhyVector::~PhyVector() {}
 
 PhyVector& PhyVector::operator=(const PhyVector& other)
@@ -29,16 +35,6 @@ std::ostream& operator<<(std::ostream& os, PhyVector const & pv)
 {
   return os << "(x: " << pv.x << ", y: " << pv.y << ")";
 }
-
-//int PhyVector::x_part()
-//{
-//  return int(x) / PARTITION_SIZE;
-//}
-//
-//int PhyVector::y_part()
-//{
-//  return int(y) / PARTITION_SIZE;
-//}
 
 float PhyVector::get_magnitude() {
   return sqrt(pow(x, 2.0) + pow(y, 2.0));

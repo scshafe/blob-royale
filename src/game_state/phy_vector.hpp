@@ -15,6 +15,7 @@ public:
 
   PhyVector();
   PhyVector(const float& x_in, const float& y_in);
+  //PhyVector(const float x_in, const float y_in);
   ~PhyVector();
 
   PhyVector& operator=(const PhyVector& other);

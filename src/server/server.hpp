@@ -6,13 +6,11 @@ class http_connection : public std::enable_shared_from_this<http_connection>
 {
 public:
     http_connection(tcp::socket socket);
-    http_connection(tcp::socket socket, GameState* gs_);
     // Initiate the asynchronous operations associated with the connection.
     void start();
     
 private:
 
-  GameState* gs;
 
   // The socket for the currently connected client.
   tcp::socket socket_;

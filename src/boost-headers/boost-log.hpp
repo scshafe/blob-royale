@@ -27,12 +27,11 @@ namespace attrs = boost::log::attributes;
 
 enum severity_level
 {
-  verbose,
-  normal,
+  entrance,
+  trace,
   caught_exception,
   warning,
-  error,
-  fatal
+  error
 };
 
 extern src::severity_logger< severity_level > lg;
@@ -40,28 +39,15 @@ extern src::severity_logger< severity_level > lg;
 
 void init_logging();
 
-template<class... Types>
-void manual_log(severity_level lvl, Types... args)
-{
-  logging::record rec = lg.open_record(keywords::severity = lvl);
-  if (rec)
-  {
-    logging::record_ostream strm(rec);
-    
-    (strm << ... << args);
+#define ENTRANCE  BOOST_LOG_SEV(lg, severity_level::entrance)
+#define TRACE     BOOST_LOG_SEV(lg, severity_level::trace)
+#define LOGEXCEPT BOOST_LOG_SEV(lg, severity_level::caught_exception)
+#define WARNING   BOOST_LOG_SEV(lg, severity_level::warning)
+#define ERROR     BOOST_LOG_SEV(lg, severity_level::error)
 
-    strm.flush();
-    lg.push_record(boost::move(rec));
-  }
-}
+#define LOG BOOST_LOG_TRIVIAL(severity_level::trace)
 
-template<class... Types>
-void verbose_log(Types... args)
-{
-  manual_log(severity_level::verbose, args...);
-}
-
-
-#define MY_LOG() 
+// weird that this doesn't work but putting it in manually (in boost-program-options lets it print
+//#define LOG BOOST_LOG_SEV(lg, severity_level::verbose)
 
 #endif

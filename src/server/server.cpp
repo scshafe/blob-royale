@@ -9,11 +9,6 @@ http_connection::http_connection(tcp::socket socket)
   {
   }
 
-http_connection::http_connection(tcp::socket socket, GameState* gs_)
-  : socket_(std::move(socket))
-{
-  gs = gs_;
-}
 
 // Initiate the asynchronous operations associated with the connection.
 void http_connection::start()
@@ -79,7 +74,7 @@ void http_connection::create_response()
   response_.set(http::field::access_control_allow_origin, "*");
   response_.set(http::field::access_control_allow_headers, "*");
   beast::ostream(response_.body())
-  << gs->game_info();
+  << GameState::get_instance()->game_info();
   }
   
   else

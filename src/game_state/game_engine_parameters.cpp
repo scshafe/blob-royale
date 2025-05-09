@@ -42,8 +42,8 @@ void initialize_constants(int map_height,
   GAME_TICKS_PER_SECOND = game_ticks_per_second;
   GAME_TICK_PERIOD_SEC = 1.0 / GAME_TICKS_PER_SECOND;
   GAME_TICK_PERIOD_US = GAME_TICK_PERIOD_SEC * 1000000.0;
-  BOOST_LOG_TRIVIAL(info) << "Game ticks per second: " << GAME_TICKS_PER_SECOND << std::endl
-                          << "MicroSecond period: " << GAME_TICK_PERIOD_US;
+  TRACE << "Game ticks per second: " << GAME_TICKS_PER_SECOND << std::endl
+        << "MicroSecond period: " << GAME_TICK_PERIOD_US;
 
   // ----- Radius -----
   PLAYER_RADIUS = player_radius;
@@ -56,6 +56,8 @@ void initialize_constants(int map_height,
   SPATIAL_PARTITION_COUNT = SPATIAL_PARTITION_COLS * SPATIAL_PARTITION_ROWS;
   PARTITION_HEIGHT = MAP_HEIGHT / SPATIAL_PARTITION_ROWS;
   PARTITION_WIDTH  = MAP_WIDTH  / SPATIAL_PARTITION_COLS;
+
+  TRACE << "Partition rows and cols: " << SPATIAL_PARTITION_ROWS << " " << SPATIAL_PARTITION_COLS;
 
   assert(MAP_HEIGHT % SPATIAL_PARTITION_ROWS == 0);
   assert(MAP_WIDTH  % SPATIAL_PARTITION_COLS == 0);

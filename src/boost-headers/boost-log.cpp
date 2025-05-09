@@ -38,14 +38,11 @@ void coloring_formatter(
   {
     switch (severity.get())
     {
-      case severity_level::verbose: // light green
+      case severity_level::entrance: // light green
       strm << "\e[38:5:41m";
       break;
-      case severity_level::normal: // darker green
-      strm << "\e[38:5:82m";
-      break;
-    case severity_level::caught_exception: // white
-      strm << "\033[38:5:231m";
+    case severity_level::caught_exception: // pink-purple
+      strm << "\033[38:5:213m";
       break;
     case severity_level::warning: // orange
       strm << "\033[38:5:202m";
@@ -53,13 +50,15 @@ void coloring_formatter(
     case severity_level::error: // red
       strm << "\e[38:5:196m";
       break;
-    case severity_level::fatal: // bold and red
-      strm << "\033[1:38:5:196m";
-      break;
     default:
         break;
     }
   }
+//  else // for BOOST_LOG(lg) which does not pass severity and should be interpreted as verbose
+//  {
+//    strm << "\e[38:5:41m";
+//  }
+
   auto scope = boost::log::extract<attrs::named_scope::value_type>("Scope", rec);
   if (scope)
   {
@@ -92,7 +91,7 @@ void init_logging()
   boost::shared_ptr< logging::core > core = logging::core::get();
   core->add_sink(sink);
 
-  core->add_global_attribute("Scope", attrs::named_scope());
+  //core->add_global_attribute("Scope", attrs::named_scope());
 }
 
 

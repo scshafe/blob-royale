@@ -18,15 +18,14 @@ po::variables_map handle_configuration(int argc, char** argv)
     ("testfile", po::value<std::string>()->default_value("../test/player-on-wall-collision-test"), "testfile with map and player information")
   ;
 
-  BOOST_LOG_TRIVIAL(info) << "parsing command line options";
+  TRACE << "Parsing command line options";
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
-  //po::notify(vm);
 
   if (vm.count("help"))
   {
-    BOOST_LOG_TRIVIAL(info) << desc;
+    std::cout << desc;
     exit(0);
   }
 
@@ -42,11 +41,10 @@ po::variables_map handle_configuration(int argc, char** argv)
 
 
   // ----- Initialize Config values -----
-  BOOST_LOG_TRIVIAL(info) << "Reading config: " << vm["config"].as<std::string>();
   po::store(po::parse_config_file(vm["config"].as<std::string>().c_str(), config), vm);
   po::notify(vm);
 
-  BOOST_LOG_TRIVIAL(info) << "vm[\"game_constants.GAME_TICKS_PER_SECOND\"]:  " << vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>();
+  TRACE << "vm[\"game_constants.GAME_TICKS_PER_SECOND\"]:  " << vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>();
 
   assert(vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>() == 3);
 

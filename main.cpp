@@ -8,7 +8,6 @@
 
 #include "server.hpp"
 
-GameState gs;
 
 
 int main(int argc, char** argv)
@@ -29,9 +28,11 @@ int main(int argc, char** argv)
                           );
 
   // initialize the game state engine
-  gs.initialize(vm["testfile"].as<std::string>());
 
-  std::thread simulation(gs);
+  GameState* gs = GameState::get_instance();
+  gs->initialize(vm["testfile"].as<std::string>());
+
+  std::thread simulation(*GameState::get_instance());
   
   std::string address = vm["IPv4"].as<std::string>();
   unsigned int port = vm["port"].as<unsigned int>();

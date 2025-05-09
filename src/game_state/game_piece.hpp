@@ -4,9 +4,10 @@
 
 #define PARTITION_SIZE 20
 
-#include <vector>
 #include <string>
 #include <sstream>
+#include <memory>
+#include <set>
 
 #include "boost-json.hpp"
 
@@ -17,33 +18,37 @@ class Partition;
 
 class GamePiece
 {
-protected:
+public:
   int id;
   PhyVector position;
   PhyVector velocity;
   PhyVector acceleration;
 
-  std::vector<Partition*> piece_partitions;
+  Partition* current_part;
+  std::set<Partition*> parts;
+
   //Shape shape;
   bool fixed;
 
+  
 public:
-
-  GamePiece(int id_, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   GamePiece();
+  GamePiece(int id, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
+  GamePiece(std::vector<std::string> row);
+  ~GamePiece();
+
   friend std::ostream& operator<<(std::ostream& os, const GamePiece& gp);
 
-  PhyVector get_position();
-  PhyVector get_velocity();
-  PhyVector get_acceleration();
+  PhyVector get_position() const;
+  PhyVector get_velocity() const;
+  PhyVector get_acceleration() const;
 
-  void add_partition(Partition* partition);
-  void remove_partition(Partition* partition);
+  void update_partitions();
 
   boost::json::object getGamePieceJson();
-  PhyVector phy_vector_to_other_player(const GamePiece& other);
-  bool detect_player_on_player_collision(const GamePiece& other);
-  void handle_player_on_player_collision(const GamePiece& other);
+  PhyVector phy_vector_to_other_player(const GamePiece* other);
+  bool detect_player_on_player_collision(const GamePiece* other);
+  void handle_player_on_player_collision(const GamePiece* other);
   void handle_possible_collision_with_wall();
   void run_sim();
 };

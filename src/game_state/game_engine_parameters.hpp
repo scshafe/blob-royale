@@ -8,6 +8,7 @@ extern int MAP_WIDTH; // 1200
 // ----- Game Ticks -----
 extern int GAME_TICKS_PER_SECOND; // 3
 extern float GAME_TICK_PERIOD_SEC;
+extern int GAME_TICK_PERIOD_MS;  // for setInterval on front-end
 extern float GAME_TICK_PERIOD_US;
 
 // ----- Radius -----

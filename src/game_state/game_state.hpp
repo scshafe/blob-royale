@@ -26,7 +26,8 @@ public:
 
   void operator()();
   void run_sim();
-  std::string game_info();
+  boost::json::array game_info();
+  boost::json::object game_config();
 
   std::shared_ptr<Partition> get_partition(const GamePiece* gp);
   std::set<std::shared_ptr<Partition>> get_partition_and_nearby(const GamePiece* gp);
@@ -40,6 +41,9 @@ private:
 
   //std::vector<std::vector<Partition*>> spatial_partition;
   std::vector<std::vector<std::shared_ptr<Partition>>> spatial_partition;
+
+  void update_positions();
+  void update_velocities();
 };
 
 #endif

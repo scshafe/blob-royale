@@ -96,30 +96,61 @@ void GameState::operator()()
 }
 
 
+void GameState::update_positions()
+{
+  for (int i = 0; i < players.size(); i++)
+  {
+    players[i]->update_position();
+  }
+}
+
+
+// aka: check for collisions
+void GameState::update_velocities()
+{
+  for (int i = 0; i < players.size(); i++)
+  {
+    players[i]->update_position();
+  }
+}
+
 void GameState::run_sim()
 {
   unsigned int tick_count = 0;
   while (true)
   {
     LOG << "GameState::run_sim() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
-    for (auto p_it = players.begin(); p_it != players.end(); ++p_it)
-    {
-      (*p_it)->run_sim();
-    }
+
+    update_velocities();
+
+    update_positions();
+
     usleep(GAME_TICK_PERIOD_US);
   }
 }
 
-std::string GameState::game_info()
+boost::json::array GameState::game_info()
 {
   boost::json::array json_players;
   for (auto p_it = players.begin(); p_it != players.end(); ++p_it)
   {
-    json_players.push_back((*p_it)->getGamePieceJson());
+    json_players.push_back(((Player*)(*p_it))->getPlayerJson());
   }
-  return boost::json::serialize(json_players);
+  return json_players;
 }
 
+
+boost::json::object GameState::game_config()
+{
+  boost::json::object json_config;
+  json_config["width"] = MAP_WIDTH;
+  json_config["height"] = MAP_HEIGHT;
+  json_config["radius"] = PLAYER_RADIUS;
+  json_config["interval"] = GAME_TICK_PERIOD_MS;
+
+  return json_config;
+}  
+  
 std::shared_ptr<Partition> GameState::get_partition(const GamePiece* gp)
 {
   Cell tmp (gp);

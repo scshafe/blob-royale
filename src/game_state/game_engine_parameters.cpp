@@ -11,6 +11,7 @@ int MAP_WIDTH; // 1200
 // ----- Game Ticks -----
 int GAME_TICKS_PER_SECOND; // 3
 float GAME_TICK_PERIOD_SEC;
+int GAME_TICK_PERIOD_MS; // for the front end setInterval call
 float GAME_TICK_PERIOD_US;
 
 // ----- Radius -----
@@ -41,6 +42,7 @@ void initialize_constants(int map_height,
   // ----- Game Ticks -----
   GAME_TICKS_PER_SECOND = game_ticks_per_second;
   GAME_TICK_PERIOD_SEC = 1.0 / GAME_TICKS_PER_SECOND;
+  GAME_TICK_PERIOD_MS = int(GAME_TICK_PERIOD_SEC * 1000);
   GAME_TICK_PERIOD_US = GAME_TICK_PERIOD_SEC * 1000000.0;
   TRACE << "Game ticks per second: " << GAME_TICKS_PER_SECOND << std::endl
         << "MicroSecond period: " << GAME_TICK_PERIOD_US;

@@ -49,6 +49,8 @@ export BLOB_ROYALE_TEST_FILE
 # ----- Create alias for quickly running program -----
 
 alias runblobroyale="$BLOB_ROYALE_DIR/build/blob-royale --IPv4 192.168.86.12 --port 8000 --testfile $BLOB_ROYALE_DIR/tests/$BLOB_ROYALE_TEST_FILE --config $BLOB_ROYALE_DIR/config/$BLOB_ROYALE_CONFIG_FILE"
+alias gdbrun-blob-royale="gdb --args $BLOB_ROYALE_DIR/build/blob-royale --IPv4 192.168.86.12 --port 8000 --testfile $BLOB_ROYALE_DIR/tests/$BLOB_ROYALE_TEST_FILE --config $BLOB_ROYALE_DIR/config/$BLOB_ROYALE_CONFIG_FILE"
 
+alias cmake-gdb="cmake -DCMAKE_BUILD_TYPE=Debug $BLOB_ROYALE_DIR/build"
 
 

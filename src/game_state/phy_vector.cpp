@@ -43,7 +43,7 @@ float PhyVector::get_magnitude() {
 
 boost::json::array PhyVector::getPhyVectorJson()
 {
-  return {x, y};
+  return {int(x), int(y)};
 }
 
 PhyVector PhyVector::get_inverse()

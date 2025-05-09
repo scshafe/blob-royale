@@ -207,8 +207,15 @@ void GamePiece::handle_possible_collision_with_wall()
 }
 
 
+void GamePiece::update_position()
+{
+  position.x += velocity.x;
+  position.y += velocity.y;
 
-void GamePiece::run_sim()
+  update_partitions();
+}
+
+void GamePiece::update_velocity()
 {
   for (auto part = parts.begin(); part != parts.end(); ++part)
   {
@@ -229,12 +236,6 @@ void GamePiece::run_sim()
       handle_possible_collision_with_wall();
     }
   }
-
-  position.x += velocity.x;
-  position.y += velocity.y;
-
-//  velocity.x += acceleration.x;
-//  velocity.y += acceleration.y;
 }
 
 

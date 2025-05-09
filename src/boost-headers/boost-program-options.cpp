@@ -46,7 +46,6 @@ po::variables_map handle_configuration(int argc, char** argv)
 
   TRACE << "vm[\"game_constants.GAME_TICKS_PER_SECOND\"]:  " << vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>();
 
-  assert(vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>() == 3);
 
 
   return vm;

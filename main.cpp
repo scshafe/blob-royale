@@ -9,6 +9,10 @@
 #include "server.hpp"
 
 
+void start_sim_callback()
+{
+  std::thread simulation(*GameState::get_instance());
+}
 
 int main(int argc, char** argv)
 {
@@ -32,11 +36,10 @@ int main(int argc, char** argv)
   GameState* gs = GameState::get_instance();
   gs->initialize(vm["testfile"].as<std::string>());
 
-  std::thread simulation(*GameState::get_instance());
   
   std::string address = vm["IPv4"].as<std::string>();
   unsigned int port = vm["port"].as<unsigned int>();
-  start_server(address, port);
+  start_server(address, port, start_sim_callback);
 
   return EXIT_FAILURE;
 }

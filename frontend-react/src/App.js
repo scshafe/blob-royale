@@ -3,16 +3,8 @@ import  React from 'react';
 import logo from './logo.svg';
 import './App.css';
 import GameCanvas from './GameCanvas';
-
-class Player {
-  constructor(id, x_pos, y_pos) {
-    this.id = id;
-    this.x_pos = x_pos;
-    this.y_pos = y_pos;
-    this.radius = 20;
-  }
-
-}
+import Player from './Player.js';
+import Config from './Config.js'
 
 
 function App() {
@@ -20,18 +12,12 @@ function App() {
   const [count, setCount] = React.useState(null);
   const [players, setPlayers] = React.useState([]);
   const [fetchInterval, setFetchInterval] = React.useState(null);
+  const [config, setConfig] = React.useState(new Map());
+  const [started, setStarted] = React.useState(false);
 
   axios.defaults.baseURL = "http://192.168.86.12:8000";
 
-//  React.useEffect(() => {
-//    axios.get("react-count")
-//         .then((response) => {
-//          setCount(response.data);
-//         });
-//  }, []);
-
   const getNewCount = () => {
-    console.log("players: ", players);
     axios.get("react-count")
       .then((response) => {
         setCount(response.data);
@@ -39,17 +25,19 @@ function App() {
   };
 
   const build_player = (gp) => {
-    let new_player = new Player(gp["id"],
-                                gp["pos"][0],
-                                gp["pos"][1],
-                                gp["vel"][0],
-                                gp["vel"][1],
-                                gp["acc"][0],
-                                gp["acc"][1]
-                                );
+    let new_player = new Player(gp);
     console.log("player: ", new_player);
     return new_player;
   };
+
+  const receiveConfig = (new_config) => {
+    const tmp = new Map(new_config);
+    console.log("Updating config: ", new_config);
+    setConfig(new_config);
+  }
+
+
+
 
   const getGameState = () => {
     axios.get("game-state")
@@ -57,17 +45,15 @@ function App() {
         return response.data;
       })
       .then(data => {
-        console.log(data);
         let tmp_players = [];
 
         data.map( p => {
           if (p["type"] === "player")
           {
-            let new_player = build_player(p["gamepiece"]);
+            let new_player = new Player(p["gamepiece"]);
             tmp_players.push(new_player);
           }
         });
-        console.log("tmp_players: ", tmp_players);
         setPlayers(tmp_players);
       })
       .catch((err) => {
@@ -81,26 +67,24 @@ function App() {
   }
 
   const beginFetching = () => {
-    let tmp = setInterval(getGameState, 1.0 / 60);
+    let tmp = setInterval(getGameState, 500);
     setFetchInterval(tmp);
   }
 
-//  React.useEffect(() => {
-//    beginFetching();
-//  }, []);
-
-//  if (players === null) {
-//    console.log("Error! players === null");
-//    return null;
-//  }
+  
 
   return (
     <div className="App">
+      <Config config={config} onConfigReceived={receiveConfig} />
 
-
-      <h1>{count}</h1>
-      <button onClick={getNewCount}>get updated count</button>
-      
+      <div>
+        Config
+        <ul>
+          { config.forEach( (value, key) => (
+            <li key={value}>{value}: {key}</li>
+          ))}
+        </ul>
+      </div>
       { fetchInterval === null ? 
         (<button onClick={beginFetching}>fetch</button>) :
         (<button onClick={pauseFetching}>pause</button>)
@@ -111,7 +95,7 @@ function App() {
         ))}
       </ul>
 
-      <GameCanvas players={players} />
+      <GameCanvas players={players} height={config.get("height")} width={config.get("width")} />
     </div>
   );
 }

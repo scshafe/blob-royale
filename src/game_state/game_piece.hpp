@@ -50,7 +50,9 @@ public:
   bool detect_player_on_player_collision(const GamePiece* other);
   void handle_player_on_player_collision(const GamePiece* other);
   void handle_possible_collision_with_wall();
-  void run_sim();
+
+  void update_velocity();
+  void update_position();
 };
 
 #endif

@@ -2,6 +2,12 @@
 
 #include "server.hpp"
 
+http_connection::http_connection(tcp::socket socket, void (*start_sim_callback)())
+  : socket_(std::move(socket))
+  {
+    start_sim = start_sim_callback;
+  }
+
 
 
 http_connection::http_connection(tcp::socket socket)
@@ -67,14 +73,33 @@ void http_connection::process_request()
 // Construct a response message based on the program state.
 void http_connection::create_response()
 {
-  if (request_.target() == "/game-state")
+  if (request_.target() == "/game-config")
   {
-  BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
-  response_.set(http::field::content_type, "application/json");
-  response_.set(http::field::access_control_allow_origin, "*");
-  response_.set(http::field::access_control_allow_headers, "*");
-  beast::ostream(response_.body())
-  << GameState::get_instance()->game_info();
+    BOOST_LOG_TRIVIAL(info) << "game-config endpoint received";
+    response_.set(http::field::content_type, "application/json");
+    response_.set(http::field::access_control_allow_origin, "*");
+    response_.set(http::field::access_control_allow_headers, "*");
+    beast::ostream(response_.body())
+    << GameState::get_instance()->game_config();
+  }
+  else if (request_.target() == "/game-state")
+  {
+    BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+    response_.set(http::field::content_type, "application/json");
+    response_.set(http::field::access_control_allow_origin, "*");
+    response_.set(http::field::access_control_allow_headers, "*");
+    beast::ostream(response_.body())
+    << GameState::get_instance()->game_info();
+  }
+  else if (request_.target() == "/start-sim")
+  {
+    BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+    response_.set(http::field::content_type, "test/plain");
+    response_.set(http::field::access_control_allow_origin, "*");
+    response_.set(http::field::access_control_allow_headers, "*");
+    beast::ostream(response_.body())
+    << "Starting sim\r\n";
+    start_sim();
   }
   
   else
@@ -132,7 +157,7 @@ void http_server(tcp::acceptor& acceptor, tcp::socket& socket)
 }
 
 
-void start_server(std::string address_input, unsigned int port_input)
+void start_server(std::string address_input, unsigned int port_input, void (*start_sim_callback)())
 {
   try
   {

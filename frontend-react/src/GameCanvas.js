@@ -7,9 +7,8 @@ const player_color_coding = ['red', 'green', 'orange', 'blue', 'yellow', 'purple
  * - players := []
  *
  */
-function GameCanvas(props) {
+function GameCanvas({players, height, width}) {
   const canvasRef = React.useRef(null);
-  const players = props.players;
 
   React.useEffect(() => {
     const canvas = canvasRef.current;
@@ -17,10 +16,8 @@ function GameCanvas(props) {
     ctx.clearRect(0, 0, 1200, 800);
 
     players.map( player => {
-      console.log('player: ', player.num, player.x_pos, player.y_pos);
-      //ctx.fillStyle = player_color_coding[parseInt(player.num)];
       ctx.beginPath();
-      ctx.arc(player.x_pos, player.y_pos, player.radius, 0, 2 * Math.PI);
+      ctx.arc(player.pos.x, player.pos.y, player.radius, 0, 2 * Math.PI);
       ctx.fillStyle = player_color_coding[player.id];
       ctx.fill();
       ctx.strokeStyle = "green";
@@ -32,7 +29,7 @@ function GameCanvas(props) {
 
 
 
-  return <canvas style={{border: 2+"px solid"}} ref={canvasRef} width={1200} height={800} />;
+  return <canvas style={{border: 2+"px solid"}} ref={canvasRef} width={width} height={height} />;
 }
 
 export default GameCanvas;

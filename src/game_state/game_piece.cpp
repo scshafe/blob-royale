@@ -303,7 +303,7 @@ PhyVector GamePiece::phy_vector_to_other_player(const GamePiece* other)
 bool GamePiece::detect_player_on_player_collision(const GamePiece* other)
 {
   ENTRANCE << "detect_player_on_player_collision()";
-  PhyVector collision_vector = phy_vector_to_other_player(other);
+  PhyVector collision_vector(this->position, other->position); 
   if (collision_vector.get_magnitude() > PLAYER_ON_PLAYER_COLLISION)
   {
     WARNING << "no collision - magnitude: " << collision_vector.get_magnitude();
@@ -322,11 +322,11 @@ bool GamePiece::detect_player_on_player_collision(const GamePiece* other)
 
 
 
-void GamePiece::handle_player_on_player_collision(const GamePiece* other)
+void GamePiece::handle_player_on_player_collision(GamePiece* other)
 {
   ENTRANCE << "handle_player_on_player_collision()";
   TRACE << "collision between players " << id << " and " << other->id;
-  next_velocity = BuildAfterCollisionVelocity(this, other);
+  update_next_velocities(other);
   TRACE << "velocity will be change: " << velocity << " --> " << next_velocity;
 }
 
@@ -381,7 +381,10 @@ void GamePiece::player_on_player_collision(GamePiece* other)
 {
   ENTRANCE << "player_on_player_collision()";
   if (already_compared.contains(other)) return;
+  
   already_compared.insert(other);
+  other->already_compared.insert(this);
+  
   if (detect_player_on_player_collision(other))
   {
     handle_player_on_player_collision(other);
@@ -394,15 +397,15 @@ PhyVector BuildCollisionVector(const PhyVector a, const PhyVector b)
                    a.y - b.y);
 }
 
-PhyVector BuildAfterCollisionVelocity(GamePiece* a, const GamePiece* b)
+void GamePiece::update_next_velocities(GamePiece* b)
 {
-  float m1 = a->get_mass();
+  float m1 = this->get_mass();
   float m2 = b->get_mass();
 
-  PhyVector p1(a->get_position());
+  PhyVector p1(this->get_position());
   PhyVector p2(b->get_position());
 
-  PhyVector v1(a->get_velocity());
+  PhyVector v1(this->get_velocity());
   PhyVector v2(b->get_velocity());
 
   PhyVector n(p2 - p1);
@@ -419,120 +422,21 @@ PhyVector BuildAfterCollisionVelocity(GamePiece* a, const GamePiece* b)
   float v1n_after (((v1n * (m1 - m2)) + (v2n * (2 * m2))) / (m1 + m2));
   float v1t_after (v1t);
 
+  float v2n_after (((v2n * (m2 - m1)) + (v1n * (2 * m1))) / (m2 + m1));
+  float v2t_after (v2t);
+
   PhyVector v1n_vec(un * v1n_after);
   PhyVector v1t_vec(ut * v1t_after);
 
-  PhyVector res(v1n_vec + v1t_vec);
-  return res;
+  PhyVector v2n_vec(un * v2n_after);
+  PhyVector v2t_vec(ut * v1t_after);
+
+  PhyVector res1(v1n_vec + v1t_vec);
+  PhyVector res2(v2n_vec + v2t_vec);
+  
+  b->next_velocity = res2;
+  next_velocity = res1;
 
 }
-//PhyVector BuildAfterCollisionVelocity(GamePiece* a, const GamePiece* b)
-//{
-//  WARNING << std::endl << "~~~ Player on Player collision ~~~" << std::endl;
-//  PhyVector ax(a->get_position());
-//  PhyVector bx(b->get_position());
-//
-//  PhyVector av(a->get_velocity());
-//  PhyVector bv(b->get_velocity());
-//
-//  float am = a->get_mass();
-//  float bm = b->get_mass();
-//
-//  PhyVector v1_v2 = av - bv;
-//  PhyVector v2_v1 = bv - av;
-//
-//
-//  float x_zmf = ( (a->get_mass() * a->get_velocity().x) + 
-//                  (b->get_mass() * b->get_velocity().x) )  / 
-//                (a->get_mass() + b->get_mass());
-//
-//  float y_zmf = ( (a->get_mass() * a->get_velocity().y) + 
-//                  (b->get_mass() * b->get_velocity().y) )  / 
-//                (a->get_mass() + b->get_mass());
-//
-//  PhyVector x1_x2 = ax - bx;
-//
-//  PhyVector res = av -  (x1_x2  *  ((2 * bm) / (am + bm))  * v1_v2.dot(x1_x2) / x1_x2.get_magnitude() );
-//  
-//  TRACE << "v1_v2: " << v1_v2                  << std::endl
-//        << "x1_x2: " << x1_x2                  << std::endl
-//        << "mag:   " << x1_x2.get_magnitude()  << std::endl
-//        << "v1:    " << av                     << std::endl
-//        << "v2:    " << bv;
-//
-//  
-//  return res;
-//
-//}
-
-//PhyVector BuildAfterCollisionVelocity(GamePiece* a, const GamePiece* b)
-//{
-//  WARNING << std::endl << "~~~ Player on Player collision ~~~" << std::endl;
-//  TRACE << "a: " << *a;
-//  TRACE << "b: " << *b;
-//  PhyVector collision = BuildCollisionVector(a->get_position(), b->get_position());
-//
-//  TRACE << collision;
-//  
-//  float x_zmf = ( (a->get_mass() * a->get_velocity().x) + 
-//                  (b->get_mass() * b->get_velocity().x) )  / 
-//                (a->get_mass() + b->get_mass());
-//
-//  float y_zmf = ( (a->get_mass() * a->get_velocity().y) + 
-//                  (b->get_mass() * b->get_velocity().y) )  / 
-//                (a->get_mass() + b->get_mass());
-//
-//  PhyVector zmf(x_zmf, y_zmf);
-//  
-//  TRACE << "\nzmf: " zmf;
-//
-//  float uax_zmf = a->get_velocity().x - x_zmf;
-//  float uay_zmf = a->get_velocity().y - y_zmf;
-//
-//  PhyVector ua_zmf(uax_zmf, uay_zmf);
-//
-//  TRACE << "ua_zmf " << ua_zmf;
-//
-//  float ubx_zmf = b->get_velocity().x - x_zmf;
-//  float uby_zmf = b->get_velocity().y - y_zmf;
-//
-//  PhyVector ub_zmf(ubx_zmf, uby_zmf);
-//
-//  TRACE << "ub_zmf " <<  ub_zmf;
-//
-//  float am = a->get_mass() / (a->get_mass() + b->get_mass());
-//  float bm = b->get_mass() / (a->get_mass() + b->get_mass());
-//
-//  PhyVector a_norm = collision.normalize();
-//  PhyVector b_norm = collision.normalize();
-//  
-//  
-//
-//  float ax_final = (
-//
-//
-//
-//
-//
-//  TRACE << "post";
-//  TRACE << ax_post << "  " << ay_post;
-//  TRACE << bx_post << "  " << by_post;
-//
-//  float ax_final = ax_post + x_zmf;
-//  float ay_final = ay_post + y_zmf;
-//
-//  float bx_final = bx_post + x_zmf;
-//  float by_final = by_post + y_zmf;
-//
-//  TRACE << "final";
-//  TRACE << ax_final << "  " << ay_final;
-//  TRACE << bx_final << "  " << by_final;
-//
-////  std::string tmp;
-////  std::cin >> tmp;
-//
-//  return PhyVector(ax_final, ay_final);
-//}
-
 
 

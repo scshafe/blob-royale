@@ -70,7 +70,7 @@ function App() {
         data.map( p => {
           if (p["type"] === "player")
           {
-            let new_player = new Player(p["gamepiece"]);
+            let new_player = new Player(p["gamepiece"], config.get("radius"));
             tmp_players.push(new_player);
           }
         });

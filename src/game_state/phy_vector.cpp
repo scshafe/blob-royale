@@ -25,21 +25,21 @@ PhyVector::PhyVector()
 
 
 
-//PhyVector::PhyVector(const float& x_in, const float& y_in)
-//{
-//  x = x_in;
-//  y = y_in;
-//}
-
-PhyVector::PhyVector(const float x_in, const float y_in)
+PhyVector::PhyVector(const float& x_in, const float& y_in)
 {
   x = x_in;
   y = y_in;
 }
 
+PhyVector::PhyVector(const PhyVector& a, const PhyVector& b) 
+{
+  x = a.x - b.x;
+  y = a.y - b.y;
+}
+
 PhyVector::~PhyVector() {}
 
-PhyVector& PhyVector::operator=(const PhyVector& other)
+PhyVector& PhyVector::operator=(PhyVector& other)
 {
   if (this == &other) return *this;
   x = other.x;
@@ -47,7 +47,7 @@ PhyVector& PhyVector::operator=(const PhyVector& other)
   return *this;
 }
 
-std::ostream& operator<<(std::ostream& os, PhyVector const & pv)
+std::ostream& operator<<(std::ostream& os, const PhyVector& pv)
 {
   return os << "(" << pv.x << "," << pv.y << ")";
 }
@@ -59,7 +59,7 @@ float PhyVector::get_magnitude() {
 
 boost::json::array PhyVector::getPhyVectorJson()
 {
-  return {int(x), int(y)};
+  return {x, y};
 }
 
 PhyVector PhyVector::get_inverse()
@@ -80,24 +80,24 @@ PhyVector PhyVector::normalize()
 }
 
 
-PhyVector PhyVector::operator-(const PhyVector b)
+PhyVector PhyVector::operator-(const PhyVector& b)
 {
   return PhyVector(x - b.x, y - b.y);
 }
 
 
-PhyVector PhyVector::operator+(const PhyVector b)
+PhyVector PhyVector::operator+(const PhyVector& b)
 {
   return PhyVector(x + b.x, y + b.y);
 }
 
 
-PhyVector PhyVector::operator*(const float b)
+PhyVector PhyVector::operator*(const float& b)
 {
   return PhyVector(x * b, y * b);
 }
 
-PhyVector PhyVector::operator/(const float b)
+PhyVector PhyVector::operator/(const float& b)
 {
   return PhyVector(x / b, y / b);
 }

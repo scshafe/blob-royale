@@ -68,7 +68,7 @@ public:
   boost::json::object getGamePieceJson();
   PhyVector phy_vector_to_other_player(const GamePiece* other);
   bool detect_player_on_player_collision(const GamePiece* other);
-  void handle_player_on_player_collision(const GamePiece* other);
+  void handle_player_on_player_collision(GamePiece* other);
   void handle_possible_collision_with_wall();
 
   void player_on_player_collision(GamePiece* other);
@@ -76,6 +76,7 @@ public:
   void update_velocity();
   void update_position();
   void calculate_next_velocity();
+  void update_next_velocities(GamePiece* b);
 
   void add_new_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
                              std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
@@ -87,7 +88,6 @@ public:
 };
 
 PhyVector BuildCollisionVector(const PhyVector a, const PhyVector b);
-PhyVector BuildAfterCollisionVelocity(GamePiece* a, const GamePiece* b);
 
 
 

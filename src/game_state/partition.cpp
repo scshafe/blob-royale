@@ -5,14 +5,87 @@
 #include "partition.hpp"
 #include "game_piece.hpp"
 
-Partition::Partition() :
-  pieces(std::unordered_set<GamePiece*>(0))
+
+// ---------- CELL -----------
+
+Cell::Cell()
+{
+  ERROR << "Cell() constructor should not be called";
+  exit(1);
+}
+
+// for finding what Partition a GamePiece is in
+Cell::Cell(const GamePiece* gp)
+{
+  _row = floor(gp->get_position().y / PARTITION_HEIGHT);
+  _col = floor(gp->get_position().x / PARTITION_WIDTH);
+}
+
+// for building partiitons
+Cell::Cell(const size_t& row, const size_t& col)
+{
+  _row = row;
+  _col = col;
+}
+
+Cell::Cell(const float& x, const float& y)
+{
+  _row = floor(y / PARTITION_HEIGHT);
+  _col = floor(x / PARTITION_WIDTH);
+}
+
+Cell::Cell(const GamePiece& gp)
+{
+  _row = floor(gp.get_position().y / PARTITION_HEIGHT);
+  _col = floor(gp.get_position().x / PARTITION_WIDTH);
+}
+
+const size_t Cell::row()
+{
+  return _row;
+}
+
+const size_t Cell::col()
+{
+  return _col;
+}
+
+boost::json::array Cell::getCellJson()
+{
+  return boost::json::array({_row, _col});
+}
+
+std::ostream& operator<<(std::ostream& os, const Cell& c)
+{
+  return os << "[" << c._row << "," << c._col << "]";
+}
+
+bool Cell::operator==(const Cell& other)
+{
+  return _row == other._row && _col == other._col;
+}
+bool Cell::operator<(const Cell& other)
+{
+  if (_row < other._row) return true;
+  if (_row > other._row) return false;
+  return _row < other._row;
+}
+
+
+// ---------- PARTITION ------------
+
+
+Partition::Partition(const size_t& row, const size_t& col) :
+  c(row, col),
+  pieces(std::unordered_set<GamePiece*>())
 {}
+
 
 void Partition::add_game_piece(GamePiece* game_piece)
 {
   ENTRANCE << "Partition::add_game_piece()";
   pieces.insert(game_piece);
+  TRACE << *this << "now has " << pieces.size() << " pieces";
 }
 
 void Partition::remove_game_piece(GamePiece* game_piece)
@@ -21,7 +94,67 @@ void Partition::remove_game_piece(GamePiece* game_piece)
   pieces.erase(game_piece);
 }
 
-const std::unordered_set<GamePiece*> Partition::get_game_pieces()
+void Partition::check_for_collisions(GamePiece* gp)
 {
-  return pieces;
+  ENTRANCE << "check_for_collisions()";
+  print_gp_list();  
+  if (pieces.size() == 1)
+  {
+    WARNING << "pieces size is 1";
+    assert(**pieces.begin() == *gp);
+  }
+  else
+  {
+    WARNING << "Populated partition: " << *this;
+    for (auto nearby = pieces.begin(); nearby != pieces.end(); ++nearby)
+    {
+      GamePiece* other = *nearby;
+      WARNING << *other;
+      if (*gp == *other)
+      {
+        continue;
+      }
+
+      gp->player_on_player_collision(other);
+    }
+  }
 }
+
+
+
+boost::json::array Partition::getPartJson()
+{
+  return c.getCellJson();
+}
+
+std::ostream& operator<<(std::ostream& os, const Partition& p)
+{
+  return os << "Partition: " << p.c;
+}
+
+void Partition::print_gp_list()
+{
+  TRACE << "Partition " << *this << " gamepieces:";
+  for (auto it = pieces.begin(); it != pieces.end(); ++it)
+  {
+    if (*it == nullptr)
+    {
+      ERROR << "INVALID GP";
+      exit(1);
+    }
+    TRACE << **it;
+  }
+}
+
+bool Partition::operator==(const Partition& other)
+{
+  return c == other.c;
+}
+
+
+bool Partition::operator<(const Partition& other)
+{
+  return c < other.c;
+}
+
+

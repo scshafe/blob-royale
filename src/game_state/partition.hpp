@@ -4,27 +4,67 @@
 #include <unordered_set>
 #include <memory>
 #include <ostream>
+
+#include "boost-json.hpp"
+
 #include "game_piece.hpp"
-
-
-
-
 
 class GamePiece;
 
+
+class Cell
+{
+  size_t _row;
+  size_t _col; 
+
+public:
+  Cell();
+  Cell(const size_t& row, const size_t& col);
+  Cell(const GamePiece* gp);
+  Cell(const float& x, const float& y);
+  Cell(const GamePiece& gp);
+  boost::json::array getCellJson();
+
+  const size_t row();
+  const size_t col();
+
+  friend std::ostream& operator<<(std::ostream& os, const Cell& c);
+
+  bool operator==(const Cell& other);
+  bool operator<(const Cell& other);
+  
+
+};
+
+
+
+// -------- PARTITION --------
+
+
 class Partition {
 public:
-  Partition();
+  Partition(const size_t& row, const size_t& col);
+  
+  static std::shared_ptr<Partition> buildPartition(const size_t& row, const size_t& col)
+  {
+    return std::make_shared<Partition>(row, col);
+  }
 
-  int id;
+  Cell c;
   std::unordered_set<GamePiece*> pieces;
 
 public:
   void add_game_piece(GamePiece* game_piece);
   void remove_game_piece(GamePiece* game_piece);
-  const std::unordered_set<GamePiece*> get_game_pieces();
+  void check_for_collisions(GamePiece* gp);
   
+  boost::json::array getPartJson();
 
+  friend std::ostream& operator<<(std::ostream& os, const Partition& p);
+  void print_gp_list();
+
+  bool operator==(const Partition& other);
+  bool operator<(const Partition& other);
 
 };
 

@@ -1,4 +1,3 @@
-#include <thread>
 
 #include "boost-log.hpp"
 #include "boost-program-options.hpp"
@@ -9,10 +8,6 @@
 #include "server.hpp"
 
 
-void start_sim_callback()
-{
-  std::thread simulation(*GameState::get_instance());
-}
 
 int main(int argc, char** argv)
 {
@@ -39,7 +34,7 @@ int main(int argc, char** argv)
   
   std::string address = vm["IPv4"].as<std::string>();
   unsigned int port = vm["port"].as<unsigned int>();
-  start_server(address, port, start_sim_callback);
+  start_server(address, port);
 
   return EXIT_FAILURE;
 }

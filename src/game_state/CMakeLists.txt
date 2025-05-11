@@ -3,6 +3,8 @@
 file(GLOB game_state_sources *.cpp)
 
 
+find_package(Threads REQUIRED)
+
 add_library(game_state 
             STATIC )
 
@@ -33,6 +35,7 @@ target_link_directories(game_state
 target_link_libraries(game_state
                       PUBLIC
                       my_boost_config
+                      Threads::Threads
                     )
 
 

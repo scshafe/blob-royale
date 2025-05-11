@@ -2,6 +2,7 @@
 #include <sstream>
 #include <cassert>
 #include <stdexcept>
+#include <algorithm>
 
 // open-source-libs
 #include "rapidcsv.h"
@@ -13,45 +14,38 @@
 // game-state
 #include "game_engine_parameters.hpp"
 #include "game_state.hpp"
+#include "partition.hpp"
 
 GameState* GameState::p_inst = nullptr;
 
 extern src::severity_logger< severity_level > lg;
 
 
-struct Cell
-{
-  size_t row;
-  size_t col; 
-  
-  Cell(const GamePiece* gp)
-  {
-    row = floor(gp->get_position().y / PARTITION_HEIGHT);
-    col = floor(gp->get_position().x / PARTITION_WIDTH);
-  }
 
-  Cell(const float& x, const float& y)
-  {
-    row = floor(y / PARTITION_HEIGHT);
-    col = floor(x / PARTITION_WIDTH);
-  }
-
-  Cell(const GamePiece& gp)
-  {
-    row = floor(gp.get_position().y / PARTITION_HEIGHT);
-    col = floor(gp.get_position().x / PARTITION_WIDTH);
-  }
-};
-
-std::ostream& operator<<(std::ostream& os, const Cell& c)
-{
-  return os << "[" << c.row << "," << c.col << "]";
-}
 
 
 void GameState::initialize(std::string testfile)
 {
   ENTRANCE << "GameState::initialize()";
+
+  for (size_t row = 0; row < SPATIAL_PARTITION_ROWS; row++)
+  {
+    spatial_partition.emplace_back();
+    for (size_t col = 0; col < SPATIAL_PARTITION_COLS; col++)
+    {
+      std::shared_ptr<Partition> tmp = Partition::buildPartition(row, col);
+      spatial_partition[row].push_back(std::move(tmp));
+    }
+  }
+
+  for (size_t row = 0; row < SPATIAL_PARTITION_ROWS; row++)
+  {
+    for (size_t col = 0; col < SPATIAL_PARTITION_COLS; col++)
+    {
+      TRACE << *spatial_partition[row][col];
+    }
+  }
+
 
   rapidcsv::Document doc(testfile);
 
@@ -74,8 +68,8 @@ void GameState::initialize(std::string testfile)
 GameState::GameState() :
   players(),
   width(MAP_WIDTH),
-  height(MAP_HEIGHT),
-  spatial_partition(std::vector<std::vector<std::shared_ptr<Partition>>>(SPATIAL_PARTITION_ROWS, std::vector<std::shared_ptr<Partition>>(SPATIAL_PARTITION_COLS)))
+  height(MAP_HEIGHT)
+//  spatial_partition(std::vector<std::vector<std::shared_ptr<Partition>>>(SPATIAL_PARTITION_ROWS, std::vector<std::shared_ptr<Partition>>(SPATIAL_PARTITION_COLS)))
 {}
 
 GameState* GameState::get_instance()
@@ -92,41 +86,68 @@ GameState::~GameState() {}
 // allows the class object to be passed to a new thread
 void GameState::operator()()
 {
-  run_sim();
+  sim_loop();
 }
 
 
 void GameState::update_positions()
 {
-  for (int i = 0; i < players.size(); i++)
+  ENTRANCE << "GameState::update_positions()";
+  for (auto p : players)
   {
-    players[i]->update_position();
+    p->update_position();
   }
 }
 
 
 // aka: check for collisions
 void GameState::update_velocities()
-{
-  for (int i = 0; i < players.size(); i++)
+{ 
+  ENTRANCE << "GameState::update_velocities()";
+  for (auto p : players)
   {
-    players[i]->update_position();
+    p->update_velocity();
   }
 }
 
-void GameState::run_sim()
+void GameState::calculate_next_velocities()
+{
+  ENTRANCE << "GameState::calculate_next_velocities()";
+  for (auto p : players)
+  {
+    p->calculate_next_velocity();
+  }
+}
+
+void GameState::start_sim()
+{
+  running = true;
+  std::thread t(&GameState::sim_loop, this);
+  t.detach();
+}
+
+
+void GameState::sim_loop()
 {
   unsigned int tick_count = 0;
-  while (true)
+  while (running)
   {
-    LOG << "GameState::run_sim() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
+    LOG << "GameState::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
+
+    calculate_next_velocities();
 
     update_velocities();
 
     update_positions();
 
+    // should be able to turn this off in live (after locking)
     usleep(GAME_TICK_PERIOD_US);
   }
+}
+
+void GameState::pause_sim()
+{
+  running = false;
 }
 
 boost::json::array GameState::game_info()
@@ -147,6 +168,9 @@ boost::json::object GameState::game_config()
   json_config["height"] = MAP_HEIGHT;
   json_config["radius"] = PLAYER_RADIUS;
   json_config["interval"] = GAME_TICK_PERIOD_MS;
+  json_config["part_rows"] = SPATIAL_PARTITION_ROWS;
+  json_config["part_cols"] = SPATIAL_PARTITION_COLS;
+  json_config["player_collision"] = PLAYER_ON_PLAYER_COLLISION;
 
   return json_config;
 }  
@@ -154,29 +178,40 @@ boost::json::object GameState::game_config()
 std::shared_ptr<Partition> GameState::get_partition(const GamePiece* gp)
 {
   Cell tmp (gp);
-  return spatial_partition[tmp.row][tmp.col];
+  TRACE << "Cell for get_partition() : " << tmp;
+  return spatial_partition[tmp.row()][tmp.col()];
+  //return std::make_shared<Partition>(*spatial_partition[tmp.row()][tmp.col()]);
 }
 
-std::set<std::shared_ptr<Partition>> GameState::get_partition_and_nearby(const GamePiece* gp)
+void GameState::get_partition_and_nearby(const GamePiece* gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
 {
-  std::set<std::shared_ptr<Partition>> tmp_parts;
-  Cell tmp (gp); 
+  Cell tmp (*gp); 
 
-  for (int row = tmp.row - 1; row <= tmp.row + 1; row++)
+  TRACE << "finding partitions around Cell: " << tmp;
+
+  for (size_t row = (tmp.row() == 0 ? 0 : tmp.row() - 1); row <= tmp.row() + 1; row++)
   {
-    for (int col = tmp.col - 1; col <= tmp.col + 1; col++)
+    TRACE << "row: " << row;
+    for (size_t col = (tmp.col() == 0 ? 0 : tmp.col() - 1); col <= tmp.col() + 1; col++)
     {
+      TRACE << "col: " << col;
       try
       {
-        tmp_parts.insert(spatial_partition.at(row).at(col));
+        TRACE << "attempting: " << row << "," << col;
+        TRACE << *spatial_partition.at(row).at(col);
+        //std::shared_ptr<Partition> tmp_ptr = spatial_partition.at(row).at(col);
+          //std::make_shared<Partition>(*spatial_partition.at(row).at(col));
+        //tmp_parts.insert(std::move(tmp_ptr));
+        tmp_parts.emplace(spatial_partition.at(row).at(col));
       }
       catch (const std::out_of_range& oor)
       {
+        Cell tmp_2 (row, col);
+        TRACE << tmp_2 << " is invalid";
         // Nothing to do here... could add logs
       }
     }
   }
-  return tmp_parts;
 }
 
 

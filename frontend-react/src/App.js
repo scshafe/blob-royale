@@ -4,25 +4,45 @@ import logo from './logo.svg';
 import './App.css';
 import GameCanvas from './GameCanvas';
 import Player from './Player.js';
-import Config from './Config.js'
-
+import Config from './Config.js';
+import DebugPanel from './DebugPanel.js';
 
 function App() {
-
-  const [count, setCount] = React.useState(null);
   const [players, setPlayers] = React.useState([]);
   const [fetchInterval, setFetchInterval] = React.useState(null);
   const [config, setConfig] = React.useState(new Map());
   const [started, setStarted] = React.useState(false);
+  const [running, setRunning] = React.useState(false);
 
   axios.defaults.baseURL = "http://192.168.86.12:8000";
 
-  const getNewCount = () => {
-    axios.get("react-count")
-      .then((response) => {
-        setCount(response.data);
+  
+  const pauseSim = () => {
+    clearInterval(fetchInterval);
+    setFetchInterval(null);
+    axios.get("pause-sim")
+    .then((response) => {
+        console.log("pause-sim response: ", response);
+        setRunning(false);
       });
+  }
+
+
+  const startSim = () => {
+    axios.get("start-sim")
+      .then((response) => {
+        console.log("start-sim response: ", response);
+        setStarted(true);
+      })
+      .then(() => {
+        let tmp = setInterval(getGameState, config.get("interval"));
+        setFetchInterval(tmp);
+        setRunning(true);
+      });
+      
+
   };
+
 
   const build_player = (gp) => {
     let new_player = new Player(gp);
@@ -34,7 +54,7 @@ function App() {
     const tmp = new Map(new_config);
     console.log("Updating config: ", new_config);
     setConfig(new_config);
-  }
+  };
 
 
 
@@ -61,33 +81,19 @@ function App() {
       });
   };
 
-  const pauseFetching = () => {
-    clearInterval(fetchInterval);
-    setFetchInterval(null);
-  }
-
-  const beginFetching = () => {
-    let tmp = setInterval(getGameState, 500);
-    setFetchInterval(tmp);
-  }
-
-  
-
   return (
     <div className="App">
-      <Config config={config} onConfigReceived={receiveConfig} />
+      <Config players={players} config={config} onConfigReceived={receiveConfig} />
 
-      <div>
-        Config
-        <ul>
-          { config.forEach( (value, key) => (
-            <li key={value}>{value}: {key}</li>
-          ))}
-        </ul>
-      </div>
-      { fetchInterval === null ? 
-        (<button onClick={beginFetching}>fetch</button>) :
-        (<button onClick={pauseFetching}>pause</button>)
+      <DebugPanel players={players} config={config} started={started} />
+      
+      { !started  ?
+        (<button onClick={startSim}>start</button>) :
+        (
+          fetchInterval === null ? 
+          (<button onClick={startSim}>resume</button>) :
+          (<button onClick={pauseSim}>pause</button>)
+        )
       }
       <ul>
         {players.map(player => (
@@ -95,7 +101,7 @@ function App() {
         ))}
       </ul>
 
-      <GameCanvas players={players} height={config.get("height")} width={config.get("width")} />
+      <GameCanvas players={players} config={config} />
     </div>
   );
 }

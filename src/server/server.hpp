@@ -5,14 +5,12 @@
 class http_connection : public std::enable_shared_from_this<http_connection>
 {
 public:
-    http_connection(tcp::socket socket, void (*start_sim_callback)());
     http_connection(tcp::socket socket);
     // Initiate the asynchronous operations associated with the connection.
     void start();
     
 private:
 
-  void (*start_sim)();
 
   // The socket for the currently connected client.
   tcp::socket socket_;
@@ -51,5 +49,5 @@ void
 http_server(tcp::acceptor& acceptor, tcp::socket& socket);
 
 
-void start_server(std::string address_input, unsigned int port_input, void (*start_sim_callback)());
+void start_server(std::string address_input, unsigned int port_input);
 

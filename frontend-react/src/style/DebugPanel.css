@@ -1,0 +1,25 @@
+
+
+
+
+.DebugPanel {
+  border: 1px solid;
+
+  table {
+    border: 2px solid;
+    display: inline-block;
+    border-collapse: collapse;
+  }
+
+  tr, th {
+    border: 1px solid;
+  }
+
+  .ConfigTable {
+
+  };
+
+  .PlayerTable {
+    
+  };
+};

@@ -13,14 +13,19 @@ function Config({config, onConfigReceived }) {
       })
       .then( data => {
         const tmp =  new Map();
-        tmp.set("width", data["width"]);
-        tmp.set("height", data["height"]);
-        tmp.set("radius", data["radius"]);
-        tmp.set("interval", data["interval"]);
+
+        Object.keys(data).forEach( key => {
+          tmp.set(key, data[key]);
+        });
+
+        tmp.set("part_height", tmp.get("height") / tmp.get("part_rows"));
+        tmp.set("part_width" , tmp.get("width") / tmp.get("part_cols"));
 
         onConfigReceived(tmp); // callback passed to child
       })
   };
+
+  if (config.size === 0) getGameConfig();
 
 
   return (

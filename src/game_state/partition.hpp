@@ -20,7 +20,7 @@ class Cell
 public:
   Cell();
   Cell(const size_t& row, const size_t& col);
-  Cell(const GamePiece* gp);
+  Cell(std::shared_ptr<GamePiece> gp);
   Cell(const float& x, const float& y);
   Cell(const GamePiece& gp);
   boost::json::array getCellJson();
@@ -51,12 +51,12 @@ public:
   }
 
   Cell c;
-  std::unordered_set<GamePiece*> pieces;
+  std::unordered_set<std::shared_ptr<GamePiece>> pieces;
 
 public:
-  void add_game_piece(GamePiece* game_piece);
-  void remove_game_piece(GamePiece* game_piece);
-  void check_for_collisions(GamePiece* gp);
+  void add_game_piece(std::shared_ptr<GamePiece> game_piece);
+  void remove_game_piece(std::shared_ptr<GamePiece> game_piece);
+  void check_for_collisions(std::shared_ptr<GamePiece> gp);
   
   boost::json::array getPartJson();
 

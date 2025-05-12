@@ -54,7 +54,9 @@ void GameState::initialize(std::string testfile)
     std::vector<std::string> row = doc.GetRow<std::string>(i);
     if (row[0] == "player")
     {
-      players.emplace_back(new Player(row));
+      std::shared_ptr<Player> tmp = std::make_shared<Player>(row);
+      std::shared_ptr<GamePiece> gp_tmp = std::dynamic_pointer_cast<GamePiece> (tmp);
+      players.push_back(std::move(gp_tmp));
 
     }
     else
@@ -62,6 +64,10 @@ void GameState::initialize(std::string testfile)
       ERROR << "Error: failed to add player";
       exit(1);
     }
+  }
+  for (auto p : players)
+  {
+    p->update_partitions();
   }
 }
 
@@ -119,6 +125,15 @@ void GameState::calculate_next_velocities()
   }
 }
 
+void GameState::update_partitions()
+{
+  ENTRANCE << "GameState::update_parititons()";
+  for (auto p : players)
+  {
+    p->update_partitions();
+  }
+}
+
 void GameState::start_sim()
 {
   running = true;
@@ -140,6 +155,7 @@ void GameState::sim_loop()
 
     update_positions();
 
+    update_partitions();
     // should be able to turn this off in live (after locking)
     usleep(GAME_TICK_PERIOD_US);
   }
@@ -153,9 +169,9 @@ void GameState::pause_sim()
 boost::json::array GameState::game_info()
 {
   boost::json::array json_players;
-  for (auto p_it = players.begin(); p_it != players.end(); ++p_it)
+  for (auto p : players)
   {
-    json_players.push_back(((Player*)(*p_it))->getPlayerJson());
+    json_players.push_back(dynamic_cast<Player&>(*p).getGamePieceJson());
   }
   return json_players;
 }
@@ -175,17 +191,19 @@ boost::json::object GameState::game_config()
   return json_config;
 }  
   
-std::shared_ptr<Partition> GameState::get_partition(const GamePiece* gp)
+std::shared_ptr<Partition> GameState::get_partition(std::shared_ptr<GamePiece> gp)
 {
+  //std::shared_ptr<GamePiece> tmp_gp = gp;
+  //std::shared_ptr<GamePiece> tmp_gp = std::make_shared<GamePiece>(gp);
   Cell tmp (gp);
   TRACE << "Cell for get_partition() : " << tmp;
   return spatial_partition[tmp.row()][tmp.col()];
   //return std::make_shared<Partition>(*spatial_partition[tmp.row()][tmp.col()]);
 }
 
-void GameState::get_partition_and_nearby(const GamePiece* gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
+void GameState::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
 {
-  Cell tmp (*gp); 
+  Cell tmp (gp); 
 
   TRACE << "finding partitions around Cell: " << tmp;
 

@@ -21,7 +21,7 @@ public:
   Player(std::vector<std::string> row);
   ~Player();
   
-  boost::json::object getPlayerJson();
+  virtual boost::json::object getGamePieceJson();
 };
 
 

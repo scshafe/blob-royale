@@ -22,12 +22,12 @@ Player::~Player()
   TRACE << "deleting player " << id;
 }
 
-boost::json::object Player::getPlayerJson()
+boost::json::object Player::getGamePieceJson()
 {
   boost::json::object root;
 
   root["type"] = "player";
-  root["gamepiece"] = getGamePieceJson();
+  root["gamepiece"] = GamePiece::getGamePieceJson();
   return root;
 }
 

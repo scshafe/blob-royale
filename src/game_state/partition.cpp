@@ -15,7 +15,7 @@ Cell::Cell()
 }
 
 // for finding what Partition a GamePiece is in
-Cell::Cell(const GamePiece* gp)
+Cell::Cell(std::shared_ptr<GamePiece> gp)
 {
   _row = floor(gp->get_position().y / PARTITION_HEIGHT);
   _col = floor(gp->get_position().x / PARTITION_WIDTH);
@@ -77,24 +77,24 @@ bool Cell::operator<(const Cell& other)
 
 Partition::Partition(const size_t& row, const size_t& col) :
   c(row, col),
-  pieces(std::unordered_set<GamePiece*>())
+  pieces(std::unordered_set<std::shared_ptr<GamePiece>>())
 {}
 
 
-void Partition::add_game_piece(GamePiece* game_piece)
+void Partition::add_game_piece(std::shared_ptr<GamePiece> game_piece)
 {
   ENTRANCE << "Partition::add_game_piece()";
   pieces.insert(game_piece);
   TRACE << *this << "now has " << pieces.size() << " pieces";
 }
 
-void Partition::remove_game_piece(GamePiece* game_piece)
+void Partition::remove_game_piece(std::shared_ptr<GamePiece> game_piece)
 {
   ENTRANCE << "Partition::remove_game_piece()";
   pieces.erase(game_piece);
 }
 
-void Partition::check_for_collisions(GamePiece* gp)
+void Partition::check_for_collisions(std::shared_ptr<GamePiece> gp)
 {
   ENTRANCE << "check_for_collisions()";
   print_gp_list();  
@@ -108,14 +108,13 @@ void Partition::check_for_collisions(GamePiece* gp)
     WARNING << "Populated partition: " << *this;
     for (auto nearby = pieces.begin(); nearby != pieces.end(); ++nearby)
     {
-      GamePiece* other = *nearby;
-      WARNING << *other;
-      if (*gp == *other)
+      if ((**nearby) == (*gp))
       {
         continue;
       }
-
-      gp->player_on_player_collision(other);
+      //std::shared_ptr<GamePiece> tmp_ptr
+      //std::shared_ptr<GamePiece> tmp_ptr = std::make_shared<GamePiece>(*nearby);
+      gp->player_on_player_collision(*nearby);
     }
   }
 }

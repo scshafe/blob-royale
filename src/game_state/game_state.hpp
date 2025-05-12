@@ -32,12 +32,12 @@ public:
   boost::json::array game_info();
   boost::json::object game_config();
 
-  std::shared_ptr<Partition> get_partition(const GamePiece* gp);
-  void get_partition_and_nearby(const GamePiece* gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
+  std::shared_ptr<Partition> get_partition(std::shared_ptr<GamePiece> gp);
+  void get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
 
 private:
   static GameState* p_inst;
-  std::vector<GamePiece*> players;
+  std::vector<std::shared_ptr<GamePiece>> players;
  // std::vector<MapObject*> map_objects;
   float width;
   float height;
@@ -46,6 +46,7 @@ private:
   //std::vector<std::vector<Partition*>> spatial_partition;
   std::vector<std::vector<std::shared_ptr<Partition>>> spatial_partition;
 
+  void update_partitions();
   void update_positions();
   void update_velocities();
   void calculate_next_velocities();

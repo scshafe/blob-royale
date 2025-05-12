@@ -19,15 +19,15 @@ class Partition;
 class GamePiece;
 
 struct GamePiecePtrHash {
-  size_t operator()(const GamePiece* gp) const;
+  size_t operator()(const std::shared_ptr<GamePiece> gp) const;
 };
 
 struct GamePiecePtrEqual {
-  bool operator()(const GamePiece* a, const GamePiece* b) const;
+  bool operator()(const  std::shared_ptr<GamePiece> a, const  std::shared_ptr<GamePiece> b) const;
 };
 
 
-class GamePiece
+class GamePiece : public std::enable_shared_from_this<GamePiece>
 {
 public:
   int id;
@@ -40,7 +40,7 @@ public:
   std::shared_ptr<Partition> current_part;
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> parts;
 
-  std::unordered_set<GamePiece*, GamePiecePtrHash, GamePiecePtrEqual> already_compared;
+  std::unordered_set<std::shared_ptr<GamePiece>, GamePiecePtrHash, GamePiecePtrEqual> already_compared;
 
   //Shape shape;
   bool fixed;
@@ -55,7 +55,7 @@ public:
   friend std::ostream& operator<<(std::ostream& os, const GamePiece& gp);
   void print_part_list();
 
-  const bool operator==(const GamePiece& rhs);
+  bool operator==(const GamePiece& rhs) const;
 
   int get_id() const;
   float get_mass() const;
@@ -65,18 +65,18 @@ public:
 
   void update_partitions();
 
-  boost::json::object getGamePieceJson();
-  PhyVector phy_vector_to_other_player(const GamePiece* other);
-  bool detect_player_on_player_collision(const GamePiece* other);
-  void handle_player_on_player_collision(GamePiece* other);
+  virtual boost::json::object getGamePieceJson();
+//  PhyVector phy_vector_to_other_player(const GamePiece* other);
+  bool detect_player_on_player_collision(const std::shared_ptr<GamePiece> other);
+  void handle_player_on_player_collision(std::shared_ptr<GamePiece> other);
   void handle_possible_collision_with_wall();
 
-  void player_on_player_collision(GamePiece* other);
+  void player_on_player_collision(std::shared_ptr<GamePiece> other);
 
   void update_velocity();
   void update_position();
   void calculate_next_velocity();
-  void update_next_velocities(GamePiece* b);
+  void update_next_velocities(std::shared_ptr<GamePiece> b);
 
   void add_new_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
                              std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);

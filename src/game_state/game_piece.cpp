@@ -6,11 +6,11 @@
 
 
 
-size_t GamePiecePtrHash::operator()(const GamePiece* gp) const {
+size_t GamePiecePtrHash::operator()(const std::shared_ptr<GamePiece> gp) const {
   return std::hash<int>()(gp->get_id());
 }
 
-bool GamePiecePtrEqual::operator()(const GamePiece* a, const GamePiece* b) const {
+bool GamePiecePtrEqual::operator()(const std::shared_ptr<GamePiece> a, const std::shared_ptr<GamePiece> b) const {
   return a->get_id() == b->get_id();
 }
 
@@ -66,8 +66,6 @@ GamePiece::GamePiece(std::vector<std::string> row) :
   }
   
   TRACE << "created player" << *this;
-
-  update_partitions();
 }
 
 GamePiece::~GamePiece()
@@ -98,7 +96,7 @@ void GamePiece::print_part_list()
   }
 }
 
-const bool GamePiece::operator==(const GamePiece& rhs)
+bool GamePiece::operator==(const GamePiece& rhs) const
 {
   return id == rhs.id;
 }
@@ -138,13 +136,13 @@ void GamePiece::add_new_part(std::set<std::shared_ptr<Partition>, std::less<std:
   assert(!new_parts.empty());
   
   auto new_it = new_parts.begin();
-
-  (*new_it)->add_game_piece(this);
+  
+  (*new_it)->add_game_piece(shared_from_this());
 
   //std::shared_ptr<Partition> tmp = std::make_shared<Partition>(**new_it);
-  std::shared_ptr<Partition> tmp = *new_it;
+  //std::shared_ptr<Partition> tmp = *new_it;
 
-  tmp_parts.insert(std::move(tmp));
+  tmp_parts.insert(std::move(*new_it));
   new_parts.erase(new_it);
 
   TRACE << "New parts length: " << new_parts.size();
@@ -158,7 +156,7 @@ void GamePiece::rem_old_part(std::set<std::shared_ptr<Partition>, std::less<std:
 
   auto old_it = old_parts.begin();
 
-  (*old_it)->remove_game_piece(this);
+  (*old_it)->remove_game_piece(shared_from_this());
   parts.erase(old_it);
 
   TRACE << "Old parts length: " << old_parts.size();
@@ -172,10 +170,8 @@ void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std
 
   auto new_it = new_parts.begin();
 
-  //std::shared_ptr<Partition> tmp = std::make_shared<Partition>(**new_it);
-  std::shared_ptr<Partition> tmp = *new_it;
 
-  tmp_parts.insert(std::move(tmp));
+  tmp_parts.insert(std::move(*new_it));
       
   new_parts.erase(new_parts.begin());
   parts.erase(parts.begin());
@@ -205,7 +201,7 @@ void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std
 void GamePiece::update_partitions()
 {
   ENTRANCE << "update_partitions()";
-  std::shared_ptr<Partition> tmp = GameState::get_instance()->get_partition(this);
+  std::shared_ptr<Partition> tmp = GameState::get_instance()->get_partition(shared_from_this());
   
   if (current_part == nullptr)
   {
@@ -229,7 +225,7 @@ void GamePiece::update_partitions()
   }
 
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> new_parts;
-  GameState::get_instance()->get_partition_and_nearby(this, new_parts);
+  GameState::get_instance()->get_partition_and_nearby(shared_from_this(), new_parts);
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> tmp_parts;
 
   TRACE << "New parts length: " << new_parts.size();
@@ -291,19 +287,17 @@ boost::json::object GamePiece::getGamePieceJson()
   return root;
 }
 
-PhyVector GamePiece::phy_vector_to_other_player(const GamePiece* other)
-{
-  PhyVector tmp(position.x - other->position.x, position.y - other->position.y);
-  TRACE << tmp << " has magnitude " << tmp.get_magnitude();
-  return tmp;
-}
+//PhyVector GamePiece::phy_vector_to_other_player(const std::shared_ptr<GamePiece> other)
+//{
+//  PhyVector tmp(position.x - other->position.x, position.y - other->position.y);
+//  TRACE << tmp << " has magnitude " << tmp.get_magnitude();
+//  return tmp;
+//}
 
-
-
-bool GamePiece::detect_player_on_player_collision(const GamePiece* other)
+bool GamePiece::detect_player_on_player_collision(const std::shared_ptr<GamePiece> other)
 {
   ENTRANCE << "detect_player_on_player_collision()";
-  PhyVector collision_vector(this->position, other->position); 
+  PhyVector collision_vector(position, other->position); 
   if (collision_vector.get_magnitude() > PLAYER_ON_PLAYER_COLLISION)
   {
     WARNING << "no collision - magnitude: " << collision_vector.get_magnitude();
@@ -322,7 +316,7 @@ bool GamePiece::detect_player_on_player_collision(const GamePiece* other)
 
 
 
-void GamePiece::handle_player_on_player_collision(GamePiece* other)
+void GamePiece::handle_player_on_player_collision(std::shared_ptr<GamePiece> other)
 {
   ENTRANCE << "handle_player_on_player_collision()";
   TRACE << "collision between players " << id << " and " << other->id;
@@ -356,7 +350,6 @@ void GamePiece::update_position()
   position.y += velocity.y;
 
   already_compared.clear();
-  update_partitions();
 }
 
 void GamePiece::calculate_next_velocity()
@@ -366,7 +359,7 @@ void GamePiece::calculate_next_velocity()
   TRACE << *this << parts.size();
   for (auto part = parts.begin(); part != parts.end(); ++part)
   {
-    (*part)->check_for_collisions(this);
+    (*part)->check_for_collisions(shared_from_this());
     
     handle_possible_collision_with_wall();
   }
@@ -377,13 +370,13 @@ void GamePiece::update_velocity()
   velocity = next_velocity;
 }
 
-void GamePiece::player_on_player_collision(GamePiece* other)
+void GamePiece::player_on_player_collision(std::shared_ptr<GamePiece> other)
 {
   ENTRANCE << "player_on_player_collision()";
   if (already_compared.contains(other)) return;
   
   already_compared.insert(other);
-  other->already_compared.insert(this);
+  other->already_compared.insert(shared_from_this());
   
   if (detect_player_on_player_collision(other))
   {
@@ -397,7 +390,7 @@ PhyVector BuildCollisionVector(const PhyVector a, const PhyVector b)
                    a.y - b.y);
 }
 
-void GamePiece::update_next_velocities(GamePiece* b)
+void GamePiece::update_next_velocities(std::shared_ptr<GamePiece> b)
 {
   float m1 = this->get_mass();
   float m2 = b->get_mass();

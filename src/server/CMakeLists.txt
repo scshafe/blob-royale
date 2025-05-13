@@ -17,7 +17,7 @@ target_sources(my_server
 target_include_directories(my_server
                            PUBLIC
                            my_boost_config
-                           game_state
+                           game_engine
                            ${CMAKE_CURRENT_SOURCE_DIR}
                          )
 
@@ -25,13 +25,13 @@ target_include_directories(my_server
 target_link_directories(my_server
                         PUBLIC
                         my_boost_config
-                        game_state
+                        game_engine
                       )
 
 target_link_libraries(my_server
                       PUBLIC
                       my_boost_config
-                      game_state
+                      game_engine
                     )
 
 

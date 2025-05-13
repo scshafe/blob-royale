@@ -13,10 +13,10 @@
 
 // game-state
 #include "game_engine_parameters.hpp"
-#include "game_state.hpp"
+#include "game_engine.hpp"
 #include "partition.hpp"
 
-GameState* GameState::p_inst = nullptr;
+GameEngine* GameEngine::p_inst = nullptr;
 
 extern src::severity_logger< severity_level > lg;
 
@@ -24,9 +24,9 @@ extern src::severity_logger< severity_level > lg;
 
 
 
-void GameState::initialize(std::string testfile)
+void GameEngine::initialize(std::string testfile)
 {
-  ENTRANCE << "GameState::initialize()";
+  ENTRANCE << "GameEngine::initialize()";
 
   for (size_t row = 0; row < SPATIAL_PARTITION_ROWS; row++)
   {
@@ -71,34 +71,34 @@ void GameState::initialize(std::string testfile)
   }
 }
 
-GameState::GameState() :
+GameEngine::GameEngine() :
   players(),
   width(MAP_WIDTH),
   height(MAP_HEIGHT)
 //  spatial_partition(std::vector<std::vector<std::shared_ptr<Partition>>>(SPATIAL_PARTITION_ROWS, std::vector<std::shared_ptr<Partition>>(SPATIAL_PARTITION_COLS)))
 {}
 
-GameState* GameState::get_instance()
+GameEngine* GameEngine::get_instance()
 {
   if (!p_inst)
   {
-    GameState::p_inst = new GameState();
+    GameEngine::p_inst = new GameEngine();
   }
   return p_inst;
 }
 
-GameState::~GameState() {}
+GameEngine::~GameEngine() {}
 
 // allows the class object to be passed to a new thread
-void GameState::operator()()
+void GameEngine::operator()()
 {
   sim_loop();
 }
 
 
-void GameState::update_positions()
+void GameEngine::update_positions()
 {
-  ENTRANCE << "GameState::update_positions()";
+  ENTRANCE << "GameEngine::update_positions()";
   for (auto p : players)
   {
     p->update_position();
@@ -107,47 +107,47 @@ void GameState::update_positions()
 
 
 // aka: check for collisions
-void GameState::update_velocities()
+void GameEngine::update_velocities()
 { 
-  ENTRANCE << "GameState::update_velocities()";
+  ENTRANCE << "GameEngine::update_velocities()";
   for (auto p : players)
   {
     p->update_velocity();
   }
 }
 
-void GameState::calculate_next_velocities()
+void GameEngine::calculate_next_velocities()
 {
-  ENTRANCE << "GameState::calculate_next_velocities()";
+  ENTRANCE << "GameEngine::calculate_next_velocities()";
   for (auto p : players)
   {
     p->calculate_next_velocity();
   }
 }
 
-void GameState::update_partitions()
+void GameEngine::update_partitions()
 {
-  ENTRANCE << "GameState::update_parititons()";
+  ENTRANCE << "GameEngine::update_parititons()";
   for (auto p : players)
   {
     p->update_partitions();
   }
 }
 
-void GameState::start_sim()
+void GameEngine::start_sim()
 {
   running = true;
-  std::thread t(&GameState::sim_loop, this);
+  std::thread t(&GameEngine::sim_loop, this);
   t.detach();
 }
 
 
-void GameState::sim_loop()
+void GameEngine::sim_loop()
 {
   unsigned int tick_count = 0;
   while (running)
   {
-    LOG << "GameState::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
+    LOG << "GameEngine::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
 
     calculate_next_velocities();
 
@@ -161,12 +161,12 @@ void GameState::sim_loop()
   }
 }
 
-void GameState::pause_sim()
+void GameEngine::pause_sim()
 {
   running = false;
 }
 
-boost::json::array GameState::game_info()
+boost::json::array GameEngine::game_info()
 {
   boost::json::array json_players;
   for (auto p : players)
@@ -177,7 +177,7 @@ boost::json::array GameState::game_info()
 }
 
 
-boost::json::object GameState::game_config()
+boost::json::object GameEngine::game_config()
 {
   boost::json::object json_config;
   json_config["width"] = MAP_WIDTH;
@@ -191,7 +191,7 @@ boost::json::object GameState::game_config()
   return json_config;
 }  
   
-std::shared_ptr<Partition> GameState::get_partition(std::shared_ptr<GamePiece> gp)
+std::shared_ptr<Partition> GameEngine::get_partition(std::shared_ptr<GamePiece> gp)
 {
   //std::shared_ptr<GamePiece> tmp_gp = gp;
   //std::shared_ptr<GamePiece> tmp_gp = std::make_shared<GamePiece>(gp);
@@ -201,7 +201,7 @@ std::shared_ptr<Partition> GameState::get_partition(std::shared_ptr<GamePiece> g
   //return std::make_shared<Partition>(*spatial_partition[tmp.row()][tmp.col()]);
 }
 
-void GameState::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
+void GameEngine::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
 {
   Cell tmp (gp); 
 

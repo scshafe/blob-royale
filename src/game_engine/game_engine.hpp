@@ -17,13 +17,13 @@
 
 
 
-class GameState {
+class GameEngine {
 public:
   void initialize(std::string testfile);
-  GameState();
-  ~GameState();
+  GameEngine();
+  ~GameEngine();
 
-  static GameState* get_instance();
+  static GameEngine* get_instance();
 
   void operator()();
   void sim_loop();
@@ -36,7 +36,7 @@ public:
   void get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
 
 private:
-  static GameState* p_inst;
+  static GameEngine* p_inst;
   std::vector<std::shared_ptr<GamePiece>> players;
  // std::vector<MapObject*> map_objects;
   float width;

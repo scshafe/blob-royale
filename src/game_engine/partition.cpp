@@ -106,15 +106,13 @@ void Partition::check_for_collisions(std::shared_ptr<GamePiece> gp)
   else
   {
     WARNING << "Populated partition: " << *this;
-    for (auto nearby = pieces.begin(); nearby != pieces.end(); ++nearby)
+    for (auto p : pieces)
     {
-      if ((**nearby) == (*gp))
+      if (*p == *gp)
       {
         continue;
       }
-      //std::shared_ptr<GamePiece> tmp_ptr
-      //std::shared_ptr<GamePiece> tmp_ptr = std::make_shared<GamePiece>(*nearby);
-      gp->player_on_player_collision(*nearby);
+      gp->player_on_player_collision(p);
     }
   }
 }

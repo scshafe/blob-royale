@@ -1,38 +1,32 @@
 
 
-file(GLOB game_state_sources *.cpp)
+file(GLOB game_engine_sources *.cpp)
 
 
 find_package(Threads REQUIRED)
 
-add_library(game_state 
+add_library(game_engine 
             STATIC )
 
-target_sources(game_state
+target_sources(game_engine
                PUBLIC
-               ${game_state_sources}
-               #            #${game_state_sources}
-               #            phy_vector.cpp
-               #            game_piece.cpp
-               #            partition.cpp
-               #            player.cpp
-               #            game_state.cpp
+               ${game_engine_sources}
             )
 
-target_include_directories(game_state
+target_include_directories(game_engine
                            PUBLIC
                            my_boost_config
                            ${CMAKE_CURRENT_SOURCE_DIR}
                            "../../open-source-libs/rapidcsv"
 )
 
-target_link_directories(game_state
+target_link_directories(game_engine
                         PUBLIC
                         my_boost_config
                         Threads::Threads
                       )
 
-target_link_libraries(game_state
+target_link_libraries(game_engine
                       PUBLIC
                       my_boost_config
                       Threads::Threads

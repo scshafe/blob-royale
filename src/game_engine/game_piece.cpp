@@ -2,7 +2,7 @@
 #include "boost-json.hpp"
 #include "game_engine_parameters.hpp"
 #include "game_piece.hpp"
-#include "game_state.hpp"
+#include "game_engine.hpp"
 
 
 
@@ -201,7 +201,7 @@ void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std
 void GamePiece::update_partitions()
 {
   ENTRANCE << "update_partitions()";
-  std::shared_ptr<Partition> tmp = GameState::get_instance()->get_partition(shared_from_this());
+  std::shared_ptr<Partition> tmp = GameEngine::get_instance()->get_partition(shared_from_this());
   
   if (current_part == nullptr)
   {
@@ -225,7 +225,7 @@ void GamePiece::update_partitions()
   }
 
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> new_parts;
-  GameState::get_instance()->get_partition_and_nearby(shared_from_this(), new_parts);
+  GameEngine::get_instance()->get_partition_and_nearby(shared_from_this(), new_parts);
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> tmp_parts;
 
   TRACE << "New parts length: " << new_parts.size();

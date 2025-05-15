@@ -4,6 +4,70 @@
 #include "game_piece.hpp"
 #include "game_engine.hpp"
 
+//void GamePiece::calculate_next_velocity()
+//{
+//  ENTRANCE << "update_velocity()" << *this;
+//  print_part_list();
+//  TRACE << *this << parts.size();
+//  for (auto part = parts.begin(); part != parts.end(); ++part)
+//  {
+//    (*part)->check_for_collisions(shared_from_this());
+//    
+//    handle_possible_collision_with_wall();
+//  }
+//}
+
+
+
+#define GET_OTHER_GP_LOCK(gp) if (acquire_another_gamepiece_lock(gp)) { m.unlock(); return false; }
+
+#define UNLOCK_OTHER_GP(gp) gp->m.unlock();
+
+
+// only use the above macro to call this
+bool GamePiece::acquire_another_gamepiece_lock(std::shared_ptr<GamePiece> gp)
+{
+  if (gp->m.try_lock() == false)
+  {
+    if (gp->id < id)
+    {
+      m.unlock();
+      return false;
+    }
+    else
+    {
+      assert(gp->id != id);
+      gp->m.lock();
+      return true;
+    }
+  }
+  return true;
+}
+
+bool GamePiece::acquire_another_gamepiece_lock_velocity(std::shared_ptr<GamePiece> gp)
+{
+  if (gp->m.try_lock() == false)
+  {
+    if (gp->nearest_collision_distance < nearest_collision_distance)
+    {
+      m.unlock();
+      return false;
+    }
+    else if (gp->nearest_collision_distance == nearest_collision_distance && gp->id < id)
+    {
+      m.unlock();
+      return false;
+    else
+    {
+      assert(gp->id != id);
+      gp->m.lock();
+      return true;
+    }
+  }
+  return true;
+}
+
+
 
 
 size_t GamePiecePtrHash::operator()(const std::shared_ptr<GamePiece> gp) const {
@@ -37,7 +101,7 @@ GamePiece::GamePiece(int id_, float x, float y, float vel_x, float vel_y, float 
   ENTRANCE << "GamePiece(int id_, float x, ...)";
 }
 
-GamePiece::GamePiece(std::vector<std::string> row) :
+GamePiece::GamePiece(const int& id_, std::vector<std::string> row) :
   current_part(nullptr),
   parts()
 {
@@ -48,16 +112,16 @@ GamePiece::GamePiece(std::vector<std::string> row) :
     for (auto i : row) vals += i + " ";
     TRACE << "row is: " << vals;
 
-    id = std::stoi(row[1]);
+    id = id_;
     mass = 1.0;
-    position.x = std::stof(row[2]);
-    position.y = std::stof(row[3]);
-    velocity.x = std::stof(row[4]);
+    position.x = std::stof(row[1]);
+    position.y = std::stof(row[2]);
+    velocity.x = std::stof(row[3]);
     next_velocity.x = velocity.x;
-    velocity.y = std::stof(row[5]);
+    velocity.y = std::stof(row[4]);
     next_velocity.y = velocity.y;
-    acceleration.x = std::stof(row[6]);
-    acceleration.y = std::stof(row[7]);
+    acceleration.x = std::stof(row[5]);
+    acceleration.y = std::stof(row[6]);
   }
   catch (...)
   {
@@ -198,7 +262,7 @@ void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std
  *
  */
 
-void GamePiece::update_partitions()
+UpdatePartitionResults GamePiece::update_partitions()
 {
   ENTRANCE << "update_partitions()";
   std::shared_ptr<Partition> tmp = GameEngine::get_instance()->get_partition(shared_from_this());
@@ -264,6 +328,8 @@ void GamePiece::update_partitions()
   }
   TRACE << "parts size: " << parts.size();
   print_part_list();
+
+  return UpdatePartitionResults::success;
 }
 
 
@@ -352,6 +418,123 @@ void GamePiece::update_position()
   already_compared.clear();
 }
 
+
+DetectCollisionResults GamePiece::detect_collision()
+{
+  m.lock();
+  
+  for (auto part : parts)
+  {
+    const std::unordered_set<std::shared_ptr<GamePiece> pieces = part->get_pieces();
+    for (auto gp : pieces)
+    {
+      if (!acquire_another_gamepiece_lock(gp))
+      {
+        m.unlock();
+        return DetectCollisionResults::send_back;
+      }
+      if (already_compared.contains(gp))
+      {
+        UNLOCK_OTHER_GP(gp);
+        continue;
+      }
+      already_compared.insert(gp);
+      gp->already_compared.insert(shared_from_this());
+
+      if (float dist = detect_player_on_player_collision(gp) < PLAYER_ON_PLAYER_COLLISION)
+      {
+        nearest_collision[dist] = gp;
+        gp->nearest_collision[dist] = shared_from_this();
+        
+        nearest_collision_distance = std::min(nearest_collision_distance, dist);
+        gp->nearest_collision_distance = std::min(gp->nearest_collision_distance, dist);
+        
+      }
+      UNLOCK_OTHER_GP(gp);
+    }
+  }
+  m.unlock();
+  if (nearest_collision.empty())
+  {
+    return DetectCollisionResults::none;
+  }
+  return DetectCollisionResults::found;
+}
+
+
+UpdateVelocityResults GamePiece::simple_velocity_update()
+{
+  // add acceleration here
+  velocity = velocity;
+  //velocity = next_velocity;
+  return CacluateVelocityResults::done
+}
+
+UpdateVelocityResults GamePiece::calculate_collision_velocity()
+{
+  m.lock();
+  if (already_calculated == true)
+  {
+    m.unlock();
+    return CalculateVelocityResults::done;
+  }
+
+  while (!nearest_collisions.empty())
+  {
+    if (!acquire_another_gamepiece_lock_velocity(*nearest_collisions.front()))
+    {
+      m.unlock();
+      return CalculateVelocityResults::send_back;
+    }
+    float dist = nearest_collisions.front()->first;
+    std::shared_ptr<GamePiece> gp = nearest_collisions.front()->second;
+    if (gp->already_calculated)
+    {
+      UNLOCK_OTHER_GP(gp);
+      nearest_collisions.erase(nearest_collisions.front());
+      continue;
+    }
+    if (dist == nearset_collision_distance)
+    {
+      update_next_velocities(gp);
+      already_calculated = true;
+      gp->already_calculated = true;
+      UNLOCK_OTHER_GP(gp);
+      m.unlock();
+      return CalculateVelocityResults::done;
+    }
+    assert(false && "calculate_collision_velocity");
+  }
+}
+
+
+UpdatePositionResults GamePiece::update_position()
+{
+  position += velocity;
+  return UpdatePositionsResults::success;
+}
+
+
+
+UpdateFinishedResults GamePiece::handle_finish()
+{
+  // pull new acceleration from cache here
+
+  already_compared.clear();
+  nearest_collision.clear();
+  nearest_collision_distance = 100000.0;
+
+  already_calculated = false;
+
+  if (is_stationary())
+  {
+    return UpdateFinishedResults::stationary;
+  }
+  return UpdateFinishedResults::moving;
+}
+
+
+
 void GamePiece::calculate_next_velocity()
 {
   ENTRANCE << "update_velocity()" << *this;
@@ -427,8 +610,8 @@ void GamePiece::update_next_velocities(std::shared_ptr<GamePiece> b)
   PhyVector res1(v1n_vec + v1t_vec);
   PhyVector res2(v2n_vec + v2t_vec);
   
-  b->next_velocity = res2;
-  next_velocity = res1;
+  b->velocity = res2;
+  velocity = res1;
 
 }
 

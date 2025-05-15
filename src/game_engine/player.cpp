@@ -13,8 +13,8 @@ Player::Player(int id, float x, float y, float vel_x, float vel_y, float accel_x
   GamePiece( id, x,  y,  vel_x,  vel_y,  accel_x,  accel_y)
 {}
 
-Player::Player(std::vector<std::string> row) :
-  GamePiece(row)
+Player::Player(const int& id, std::vector<std::string> row) :
+  GamePiece(id, row)
 {}
 
 Player::~Player()
@@ -31,3 +31,8 @@ boost::json::object Player::getGamePieceJson()
   return root;
 }
 
+
+bool Player::is_stationary()
+{
+  return false;
+}

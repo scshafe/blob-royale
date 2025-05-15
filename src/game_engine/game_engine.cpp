@@ -23,6 +23,39 @@ extern src::severity_logger< severity_level > lg;
 
 
 
+bool detect_collision(std::shared_ptr<GamePiece> gp)
+{
+   return gp->detect_collisions(); 
+}
+
+bool calculate_collision(std::shared_ptr<GamePiece> gp)
+{
+  return gp->calculate_collisions();
+}
+
+bool update_velocity(std::shared_ptr<GamePiece> gp)
+{
+  return gp->update_velocity();
+}
+
+bool update_position(std::shared_ptr<GamePiece> gp)
+{
+  return gp->update_position();
+}
+
+bool update_partitions(std::shared_ptr<GamePiece> gp)
+{
+  return gp->update_partitions();
+}
+
+bool handle_finished(std::shared_ptr<GamePiece> gp)
+{
+  return gp->handle_finish();
+}
+
+
+
+
 
 void GameEngine::initialize(std::string testfile)
 {
@@ -54,7 +87,7 @@ void GameEngine::initialize(std::string testfile)
     std::vector<std::string> row = doc.GetRow<std::string>(i);
     if (row[0] == "player")
     {
-      std::shared_ptr<Player> tmp = std::make_shared<Player>(row);
+      std::shared_ptr<Player> tmp = std::make_shared<Player>(id_counter++, row);
       std::shared_ptr<GamePiece> gp_tmp = std::dynamic_pointer_cast<GamePiece> (tmp);
       players.push_back(std::move(gp_tmp));
 
@@ -69,6 +102,117 @@ void GameEngine::initialize(std::string testfile)
   {
     p->update_partitions();
   }
+
+//  for (size_t i = 0; i < 5; ++i)
+//  {
+//    std::shared_ptr<MapObject> obj ();
+//    players.push_back(std::move(std::dynamic_pointer_cast<GamePiece> (obj)));
+//  }
+//  for (auto mo : stationary_map_objects)
+//  {
+//    mo->find_starting_partitions();
+//  }
+
+  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
+                       std::shared_ptr<GamePiece>,
+                       DetectCollisionResults> detect_collision_queue(detect_collision);
+
+  LockedGamePiecedQueue<std::queue<std::shared_ptr<GamePiece>>,
+                        std::shared_ptr<GamePiece>,
+                        CalculateVelocityResults> simple_velocity_queue(update_velocity);
+
+  LockedGamePieceQueue<std::priority_queue<std::shared_ptr<GamePiece>, NearestCollisionComparator,
+                       std::shared_ptr<GamePiece>,
+                       CalculateVelocityResults> collision_velocity_queue(calculation_collision);
+
+  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
+                       std::shared_ptr<GamePiece>,
+                       UpdatePositionResults> update_position_queue(update_position);
+
+  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
+                       std::shared_ptr<GamePiece>,
+                       UpdatePartitionResults> update_partition_queue(update_partition);
+
+  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
+                       std::shared_ptr<GamePiece>,
+                       UpdateFinishedResults> update_finished_queue(handle_finished);
+
+
+  // ADD DEPENDENCIES
+
+  collision_velocity_queue.add_start_dependency(detect_collision_queue);
+  collision_velocity_queue.add_finish_dependency(detect_collision_queue);
+
+  simple_velocity_queue.add_finish_dependency(detect_collision_queue);
+
+  update_position_queue.add_start_dependency(detect_collision_queue);
+  update_position_queue.add_finish_dependency(collision_velocity_queue);
+  update_position_queue.add_finish_dependency(simple_velocity_queue);
+
+  update_partition_queue.add_start_dependency(update_position_queue);
+  update_partition_queue.add_finish_dependency(update_position_queue);
+
+  //update_finished_queue.add_start_dependency(update_partition_queue);
+  update_finished_queue.add_finish_dependency(update_partition_queue);
+
+
+  // can probably relax to:                   update_partition_queue
+  detect_collision_queue.add_start_dependency(update_finished_queue);
+  // can probably relax to:                    update_partition_queue
+  detect_collision_queue.add_finish_dependency(update_finished_queue);
+  
+  // ADD SEND MAPS
+  
+  std::unordered_map<DetectCollisionResults,
+                     std::function<void(std::shared_ptr<GamePiece>)> detect_collision_map =
+  {
+    { DetectCollisionResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &detect_collision_queue,    _1) },
+    { DetectCollisionResults::none,      std::bind(&LockedGamePieceQueue::receive_game_piece, &simple_velocity_queue,     _1) },
+    { DetectCollisionResults::found,     std::bind(&LockedGamePieceQueue::receive_game_piece, &collision_velocity_queue,  _1) }
+  };
+
+  std::unordered_map<CalculateVelocityResults,
+                     std::function<void(std::shared_ptr<GamePiece>)> simple_velocity_map =
+  {
+    { CalculateVelocityResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &simple_velocity_queue,    _1) },
+    { CalculateVelocityResults::none,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_position_queue,     _1) }
+  };
+
+  std::unordered_map<CalculateVelocityResults,
+                     std::function<void(std::shared_ptr<GamePiece>)> collision_velocity_map =
+  {
+    { CalculateVelocityResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &collision_velocity_queue,    _1) },
+    { CalculateVelocityResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_position_queue,     _1) }
+  };
+
+  std::unordered_map<UpdatePositionResults,
+                     std::function<void(std::shared_ptr<GamePiece>)> update_position_map =
+  {
+    { UpdatePositionResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &update_position_queue,    _1) },
+    { UpdatePositionResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_partition_queue,     _1) }
+  };
+
+  std::unordered_map<UpdatePartitionResults,
+                     std::function<void(std::shared_ptr<GamePiece>)> update_partition_map =
+  {
+    { UpdatePartitionResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &update_partition_queue,    _1) },
+    { UpdatePartitionResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_finished_queue,     _1) }
+  };
+
+  std::unordered_map<UpdateFinishedResults,
+                     std::function<void(std::shared_ptr<GamePiece>)> update_finished_map =
+  {
+    { UpdateFinishedResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &update_finished_queue,    _1) },
+    { UpdateFinishedResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &detect_collision_queue,     _1) }
+  };
+
+
+  detect_collision_queue.set_next_queue_map(detect_collision_map);
+  simple_velocity_queue.set_next_queue_map(detect_collision_map);
+  collision_velocity_queue.set_next_queue_map(collision_velocity_map);
+  detect_collision_queue.set_next_queue_map(detect_collision_map);
+  detect_collision_queue.set_next_queue_map(detect_collision_map);
+  detect_collision_queue.set_next_queue_map(detect_collision_map);
 }
 
 GameEngine::GameEngine() :
@@ -193,12 +337,9 @@ boost::json::object GameEngine::game_config()
   
 std::shared_ptr<Partition> GameEngine::get_partition(std::shared_ptr<GamePiece> gp)
 {
-  //std::shared_ptr<GamePiece> tmp_gp = gp;
-  //std::shared_ptr<GamePiece> tmp_gp = std::make_shared<GamePiece>(gp);
   Cell tmp (gp);
   TRACE << "Cell for get_partition() : " << tmp;
   return spatial_partition[tmp.row()][tmp.col()];
-  //return std::make_shared<Partition>(*spatial_partition[tmp.row()][tmp.col()]);
 }
 
 void GameEngine::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
@@ -215,17 +356,12 @@ void GameEngine::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::se
       TRACE << "col: " << col;
       try
       {
-        TRACE << "attempting: " << row << "," << col;
-        TRACE << *spatial_partition.at(row).at(col);
-        //std::shared_ptr<Partition> tmp_ptr = spatial_partition.at(row).at(col);
-          //std::make_shared<Partition>(*spatial_partition.at(row).at(col));
-        //tmp_parts.insert(std::move(tmp_ptr));
+        //TRACE << "attempting: " << row << "," << col;
+        assert(spatial_partition.at(row).at(col) != nullptr);
         tmp_parts.emplace(spatial_partition.at(row).at(col));
       }
       catch (const std::out_of_range& oor)
       {
-        Cell tmp_2 (row, col);
-        TRACE << tmp_2 << " is invalid";
         // Nothing to do here... could add logs
       }
     }

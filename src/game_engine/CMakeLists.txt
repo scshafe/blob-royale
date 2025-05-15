@@ -16,6 +16,7 @@ target_sources(game_engine
 target_include_directories(game_engine
                            PUBLIC
                            my_boost_config
+                           dependency_graph_queue
                            ${CMAKE_CURRENT_SOURCE_DIR}
                            "../../open-source-libs/rapidcsv"
 )
@@ -23,12 +24,14 @@ target_include_directories(game_engine
 target_link_directories(game_engine
                         PUBLIC
                         my_boost_config
+                        dependency_graph_queue
                         Threads::Threads
                       )
 
 target_link_libraries(game_engine
                       PUBLIC
                       my_boost_config
+                      dependency_graph_queue
                       Threads::Threads
                     )
 

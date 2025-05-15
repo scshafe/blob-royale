@@ -47,27 +47,33 @@
 
 
 
-template<typename GamePiece>
+template<typename QueueType, typename GamePiece, typname OperationResult>
 class LockedGamePieceQueue : public CycleDependency
 { 
   std::function<bool(std::shared_ptr<GamePiece>)> operation;
-  std::function<void(std::shared_ptr<GamePiece>)> send_to_next_queue;
+  //std::function<void(std::shared_ptr<GamePiece>)> send_to_next_queue;
+  std::unordered_map<OperationResult, std::function<void(std::shared_ptr<GamePiece>)>> next_queue_map;
 
   std::mutex queue_lock;
-  std::queue<std::shared_ptr<GamePiece>> q;
+  QueueType q;
 
   int operations_in_progress = 0;
 
 public:
 
-  LockedGamePieceQueue(int id_, std::function<bool(std::shared_ptr<GamePiece>)> operation_) : 
+  LockedGamePieceQueue(std::function<bool(std::shared_ptr<GamePiece>)> operation_) : 
     CycleDependency(id_),
     operation(operation_)
   {}
   
-  void set_send_to_next_queue(std::function<void(std::shared_ptr<GamePiece>)> send_to_next_queue_)
+//  void set_send_to_next_queue(std::function<void(std::shared_ptr<GamePiece>)> send_to_next_queue_)
+//  {
+//    send_to_next_queue = send_to_next_queue_;
+//  }
+//
+  void set_next_queue_map(std::unordered_map<OperationResult, std::function<void(std::shared_ptr<GamePiece>)>> next_queue_map_)
   {
-    send_to_next_queue = send_to_next_queue_;
+    next_queue_map = next_queue_map_;
   }
 
 
@@ -100,24 +106,18 @@ public:
     operations_in_progress++;
     queue_lock.unlock();
 
-    bool success = operation(gp);
+    OperationResult res = operation(gp);
 
     queue_lock.lock();
     operations_in_progress--;
-    if (success == false)
-    {
-      q.push(gp);
-      queue_lock.unlock();
-      // this only returns true if the queues are being looped through
-      // might need to change if making an outer queue of LockedGamePieceQueue's
-      return true;
-    }
-    else
-    { 
-      queue_lock.unlock();
-      send_to_next_queue(gp);
-      test_finished();
-      return true;
+    //queue_lock.unlock();
+
+    next_queue_map[res](gp);
+    
+    //queue_lock.lock();
+    test_finished();
+    queue_lock.unlock();
+    return true;
     }
     
   }

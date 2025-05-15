@@ -8,6 +8,7 @@
 #include <sstream>
 #include <memory>
 #include <set>
+#include <mutex>
 
 #include "boost-json.hpp"
 
@@ -27,9 +28,48 @@ struct GamePiecePtrEqual {
 };
 
 
+struct NearestCollisionComparator {
+  bool operator()( const std::shared_ptr<GamePiece> a, const std::shared_ptr<GamePiece> b) const;
+};
+
+enum class DetectCollisionResults
+{
+  send_back,
+  none,
+  found
+};
+
+enum class CalculateVelocityResults
+{
+  send_back,
+  success
+};
+
+enum class UpdatePositionResults
+{
+  send_back,
+  success
+};
+
+enum class UpdatePartitionResults
+{
+  send_back,
+  success
+};
+
+enum class UpdateFinishedResults
+{
+  send_back,
+  stationary,
+  moving
+};
+
+
 class GamePiece : public std::enable_shared_from_this<GamePiece>
 {
 public:
+
+
   int id;
   float mass;
   PhyVector position;
@@ -37,19 +77,38 @@ public:
   PhyVector next_velocity;
   PhyVector acceleration;
 
+  //Shape shape;
+  bool fixed;
+  mutex m;
+
   std::shared_ptr<Partition> current_part;
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> parts;
 
+
+  // detect_collisions
   std::unordered_set<std::shared_ptr<GamePiece>, GamePiecePtrHash, GamePiecePtrEqual> already_compared;
+  std::map<float, std::shared_ptr<GamePiece>> nearest_collision;
+  float nearest_collision_distance; // for establishing locking precedence in next stage
 
-  //Shape shape;
-  bool fixed;
+  // calc_collision_velcoity
+  bool already_calulated = false;
 
+  // simple_velocity_update
   
+
+  // uppdate_position
+  
+
+  // update_partitions
+
+
+  // handle_finish
+  virtual bool is_stationary() = 0;
+
 public:
   GamePiece();
   GamePiece(int id, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
-  GamePiece(std::vector<std::string> row);
+  GamePiece(const int& id_, std::vector<std::string> row);
   ~GamePiece();
 
   friend std::ostream& operator<<(std::ostream& os, const GamePiece& gp);
@@ -91,7 +150,18 @@ PhyVector BuildCollisionVector(const PhyVector a, const PhyVector b);
 
 
 
-
+//class GamePieceInterface
+//{
+//  bool has_collision();
+//
+//  void calc_collision();
+//  void calc_velocity();
+//  
+//  void update_position();
+//
+//  void update_partitions();
+//  bool is_moving();
+//}
 
 
 #endif

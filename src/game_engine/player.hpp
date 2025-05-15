@@ -18,10 +18,11 @@ class Player : public GamePiece
 public:
   Player();
   Player(int id, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
-  Player(std::vector<std::string> row);
+  Player(const int& id, std::vector<std::string> row);
   ~Player();
   
   virtual boost::json::object getGamePieceJson();
+  virtual bool is_stationary();
 };
 
 

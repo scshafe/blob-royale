@@ -125,20 +125,62 @@ handle_request(
       res.set(http::field::access_control_allow_headers, "*");
       beast::ostream(res.body())
       << GameEngine::get_instance()->game_config();
- //res.set(http::field::content_type, mime_type(path));
-        //res.content_length(size);
-        res.keep_alive(req.keep_alive());
+    }
+  
+    else if (req.target() == "/game-state")
+    {
+      BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+      res.set(http::field::content_type, "application/json");
+      res.set(http::field::access_control_allow_origin, "*");
+      res.set(http::field::access_control_allow_headers, "*");
+      beast::ostream(res.body())
+      << GameEngine::get_instance()->game_info();
+    }
+    else if (req.target() == "/start-sim")
+    {
+      BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+      res.set(http::field::content_type, "test/plain");
+      res.set(http::field::access_control_allow_origin, "*");
+      res.set(http::field::access_control_allow_headers, "*");
+      beast::ostream(res.body())
+      << "Starting sim\r\n";
+      GameEngine::get_instance()->start_sim();
+    }
+    else if (req.target() == "/pause-sim")
+    {
+      BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+      res.set(http::field::content_type, "test/plain");
+      res.set(http::field::access_control_allow_origin, "*");
+      res.set(http::field::access_control_allow_headers, "*");
+      beast::ostream(res.body())
+      << "Stopping sim\r\n";
+      GameEngine::get_instance()->pause_sim();
     }
      else
      {
         res.result(http::status::not_found);
         res.set(http::field::content_type, "text/plain");
         beast::ostream(res.body()) << "File not found\r\n";
-     }      
-        res.content_length(res.body().size());
-        return res;
-    // Request path must be absolute and not contain "..".
-//    else if( req.target().empty() ||
+     }
+
+    res.content_length(res.body().size());
+    return res;
+
+
+
+    // Respond to HEAD request
+//    if(req.method() == http::verb::head)
+//    {
+//        http::response<http::empty_body> res{http::status::ok, req.version()};
+//        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+//        //res.set(http::field::content_type, mime_type(path));
+//        res.content_length(size);
+//        res.keep_alive(req.keep_alive());
+//        return res;
+//    }      
+//
+//    // Request path must be absolute and not contain "..".
+//    if( req.target().empty() ||
 //        req.target()[0] != '/' ||
 //        req.target().find("..") != beast::string_view::npos )
 //        return bad_request("Illegal request-target");
@@ -164,16 +206,7 @@ handle_request(
 //    // Cache the size since we need it after the move
 //    auto const size = body.size();
 //
-//    // Respond to HEAD request
-//    if(req.method() == http::verb::head)
-//    {
-//        http::response<http::empty_body> res{http::status::ok, req.version()};
-//        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
-//        res.set(http::field::content_type, mime_type(path));
-//        res.content_length(size);
-//        res.keep_alive(req.keep_alive());
-//        return res;
-//    }
+//    
 //
 //    // Respond to GET request
 //    http::response<http::file_body> res{
@@ -185,49 +218,8 @@ handle_request(
 //    res.content_length(size);
 //    res.keep_alive(req.keep_alive());
 //
-//    if (req.target() == "/game-config")
-//    {
-//      BOOST_LOG_TRIVIAL(info) << "game-config endpoint received";
-//      res.set(http::field::content_type, "application/json");
-//      res.set(http::field::access_control_allow_origin, "*");
-//      res.set(http::field::access_control_allow_headers, "*");
-//      beast::ostream(res.body())
-//      << GameEngine::get_instance()->game_config();
-//    }
-//    else if (req.target() == "/game-state")
-//    {
-//      BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
-//      res.set(http::field::content_type, "application/json");
-//      res.set(http::field::access_control_allow_origin, "*");
-//      res.set(http::field::access_control_allow_headers, "*");
-//      beast::ostream(res.body())
-//      << GameEngine::get_instance()->game_info();
-//    }
-//    else if (req.target() == "/start-sim")
-//    {
-//      BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
-//      res.set(http::field::content_type, "test/plain");
-//      res.set(http::field::access_control_allow_origin, "*");
-//      res.set(http::field::access_control_allow_headers, "*");
-//      beast::ostream(res.body())
-//      << "Starting sim\r\n";
-//      GameEngine::get_instance()->start_sim();
-//    }
-//    else if (req.target() == "/pause-sim")
-//    {
-//      BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
-//      res.set(http::field::content_type, "test/plain");
-//      res.set(http::field::access_control_allow_origin, "*");
-//      res.set(http::field::access_control_allow_headers, "*");
-//      beast::ostream(res.body())
-//      << "Stopping sim\r\n";
-//      GameEngine::get_instance()->pause_sim();
-//    }
-    res.content_length(res.body().size());
-
-
-    return res;
-}
+    
+    }
 
 //------------------------------------------------------------------------------
 

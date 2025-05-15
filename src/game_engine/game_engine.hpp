@@ -12,6 +12,9 @@
 #include "game_piece.hpp"
 #include "partition.hpp"
 
+#include <mutex>
+
+
 
 
 
@@ -38,10 +41,28 @@ public:
 private:
   static GameEngine* p_inst;
   std::vector<std::shared_ptr<GamePiece>> players;
+
+  std::vector<std::shared_ptr<GamePiece>> stationary_map_objects;
  // std::vector<MapObject*> map_objects;
   float width;
   float height;
   bool running;
+  int id_counter = 0;
+
+//  std::vector<std::thread> workers;
+//  
+//  std::unordered_set<std::shared_ptr<GamePiece>> collision_map;
+//
+//  std::queue<std::shared_ptr<GamePiece>> untested_collision;
+//  std::queue<std::shared_ptr<GamePiece>> collision_positive;
+//  std::queue<std::shared_ptr<GamePiece>> collision_negative;
+//
+//  template<GamePiece> LockedGamePieceQueue 
+//
+//  template<GamePiece> LockedGamePieceQueue ready_to_move;
+//  tempalte<GamePiece> LockedGamePieceQueue ready_to_update_partitions; 
+//  template<GamePiece> LockedGamePieceQueue finished;
+  
 
   //std::vector<std::vector<Partition*>> spatial_partition;
   std::vector<std::vector<std::shared_ptr<Partition>>> spatial_partition;

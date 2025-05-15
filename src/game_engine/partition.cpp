@@ -83,15 +83,19 @@ Partition::Partition(const size_t& row, const size_t& col) :
 
 void Partition::add_game_piece(std::shared_ptr<GamePiece> game_piece)
 {
+  m.lock();
   ENTRANCE << "Partition::add_game_piece()";
   pieces.insert(game_piece);
   TRACE << *this << "now has " << pieces.size() << " pieces";
+  m.unlock();
 }
 
 void Partition::remove_game_piece(std::shared_ptr<GamePiece> game_piece)
 {
+  m.lock();
   ENTRANCE << "Partition::remove_game_piece()";
   pieces.erase(game_piece);
+  m.unlock();
 }
 
 void Partition::check_for_collisions(std::shared_ptr<GamePiece> gp)
@@ -115,6 +119,12 @@ void Partition::check_for_collisions(std::shared_ptr<GamePiece> gp)
       gp->player_on_player_collision(p);
     }
   }
+}
+
+
+const std::unordered_set<std::shared_ptr<GamePiece>>& Partition::get_pieces()
+{
+  return pieces;
 }
 
 

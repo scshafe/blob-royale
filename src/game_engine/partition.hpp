@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <memory>
 #include <ostream>
+#include <mutex>
 
 #include "boost-json.hpp"
 
@@ -52,6 +53,9 @@ public:
 
   Cell c;
   std::unordered_set<std::shared_ptr<GamePiece>> pieces;
+  mutex m;
+
+  const std::unordered_set<std::shared_ptr<GamePiece>>& get_pieces();
 
 public:
   void add_game_piece(std::shared_ptr<GamePiece> game_piece);

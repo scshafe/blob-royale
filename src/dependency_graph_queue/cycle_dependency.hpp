@@ -29,6 +29,9 @@ protected:
   virtual bool last_one_done() = 0;
 
 private:
+
+  static int id_counter = 0;
+
   std::mutex m;
   int id;
   bool can_start = false;
@@ -42,7 +45,7 @@ private:
   std::unordered_map<int, bool> upstream_start;
   std::unordered_map<int, bool> upstream_finished;
 
-  CycleDependency(id_) : id(id_){}
+  CycleDependency() : id(id_counter++){}
 
 
   // ----------- NOTIFIERS ---------------

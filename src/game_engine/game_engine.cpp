@@ -3,6 +3,7 @@
 #include <cassert>
 #include <stdexcept>
 #include <algorithm>
+#include <functional>
 
 // open-source-libs
 #include "rapidcsv.h"
@@ -15,6 +16,7 @@
 #include "game_engine_parameters.hpp"
 #include "game_engine.hpp"
 #include "partition.hpp"
+#include "game_piece.hpp"
 
 GameEngine* GameEngine::p_inst = nullptr;
 
@@ -23,34 +25,49 @@ extern src::severity_logger< severity_level > lg;
 
 
 
-bool detect_collision(std::shared_ptr<GamePiece> gp)
+
+bool NearestCollisionComparator::operator()( const std::shared_ptr<GamePiece> a, const std::shared_ptr<GamePiece> b) const
+{
+  if (a->nearest_collision_distance < b->nearest_collision_distance)
+  {
+    return true;
+  }
+  if (a->nearest_collision_distance > b->nearest_collision_distance)
+  {
+    return false;
+  }
+  return a->id < b->id;
+}
+
+
+static QueueOperationResults detect_collisions(std::shared_ptr<GamePiece> gp)
 {
    return gp->detect_collisions(); 
 }
 
-bool calculate_collision(std::shared_ptr<GamePiece> gp)
+static QueueOperationResults collision_velocity(std::shared_ptr<GamePiece> gp)
 {
-  return gp->calculate_collisions();
+  return gp->collision_velocity();
 }
 
-bool update_velocity(std::shared_ptr<GamePiece> gp)
+static QueueOperationResults simple_velocity(std::shared_ptr<GamePiece> gp)
 {
-  return gp->update_velocity();
+  return gp->simple_velocity();
 }
 
-bool update_position(std::shared_ptr<GamePiece> gp)
+static QueueOperationResults update_position(std::shared_ptr<GamePiece> gp)
 {
   return gp->update_position();
 }
 
-bool update_partitions(std::shared_ptr<GamePiece> gp)
+static QueueOperationResults update_partitions(std::shared_ptr<GamePiece> gp)
 {
   return gp->update_partitions();
 }
 
-bool handle_finished(std::shared_ptr<GamePiece> gp)
+static QueueOperationResults handle_finished(std::shared_ptr<GamePiece> gp)
 {
-  return gp->handle_finish();
+  return gp->handle_finished();
 }
 
 
@@ -113,114 +130,110 @@ void GameEngine::initialize(std::string testfile)
 //    mo->find_starting_partitions();
 //  }
 
-  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
-                       std::shared_ptr<GamePiece>,
-                       DetectCollisionResults> detect_collision_queue(detect_collision);
-
-  LockedGamePiecedQueue<std::queue<std::shared_ptr<GamePiece>>,
-                        std::shared_ptr<GamePiece>,
-                        CalculateVelocityResults> simple_velocity_queue(update_velocity);
-
-  LockedGamePieceQueue<std::priority_queue<std::shared_ptr<GamePiece>, NearestCollisionComparator,
-                       std::shared_ptr<GamePiece>,
-                       CalculateVelocityResults> collision_velocity_queue(calculation_collision);
-
-  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
-                       std::shared_ptr<GamePiece>,
-                       UpdatePositionResults> update_position_queue(update_position);
-
-  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
-                       std::shared_ptr<GamePiece>,
-                       UpdatePartitionResults> update_partition_queue(update_partition);
-
-  LockedGamePieceQueue<std::queue<std::shared_ptr<GamePiece>>,
-                       std::shared_ptr<GamePiece>,
-                       UpdateFinishedResults> update_finished_queue(handle_finished);
 
 
-  // ADD DEPENDENCIES
 
-  collision_velocity_queue.add_start_dependency(detect_collision_queue);
-  collision_velocity_queue.add_finish_dependency(detect_collision_queue);
 
-  simple_velocity_queue.add_finish_dependency(detect_collision_queue);
 
-  update_position_queue.add_start_dependency(detect_collision_queue);
-  update_position_queue.add_finish_dependency(collision_velocity_queue);
-  update_position_queue.add_finish_dependency(simple_velocity_queue);
+// ADD DEPENDENCIES
 
-  update_partition_queue.add_start_dependency(update_position_queue);
-  update_partition_queue.add_finish_dependency(update_position_queue);
+  collision_velocity_queue.add_start_dependency(&detect_collision_queue);
+  collision_velocity_queue.add_finish_dependency(&detect_collision_queue);
+
+  simple_velocity_queue.add_start_dependency(&update_finished_queue);
+  simple_velocity_queue.add_finish_dependency(&detect_collision_queue);
+  simple_velocity_queue.add_finish_dependency(&collision_velocity_queue);
+
+  update_position_queue.add_start_dependency(&detect_collision_queue);
+  //update_position_queue.add_finish_dependency(&collision_velocity_queue);
+  update_position_queue.add_finish_dependency(&simple_velocity_queue);
+
+  update_partition_queue.add_start_dependency(&update_position_queue);
+  update_partition_queue.add_finish_dependency(&update_position_queue);
 
   //update_finished_queue.add_start_dependency(update_partition_queue);
-  update_finished_queue.add_finish_dependency(update_partition_queue);
+  update_finished_queue.add_finish_dependency(&update_partition_queue);
 
 
   // can probably relax to:                   update_partition_queue
-  detect_collision_queue.add_start_dependency(update_finished_queue);
+  detect_collision_queue.add_start_dependency(&update_finished_queue);
   // can probably relax to:                    update_partition_queue
-  detect_collision_queue.add_finish_dependency(update_finished_queue);
+  detect_collision_queue.add_finish_dependency(&update_finished_queue);
   
   // ADD SEND MAPS
+
+//typedef std::function<void(std::shared_ptr<GamePiece>)> AddQueueFunc;
+  AddQueueFunc dc_ptr =   std::bind(&GamePieceQueue::receive_game_piece, &detect_collision_queue,    std::placeholders::_1);
+  AddQueueFunc sv_ptr =   std::bind(&GamePieceQueue::receive_game_piece, &simple_velocity_queue,     std::placeholders::_1);
+  AddQueueFunc cv_ptr =   std::bind(&GamePieceQueue::receive_game_piece, &collision_velocity_queue,  std::placeholders::_1);
+  AddQueueFunc pos_ptr =  std::bind(&GamePieceQueue::receive_game_piece, &update_position_queue,     std::placeholders::_1);
+  AddQueueFunc part_ptr = std::bind(&GamePieceQueue::receive_game_piece, &update_partition_queue,    std::placeholders::_1);
+  AddQueueFunc uf_ptr =   std::bind(&GamePieceQueue::receive_game_piece, &update_finished_queue,     std::placeholders::_1);
+
+
+  detect_collision_queue.add_send_to_option(QueueOperationResults::send_back, &detect_collision_queue);
+  detect_collision_queue.add_send_to_option(QueueOperationResults::option1,   &simple_velocity_queue);
+  detect_collision_queue.add_send_to_option(QueueOperationResults::option2,   &collision_velocity_queue);
+
+
+  collision_velocity_queue.add_send_to_option(QueueOperationResults::send_back, &collision_velocity_queue);
+  collision_velocity_queue.add_send_to_option(QueueOperationResults::option1, &update_position_queue);
+  collision_velocity_queue.add_send_to_option(QueueOperationResults::option2, &simple_velocity_queue);
+
+
+  //simple_velocity_queue.add_send_to_option(QueueOperationResults::send_back, &simple_velocity_queue);
+  simple_velocity_queue.add_send_to_option(QueueOperationResults::option1, &update_position_queue);
+
+  //update_position_queue.add_send_to_option(QueueOperationResults::send_back, &update_position_queue);
+  update_position_queue.add_send_to_option(QueueOperationResults::option1, &update_partition_queue);
+
+
+  //update_partition_queue.add_send_to_option(QueueOperationResults::send_back, &update_partition_queue);
+  update_partition_queue.add_send_to_option(QueueOperationResults::option1, &update_finished_queue);
+
+
+  //update_finished_queue.add_send_to_option(QueueOperationResults::send_back, &update_finished_queue);
+  update_finished_queue.add_send_to_option(QueueOperationResults::option1, &detect_collision_queue);
+
+
+  for (auto p : players)
+  {
+    detect_collision_queue.receive_game_piece(p);
+  }
+
+  detect_collision_queue.notify_can_start(5);
+  detect_collision_queue.notify_can_be_finished(5);
+
+  simple_velocity_queue.notify_can_start(5);
   
-  std::unordered_map<DetectCollisionResults,
-                     std::function<void(std::shared_ptr<GamePiece>)> detect_collision_map =
-  {
-    { DetectCollisionResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &detect_collision_queue,    _1) },
-    { DetectCollisionResults::none,      std::bind(&LockedGamePieceQueue::receive_game_piece, &simple_velocity_queue,     _1) },
-    { DetectCollisionResults::found,     std::bind(&LockedGamePieceQueue::receive_game_piece, &collision_velocity_queue,  _1) }
-  };
 
-  std::unordered_map<CalculateVelocityResults,
-                     std::function<void(std::shared_ptr<GamePiece>)> simple_velocity_map =
-  {
-    { CalculateVelocityResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &simple_velocity_queue,    _1) },
-    { CalculateVelocityResults::none,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_position_queue,     _1) }
-  };
-
-  std::unordered_map<CalculateVelocityResults,
-                     std::function<void(std::shared_ptr<GamePiece>)> collision_velocity_map =
-  {
-    { CalculateVelocityResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &collision_velocity_queue,    _1) },
-    { CalculateVelocityResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_position_queue,     _1) }
-  };
-
-  std::unordered_map<UpdatePositionResults,
-                     std::function<void(std::shared_ptr<GamePiece>)> update_position_map =
-  {
-    { UpdatePositionResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &update_position_queue,    _1) },
-    { UpdatePositionResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_partition_queue,     _1) }
-  };
-
-  std::unordered_map<UpdatePartitionResults,
-                     std::function<void(std::shared_ptr<GamePiece>)> update_partition_map =
-  {
-    { UpdatePartitionResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &update_partition_queue,    _1) },
-    { UpdatePartitionResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &update_finished_queue,     _1) }
-  };
-
-  std::unordered_map<UpdateFinishedResults,
-                     std::function<void(std::shared_ptr<GamePiece>)> update_finished_map =
-  {
-    { UpdateFinishedResults::send_back, std::bind(&LockedGamePieceQueue::receive_game_piece, &update_finished_queue,    _1) },
-    { UpdateFinishedResults::success,      std::bind(&LockedGamePieceQueue::receive_game_piece, &detect_collision_queue,     _1) }
-  };
-
-
-  detect_collision_queue.set_next_queue_map(detect_collision_map);
-  simple_velocity_queue.set_next_queue_map(detect_collision_map);
-  collision_velocity_queue.set_next_queue_map(collision_velocity_map);
-  detect_collision_queue.set_next_queue_map(detect_collision_map);
-  detect_collision_queue.set_next_queue_map(detect_collision_map);
-  detect_collision_queue.set_next_queue_map(detect_collision_map);
 }
 
 GameEngine::GameEngine() :
   players(),
   width(MAP_WIDTH),
-  height(MAP_HEIGHT)
+  height(MAP_HEIGHT),
+  detect_collision_queue(detect_collisions, "detect_collisions",     std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
+  simple_velocity_queue(simple_velocity, "simple_velocity",          std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
+  collision_velocity_queue(collision_velocity, "collision_velocity", std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
+  update_position_queue(update_position, "position",                 std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
+  update_partition_queue(update_partitions, "partitions",            std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
+  update_finished_queue(handle_finished, "finished",                 std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
+  running(false)
+
+
 //  spatial_partition(std::vector<std::vector<std::shared_ptr<Partition>>>(SPATIAL_PARTITION_ROWS, std::vector<std::shared_ptr<Partition>>(SPATIAL_PARTITION_COLS)))
-{}
+{
+  std::function<void(CycleDependency*)> add_to_loop = std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1);
+  std::function<void(CycleDependency*)> rem_from_loop = std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1);
+
+//  detect_collision_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
+//  simple_velocity_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
+//  collision_velocity_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
+//  update_position_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
+//  update_partition_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
+//  update_finished_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
+}
 
 GameEngine* GameEngine::get_instance()
 {
@@ -240,44 +253,6 @@ void GameEngine::operator()()
 }
 
 
-void GameEngine::update_positions()
-{
-  ENTRANCE << "GameEngine::update_positions()";
-  for (auto p : players)
-  {
-    p->update_position();
-  }
-}
-
-
-// aka: check for collisions
-void GameEngine::update_velocities()
-{ 
-  ENTRANCE << "GameEngine::update_velocities()";
-  for (auto p : players)
-  {
-    p->update_velocity();
-  }
-}
-
-void GameEngine::calculate_next_velocities()
-{
-  ENTRANCE << "GameEngine::calculate_next_velocities()";
-  for (auto p : players)
-  {
-    p->calculate_next_velocity();
-  }
-}
-
-void GameEngine::update_partitions()
-{
-  ENTRANCE << "GameEngine::update_parititons()";
-  for (auto p : players)
-  {
-    p->update_partitions();
-  }
-}
-
 void GameEngine::start_sim()
 {
   running = true;
@@ -286,22 +261,77 @@ void GameEngine::start_sim()
 }
 
 
+
+
+// ----- MAKE SURE TO UNLOCK MUTEX FROM WHEREVER THIS IS CALLED -------
+void GameEngine::own_outer_queue()
+{
+  m.lock();
+  queue_changing = true;
+  changing_threads += 1;
+  
+  cv.wait(m, []{ return active_threads - changing_threads == 0; })
+}
+
+
+void GameEngine::disown_outer_queue()
+{
+  changing_threads -= 1;
+  queue_changing = changing_threads == 0;
+  m.unlock();
+  cv.notify_one();
+}
+
+void GameEngine::add_queue_to_loop(CycleDependency* gp_queue)
+{
+  own_outer_queue();
+  game_loop_queue.push_back(std::dynamic_cast<GamePieceQueue>(gp_queue));
+  disown_outer_queue();
+}
+
+
+
+void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
+{
+  own_outer_queue();
+  for (auto it = game_loop_queue.begin(); it != game_loop_queue.end(); ++it)
+  {
+    if (*it == std::dynamic_cast<GamePieceQueue>(gp_queue))
+    {
+      game_loop_queue.erase(it);
+      q_num = 0;
+    }
+  }
+  disown_outer_queue();
+}
+
 void GameEngine::sim_loop()
 {
-  unsigned int tick_count = 0;
-  while (running)
+  while (true)
   {
-    LOG << "GameEngine::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US;
+    m.lock();
+    active_threads += 1;
+    m.unlock(); 
+    cv.wait(m, []{ return !queue_changing; });
 
-    calculate_next_velocities();
 
-    update_velocities();
+    unsigned int tick_count = 0;
+    while (!queue_changing)
+    {
+      LOG << "GameEngine::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US; // not thread safe but doesn't matter
+    
+      for (auto q : game_loop_queue)
+      {
+        q.perform_operation();
+      }
+    }
 
-    update_positions();
+    m.lock();
+    active_threads -= 1;
+    m.unlock();
+    cv.notify_all();  // can probably use 2 separate CV's (one for workers in sim loop, and one for workers changing the queue
 
-    update_partitions();
-    // should be able to turn this off in live (after locking)
-    usleep(GAME_TICK_PERIOD_US);
+  
   }
 }
 

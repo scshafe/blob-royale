@@ -28,6 +28,7 @@ namespace attrs = boost::log::attributes;
 enum severity_level
 {
   entrance,
+  lock,
   trace,
   caught_exception,
   warning,

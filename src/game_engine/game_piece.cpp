@@ -4,45 +4,43 @@
 #include "game_piece.hpp"
 #include "game_engine.hpp"
 
-//void GamePiece::calculate_next_velocity()
-//{
-//  ENTRANCE << "update_velocity()" << *this;
-//  print_part_list();
-//  TRACE << *this << parts.size();
-//  for (auto part = parts.begin(); part != parts.end(); ++part)
-//  {
-//    (*part)->check_for_collisions(shared_from_this());
-//    
-//    handle_possible_collision_with_wall();
-//  }
-//}
 
 
 
 #define GET_OTHER_GP_LOCK(gp) if (acquire_another_gamepiece_lock(gp)) { m.unlock(); return false; }
 
-#define UNLOCK_OTHER_GP(gp) gp->m.unlock();
+//#define UNLOCK_OTHER_GP(gp) { TRACgp->m.unlock();
 
 
 // only use the above macro to call this
 bool GamePiece::acquire_another_gamepiece_lock(std::shared_ptr<GamePiece> gp)
 {
+  TRACE << id << " attempting to lock " << gp->id;
   if (gp->m.try_lock() == false)
   {
     if (gp->id < id)
     {
-      m.unlock();
+      TRACE << id << " failed to unlock lower: " << gp->id;
       return false;
     }
     else
     {
       assert(gp->id != id);
+      TRACE << id << " waiting on lock for " << gp->id;
       gp->m.lock();
-      return true;
     }
   }
+  TRACE << id << " successfully_lock " << gp->id;
   return true;
 }
+
+
+void GamePiece::unlock_another_gamepiece_lock(std::shared_ptr<GamePiece> gp)
+{
+  TRACE << id << " unlocking " << gp->id;
+  gp->m.unlock();
+}
+
 
 bool GamePiece::acquire_another_gamepiece_lock_velocity(std::shared_ptr<GamePiece> gp)
 {
@@ -50,13 +48,12 @@ bool GamePiece::acquire_another_gamepiece_lock_velocity(std::shared_ptr<GamePiec
   {
     if (gp->nearest_collision_distance < nearest_collision_distance)
     {
-      m.unlock();
       return false;
     }
     else if (gp->nearest_collision_distance == nearest_collision_distance && gp->id < id)
     {
-      m.unlock();
       return false;
+    }
     else
     {
       assert(gp->id != id);
@@ -77,6 +74,8 @@ size_t GamePiecePtrHash::operator()(const std::shared_ptr<GamePiece> gp) const {
 bool GamePiecePtrEqual::operator()(const std::shared_ptr<GamePiece> a, const std::shared_ptr<GamePiece> b) const {
   return a->get_id() == b->get_id();
 }
+
+
 
 
 GamePiece::GamePiece() :
@@ -139,10 +138,11 @@ GamePiece::~GamePiece()
 
 std::ostream& operator<<(std::ostream& os, const GamePiece& gp)
 {
-  os << "GP(" 
-     << "m: " << gp.mass << " "
-     << "pos:" << gp.position << " "
-     << "vel" << gp.velocity << ")";
+  os << gp.id;
+//  os << "GP(" 
+//     << "m: " << gp.mass << " "
+//     << "pos:" << gp.position << " "
+//     << "vel" << gp.velocity << ")";
   return os;
 }
 
@@ -262,7 +262,7 @@ void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std
  *
  */
 
-UpdatePartitionResults GamePiece::update_partitions()
+QueueOperationResults GamePiece::update_partitions()
 {
   ENTRANCE << "update_partitions()";
   std::shared_ptr<Partition> tmp = GameEngine::get_instance()->get_partition(shared_from_this());
@@ -279,7 +279,7 @@ UpdatePartitionResults GamePiece::update_partitions()
     if (*current_part == *tmp) // if this doesn't change no need to update the set which is costly
     {
       TRACE << "No partition change. Still in " << (*current_part);
-      return;
+      return QueueOperationResults::option1;
     }
     else
     {
@@ -329,7 +329,7 @@ UpdatePartitionResults GamePiece::update_partitions()
   TRACE << "parts size: " << parts.size();
   print_part_list();
 
-  return UpdatePartitionResults::success;
+  return QueueOperationResults::option1;
 }
 
 
@@ -353,21 +353,16 @@ boost::json::object GamePiece::getGamePieceJson()
   return root;
 }
 
-//PhyVector GamePiece::phy_vector_to_other_player(const std::shared_ptr<GamePiece> other)
-//{
-//  PhyVector tmp(position.x - other->position.x, position.y - other->position.y);
-//  TRACE << tmp << " has magnitude " << tmp.get_magnitude();
-//  return tmp;
-//}
 
-bool GamePiece::detect_player_on_player_collision(const std::shared_ptr<GamePiece> other)
+
+float GamePiece::detect_player_on_player_collision(const std::shared_ptr<GamePiece> other)
 {
   ENTRANCE << "detect_player_on_player_collision()";
   PhyVector collision_vector(position, other->position); 
   if (collision_vector.get_magnitude() > PLAYER_ON_PLAYER_COLLISION)
   {
     WARNING << "no collision - magnitude: " << collision_vector.get_magnitude();
-    return false;
+    return 100000.0;
   }
   WARNING << "Players within distance: " << collision_vector.get_magnitude();
   WARNING << *this;
@@ -376,19 +371,16 @@ bool GamePiece::detect_player_on_player_collision(const std::shared_ptr<GamePiec
   TRACE << "velocity: " << velocity;
   TRACE << "dot product: " << dot_product;
   TRACE << "collision_vec: " << collision_vector;
-  return dot_product < 0;
+
+  if (dot_product > 0)
+  {
+    TRACE << "close encounter between " << *this << " and " << *other << " of " << collision_vector.get_magnitude() << " but dot_product is negative: " << dot_product;
+    return 100000.0;
+  }
+  return collision_vector.get_magnitude();
          
 }
 
-
-
-void GamePiece::handle_player_on_player_collision(std::shared_ptr<GamePiece> other)
-{
-  ENTRANCE << "handle_player_on_player_collision()";
-  TRACE << "collision between players " << id << " and " << other->id;
-  update_next_velocities(other);
-  TRACE << "velocity will be change: " << velocity << " --> " << next_velocity;
-}
 
 
 
@@ -398,174 +390,140 @@ void GamePiece::handle_possible_collision_with_wall()
       (position.x >= MAP_WIDTH - PLAYER_ON_WALL_COLLISION && velocity.x > 0.0))
   {
     LOG << "collision with wall. Velocity x: " << velocity.x << " --> " << -velocity.x;
-    next_velocity.x = -velocity.x;
+    velocity.x = -velocity.x;
   }
   if ((position.y <=              PLAYER_ON_WALL_COLLISION && velocity.y < 0.0) ||
       (position.y >= MAP_HEIGHT - PLAYER_ON_WALL_COLLISION && velocity.y > 0.0))
   {
     LOG << "collision with wall. Velocity x: " << velocity.x << " --> " << -velocity.x;
-    next_velocity.y = -velocity.y;
+    velocity.y = -velocity.y;
   }
 }
 
 
-void GamePiece::update_position()
-{
-  ENTRANCE << "update_position()" << *this;
-  position.x += velocity.x;
-  position.y += velocity.y;
 
-  already_compared.clear();
-}
-
-
-DetectCollisionResults GamePiece::detect_collision()
+QueueOperationResults GamePiece::detect_collisions()
 {
   m.lock();
   
   for (auto part : parts)
   {
-    const std::unordered_set<std::shared_ptr<GamePiece> pieces = part->get_pieces();
+    const std::unordered_set<std::shared_ptr<GamePiece>> pieces = part->get_pieces();
     for (auto gp : pieces)
     {
+      if (*gp == *this || already_compared.contains(gp))
+      {
+        continue;
+      }
+
       if (!acquire_another_gamepiece_lock(gp))
       {
         m.unlock();
-        return DetectCollisionResults::send_back;
-      }
-      if (already_compared.contains(gp))
-      {
-        UNLOCK_OTHER_GP(gp);
-        continue;
+        return QueueOperationResults::send_back;
       }
       already_compared.insert(gp);
       gp->already_compared.insert(shared_from_this());
 
-      if (float dist = detect_player_on_player_collision(gp) < PLAYER_ON_PLAYER_COLLISION)
+      float dist = detect_player_on_player_collision(gp);
+      if (dist < PLAYER_ON_PLAYER_COLLISION)
       {
-        nearest_collision[dist] = gp;
-        gp->nearest_collision[dist] = shared_from_this();
+        TRACE << "Collision Detected between " << *this << " and " << *gp << " with a distance of " << dist;
+        nearest_collisions[dist] = gp;
+        gp->nearest_collisions[dist] = shared_from_this();
         
         nearest_collision_distance = std::min(nearest_collision_distance, dist);
         gp->nearest_collision_distance = std::min(gp->nearest_collision_distance, dist);
         
       }
-      UNLOCK_OTHER_GP(gp);
+      unlock_another_gamepiece_lock(gp);
     }
   }
-  m.unlock();
-  if (nearest_collision.empty())
+  if (nearest_collisions.empty())
   {
-    return DetectCollisionResults::none;
+    m.unlock();
+    return QueueOperationResults::option1;
   }
-  return DetectCollisionResults::found;
+  m.unlock();
+  return QueueOperationResults::option2;
 }
 
 
-UpdateVelocityResults GamePiece::simple_velocity_update()
+QueueOperationResults GamePiece::simple_velocity()
 {
   // add acceleration here
   velocity = velocity;
+
+  
+  handle_possible_collision_with_wall();
   //velocity = next_velocity;
-  return CacluateVelocityResults::done
+  return QueueOperationResults::option1;
 }
 
-UpdateVelocityResults GamePiece::calculate_collision_velocity()
+QueueOperationResults GamePiece::collision_velocity()
 {
   m.lock();
   if (already_calculated == true)
   {
     m.unlock();
-    return CalculateVelocityResults::done;
+    return QueueOperationResults::option1;
   }
 
   while (!nearest_collisions.empty())
   {
-    if (!acquire_another_gamepiece_lock_velocity(*nearest_collisions.front()))
+    if (!acquire_another_gamepiece_lock_velocity(nearest_collisions.begin()->second))
     {
       m.unlock();
-      return CalculateVelocityResults::send_back;
+      return QueueOperationResults::send_back;
     }
-    float dist = nearest_collisions.front()->first;
-    std::shared_ptr<GamePiece> gp = nearest_collisions.front()->second;
+    float dist = nearest_collisions.begin()->first;
+    std::shared_ptr<GamePiece> gp = nearest_collisions.begin()->second;
     if (gp->already_calculated)
     {
-      UNLOCK_OTHER_GP(gp);
-      nearest_collisions.erase(nearest_collisions.front());
+      unlock_another_gamepiece_lock(gp);
+      nearest_collisions.erase(nearest_collisions.begin());
       continue;
     }
-    if (dist == nearset_collision_distance)
+    if (dist == nearest_collision_distance)
     {
       update_next_velocities(gp);
       already_calculated = true;
       gp->already_calculated = true;
-      UNLOCK_OTHER_GP(gp);
+      unlock_another_gamepiece_lock(gp);
       m.unlock();
-      return CalculateVelocityResults::done;
+      return QueueOperationResults::option1;
     }
-    assert(false && "calculate_collision_velocity");
   }
+  m.unlock();
+  return QueueOperationResults::option2;
 }
 
 
-UpdatePositionResults GamePiece::update_position()
+QueueOperationResults GamePiece::update_position()
 {
   position += velocity;
-  return UpdatePositionsResults::success;
+  return QueueOperationResults::option1;
 }
 
 
 
-UpdateFinishedResults GamePiece::handle_finish()
+QueueOperationResults GamePiece::handle_finished()
 {
   // pull new acceleration from cache here
 
   already_compared.clear();
-  nearest_collision.clear();
+  nearest_collisions.clear();
   nearest_collision_distance = 100000.0;
 
   already_calculated = false;
 
   if (is_stationary())
   {
-    return UpdateFinishedResults::stationary;
+    return QueueOperationResults::option1;
   }
-  return UpdateFinishedResults::moving;
+  assert(false && "separate route for stationary objects to avoid extra computation not yet implemented");
+  return QueueOperationResults::option1;
 }
 
-
-
-void GamePiece::calculate_next_velocity()
-{
-  ENTRANCE << "update_velocity()" << *this;
-  print_part_list();
-  TRACE << *this << parts.size();
-  for (auto part = parts.begin(); part != parts.end(); ++part)
-  {
-    (*part)->check_for_collisions(shared_from_this());
-    
-    handle_possible_collision_with_wall();
-  }
-}
-
-void GamePiece::update_velocity()
-{
-  velocity = next_velocity;
-}
-
-void GamePiece::player_on_player_collision(std::shared_ptr<GamePiece> other)
-{
-  ENTRANCE << "player_on_player_collision()";
-  if (already_compared.contains(other)) return;
-  
-  already_compared.insert(other);
-  other->already_compared.insert(shared_from_this());
-  
-  if (detect_player_on_player_collision(other))
-  {
-    handle_player_on_player_collision(other);
-  }
-}
 
 PhyVector BuildCollisionVector(const PhyVector a, const PhyVector b)
 {

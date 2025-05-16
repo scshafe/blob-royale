@@ -1,4 +1,5 @@
 
+
 #include "boost-log.hpp"
 
 #include "game_engine_parameters.hpp"
@@ -98,28 +99,6 @@ void Partition::remove_game_piece(std::shared_ptr<GamePiece> game_piece)
   m.unlock();
 }
 
-void Partition::check_for_collisions(std::shared_ptr<GamePiece> gp)
-{
-  ENTRANCE << "check_for_collisions()";
-  print_gp_list();  
-  if (pieces.size() == 1)
-  {
-    WARNING << "pieces size is 1";
-    assert(**pieces.begin() == *gp);
-  }
-  else
-  {
-    WARNING << "Populated partition: " << *this;
-    for (auto p : pieces)
-    {
-      if (*p == *gp)
-      {
-        continue;
-      }
-      gp->player_on_player_collision(p);
-    }
-  }
-}
 
 
 const std::unordered_set<std::shared_ptr<GamePiece>>& Partition::get_pieces()

@@ -10,7 +10,7 @@ add_library(dependency_graph_queue
 
 target_sources(dependency_graph_queue
                PUBLIC
-               ${game_engine_sources}
+               ${dependency_graph_queue_sources}
             )
 
 target_include_directories(dependency_graph_queue

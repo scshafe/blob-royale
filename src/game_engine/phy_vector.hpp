@@ -29,6 +29,8 @@ public:
   PhyVector operator*(const float& b);
   PhyVector operator/(const float& b);
   PhyVector operator+(const PhyVector& b);
+  PhyVector& operator+=(const PhyVector& b);
+  PhyVector& operator-=(const PhyVector& b);
 
   int x_part();
   int y_part();

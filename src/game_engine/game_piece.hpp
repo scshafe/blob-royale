@@ -9,6 +9,7 @@
 #include <memory>
 #include <set>
 #include <mutex>
+#include <map>
 
 #include "boost-json.hpp"
 
@@ -28,41 +29,17 @@ struct GamePiecePtrEqual {
 };
 
 
-struct NearestCollisionComparator {
-  bool operator()( const std::shared_ptr<GamePiece> a, const std::shared_ptr<GamePiece> b) const;
-};
-
-enum class DetectCollisionResults
+enum class QueueOperationResults
 {
   send_back,
-  none,
-  found
+  option1,
+  option2
 };
 
-enum class CalculateVelocityResults
-{
-  send_back,
-  success
-};
 
-enum class UpdatePositionResults
-{
-  send_back,
-  success
-};
 
-enum class UpdatePartitionResults
-{
-  send_back,
-  success
-};
 
-enum class UpdateFinishedResults
-{
-  send_back,
-  stationary,
-  moving
-};
+
 
 
 class GamePiece : public std::enable_shared_from_this<GamePiece>
@@ -79,30 +56,50 @@ public:
 
   //Shape shape;
   bool fixed;
-  mutex m;
+
+
+  std::mutex m;
+  bool acquire_another_gamepiece_lock(std::shared_ptr<GamePiece> gp);
+  bool acquire_another_gamepiece_lock_velocity(std::shared_ptr<GamePiece> gp);
+  void unlock_another_gamepiece_lock(std::shared_ptr<GamePiece> gp);
 
   std::shared_ptr<Partition> current_part;
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> parts;
 
 
   // detect_collisions
+  QueueOperationResults detect_collisions();
+  float detect_player_on_player_collision(const std::shared_ptr<GamePiece> other);
   std::unordered_set<std::shared_ptr<GamePiece>, GamePiecePtrHash, GamePiecePtrEqual> already_compared;
-  std::map<float, std::shared_ptr<GamePiece>> nearest_collision;
+  std::map<float, std::shared_ptr<GamePiece>> nearest_collisions;
   float nearest_collision_distance; // for establishing locking precedence in next stage
 
-  // calc_collision_velcoity
-  bool already_calulated = false;
+  // collision_velcoity
+  QueueOperationResults collision_velocity();
+  void update_next_velocities(std::shared_ptr<GamePiece> b);
+  bool already_calculated = false;
 
-  // simple_velocity_update
+  // simple_velocity
+  QueueOperationResults simple_velocity();
+  void handle_possible_collision_with_wall();
   
 
   // uppdate_position
+  QueueOperationResults update_position();
   
 
   // update_partitions
+  QueueOperationResults update_partitions();
+  void add_new_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
+                             std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
+  void rem_old_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& old_parts);
+  void add_from_both(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& old_parts,
+                              std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
+                              std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
 
 
   // handle_finish
+  QueueOperationResults handle_finished();
   virtual bool is_stationary() = 0;
 
 public:
@@ -122,46 +119,12 @@ public:
   PhyVector get_velocity() const;
   PhyVector get_acceleration() const;
 
-  void update_partitions();
 
   virtual boost::json::object getGamePieceJson();
-//  PhyVector phy_vector_to_other_player(const GamePiece* other);
-  bool detect_player_on_player_collision(const std::shared_ptr<GamePiece> other);
-  void handle_player_on_player_collision(std::shared_ptr<GamePiece> other);
-  void handle_possible_collision_with_wall();
-
-  void player_on_player_collision(std::shared_ptr<GamePiece> other);
-
-  void update_velocity();
-  void update_position();
-  void calculate_next_velocity();
-  void update_next_velocities(std::shared_ptr<GamePiece> b);
-
-  void add_new_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
-                             std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
-  void rem_old_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& old_parts);
-  void add_from_both(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& old_parts,
-                              std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
-                              std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);
-
 };
 
 PhyVector BuildCollisionVector(const PhyVector a, const PhyVector b);
 
-
-
-//class GamePieceInterface
-//{
-//  bool has_collision();
-//
-//  void calc_collision();
-//  void calc_velocity();
-//  
-//  void update_position();
-//
-//  void update_partitions();
-//  bool is_moving();
-//}
 
 
 #endif

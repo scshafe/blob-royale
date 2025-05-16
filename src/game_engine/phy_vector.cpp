@@ -101,3 +101,18 @@ PhyVector PhyVector::operator/(const float& b)
 {
   return PhyVector(x / b, y / b);
 }
+
+
+PhyVector& PhyVector::operator+=(const PhyVector& b)
+{
+  x = x + b.x;
+  y = y + b.y;
+  return *this;
+}
+
+PhyVector& PhyVector::operator-=(const PhyVector& b)
+{
+  x = x - b.x;
+  y = y - b.y;
+  return *this;
+}

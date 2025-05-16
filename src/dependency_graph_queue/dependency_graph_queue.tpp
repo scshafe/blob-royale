@@ -3,7 +3,9 @@
 #include <queue>
 #include <mutex>
 
+#include "cycle_dependency.hpp"
 
+#include "boost-log.hpp"
 /* Locked Queues:
  *
  * start: 
@@ -40,19 +42,25 @@
 
 
 
-#define GRAB_LOCK TRACE << "locking()..."; m.lock(); TRACE << "locked()";
+//#define GRAB_LOCK TRACE << "locking()..."; m.lock(); TRACE << "locked()";
 
 
 
 
 
-
-template<typename QueueType, typename GamePiece, typname OperationResult>
-class LockedGamePieceQueue : public CycleDependency
+template<typename QueueType, typename Object, typename OperationResult>
+class LockedDependencyQueue : public CycleDependency
 { 
-  std::function<bool(std::shared_ptr<GamePiece>)> operation;
-  //std::function<void(std::shared_ptr<GamePiece>)> send_to_next_queue;
-  std::unordered_map<OperationResult, std::function<void(std::shared_ptr<GamePiece>)>> next_queue_map;
+  //std::function<bool(Object)> operation;
+  OperationResult (*operation)(Object);
+  
+
+  //std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
+  //std::unordered_map<OperationResult, void (LockedDependencyQueue::*)(Object)> next_queue_map;
+  std::string queue_name;
+  std::unordered_map<OperationResult, std::string> next_queue_name_map;
+
+  std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
 
   std::mutex queue_lock;
   QueueType q;
@@ -60,29 +68,71 @@ class LockedGamePieceQueue : public CycleDependency
   int operations_in_progress = 0;
 
 public:
-
-  LockedGamePieceQueue(std::function<bool(std::shared_ptr<GamePiece>)> operation_) : 
-    CycleDependency(id_),
-    operation(operation_)
+ 
+  LockedDependencyQueue(OperationResult (*operation_)(Object),
+                        std::string queue_name_,
+                        std::function<void(CycleDependency*)> adder_,
+                        std::function<void(CycleDependency*)> remover_) : 
+    CycleDependency(adder_, remover_),
+    operation(operation_),
+    queue_name(queue_name_)
   {}
+
+
+  void wrap_q_lock()
+  {
+    TRACE << queue_name << " attempting to lock...";
+    queue_lock.lock();
+    TRACE << queue_name << " successfully locked";
+  }
+
+  void wrap_q_unlock()
+  {
+    TRACE << queue_name << " attempting to lock...";
+    queue_lock.unlock();
+    TRACE << queue_name << " successfully locked";
+  }
+
+  void add_send_to_option(OperationResult op_res, LockedDependencyQueue* receiving_queue)
+  {
+    if (next_queue_name_map.find(op_res) != next_queue_name_map.end() ||
+        next_queue_map.find(op_res) != next_queue_map.end())
+    {
+      ERROR << "ERROR: already added " << receiving_queue->queue_name << " to " << queue_name;
+    }
+
+    next_queue_name_map[op_res] = receiving_queue->queue_name;
+    next_queue_map[op_res] = std::bind(&LockedDependencyQueue::receive_game_piece, receiving_queue, std::placeholders::_1);
+  }
   
-//  void set_send_to_next_queue(std::function<void(std::shared_ptr<GamePiece>)> send_to_next_queue_)
-//  {
-//    send_to_next_queue = send_to_next_queue_;
-//  }
-//
-  void set_next_queue_map(std::unordered_map<OperationResult, std::function<void(std::shared_ptr<GamePiece>)>> next_queue_map_)
+  void set_next_queue_map(std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map_)
   {
     next_queue_map = next_queue_map_;
   }
+  void set_next_queue_name_map(std::unordered_map<OperationResult, std::string> next_queue_name_map_)
+  {
+    next_queue_name_map = next_queue_name_map_;
+  }
 
 
+  // a much quicker pre-test to see if locking is worth it
+  virtual bool unsafe_last_one_done()
+  {
+    return q.empty() && operations_in_progress == 0;
+  }
+
+  // this one is much slower but guarantees correctness
   virtual bool last_one_done()
   { 
-    queue_lock.lock();
+    wrap_q_lock();
     bool finished = q.empty() && operations_in_progress == 0;
-    queue_lock.unlock();
+    wrap_q_unlock();
     return finished;
+  }
+
+  virtual std::string get_queue_name()
+  {
+    return queue_name;
   }
 
 
@@ -100,109 +150,46 @@ public:
     {
       return false;
     }
+    if (q.empty())
+    {
+      wrap_q_unlock();
+      return false;
+    }
     
-    std::shared_ptr<GamePiece> gp = q.front();
+    Object gp = q.front();
     q.pop();
     operations_in_progress++;
-    queue_lock.unlock();
+    wrap_q_unlock();
 
     OperationResult res = operation(gp);
 
-    queue_lock.lock();
+    wrap_q_lock();
     operations_in_progress--;
-    //queue_lock.unlock();
 
+    TRACE << "sending " << *gp << " from " << queue_name << " to " << next_queue_name_map[res];
     next_queue_map[res](gp);
     
-    //queue_lock.lock();
+    wrap_q_unlock();
     test_finished();
-    queue_lock.unlock();
     return true;
-    }
     
   }
 
 
-  void receive_game_piece(std::shared_ptr<GamePiece> gp)
+  void receive_game_piece(Object gp)
   {
-    queue_lock.lock();
+    TRACE << queue_name << " receiver attempting to lock";
+    wrap_q_lock();
+    TRACE << queue_name << " successfully locked";
+    TRACE << queue_name << " receiving " << *gp;
     q.push(gp);
-    queue_lock.unlock();
+    wrap_q_unlock();
   }
 
+};
 
 
 
 
-
-
-
-
-
-
-
-  // -------------------------------------------- last night -----
-
-
-  void receive_notify_can_be_finished(int i);
-
-  std::unordered_map<bool, std::function<void(std::shared_ptr<GamePiece>)>> send_to_map; // this can be generalized to be another template typename instead of bool as hashkey
-
-  std::function<bool(void)> dependency;
-
-
-  void set_dependency(std::function<bool(void)> dep)
-  {
-    dependency = dep;
-  }
-
-  void set_send_to_map(std::unordered_map<bool, std::function<void(std::shared_ptr<GamePiece>)>> send_to_map_)
-  {
-    send_to_map = send_to_map_;
-  }
-
-  void set_need_completed(const int& need_completed_)
-  {
-    need_completed = need_completed_;
-  }
-
-  void reset()
-  {
-    assert(q.empty());
-    completed = 0;
-    need_completed = 0;
-  }
-
-  bool is_completed()
-  {
-    m.lock();
-    if (need_completed == completed)
-    {
-      assert(q.empty());
-      m.unlock();
-      return true;
-    }
-    m.unlock();
-    return false;
-  }
-
-
-  void add_to_queue(std::shared_ptr<GamePiece> gp)
-  {
-    m.lock();
-    q.push(gp);
-    m.unlock();
-  }
-
-  void perform_op()
-  {
-    m.lock();
-    while (!q.empty())
-    {
-
-
-
-
-  bool is_complete
 
 

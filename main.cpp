@@ -83,6 +83,7 @@ int main(int argc, char** argv)
   GameEngine* gs = GameEngine::get_instance();
   gs->initialize(vm["testfile"].as<std::string>());
 
+  
   const auto server_threads = 2;
   //auto const doc_root_str = std::make_shared<std::string>("/home/cole/github-projects/blob/royale/build");
   //auto const threads = std::max<int>(1, std::atoi(argv[4]));

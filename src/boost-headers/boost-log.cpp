@@ -41,6 +41,9 @@ void coloring_formatter(
       case severity_level::entrance: // light green
       strm << "\e[38:5:41m";
       break;
+      case severity_level::lock:
+      strm << "\033[33m";
+      break;
     case severity_level::caught_exception: // pink-purple
       strm << "\033[38:5:213m";
       break;

@@ -6,16 +6,49 @@
 #include <string>
 #include <memory>
 #include <set>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 
 #include "player.hpp"
 //#include "map_object.hpp"
 #include "game_piece.hpp"
 #include "partition.hpp"
 
-#include <mutex>
+#include "dependency_graph_queue.tpp"
 
 
+// Custom types to use with LockedDependencyQueue interface
 
+
+typedef LockedDependencyQueue<std::queue<std::shared_ptr<GamePiece>>, std::shared_ptr<GamePiece>, QueueOperationResults> GamePieceQueue;
+
+//typedef void (GamePieceQueue::*AddQueueFunc)(std::shared_ptr<GamePiece>); // define name for functions that add objects to next queue
+
+//typedef std::function<void((GamePieceQueue::*)(std::shared_ptr<GamePiece>), GamePieceQueue*, const std::Playerholder<1>&>::type)> AddQueueFunc;
+
+
+//typedef std::function<void, GamePieceQueue::*receive_game_piece, GamePieceQueue*, std::shared_ptr<GamePiece>)> AddQueueFunc;
+
+typedef std::function<void(std::shared_ptr<GamePiece>)> AddQueueFunc;
+
+typedef std::function<void(CycleDependency*)> LoopModifyingCallback;
+
+
+typedef std::unordered_map<QueueOperationResults, AddQueueFunc> QueueMap;
+
+
+struct  NearestCollisionComparator {
+  bool operator()( const std::shared_ptr<GamePiece> a, const std::shared_ptr<GamePiece> b) const;
+} ;
+
+
+static QueueOperationResults detect_collisions(std::shared_ptr<GamePiece> gp);
+static QueueOperationResults collision_velocity(std::shared_ptr<GamePiece> gp);
+static QueueOperationResults simple_velocity(std::shared_ptr<GamePiece> gp);
+static QueueOperationResults update_position(std::shared_ptr<GamePiece> gp);
+static QueueOperationResults update_partitions(std::shared_ptr<GamePiece> gp);
+static QueueOperationResults handle_finished(std::shared_ptr<GamePiece> gp);
 
 
 
@@ -49,28 +82,40 @@ private:
   bool running;
   int id_counter = 0;
 
-//  std::vector<std::thread> workers;
-//  
-//  std::unordered_set<std::shared_ptr<GamePiece>> collision_map;
-//
-//  std::queue<std::shared_ptr<GamePiece>> untested_collision;
-//  std::queue<std::shared_ptr<GamePiece>> collision_positive;
-//  std::queue<std::shared_ptr<GamePiece>> collision_negative;
-//
-//  template<GamePiece> LockedGamePieceQueue 
-//
-//  template<GamePiece> LockedGamePieceQueue ready_to_move;
-//  tempalte<GamePiece> LockedGamePieceQueue ready_to_update_partitions; 
-//  template<GamePiece> LockedGamePieceQueue finished;
-  
+
+  std::condition_variable cv;
+  std::mutex m;
+  bool queue_changing = false;
+  int changing_threads = 0;
+  int active_threads = 0;
+
+  std::vector<GamePiece*> game_loop_queue;
+
+  GamePieceQueue detect_collision_queue;
+  GamePieceQueue simple_velocity_queue;
+  GamePieceQueue collision_velocity_queue;
+  GamePieceQueue update_position_queue;
+  GamePieceQueue update_partition_queue;
+  GamePieceQueue update_finished_queue;
+
+
+  void add_queue_to_loop(CycleDependency* gp_queue);
+  void rem_queue_from_loop(CycleDependency* gp_queue);
+  void disown_outer_queue();
+  void own_outer_queue();
+  // in future, potentially make collision_velocity_queue a priority_queue
+
+  //LockedGamePieceQueue<std::priority_queue<std::shared_ptr<GamePiece>, std::vector<std::shared_ptr<GamePiece>>, NearestCollisionComparator>, std::shared_ptr<GamePiece>, VelocityResults> collision_velocity_queue;
+
+
 
   //std::vector<std::vector<Partition*>> spatial_partition;
   std::vector<std::vector<std::shared_ptr<Partition>>> spatial_partition;
 
-  void update_partitions();
-  void update_positions();
-  void update_velocities();
-  void calculate_next_velocities();
+//  void update_partitions();
+//  void update_positions();
+//  void update_velocities();
+//  void calculate_next_velocities();
 };
 
 #endif

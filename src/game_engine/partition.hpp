@@ -53,7 +53,7 @@ public:
 
   Cell c;
   std::unordered_set<std::shared_ptr<GamePiece>> pieces;
-  mutex m;
+  std::mutex m;
 
   const std::unordered_set<std::shared_ptr<GamePiece>>& get_pieces();
 

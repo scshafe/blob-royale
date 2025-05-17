@@ -195,18 +195,20 @@ void GameEngine::initialize(std::string testfile)
   //update_finished_queue.add_send_to_option(QueueOperationResults::send_back, &update_finished_queue);
   update_finished_queue.add_send_to_option(QueueOperationResults::option1, &detect_collision_queue);
 
+  active_threads += 1;
 
   for (auto p : players)
   {
     detect_collision_queue.receive_game_piece(p);
   }
 
+
   detect_collision_queue.notify_can_start(5);
   detect_collision_queue.notify_can_be_finished(5);
 
   simple_velocity_queue.notify_can_start(5);
-  
 
+  active_threads -= 1;
 }
 
 GameEngine::GameEngine() :
@@ -263,57 +265,88 @@ void GameEngine::start_sim()
 
 
 
-// ----- MAKE SURE TO UNLOCK MUTEX FROM WHEREVER THIS IS CALLED -------
-void GameEngine::own_outer_queue()
-{
-  m.lock();
-  queue_changing = true;
-  changing_threads += 1;
-  
-  cv.wait(m, []{ return active_threads - changing_threads == 0; })
-}
-
-
-void GameEngine::disown_outer_queue()
-{
-  changing_threads -= 1;
-  queue_changing = changing_threads == 0;
-  m.unlock();
-  cv.notify_one();
-}
 
 void GameEngine::add_queue_to_loop(CycleDependency* gp_queue)
-{
-  own_outer_queue();
-  game_loop_queue.push_back(std::dynamic_cast<GamePieceQueue>(gp_queue));
-  disown_outer_queue();
+{ 
+  LOCK << "attempting change outer queue lock...";  
+  std::unique_lock<std::mutex> lock(m);
+  LOCK << "outer queue locked.";  
+  queue_changing = true;
+  changing_threads += 1;
+
+  
+  WARNING << "active threads: " << active_threads;
+  WARNING << "changing threads: " << changing_threads;
+  
+  if (active_threads - changing_threads != 0)
+  {
+    cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
+  }
+ 
+  game_loop_queue.push_back(dynamic_cast<GamePieceQueue*>(gp_queue));
+
+  changing_threads -= 1;
+  queue_changing = (!changing_threads == 0);
+  WARNING << "changing threads: " << changing_threads;
+  WARNING << "queue changing: " << (queue_changing ? "true" : "false");
+  cv.notify_all();
 }
 
 
 
 void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
 {
-  own_outer_queue();
+  std::unique_lock<std::mutex> lock(m);
+  queue_changing = true;
+  changing_threads += 1;
+  
+  WARNING << "active threads: " << active_threads;
+  WARNING << "changing threads: " << changing_threads;
+  
+  if (active_threads - changing_threads != 0)
+  {
+    cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
+  }
+  
   for (auto it = game_loop_queue.begin(); it != game_loop_queue.end(); ++it)
   {
-    if (*it == std::dynamic_cast<GamePieceQueue>(gp_queue))
+    if (*it == dynamic_cast<GamePieceQueue*>(gp_queue))
     {
       game_loop_queue.erase(it);
-      q_num = 0;
     }
   }
-  disown_outer_queue();
+  changing_threads -= 1;
+  queue_changing = (!changing_threads == 0);
+  WARNING << "changing threads: " << changing_threads;
+  WARNING << "queue changing: " << (queue_changing ? "true" : "false");
+  cv.notify_all();
+}
+
+void GameEngine::gain_sim_loop_access()
+{
+  std::unique_lock<std::mutex> lock(m);
+  active_threads += 1;
+  WARNING << "active threads: " << active_threads;
+  WARNING << "queue changing: " << (queue_changing ? "true" : "false");
+  if (queue_changing)
+  {
+    cv.wait(lock, [this](){ return !queue_changing; });
+  }
+}
+
+void GameEngine::letgo_sim_loop_access()
+{
+  std::unique_lock<std::mutex> lock(m);
+  active_threads -= 1;
+  WARNING << "active threads: " << active_threads;
+  cv.notify_all();  // can probably use 2 separate CV's (one for workers in sim loop, and one for workers changing the queue
 }
 
 void GameEngine::sim_loop()
 {
   while (true)
   {
-    m.lock();
-    active_threads += 1;
-    m.unlock(); 
-    cv.wait(m, []{ return !queue_changing; });
-
+    gain_sim_loop_access();
 
     unsigned int tick_count = 0;
     while (!queue_changing)
@@ -322,16 +355,10 @@ void GameEngine::sim_loop()
     
       for (auto q : game_loop_queue)
       {
-        q.perform_operation();
+        q->perform_operation();
       }
     }
-
-    m.lock();
-    active_threads -= 1;
-    m.unlock();
-    cv.notify_all();  // can probably use 2 separate CV's (one for workers in sim loop, and one for workers changing the queue
-
-  
+    letgo_sim_loop_access(); 
   }
 }
 

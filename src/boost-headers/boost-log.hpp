@@ -41,6 +41,7 @@ extern src::severity_logger< severity_level > lg;
 void init_logging();
 
 #define ENTRANCE  BOOST_LOG_SEV(lg, severity_level::entrance)
+#define LOCK      BOOST_LOG_SEV(lg, severity_level::lock)
 #define TRACE     BOOST_LOG_SEV(lg, severity_level::trace)
 #define LOGEXCEPT BOOST_LOG_SEV(lg, severity_level::caught_exception)
 #define WARNING   BOOST_LOG_SEV(lg, severity_level::warning)

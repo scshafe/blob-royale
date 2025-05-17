@@ -89,7 +89,7 @@ private:
   int changing_threads = 0;
   int active_threads = 0;
 
-  std::vector<GamePiece*> game_loop_queue;
+  std::vector<GamePieceQueue*> game_loop_queue;
 
   GamePieceQueue detect_collision_queue;
   GamePieceQueue simple_velocity_queue;
@@ -99,6 +99,8 @@ private:
   GamePieceQueue update_finished_queue;
 
 
+  void gain_sim_loop_access();
+  void letgo_sim_loop_access();
   void add_queue_to_loop(CycleDependency* gp_queue);
   void rem_queue_from_loop(CycleDependency* gp_queue);
   void disown_outer_queue();

@@ -148,10 +148,10 @@ void GameEngine::initialize(std::string testfile)
   //update_position_queue.add_finish_dependency(&collision_velocity_queue);
   update_position_queue.add_finish_dependency(&simple_velocity_queue);
 
-  update_partition_queue.add_start_dependency(&update_position_queue);
+  update_partition_queue.add_start_dependency(&detect_collision_queue);
   update_partition_queue.add_finish_dependency(&update_position_queue);
 
-  //update_finished_queue.add_start_dependency(update_partition_queue);
+  update_finished_queue.add_start_dependency(&update_partition_queue);
   update_finished_queue.add_finish_dependency(&update_partition_queue);
 
 
@@ -275,8 +275,8 @@ void GameEngine::add_queue_to_loop(CycleDependency* gp_queue)
   changing_threads += 1;
 
   
-  WARNING << "active threads: " << active_threads;
-  WARNING << "changing threads: " << changing_threads;
+  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
   
   if (active_threads - changing_threads != 0)
   {
@@ -287,21 +287,25 @@ void GameEngine::add_queue_to_loop(CycleDependency* gp_queue)
 
   changing_threads -= 1;
   queue_changing = (!changing_threads == 0);
-  WARNING << "changing threads: " << changing_threads;
-  WARNING << "queue changing: " << (queue_changing ? "true" : "false");
+  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
+  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
   cv.notify_all();
 }
 
 
+void GameEngine::print_queue_change_info(const char* msg)
+{
+  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
+}
 
 void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
 {
   std::unique_lock<std::mutex> lock(m);
   queue_changing = true;
   changing_threads += 1;
-  
-  WARNING << "active threads: " << active_threads;
-  WARNING << "changing threads: " << changing_threads;
+
+  print_queue_change_info();
   
   if (active_threads - changing_threads != 0)
   {
@@ -310,15 +314,16 @@ void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
   
   for (auto it = game_loop_queue.begin(); it != game_loop_queue.end(); ++it)
   {
-    if (*it == dynamic_cast<GamePieceQueue*>(gp_queue))
+    if ((*dynamic_cast<CycleDependency*>(*it)) == *gp_queue)
     {
       game_loop_queue.erase(it);
+      break;
     }
   }
   changing_threads -= 1;
   queue_changing = (!changing_threads == 0);
-  WARNING << "changing threads: " << changing_threads;
-  WARNING << "queue changing: " << (queue_changing ? "true" : "false");
+  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
+  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
   cv.notify_all();
 }
 
@@ -326,8 +331,8 @@ void GameEngine::gain_sim_loop_access()
 {
   std::unique_lock<std::mutex> lock(m);
   active_threads += 1;
-  WARNING << "active threads: " << active_threads;
-  WARNING << "queue changing: " << (queue_changing ? "true" : "false");
+  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
   if (queue_changing)
   {
     cv.wait(lock, [this](){ return !queue_changing; });
@@ -338,13 +343,13 @@ void GameEngine::letgo_sim_loop_access()
 {
   std::unique_lock<std::mutex> lock(m);
   active_threads -= 1;
-  WARNING << "active threads: " << active_threads;
+  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
   cv.notify_all();  // can probably use 2 separate CV's (one for workers in sim loop, and one for workers changing the queue
 }
 
 void GameEngine::sim_loop()
 {
-  while (true)
+  while (running)
   {
     gain_sim_loop_access();
 
@@ -355,10 +360,14 @@ void GameEngine::sim_loop()
     
       for (auto q : game_loop_queue)
       {
-        q->perform_operation();
+        if (q->perform_operation()) break;
       }
+    //std::string tmp;
+    //std::cin >> tmp;
+    usleep(GAME_TICK_PERIOD_US);
     }
     letgo_sim_loop_access(); 
+
   }
 }
 

@@ -44,14 +44,17 @@ void coloring_formatter(
       case severity_level::lock:
       strm << "\033[33m";
       break;
+    case severity_level::outer_queue_change:
+      strm << "\e[36m";
+      break;
     case severity_level::caught_exception: // pink-purple
-      strm << "\033[38:5:213m";
+      strm << "\033[34m";
       break;
     case severity_level::warning: // orange
-      strm << "\033[38:5:202m";
+      strm << "\033[35m";
       break;
     case severity_level::error: // red
-      strm << "\e[38:5:196m";
+      strm << "\e[41m";
       break;
     default:
         break;

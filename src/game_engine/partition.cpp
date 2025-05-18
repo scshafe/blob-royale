@@ -61,11 +61,11 @@ std::ostream& operator<<(std::ostream& os, const Cell& c)
   return os << "[" << c._row << "," << c._col << "]";
 }
 
-bool Cell::operator==(const Cell& other)
+bool Cell::operator==(const Cell& other) const
 {
   return _row == other._row && _col == other._col;
 }
-bool Cell::operator<(const Cell& other)
+bool Cell::operator<(const Cell& other) const
 {
   if (_row < other._row) return true;
   if (_row > other._row) return false;
@@ -132,13 +132,13 @@ void Partition::print_gp_list()
   }
 }
 
-bool Partition::operator==(const Partition& other)
+bool Partition::operator==(const Partition& other) const
 {
   return c == other.c;
 }
 
 
-bool Partition::operator<(const Partition& other)
+bool Partition::operator<(const Partition& other) const
 {
   return c < other.c;
 }

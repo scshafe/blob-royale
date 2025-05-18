@@ -28,7 +28,7 @@ protected:
   bool can_start = false;
   bool can_be_finished = false;
   bool finished = false;
-  void test_finished();
+  bool test_finished();
 
   virtual bool unsafe_last_one_done() = 0;
   virtual bool last_one_done() = 0;
@@ -66,7 +66,7 @@ public:
 
   void reset_cycle();
   
-
+  bool operator==(const CycleDependency& other) const;
 };
 
 

@@ -31,8 +31,8 @@ public:
 
   friend std::ostream& operator<<(std::ostream& os, const Cell& c);
 
-  bool operator==(const Cell& other);
-  bool operator<(const Cell& other);
+  bool operator==(const Cell& other) const;
+  bool operator<(const Cell& other) const;
   
 
 };
@@ -67,8 +67,8 @@ public:
   friend std::ostream& operator<<(std::ostream& os, const Partition& p);
   void print_gp_list();
 
-  bool operator==(const Partition& other);
-  bool operator<(const Partition& other);
+  bool operator==(const Partition& other) const;
+  bool operator<(const Partition& other) const;
 
 };
 

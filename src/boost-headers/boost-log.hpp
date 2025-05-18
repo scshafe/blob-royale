@@ -30,6 +30,7 @@ enum severity_level
   entrance,
   lock,
   trace,
+  outer_queue_change,
   caught_exception,
   warning,
   error
@@ -40,12 +41,13 @@ extern src::severity_logger< severity_level > lg;
 
 void init_logging();
 
-#define ENTRANCE  BOOST_LOG_SEV(lg, severity_level::entrance)
-#define LOCK      BOOST_LOG_SEV(lg, severity_level::lock)
-#define TRACE     BOOST_LOG_SEV(lg, severity_level::trace)
-#define LOGEXCEPT BOOST_LOG_SEV(lg, severity_level::caught_exception)
-#define WARNING   BOOST_LOG_SEV(lg, severity_level::warning)
-#define ERROR     BOOST_LOG_SEV(lg, severity_level::error)
+#define ENTRANCE               BOOST_LOG_SEV(lg, severity_level::entrance)
+#define LOCK                   BOOST_LOG_SEV(lg, severity_level::lock)
+#define TRACE                  BOOST_LOG_SEV(lg, severity_level::trace)
+#define OUTER_QUEUE_CHANGE     BOOST_LOG_SEV(lg, severity_level::outer_queue_change)
+#define LOGEXCEPT              BOOST_LOG_SEV(lg, severity_level::caught_exception)
+#define WARNING                BOOST_LOG_SEV(lg, severity_level::warning)
+#define ERROR                  BOOST_LOG_SEV(lg, severity_level::error)
 
 #define LOG BOOST_LOG_TRIVIAL(severity_level::trace)
 

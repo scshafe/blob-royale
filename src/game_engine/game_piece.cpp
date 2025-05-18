@@ -264,7 +264,7 @@ void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std
 
 QueueOperationResults GamePiece::update_partitions()
 {
-  ENTRANCE << "update_partitions()";
+  ENTRANCE << *this << " update_partitions()";
   std::shared_ptr<Partition> tmp = GameEngine::get_instance()->get_partition(shared_from_this());
   
   if (current_part == nullptr)
@@ -404,6 +404,7 @@ void GamePiece::handle_possible_collision_with_wall()
 
 QueueOperationResults GamePiece::detect_collisions()
 {
+  ENTRANCE << *this << " detect_collisions()";
   m.lock();
   
   for (auto part : parts)
@@ -508,6 +509,7 @@ QueueOperationResults GamePiece::update_position()
 
 QueueOperationResults GamePiece::handle_finished()
 {
+  ENTRANCE << *this << " handle_finished()";
   // pull new acceleration from cache here
 
   already_compared.clear();
@@ -518,9 +520,9 @@ QueueOperationResults GamePiece::handle_finished()
 
   if (is_stationary())
   {
+    assert(false && "separate route for stationary objects to avoid extra computation not yet implemented");
     return QueueOperationResults::option1;
   }
-  assert(false && "separate route for stationary objects to avoid extra computation not yet implemented");
   return QueueOperationResults::option1;
 }
 

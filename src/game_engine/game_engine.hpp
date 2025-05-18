@@ -98,7 +98,7 @@ private:
   GamePieceQueue update_partition_queue;
   GamePieceQueue update_finished_queue;
 
-
+  void print_queue_change_info(const char* msg = "");
   void gain_sim_loop_access();
   void letgo_sim_loop_access();
   void add_queue_to_loop(CycleDependency* gp_queue);

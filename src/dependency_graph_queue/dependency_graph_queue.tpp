@@ -81,16 +81,16 @@ public:
 
   void wrap_q_lock()
   {
-    TRACE << queue_name << " attempting to lock...";
+    LOCK << queue_name << " attempting to lock...";
     queue_lock.lock();
-    TRACE << queue_name << " successfully locked";
+    LOCK << queue_name << " successfully locked";
   }
 
   void wrap_q_unlock()
   {
-    TRACE << queue_name << " attempting to lock...";
+    LOCK << queue_name << " attempting to lock...";
     queue_lock.unlock();
-    TRACE << queue_name << " successfully locked";
+    LOCK << queue_name << " successfully locked";
   }
 
   void add_send_to_option(OperationResult op_res, LockedDependencyQueue* receiving_queue)
@@ -124,6 +124,7 @@ public:
   // this one is much slower but guarantees correctness
   virtual bool last_one_done()
   { 
+    ENTRANCE << get_queue_name() << " last_one_done()";
     wrap_q_lock();
     bool finished = q.empty() && operations_in_progress == 0;
     wrap_q_unlock();
@@ -138,6 +139,7 @@ public:
 
   bool perform_operation()
   {
+    ENTRANCE << get_queue_name() << " perform_operation()";
     if (finished == true)
     {
       return false;
@@ -153,10 +155,12 @@ public:
     if (q.empty())
     {
       wrap_q_unlock();
+      TRACE << get_queue_name() << " skipping empty queue";
       return false;
     }
-    
+    TRACE << get_queue_name() << " popping the front";
     Object gp = q.front();
+    TRACE << get_queue_name() << " popped";
     q.pop();
     operations_in_progress++;
     wrap_q_unlock();
@@ -166,22 +170,20 @@ public:
     wrap_q_lock();
     operations_in_progress--;
 
-    TRACE << "sending " << *gp << " from " << queue_name << " to " << next_queue_name_map[res];
+    WARNING << "sending " << *gp << " from " << queue_name << " to " << next_queue_name_map[res];
     next_queue_map[res](gp);
     
     wrap_q_unlock();
-    test_finished();
-    return true;
+    return test_finished();
     
   }
 
 
   void receive_game_piece(Object gp)
   {
-    TRACE << queue_name << " receiver attempting to lock";
+    ENTRANCE << queue_name << " receive_game_piece()";
     wrap_q_lock();
-    TRACE << queue_name << " successfully locked";
-    TRACE << queue_name << " receiving " << *gp;
+    WARNING << queue_name << " receiving " << *gp;
     q.push(gp);
     wrap_q_unlock();
   }

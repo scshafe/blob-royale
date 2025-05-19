@@ -18,8 +18,6 @@ public:
   PhyVector();
   PhyVector(const float& x_in, const float& y_in);
 
-  PhyVector(const PhyVector& a, const PhyVector& b);
-
   ~PhyVector();
   
 
@@ -38,6 +36,7 @@ public:
   float get_magnitude();
   boost::json::array getPhyVectorJson();
   PhyVector get_inverse();
+  PhyVector get_momentum(const float& mass) const;
   float dot(const PhyVector& other);
   PhyVector normalize();
 

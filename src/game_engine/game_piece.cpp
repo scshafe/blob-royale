@@ -336,19 +336,25 @@ boost::json::object GamePiece::getGamePieceJson()
 float GamePiece::detect_player_on_player_collision(const std::shared_ptr<GamePiece> other)
 {
   ENTRANCE << *this << " detect_player_on_player_collision()";
-  PhyVector collision_vector(position, other->position); 
+
+  PhyVector collision_vector = position - other->position; 
   if (collision_vector.get_magnitude() > PLAYER_ON_PLAYER_COLLISION)
   {
-    WARNING << "no collision - magnitude: " << collision_vector.get_magnitude();
+    //WARNING << "no collision - magnitude: " << collision_vector.get_magnitude();
     return 100000.0;
   }
-  WARNING << "Players within distance: " << collision_vector.get_magnitude();
-  WARNING << *this;
-  WARNING << *other;
-  float dot_product = velocity.dot(other->velocity);
-  TRACE << "velocity: " << velocity;
-  TRACE << "dot product: " << dot_product;
-  TRACE << "collision_vec: " << collision_vector;
+  WARNING << *this << " and " << *other << "are within collision distance: " << collision_vector.get_magnitude();
+
+  PhyVector a_momentum = velocity.get_momentum(mass);
+  PhyVector b_momentum = other->get_velocity().get_momentum(other->mass);
+
+  PhyVector zmf = (a_momentum + b_momentum) / (mass + other->mass);
+
+  PhyVector a_relative = velocity - zmf;
+  PhyVector b_relative = other->get_velocity() - zmf;
+
+  float dot_product = a_relative.dot(b_relative);
+
 
   if (dot_product > 0)
   {

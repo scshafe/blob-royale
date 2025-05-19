@@ -31,12 +31,6 @@ PhyVector::PhyVector(const float& x_in, const float& y_in)
   y = y_in;
 }
 
-PhyVector::PhyVector(const PhyVector& a, const PhyVector& b) 
-{
-  x = a.x - b.x;
-  y = a.y - b.y;
-}
-
 PhyVector::~PhyVector() {}
 
 PhyVector& PhyVector::operator=(PhyVector& other)
@@ -67,6 +61,11 @@ PhyVector PhyVector::get_inverse()
   PhyVector tmp(-x, -y);
   TRACE << "created inverse:" << *this << " --> " << tmp;
   return tmp;
+}
+
+PhyVector PhyVector::get_momentum(const float& mass) const
+{
+  return PhyVector(x * mass, y * mass);
 }
 
 float PhyVector::dot(const PhyVector& other)

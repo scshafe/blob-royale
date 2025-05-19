@@ -88,6 +88,8 @@ private:
   bool queue_changing = false;
   int changing_threads = 0;
   int active_threads = 0;
+  std::vector<std::thread*> workers;
+  void initialize_worker(std::string thread_name_);
 
   std::vector<GamePieceQueue*> game_loop_queue;
 

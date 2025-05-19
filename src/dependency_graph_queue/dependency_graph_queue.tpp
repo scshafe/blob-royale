@@ -140,11 +140,10 @@ public:
   bool perform_operation()
   {
     ENTRANCE << get_queue_name() << " perform_operation()";
+    // assert(can_start && "can_start is not true so queue should not be in use");  // this won't be the case for other threads finishing their loop before the outer queue change
+    
+
     if (finished == true)
-    {
-      return false;
-    }
-    if (can_start == false)    // shouldn't need to be locked
     {
       return false;
     }
@@ -166,14 +165,14 @@ public:
     wrap_q_unlock();
 
     OperationResult res = operation(gp);
+    next_queue_map[res](gp);
 
     wrap_q_lock();
     operations_in_progress--;
+    wrap_q_unlock();
 
     WARNING << "sending " << *gp << " from " << queue_name << " to " << next_queue_name_map[res];
-    next_queue_map[res](gp);
     
-    wrap_q_unlock();
     return test_finished();
     
   }

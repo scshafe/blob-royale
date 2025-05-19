@@ -88,15 +88,6 @@ void GameEngine::initialize(std::string testfile)
     }
   }
 
-  for (size_t row = 0; row < SPATIAL_PARTITION_ROWS; row++)
-  {
-    for (size_t col = 0; col < SPATIAL_PARTITION_COLS; col++)
-    {
-      TRACE << *spatial_partition[row][col];
-    }
-  }
-
-
   rapidcsv::Document doc(testfile);
 
   for (size_t i = 0; i < doc.GetRowCount(); i++)
@@ -255,11 +246,28 @@ void GameEngine::operator()()
 }
 
 
+void GameEngine::initialize_worker(std::string thread_name_)
+{
+  boost::log::core::get()->add_thread_attribute("ThreadName",
+      boost::log::attributes::constant< std::string >(thread_name_));
+
+  sim_loop();
+}
+
 void GameEngine::start_sim()
 {
   running = true;
-  std::thread t(&GameEngine::sim_loop, this);
-  t.detach();
+  for (int i = 1; i <= WORKER_COUNT; i++)
+  {
+    std::string thread_name = "work" + std::to_string(i);
+    //std::thread t = std::thread(&GameEngine::initialize_worker, this, thread_name);
+    workers.push_back(new std::thread(&GameEngine::initialize_worker, this, thread_name));
+    
+  }
+  for (auto& w : workers)
+  {
+    w->detach();
+  }
 }
 
 
@@ -278,17 +286,20 @@ void GameEngine::add_queue_to_loop(CycleDependency* gp_queue)
   OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
   OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
   
-  if (active_threads - changing_threads != 0)
+  while (active_threads - changing_threads != 0)
   {
     cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
+    WARNING << "cv.wait() wakeup in add_queue_to_loop()";
   }
  
   game_loop_queue.push_back(dynamic_cast<GamePieceQueue*>(gp_queue));
+  TRACE << "Game loop queue new size: " << game_loop_queue.size();
 
   changing_threads -= 1;
-  queue_changing = (!changing_threads == 0);
+  queue_changing = !(changing_threads == 0);
   OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
   OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
+  lock.unlock();
   cv.notify_all();
 }
 
@@ -301,15 +312,19 @@ void GameEngine::print_queue_change_info(const char* msg)
 
 void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
 {
+  ENTRANCE << "rem_queue_from_loop()";
+  LOCK << "attempting change outer queue lock...";  
   std::unique_lock<std::mutex> lock(m);
+  LOCK << "outer queue locked.";  
   queue_changing = true;
   changing_threads += 1;
 
   print_queue_change_info();
   
-  if (active_threads - changing_threads != 0)
+  while (active_threads - changing_threads != 0)
   {
     cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
+    WARNING << "cv.wait() wakeup in rem_queue_to_loop()";
   }
   
   for (auto it = game_loop_queue.begin(); it != game_loop_queue.end(); ++it)
@@ -320,37 +335,47 @@ void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
       break;
     }
   }
+  TRACE << "Game loop queue new size: " << game_loop_queue.size();
   changing_threads -= 1;
-  queue_changing = (!changing_threads == 0);
+  queue_changing = changing_threads == 0 ? false : true;
   OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
   OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
+  lock.unlock();
   cv.notify_all();
 }
 
 void GameEngine::gain_sim_loop_access()
 {
+  ENTRANCE << "gain_sim_loop_access()";
   std::unique_lock<std::mutex> lock(m);
-  active_threads += 1;
-  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
-  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
-  if (queue_changing)
+  while (queue_changing)
   {
     cv.wait(lock, [this](){ return !queue_changing; });
   }
+  active_threads += 1;
+  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
 }
 
 void GameEngine::letgo_sim_loop_access()
 {
+  ENTRANCE << "letgo_sim_loop_access()";
   std::unique_lock<std::mutex> lock(m);
   active_threads -= 1;
   OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+  lock.unlock();
   cv.notify_all();  // can probably use 2 separate CV's (one for workers in sim loop, and one for workers changing the queue
 }
 
 void GameEngine::sim_loop()
 {
-  while (running)
+  while (true)
   {
+//    if (running == false)
+//    {
+//      std::string tmp;
+//      std::cin >> tmp;
+//    }
     gain_sim_loop_access();
 
     unsigned int tick_count = 0;
@@ -358,13 +383,15 @@ void GameEngine::sim_loop()
     {
       LOG << "GameEngine::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US; // not thread safe but doesn't matter
     
-      for (auto q : game_loop_queue)
+      //for (auto q : game_loop_queue)
+      for (int i = 0; i < game_loop_queue.size() && !queue_changing; i++)
       {
-        if (q->perform_operation()) break;
+        if (game_loop_queue[i]->perform_operation()) break;
+        //if (q->perform_operation()) break;
       }
-    //std::string tmp;
-    //std::cin >> tmp;
-    usleep(GAME_TICK_PERIOD_US);
+      //std::string tmp;
+      //std::cin >> tmp;
+      usleep(GAME_TICK_PERIOD_US);
     }
     letgo_sim_loop_access(); 
 
@@ -416,13 +443,10 @@ void GameEngine::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::se
 
   for (size_t row = (tmp.row() == 0 ? 0 : tmp.row() - 1); row <= tmp.row() + 1; row++)
   {
-    TRACE << "row: " << row;
     for (size_t col = (tmp.col() == 0 ? 0 : tmp.col() - 1); col <= tmp.col() + 1; col++)
     {
-      TRACE << "col: " << col;
       try
       {
-        //TRACE << "attempting: " << row << "," << col;
         assert(spatial_partition.at(row).at(col) != nullptr);
         tmp_parts.emplace(spatial_partition.at(row).at(col));
       }

@@ -196,51 +196,35 @@ PhyVector GamePiece::get_acceleration() const
 void GamePiece::add_new_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
                              std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
 {
-  ENTRANCE << "add_new_part()";
+  //ENTRANCE << "add_new_part()";
   assert(!new_parts.empty());
   
   auto new_it = new_parts.begin();
-  
   (*new_it)->add_game_piece(shared_from_this());
-
-  //std::shared_ptr<Partition> tmp = std::make_shared<Partition>(**new_it);
-  //std::shared_ptr<Partition> tmp = *new_it;
-
   tmp_parts.insert(std::move(*new_it));
   new_parts.erase(new_it);
 
-  TRACE << "New parts length: " << new_parts.size();
-  TRACE << "Tmp parts length: " << tmp_parts.size();
 }
 
 void GamePiece::rem_old_part(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& old_parts)
 {
-  ENTRANCE << "add_old_part()";
+  //ENTRANCE << "add_old_part()";
   assert(!old_parts.empty());
 
   auto old_it = old_parts.begin();
-
   (*old_it)->remove_game_piece(shared_from_this());
   parts.erase(old_it);
-
-  TRACE << "Old parts length: " << old_parts.size();
 }
 
 void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& old_parts,
                               std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
                               std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
 { 
-  ENTRANCE << "add_from_both()";
-
   auto new_it = new_parts.begin();
 
-
   tmp_parts.insert(std::move(*new_it));
-      
   new_parts.erase(new_parts.begin());
   parts.erase(parts.begin());
-
-  TRACE << "old: " << old_parts.size() << "  new: " << new_parts.size();
 }
 
 
@@ -292,9 +276,6 @@ QueueOperationResults GamePiece::update_partitions()
   GameEngine::get_instance()->get_partition_and_nearby(shared_from_this(), new_parts);
   std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>> tmp_parts;
 
-  TRACE << "New parts length: " << new_parts.size();
-  TRACE << "Old parts length: " << parts.size();
-
   while (!new_parts.empty() && !parts.empty())
   {
     auto new_it = new_parts.begin();
@@ -321,13 +302,10 @@ QueueOperationResults GamePiece::update_partitions()
 
 
   // --- Now put tmps back into parts
-  //parts = tmp_parts;
   for (auto it = tmp_parts.begin(); it != tmp_parts.end(); ++it)
   {
     parts.insert(std::move(*it));
   }
-  TRACE << "parts size: " << parts.size();
-  print_part_list();
 
   return QueueOperationResults::option1;
 }
@@ -357,7 +335,7 @@ boost::json::object GamePiece::getGamePieceJson()
 
 float GamePiece::detect_player_on_player_collision(const std::shared_ptr<GamePiece> other)
 {
-  ENTRANCE << "detect_player_on_player_collision()";
+  ENTRANCE << *this << " detect_player_on_player_collision()";
   PhyVector collision_vector(position, other->position); 
   if (collision_vector.get_magnitude() > PLAYER_ON_PLAYER_COLLISION)
   {

@@ -23,6 +23,9 @@ extern int SPATIAL_PARTITION_COUNT;
 extern int PARTITION_WIDTH;
 extern int PARTITION_HEIGHT;
 
+// ----- Workers -----
+extern int WORKER_COUNT;
+
 
 
 void initialize_constants(int map_height,
@@ -30,6 +33,7 @@ void initialize_constants(int map_height,
                           int game_ticks_per_second,
                           int player_radius,
                           int spatial_partition_cols,
-                          int spatial_parition_rows);
+                          int spatial_parition_rows,
+                          int worker_count_);
 
 #endif

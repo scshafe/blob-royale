@@ -87,7 +87,7 @@ void Partition::add_game_piece(std::shared_ptr<GamePiece> game_piece)
   m.lock();
   ENTRANCE << "Partition::add_game_piece()";
   pieces.insert(game_piece);
-  TRACE << *this << "now has " << pieces.size() << " pieces";
+  //TRACE << *this << "now has " << pieces.size() << " pieces";
   m.unlock();
 }
 

@@ -37,6 +37,7 @@ po::variables_map handle_configuration(int argc, char** argv)
     ("game_constants.PLAYER_RADIUS"         , po::value<float>()->default_value(10.0), "radius of players")
     ("game_constants.SPATIAL_PARTITION_COLS", po::value<int>()->default_value(8), "number of partitions used to divide the map widthwise")
     ("game_constants.SPATIAL_PARTITION_ROWS", po::value<int>()->default_value(8), "number of partitions used to divided the map heightwise")
+    ("game_constants.WORKER_COUNT"          , po::value<int>()->default_value(1), "number of worker threads spawned to run the game engine")
     ;
 
 

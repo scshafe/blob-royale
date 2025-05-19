@@ -1,3 +1,5 @@
+#include <unordered_map>
+
 
 #include "boost-log.hpp"
 
@@ -30,9 +32,16 @@ src::severity_logger< severity_level > lg;
 
 
 
+
 void coloring_formatter(
     logging::record_view const& rec, logging::formatting_ostream& strm)
 {
+
+  strm << boost::log::extract<std::string>("ThreadName", rec) << " ";
+
+  //strm << thread_id << " ";
+
+
   auto severity = boost::log::extract<severity_level>("Severity", rec);
   if (severity)
   {
@@ -60,10 +69,7 @@ void coloring_formatter(
         break;
     }
   }
-//  else // for BOOST_LOG(lg) which does not pass severity and should be interpreted as verbose
-//  {
-//    strm << "\e[38:5:41m";
-//  }
+
 
   auto scope = boost::log::extract<attrs::named_scope::value_type>("Scope", rec);
   if (scope)

@@ -75,7 +75,8 @@ int main(int argc, char** argv)
                           vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>(),
                           vm["game_constants.PLAYER_RADIUS"].as<float>(),
                           vm["game_constants.SPATIAL_PARTITION_COLS"].as<int>(),
-                          vm["game_constants.SPATIAL_PARTITION_ROWS"].as<int>()
+                          vm["game_constants.SPATIAL_PARTITION_ROWS"].as<int>(),
+                          vm["game_constants.WORKER_COUNT"].as<int>()
                           );
 
   // initialize the game state engine

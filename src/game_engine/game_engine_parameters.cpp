@@ -26,14 +26,16 @@ int SPATIAL_PARTITION_COUNT;
 int PARTITION_WIDTH;
 int PARTITION_HEIGHT;
 
-
+// ----- Workers -----
+int WORKER_COUNT;
 
 void initialize_constants(int map_height,
                           int map_width,
                           int game_ticks_per_second,
                           int player_radius,
                           int spatial_partition_cols,
-                          int spatial_partition_rows)
+                          int spatial_partition_rows,
+                          int worker_count_)
 {
   // ----- Map -----
   MAP_HEIGHT = map_height;
@@ -64,4 +66,6 @@ void initialize_constants(int map_height,
   assert(MAP_HEIGHT % SPATIAL_PARTITION_ROWS == 0);
   assert(MAP_WIDTH  % SPATIAL_PARTITION_COLS == 0);
 
+
+  WORKER_COUNT = worker_count_;
 }

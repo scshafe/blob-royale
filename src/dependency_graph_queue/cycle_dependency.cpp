@@ -42,17 +42,17 @@ void CycleDependency::add_finish_dependency(CycleDependency* upstream)
 
 void CycleDependency::wrap_lock()
 {
-  ENTRANCE << get_queue_name() << " CycleDependency - attempting to lock...";
+  LOCK << get_queue_name() << " CycleDependency - attempting to lock...";
   m.lock();
-  TRACE << get_queue_name() << " CycleDependency - locked";
+  LOCK << get_queue_name() << " CycleDependency - locked";
 }
 
 
 void CycleDependency::wrap_unlock()
 {
-  ENTRANCE << get_queue_name() << " CycleDependency - attempting to unlock...";
+  LOCK << get_queue_name() << " CycleDependency - attempting to unlock...";
   m.unlock();
-  TRACE << get_queue_name() << " CycleDependency - unlocked";
+  LOCK << get_queue_name() << " CycleDependency - unlocked";
 }
 
 // THIS is the one being notified
@@ -116,7 +116,7 @@ bool CycleDependency::test_finished()
   
 
   wrap_lock();
-  if (can_be_finished == true && last_one_done())
+  if (can_be_finished == true && finished == false && last_one_done())
   {
     WARNING << get_queue_name() << " is finished";
     finished = true;
@@ -128,9 +128,9 @@ bool CycleDependency::test_finished()
     {
       dependency->notify_can_be_finished(id);
     }
+    wrap_unlock();
     remove_self_from_loop(this);
     reset_cycle();
-    wrap_unlock();
     return true;
   }
   wrap_unlock();
@@ -143,8 +143,6 @@ bool CycleDependency::test_finished()
 
 void CycleDependency::reset_cycle()
 {
-  //can_start = false;
-  //can_be_finished = false;
   finished = false;
   can_start = upstream_start.size() == 0;
   can_be_finished = upstream_finished.size() == 0;

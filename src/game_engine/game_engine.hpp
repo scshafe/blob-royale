@@ -92,6 +92,7 @@ private:
   void initialize_worker(std::string thread_name_);
 
   std::vector<GamePieceQueue*> game_loop_queue;
+  std::vector<GamePieceQueue*> ready_to_start_queue;
 
   GamePieceQueue detect_collision_queue;
   GamePieceQueue simple_velocity_queue;

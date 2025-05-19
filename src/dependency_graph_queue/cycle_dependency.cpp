@@ -120,6 +120,7 @@ bool CycleDependency::test_finished()
   {
     WARNING << get_queue_name() << " is finished";
     finished = true;
+    wrap_unlock();
     for (auto dependency : downstream_start)
     {
       dependency->notify_can_start(id);
@@ -128,7 +129,6 @@ bool CycleDependency::test_finished()
     {
       dependency->notify_can_be_finished(id);
     }
-    wrap_unlock();
     remove_self_from_loop(this);
     reset_cycle();
     return true;

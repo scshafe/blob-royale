@@ -60,20 +60,33 @@ void CycleDependency::notify_can_start(int i)
 {
   ENTRANCE << get_queue_name() << " notify_can_start()";
   wrap_lock();
-  if (upstream_start.at(i) == false)
+
+  if (finished)
   {
-    upstream_start.at(i) = true;
-    start_notifications++;
-    if (start_notifications == upstream_start.size())
+    reset_cycle();
+  }
+
+  try
+  {
+    if (upstream_start.at(i) == false)
     {
-      WARNING << get_queue_name() <<  " can start - adding self to outer queue";
-      can_start = true;
-      add_self_to_loop(this);
+      upstream_start.at(i) = true;
+      start_notifications++;
+      if (start_notifications == upstream_start.size())
+      {
+        WARNING << get_queue_name() <<  " can start - adding self to outer queue";
+        can_start = true;
+        add_self_to_loop(this);
+      }
+    }
+    else
+    {
+      assert(false && "notify_can_start() received repeat call from the same queue");
     }
   }
-  else
+  catch (const std::out_of_range& oor)
   {
-    assert(false && "notify_can_start() received repeat call from the same queue");
+    assert(false && "notify_can_start() received invalid id");
   }
 
   wrap_unlock();
@@ -84,23 +97,30 @@ void CycleDependency::notify_can_be_finished(int i)
 {
   ENTRANCE << get_queue_name() << " notify_can_be_finished()";
   wrap_lock();
-  if (upstream_finished.at(i) == false)
+  try
   {
-    upstream_finished.at(i) = true;
-    finish_notifications++;
-    if (finish_notifications == upstream_finished.size())
+    if (upstream_finished.at(i) == false)
     {
-      WARNING << get_queue_name() << " can be fully finished";
-      can_be_finished = true;
+      upstream_finished.at(i) = true;
+      finish_notifications++;
+      if (finish_notifications == upstream_finished.size())
+      {
+        WARNING << get_queue_name() << " can be fully finished";
+        can_be_finished = true;
+      }
+      else
+      {
+        WARNING << get_queue_name() << " cannot yet be finished";
+      }
     }
     else
     {
-      WARNING << get_queue_name() << " cannot yet be finished";
+      assert(false && "notify_can_be_finished() received repeat call from the same queue");
     }
   }
-  else
+  catch (const std::out_of_range& oor)
   {
-    assert(false && "notify_can_be_finished() received repeat call from the same queue");
+    assert(false && "notify_can_be_finished() received invalid id");
   }
   wrap_unlock();
 
@@ -130,7 +150,6 @@ bool CycleDependency::test_finished()
       dependency->notify_can_be_finished(id);
     }
     remove_self_from_loop(this);
-    reset_cycle();
     return true;
   }
   wrap_unlock();

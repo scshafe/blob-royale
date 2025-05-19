@@ -371,11 +371,6 @@ void GameEngine::sim_loop()
 {
   while (true)
   {
-//    if (running == false)
-//    {
-//      std::string tmp;
-//      std::cin >> tmp;
-//    }
     gain_sim_loop_access();
 
     unsigned int tick_count = 0;
@@ -383,18 +378,13 @@ void GameEngine::sim_loop()
     {
       LOG << "GameEngine::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US; // not thread safe but doesn't matter
     
-      //for (auto q : game_loop_queue)
       for (int i = 0; i < game_loop_queue.size() && !queue_changing; i++)
       {
         if (game_loop_queue[i]->perform_operation()) break;
-        //if (q->perform_operation()) break;
       }
-      //std::string tmp;
-      //std::cin >> tmp;
-      usleep(GAME_TICK_PERIOD_US);
+      //usleep(GAME_TICK_PERIOD_US);
     }
     letgo_sim_loop_access(); 
-
   }
 }
 

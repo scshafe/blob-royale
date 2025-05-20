@@ -268,6 +268,9 @@ void GameEngine::start_sim()
   {
     w->detach();
   }
+
+  std::thread t(&GameEngine::send_game_state, this);
+  t.detach();
 }
 
 
@@ -403,6 +406,12 @@ boost::json::array GameEngine::game_info()
   return json_players;
 }
 
+std::string GameEngine::game_info_serialized()
+{
+  boost::json::array json_players = game_info();
+  return boost::json::serialize(json_players);
+}
+
 
 boost::json::object GameEngine::game_config()
 {
@@ -417,6 +426,30 @@ boost::json::object GameEngine::game_config()
 
   return json_config;
 }  
+
+//void GameEngine::register_game_socket(std::shared_ptr<websocket_session> sock)
+//{
+//  sockets.push_back(sock);
+//}
+//
+//void GameEngine::send_game_state()
+//{
+//
+//  // !!!! NEED TO SUBTRACT THE TIME IT TAKES TO RUN EACH ITERATION !!!!
+//
+//  while (running)
+//  {
+//    for (auto sock : sockets)
+//    {
+//      sock->send_game_state(game_info_serialized());
+//      //sock(game_info_serialized());
+//    }
+//
+//
+//    auto x = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+//    std::this_thread::sleep_until(x);
+//  }
+//}
   
 std::shared_ptr<Partition> GameEngine::get_partition(std::shared_ptr<GamePiece> gp)
 {

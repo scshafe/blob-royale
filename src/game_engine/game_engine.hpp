@@ -61,12 +61,23 @@ public:
 
   static GameEngine* get_instance();
 
+  // ---- external facing ----
   void operator()();
   void sim_loop();
   void start_sim();
   void pause_sim();
   boost::json::array game_info();
+  std::string game_info_serialized();
   boost::json::object game_config();
+
+  //std::vector<std::function<void(std::string)>> socket_callbacks;
+  //std::vector<std::shared_ptr<websocket_session>> sockets;
+  //void register_game_socket(std::function<void(std::string)> callback);
+  //void register_game_socket(std::shared_ptr<websocket_session> sock)
+  void send_game_state();
+
+
+
 
   std::shared_ptr<Partition> get_partition(std::shared_ptr<GamePiece> gp);
   void get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts);

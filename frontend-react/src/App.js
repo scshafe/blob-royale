@@ -1,31 +1,80 @@
-import  axios  from 'axios';
-import  React from 'react';
-import logo from './logo.svg';
+import axios  from 'axios';
+import axiosRetry from 'axios-retry';
+import React from 'react';
+
+// local
 import './App.css';
 import GameCanvas from './GameCanvas';
 import Player from './Player.js';
 import Config from './Config.js';
 import DebugPanel from './DebugPanel.js';
 
+
+
 function App() {
   const [players, setPlayers] = React.useState([]);
-  const [fetchInterval, setFetchInterval] = React.useState(null);
+  //const [fetchInterval, setFetchInterval] = React.useState(null);
+  const [sendInterval,  setSendInterval]  = React.useState(null);
   const [config, setConfig] = React.useState(new Map());
   const [started, setStarted] = React.useState(false);
   const [running, setRunning] = React.useState(false);
+  const ws = React.useRef(null);
 
   axios.defaults.baseURL = "http://192.168.86.12:8000";
 
   
   const pauseSim = () => {
-    clearInterval(fetchInterval);
-    setFetchInterval(null);
+    clearInterval(sendInterval);
+    setSendInterval(null);
+    setRunning(false);
+    ws.current.close();
+
     axios.get("pause-sim")
     .then((response) => {
         console.log("pause-sim response: ", response);
-        setRunning(false);
       });
   }
+
+
+  const send_game_inputs = () => {
+    const msg = {
+      acc: [0.7, 1.1]
+    };
+    ws.current.send(JSON.stringify(msg));
+  };
+
+  const receive_game_inputs = (event) => {
+
+    let data = JSON.parse(event.data);
+    console.log("receiving: ", data);
+    let tmp_players = [];
+    data.map( p => {
+      if (p["type"] === "player")
+      {
+        let new_player = new Player(p["gamepiece"], config.get("radius"));
+        tmp_players.push(new_player);
+      }
+    });
+    setPlayers(tmp_players);
+  }
+
+
+  // try again without the start-sim endpoint, see what happens?
+  React.useEffect(() => {
+    ws.current = new WebSocket(
+      "ws://192.168.86.12:8000/start-sim"
+    );
+
+    ws.current.onopen = () => {
+      console.log("websocket connected to server");
+
+    }
+
+    ws.current.onmessage = receive_game_inputs;
+
+  }, []);
+      
+
 
 
   const startSim = () => {
@@ -35,12 +84,13 @@ function App() {
         setStarted(true);
       })
       .then(() => {
-        let tmp = setInterval(getGameState, config.get("interval"));
-        setFetchInterval(tmp);
+        let tmp = setInterval(send_game_inputs, 1000);
+        setSendInterval(tmp);
+        //let tmp = setInterval(getGameState, 30);
+        //let tmp = setInterval(getGameState, config.get("interval"));
+        //setFetchInterval(tmp);
         setRunning(true);
       });
-      
-
   };
 
 
@@ -58,29 +108,6 @@ function App() {
 
 
 
-
-  const getGameState = () => {
-    axios.get("game-state")
-      .then((response) => {
-        return response.data;
-      })
-      .then(data => {
-        let tmp_players = [];
-
-        data.map( p => {
-          if (p["type"] === "player")
-          {
-            let new_player = new Player(p["gamepiece"], config.get("radius"));
-            tmp_players.push(new_player);
-          }
-        });
-        setPlayers(tmp_players);
-      })
-      .catch((err) => {
-        console.log("Failed to fetch game-state");
-      });
-  };
-
   return (
     <div className="App">
       <Config players={players} config={config} onConfigReceived={receiveConfig} />
@@ -90,7 +117,7 @@ function App() {
       { !started  ?
         (<button onClick={startSim}>start</button>) :
         (
-          fetchInterval === null ? 
+          running === null ? 
           (<button onClick={startSim}>resume</button>) :
           (<button onClick={pauseSim}>pause</button>)
         )
@@ -107,3 +134,29 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+//  const getGameState = () => {
+//    axios.get("game-state")
+//      .then((response) => {
+//        return response.data;
+//      })
+//      .then(data => {
+//        let tmp_players = [];
+//
+//        data.map( p => {
+//          if (p["type"] === "player")
+//          {
+//            let new_player = new Player(p["gamepiece"], config.get("radius"));
+//            tmp_players.push(new_player);
+//          }
+//        });
+//        setPlayers(tmp_players);
+//      })
+//      .catch((err) => {
+//        console.log("Failed to fetch game-state");
+//      });
+//  };

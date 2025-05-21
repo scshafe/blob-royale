@@ -26,11 +26,11 @@ public:
   websocket_session(tcp::socket&& socket)
       : ws_(std::move(socket))
   {
-    std::function<void(std::string)> callback = std::bind(&websocket_session::send_game_state, shared_from_this(), std::placeholders::_1);
-    GameEngine::get_instance()->register_game_socket(callback);
+//    std::function<void(std::string)> callback = std::bind(&websocket_session::send_game_state, shared_from_this(), std::placeholders::_1);
+//    GameEngine::get_instance()->register_game_socket(callback);
   }
 
-  void send_game_state(std::string game_state);
+  //void send_game_state(std::string game_state);
 
   // Start the asynchronous accept operation
   template<class Body, class Allocator>

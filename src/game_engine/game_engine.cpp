@@ -214,18 +214,10 @@ GameEngine::GameEngine() :
   update_finished_queue(handle_finished, "finished",                 std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
   running(false)
 
-
-//  spatial_partition(std::vector<std::vector<std::shared_ptr<Partition>>>(SPATIAL_PARTITION_ROWS, std::vector<std::shared_ptr<Partition>>(SPATIAL_PARTITION_COLS)))
 {
   std::function<void(CycleDependency*)> add_to_loop = std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1);
   std::function<void(CycleDependency*)> rem_from_loop = std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1);
 
-//  detect_collision_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
-//  simple_velocity_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
-//  collision_velocity_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
-//  update_position_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
-//  update_partition_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
-//  update_finished_queue.set_outer_loop_callbacks(add_to_loop, rem_from_loop);
 }
 
 GameEngine* GameEngine::get_instance()

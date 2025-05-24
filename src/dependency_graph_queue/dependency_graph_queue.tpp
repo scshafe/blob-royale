@@ -83,7 +83,7 @@ public:
   {
     for (int i = 0; i < worker_count_; i++)
     {
-      std::string thread_name = queue_name + std::to_string(i);
+      std::string thread_name = queue_name + "-" + std::to_string(i);
       workers.push_back(new std::thread(&LockedDependencyQueue::initialize_worker, this, thread_name));
       workers[i]->detach();
     }
@@ -172,6 +172,7 @@ public:
 
   void perform_operation_worker()
   {
+    ENTRANCE << "perform_operation_worker()";
     Object obj;
     {
       std::unique_lock lock(worker_lock);
@@ -198,54 +199,18 @@ public:
   }
 
 
-//  bool perform_operation()
-//  {
-//    ENTRANCE << get_queue_name() << " perform_operation()";
-//    // assert(can_start && "can_start is not true so queue should not be in use");  // this won't be the case for other threads finishing their loop before the outer queue change
-//    
-//
-//    if (finished == true)
-//    {
-//      return false;
-//    }
-//    if (queue_lock.try_lock() == false)
-//    {
-//      return false;
-//    }
-//    if (q.empty())
-//    {
-//      wrap_q_unlock();
-//      TRACE << get_queue_name() << " skipping empty queue";
-//      return false;
-//    }
-//    TRACE << get_queue_name() << " popping the front";
-//    Object gp = q.front();
-//    TRACE << get_queue_name() << " popped";
-//    q.pop();
-//    operations_in_progress++;
-//    wrap_q_unlock();
-//
-//    OperationResult res = operation(gp);
-//    next_queue_map[res](gp);
-//
-//    wrap_q_lock();
-//    operations_in_progress--;
-//    wrap_q_unlock();
-//
-//    WARNING << "sending " << *gp << " from " << queue_name << " to " << next_queue_name_map[res];
-//    
-//    return test_finished();
-//    
-//  }
-
-
   void receive_game_piece(Object gp)
   {
+    {
     ENTRANCE << queue_name << " receive_game_piece()";
-    wrap_q_lock();
-    WARNING << queue_name << " receiving " << *gp;
+    std::unique_lock lock(worker_lock);
+
     q.push(gp);
-    wrap_q_unlock();
+
+
+    WARNING << queue_name << " receiving " << *gp;
+    }
+    worker_cv.notify_one();
   }
 
 };

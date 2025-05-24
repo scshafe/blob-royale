@@ -71,7 +71,7 @@ void CycleDependency::notify_can_start(int i)
       start_notifications++;
       if (start_notifications == upstream_start.size())
       {
-        WARNING << get_queue_name() <<  " can start - adding self to outer queue";
+        WARNING << get_queue_name() <<  " can start";
         can_start = true;
       }
     }

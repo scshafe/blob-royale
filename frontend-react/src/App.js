@@ -84,7 +84,7 @@ function App() {
         setStarted(true);
       })
       .then(() => {
-        let tmp = setInterval(send_game_inputs, 1000);
+        let tmp = setInterval(send_game_inputs, 5000);
         setSendInterval(tmp);
         //let tmp = setInterval(getGameState, 30);
         //let tmp = setInterval(getGameState, config.get("interval"));

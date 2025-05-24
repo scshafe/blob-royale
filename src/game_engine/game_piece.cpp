@@ -435,6 +435,7 @@ QueueOperationResults GamePiece::detect_collisions()
 
 QueueOperationResults GamePiece::simple_velocity()
 {
+  ENTRANCE << *this << " simple_velocity()";
   // add acceleration here
   velocity = velocity;
 
@@ -446,6 +447,7 @@ QueueOperationResults GamePiece::simple_velocity()
 
 QueueOperationResults GamePiece::collision_velocity()
 {
+  ENTRANCE << *this << " collision_velocity()";
   m.lock();
   if (already_calculated == true)
   {
@@ -485,6 +487,7 @@ QueueOperationResults GamePiece::collision_velocity()
 
 QueueOperationResults GamePiece::update_position()
 {
+  ENTRANCE << *this << " update_position()";
   position += velocity;
   return QueueOperationResults::option1;
 }

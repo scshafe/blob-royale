@@ -63,20 +63,40 @@ class LockedDependencyQueue : public CycleDependency
   std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
 
   std::mutex queue_lock;
+  std::mutex worker_lock;
+  std::condition_variable worker_cv;
   QueueType q;
 
+  bool running = false;
   int operations_in_progress = 0;
+
+  std::vector<std::thread*> workers;
 
 public:
  
   LockedDependencyQueue(OperationResult (*operation_)(Object),
                         std::string queue_name_,
-                        std::function<void(CycleDependency*)> adder_,
-                        std::function<void(CycleDependency*)> remover_) : 
-    CycleDependency(adder_, remover_),
+                        int worker_count_) : 
+    CycleDependency(),
     operation(operation_),
     queue_name(queue_name_)
-  {}
+  {
+    for (int i = 0; i < worker_count_; i++)
+    {
+      std::string thread_name = queue_name + std::to_string(i);
+      workers.push_back(new std::thread(&LockedDependencyQueue::initialize_worker, this, thread_name));
+      workers[i]->detach();
+    }
+  }
+
+
+  void initialize_worker(std::string thread_name_)
+  {
+    boost::log::core::get()->add_thread_attribute("ThreadName",
+        boost::log::attributes::constant< std::string >(thread_name_));
+  
+    perform_operation_worker();
+  }
 
 
   void wrap_q_lock()
@@ -114,6 +134,12 @@ public:
     next_queue_name_map = next_queue_name_map_;
   }
 
+  void set_running(const bool running_)
+  {
+    running = running_;
+    worker_cv.notify_one();
+  }
+
 
   // a much quicker pre-test to see if locking is worth it
   virtual bool unsafe_last_one_done()
@@ -136,46 +162,81 @@ public:
     return queue_name;
   }
 
-
-  bool perform_operation()
+  bool ready_for_work()
   {
-    ENTRANCE << get_queue_name() << " perform_operation()";
-    // assert(can_start && "can_start is not true so queue should not be in use");  // this won't be the case for other threads finishing their loop before the outer queue change
-    
-
-    if (finished == true)
-    {
-      return false;
-    }
-    if (queue_lock.try_lock() == false)
-    {
-      return false;
-    }
-    if (q.empty())
-    {
-      wrap_q_unlock();
-      TRACE << get_queue_name() << " skipping empty queue";
-      return false;
-    }
-    TRACE << get_queue_name() << " popping the front";
-    Object gp = q.front();
-    TRACE << get_queue_name() << " popped";
-    q.pop();
-    operations_in_progress++;
-    wrap_q_unlock();
-
-    OperationResult res = operation(gp);
-    next_queue_map[res](gp);
-
-    wrap_q_lock();
-    operations_in_progress--;
-    wrap_q_unlock();
-
-    WARNING << "sending " << *gp << " from " << queue_name << " to " << next_queue_name_map[res];
-    
-    return test_finished();
-    
+    return running &&
+           can_start == true &&
+           finished == false &&
+           !q.empty() ;
   }
+
+  void perform_operation_worker()
+  {
+    Object obj;
+    {
+      std::unique_lock lock(worker_lock);
+      while (!ready_for_work())
+      {
+        worker_cv.wait(lock, [this]{ return ready_for_work(); });
+      }
+      obj = q.front();
+      q.pop();
+      operations_in_progress++;  
+    }
+
+    OperationResult res = operation(obj);
+    next_queue_map[res](obj);
+
+    {
+      std::unique_lock lock(worker_lock);
+      operations_in_progress--;
+    }
+
+    test_finished();
+
+    perform_operation_worker();
+  }
+
+
+//  bool perform_operation()
+//  {
+//    ENTRANCE << get_queue_name() << " perform_operation()";
+//    // assert(can_start && "can_start is not true so queue should not be in use");  // this won't be the case for other threads finishing their loop before the outer queue change
+//    
+//
+//    if (finished == true)
+//    {
+//      return false;
+//    }
+//    if (queue_lock.try_lock() == false)
+//    {
+//      return false;
+//    }
+//    if (q.empty())
+//    {
+//      wrap_q_unlock();
+//      TRACE << get_queue_name() << " skipping empty queue";
+//      return false;
+//    }
+//    TRACE << get_queue_name() << " popping the front";
+//    Object gp = q.front();
+//    TRACE << get_queue_name() << " popped";
+//    q.pop();
+//    operations_in_progress++;
+//    wrap_q_unlock();
+//
+//    OperationResult res = operation(gp);
+//    next_queue_map[res](gp);
+//
+//    wrap_q_lock();
+//    operations_in_progress--;
+//    wrap_q_unlock();
+//
+//    WARNING << "sending " << *gp << " from " << queue_name << " to " << next_queue_name_map[res];
+//    
+//    return test_finished();
+//    
+//  }
 
 
   void receive_game_piece(Object gp)

@@ -8,11 +8,8 @@
 int id_cycle_dependency_counter = 0;
 
 
-CycleDependency::CycleDependency(std::function<void(CycleDependency*)> adder_,
-                                 std::function<void(CycleDependency*)> remover_) :
-  id(id_cycle_dependency_counter++),
-  add_self_to_loop(adder_),
-  remove_self_from_loop(remover_)
+CycleDependency::CycleDependency() :
+  id(id_cycle_dependency_counter++)
 {}
 
 bool CycleDependency::ready_to_begin()
@@ -76,7 +73,6 @@ void CycleDependency::notify_can_start(int i)
       {
         WARNING << get_queue_name() <<  " can start - adding self to outer queue";
         can_start = true;
-        add_self_to_loop(this);
       }
     }
     else
@@ -149,7 +145,6 @@ bool CycleDependency::test_finished()
     {
       dependency->notify_can_be_finished(id);
     }
-    remove_self_from_loop(this);
     return true;
   }
   wrap_unlock();

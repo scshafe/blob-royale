@@ -75,16 +75,16 @@ void websocket_session::on_read(
     // Echo the message
     ws_.text(ws_.got_text());
 
-//    write_buffer.clear();
-//    std::string raw_data = GameEngine::get_instance()->game_info_serialized();
-//
-//    boost::beast::ostream(write_buffer) << raw_data;
-//    ws_.async_write(
-//        //buffer_.data(),
-//        write_buffer.data(),
-//        beast::bind_front_handler(
-//            &websocket_session::on_write,
-//            shared_from_this()));
+    write_buffer.clear();
+    std::string raw_data = GameEngine::get_instance()->game_info_serialized();
+
+    boost::beast::ostream(write_buffer) << raw_data;
+    ws_.async_write(
+        //buffer_.data(),
+        write_buffer.data(),
+        beast::bind_front_handler(
+            &websocket_session::on_write,
+            shared_from_this()));
 }
 
 void websocket_session::on_write(

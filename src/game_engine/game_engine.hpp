@@ -70,11 +70,6 @@ public:
   std::string game_info_serialized();
   boost::json::object game_config();
 
-  //std::vector<std::function<void(std::string)>> socket_callbacks;
-  //std::vector<std::shared_ptr<websocket_session>> sockets;
-  //void register_game_socket(std::function<void(std::string)> callback);
-  //void register_game_socket(std::shared_ptr<websocket_session> sock)
-  void send_game_state();
 
 
 

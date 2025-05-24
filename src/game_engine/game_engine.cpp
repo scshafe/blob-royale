@@ -206,12 +206,12 @@ GameEngine::GameEngine() :
   players(),
   width(MAP_WIDTH),
   height(MAP_HEIGHT),
-  detect_collision_queue(detect_collisions, "detect_collisions",     std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
-  simple_velocity_queue(simple_velocity, "simple_velocity",          std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
-  collision_velocity_queue(collision_velocity, "collision_velocity", std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
-  update_position_queue(update_position, "position",                 std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
-  update_partition_queue(update_partitions, "partitions",            std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
-  update_finished_queue(handle_finished, "finished",                 std::bind(&GameEngine::add_queue_to_loop, this, std::placeholders::_1), std::bind(&GameEngine::rem_queue_from_loop, this, std::placeholders::_1)),
+  detect_collision_queue(detect_collisions, "detect_collisions",     1),
+  simple_velocity_queue(simple_velocity, "simple_velocity",          1),
+  collision_velocity_queue(collision_velocity, "collision_velocity", 1),
+  update_position_queue(update_position, "position",                 1),
+  update_partition_queue(update_partitions, "partitions",            1),
+  update_finished_queue(handle_finished, "finished",                 1),
   running(false)
 
 {
@@ -248,55 +248,64 @@ void GameEngine::initialize_worker(std::string thread_name_)
 
 void GameEngine::start_sim()
 {
-  running = true;
-  for (int i = 1; i <= WORKER_COUNT; i++)
-  {
-    std::string thread_name = "work" + std::to_string(i);
-    //std::thread t = std::thread(&GameEngine::initialize_worker, this, thread_name);
-    workers.push_back(new std::thread(&GameEngine::initialize_worker, this, thread_name));
-    
-  }
-  for (auto& w : workers)
-  {
-    w->detach();
-  }
+  detect_collision_queue.set_running(true);
+  simple_velocity_queue.set_running(true);
+  collision_velocity_queue.set_running(true);
+  update_position_queue.set_running(true);
+  update_partition_queue.set_running(true);
+  update_finished_queue.set_running(true);
 
-  std::thread t(&GameEngine::send_game_state, this);
-  t.detach();
+
+
+
+
+//  running = true;
+//  for (int i = 1; i <= WORKER_COUNT; i++)
+//  {
+//    std::string thread_name = "work" + std::to_string(i);
+//    //std::thread t = std::thread(&GameEngine::initialize_worker, this, thread_name);
+//    workers.push_back(new std::thread(&GameEngine::initialize_worker, this, thread_name));
+//    
+//  }
+//  for (auto& w : workers)
+//  {
+//    w->detach();
+//  }
+//
 }
 
 
 
 
 
-void GameEngine::add_queue_to_loop(CycleDependency* gp_queue)
-{ 
-  LOCK << "attempting change outer queue lock...";  
-  std::unique_lock<std::mutex> lock(m);
-  LOCK << "outer queue locked.";  
-  queue_changing = true;
-  changing_threads += 1;
-
-  
-  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
-  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
-  
-  while (active_threads - changing_threads != 0)
-  {
-    cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
-    WARNING << "cv.wait() wakeup in add_queue_to_loop()";
-  }
- 
-  game_loop_queue.push_back(dynamic_cast<GamePieceQueue*>(gp_queue));
-  TRACE << "Game loop queue new size: " << game_loop_queue.size();
-
-  changing_threads -= 1;
-  queue_changing = !(changing_threads == 0);
-  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
-  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
-  lock.unlock();
-  cv.notify_all();
-}
+//void GameEngine::add_queue_to_loop(CycleDependency* gp_queue)
+//{ 
+//  LOCK << "attempting change outer queue lock...";  
+//  std::unique_lock<std::mutex> lock(m);
+//  LOCK << "outer queue locked.";  
+//  queue_changing = true;
+//  changing_threads += 1;
+//
+//  
+//  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+//  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
+//  
+//  while (active_threads - changing_threads != 0)
+//  {
+//    cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
+//    WARNING << "cv.wait() wakeup in add_queue_to_loop()";
+//  }
+// 
+//  game_loop_queue.push_back(dynamic_cast<GamePieceQueue*>(gp_queue));
+//  TRACE << "Game loop queue new size: " << game_loop_queue.size();
+//
+//  changing_threads -= 1;
+//  queue_changing = !(changing_threads == 0);
+//  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
+//  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
+//  lock.unlock();
+//  cv.notify_all();
+//}
 
 
 void GameEngine::print_queue_change_info(const char* msg)
@@ -305,87 +314,93 @@ void GameEngine::print_queue_change_info(const char* msg)
   OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
 }
 
-void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
-{
-  ENTRANCE << "rem_queue_from_loop()";
-  LOCK << "attempting change outer queue lock...";  
-  std::unique_lock<std::mutex> lock(m);
-  LOCK << "outer queue locked.";  
-  queue_changing = true;
-  changing_threads += 1;
+//void GameEngine::rem_queue_from_loop(CycleDependency* gp_queue)
+//{
+//  ENTRANCE << "rem_queue_from_loop()";
+//  LOCK << "attempting change outer queue lock...";  
+//  std::unique_lock<std::mutex> lock(m);
+//  LOCK << "outer queue locked.";  
+//  queue_changing = true;
+//  changing_threads += 1;
+//
+//  print_queue_change_info();
+//  
+//  while (active_threads - changing_threads != 0)
+//  {
+//    cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
+//    WARNING << "cv.wait() wakeup in rem_queue_to_loop()";
+//  }
+//  
+//  for (auto it = game_loop_queue.begin(); it != game_loop_queue.end(); ++it)
+//  {
+//    if ((*dynamic_cast<CycleDependency*>(*it)) == *gp_queue)
+//    {
+//      game_loop_queue.erase(it);
+//      break;
+//    }
+//  }
+//  TRACE << "Game loop queue new size: " << game_loop_queue.size();
+//  changing_threads -= 1;
+//  queue_changing = changing_threads == 0 ? false : true;
+//  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
+//  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
+//  lock.unlock();
+//  cv.notify_all();
+//}
 
-  print_queue_change_info();
-  
-  while (active_threads - changing_threads != 0)
-  {
-    cv.wait(lock, [this]{ return active_threads - changing_threads == 0; });
-    WARNING << "cv.wait() wakeup in rem_queue_to_loop()";
-  }
-  
-  for (auto it = game_loop_queue.begin(); it != game_loop_queue.end(); ++it)
-  {
-    if ((*dynamic_cast<CycleDependency*>(*it)) == *gp_queue)
-    {
-      game_loop_queue.erase(it);
-      break;
-    }
-  }
-  TRACE << "Game loop queue new size: " << game_loop_queue.size();
-  changing_threads -= 1;
-  queue_changing = changing_threads == 0 ? false : true;
-  OUTER_QUEUE_CHANGE << "changing threads: " << changing_threads;
-  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
-  lock.unlock();
-  cv.notify_all();
-}
+//void GameEngine::gain_sim_loop_access()
+//{
+//  ENTRANCE << "gain_sim_loop_access()";
+//  std::unique_lock<std::mutex> lock(m);
+//  while (queue_changing)
+//  {
+//    cv.wait(lock, [this](){ return !queue_changing; });
+//  }
+//  active_threads += 1;
+//  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+//  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
+//}
+//
+//void GameEngine::letgo_sim_loop_access()
+//{
+//  ENTRANCE << "letgo_sim_loop_access()";
+//  std::unique_lock<std::mutex> lock(m);
+//  active_threads -= 1;
+//  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
+//  lock.unlock();
+//  cv.notify_all();  // can probably use 2 separate CV's (one for workers in sim loop, and one for workers changing the queue
+//}
 
-void GameEngine::gain_sim_loop_access()
-{
-  ENTRANCE << "gain_sim_loop_access()";
-  std::unique_lock<std::mutex> lock(m);
-  while (queue_changing)
-  {
-    cv.wait(lock, [this](){ return !queue_changing; });
-  }
-  active_threads += 1;
-  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
-  OUTER_QUEUE_CHANGE << "queue changing: " << (queue_changing ? "true" : "false");
-}
-
-void GameEngine::letgo_sim_loop_access()
-{
-  ENTRANCE << "letgo_sim_loop_access()";
-  std::unique_lock<std::mutex> lock(m);
-  active_threads -= 1;
-  OUTER_QUEUE_CHANGE << "active threads: " << active_threads;
-  lock.unlock();
-  cv.notify_all();  // can probably use 2 separate CV's (one for workers in sim loop, and one for workers changing the queue
-}
-
-void GameEngine::sim_loop()
-{
-  while (true)
-  {
-    gain_sim_loop_access();
-
-    unsigned int tick_count = 0;
-    while (!queue_changing)
-    {
-      LOG << "GameEngine::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US; // not thread safe but doesn't matter
-    
-      for (int i = 0; i < game_loop_queue.size() && !queue_changing; i++)
-      {
-        if (game_loop_queue[i]->perform_operation()) break;
-      }
-      //usleep(GAME_TICK_PERIOD_US);
-    }
-    letgo_sim_loop_access(); 
-  }
-}
+//void GameEngine::sim_loop()
+//{
+//  while (true)
+//  {
+//    gain_sim_loop_access();
+//
+//    unsigned int tick_count = 0;
+//    while (!queue_changing)
+//    {
+//      LOG << "GameEngine::sim_loop() tick: " << tick_count++ << " with period: " << GAME_TICK_PERIOD_US; // not thread safe but doesn't matter
+//    
+//      for (int i = 0; i < game_loop_queue.size() && !queue_changing; i++)
+//      {
+//        if (game_loop_queue[i]->perform_operation()) break;
+//      }
+//      //usleep(GAME_TICK_PERIOD_US);
+//    }
+//    letgo_sim_loop_access(); 
+//  }
+//}
 
 void GameEngine::pause_sim()
 {
   running = false;
+  detect_collision_queue.set_running(false);
+  simple_velocity_queue.set_running(false);
+  collision_velocity_queue.set_running(false);
+  update_position_queue.set_running(false);
+  update_partition_queue.set_running(false);
+  update_finished_queue.set_running(false);
 }
 
 boost::json::array GameEngine::game_info()

@@ -20,8 +20,7 @@ public:
   void add_start_dependency(CycleDependency* upstream);
   void add_finish_dependency(CycleDependency* upstream);
 
-  CycleDependency(std::function<void(CycleDependency*)> adder_,
-                        std::function<void(CycleDependency*)> remover_);
+  CycleDependency();
 
 protected:
 

@@ -2,7 +2,7 @@ build
 *.swp
 *~
 temp
-
+*.swo
 frontend-react/node-modules/
 
 # Logs

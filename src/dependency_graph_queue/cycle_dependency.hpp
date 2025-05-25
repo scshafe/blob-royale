@@ -6,7 +6,7 @@
 #include <vector>
 #include <functional>
 #include <unordered_map>
-
+#include <array>
 
 
 
@@ -17,8 +17,8 @@ public:
   bool ready_to_begin();
 
   // ----------- SETTERS ---------------
-  void add_start_dependency(CycleDependency* upstream);
-  void add_finish_dependency(CycleDependency* upstream);
+  void add_start_dependencies(std::vector<CycleDependency*> upstream);
+  void add_finish_dependencies(std::vector<CycleDependency*> upstream);
 
   CycleDependency();
 
@@ -52,8 +52,18 @@ private:
 
   int start_notifications = 0;
   int finish_notifications = 0;
-  std::unordered_map<int, bool> upstream_start;
-  std::unordered_map<int, bool> upstream_finished;
+  //std::unordered_map<int, bool> upstream_start;
+  //std::unordered_map<int, bool> upstream_finished;
+
+//  struct CycleDepPointerHash {
+//    std::size_t operator()(const CycleDependency*& key) const
+//    {
+//      return std::hash<int>()(key->id);
+//    }
+//  };
+
+  std::unordered_map<CycleDependency*, bool> upstream_start;
+  std::unordered_map<CycleDependency*, bool> upstream_finished;
 
   void wrap_lock();
   void wrap_unlock();
@@ -61,10 +71,10 @@ private:
   // ----------- NOTIFIERS ---------------
 public:
   // THIS is the one being notified
-  void notify_can_start(int i);
+  void notify_can_start(CycleDependency* dep);
   
   // THIS is hte one being notified
-  void notify_can_be_finished(int i);
+  void notify_can_be_finished(CycleDependency* dep);
   
 
   // ------------ RESET CYCLE -----------

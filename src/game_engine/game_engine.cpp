@@ -128,28 +128,28 @@ void GameEngine::initialize(std::string testfile)
 
 // ADD DEPENDENCIES
 
-  collision_velocity_queue.add_start_dependency(&detect_collision_queue);
-  collision_velocity_queue.add_finish_dependency(&detect_collision_queue);
+  collision_velocity_queue.add_start_dependencies({&detect_collision_queue});
+  collision_velocity_queue.add_finish_dependencies({&detect_collision_queue});
 
-  simple_velocity_queue.add_start_dependency(&update_finished_queue);
-  //simple_velocity_queue.add_finish_dependency(&detect_collision_queue);
-  simple_velocity_queue.add_finish_dependency(&collision_velocity_queue);
+  simple_velocity_queue.add_start_dependencies({&update_finished_queue});
+  simple_velocity_queue.add_finish_dependencies({&detect_collision_queue, &collision_velocity_queue});
+  simple_velocity_queue.add_finish_dependencies({&collision_velocity_queue});
 
-  update_position_queue.add_start_dependency(&detect_collision_queue);
-  //update_position_queue.add_finish_dependency(&collision_velocity_queue);
-  update_position_queue.add_finish_dependency(&simple_velocity_queue);
+  update_position_queue.add_start_dependencies({&detect_collision_queue});
+  //update_position_queue.add_finish_dependencies({&collision_velocity_queue});
+  update_position_queue.add_finish_dependencies({&simple_velocity_queue});
 
-  update_partition_queue.add_start_dependency(&detect_collision_queue);
-  update_partition_queue.add_finish_dependency(&update_position_queue);
+  update_partition_queue.add_start_dependencies({&detect_collision_queue});
+  update_partition_queue.add_finish_dependencies({&update_position_queue});
 
-  update_finished_queue.add_start_dependency(&update_partition_queue);
-  update_finished_queue.add_finish_dependency(&update_partition_queue);
+  update_finished_queue.add_start_dependencies({&update_partition_queue});
+  update_finished_queue.add_finish_dependencies({&update_partition_queue});
 
 
   // can probably relax to:                   update_partition_queue
-  detect_collision_queue.add_start_dependency(&update_finished_queue);
+  detect_collision_queue.add_start_dependencies({&update_finished_queue});
   // can probably relax to:                    update_partition_queue
-  detect_collision_queue.add_finish_dependency(&update_finished_queue);
+  detect_collision_queue.add_finish_dependencies({&update_finished_queue});
   
   // ADD SEND MAPS
 
@@ -160,7 +160,6 @@ void GameEngine::initialize(std::string testfile)
   AddQueueFunc pos_ptr =  std::bind(&GamePieceQueue::receive_game_piece, &update_position_queue,     std::placeholders::_1);
   AddQueueFunc part_ptr = std::bind(&GamePieceQueue::receive_game_piece, &update_partition_queue,    std::placeholders::_1);
   AddQueueFunc uf_ptr =   std::bind(&GamePieceQueue::receive_game_piece, &update_finished_queue,     std::placeholders::_1);
-
 
   detect_collision_queue.add_send_to_option(QueueOperationResults::send_back, &detect_collision_queue);
   detect_collision_queue.add_send_to_option(QueueOperationResults::option1,   &simple_velocity_queue);
@@ -194,10 +193,10 @@ void GameEngine::initialize(std::string testfile)
   }
 
 
-  detect_collision_queue.notify_can_start(5);
-  detect_collision_queue.notify_can_be_finished(5);
+  detect_collision_queue.notify_can_start(dynamic_cast<CycleDependency*>(&update_finished_queue));
+  detect_collision_queue.notify_can_be_finished(dynamic_cast<CycleDependency*>(&update_finished_queue));
 
-  simple_velocity_queue.notify_can_start(5);
+  simple_velocity_queue.notify_can_start(dynamic_cast<CycleDependency*>(&update_finished_queue));
 
   active_threads -= 1;
 }

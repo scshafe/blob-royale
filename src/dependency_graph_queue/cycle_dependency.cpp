@@ -19,20 +19,32 @@ bool CycleDependency::ready_to_begin()
 }
 
 
+//void CycleDependency::add_start_dependency(CycleDependency* upstream)
+//{
+//  ENTRANCE << get_queue_name() << " add_start_dependency() " << upstream->get_queue_name();
+//  upstream_start[upstream->id] = false;
+//  upstream->downstream_start.push_back(this);
+//}
 
-void CycleDependency::add_start_dependency(CycleDependency* upstream)
+void CycleDependency::add_start_dependencies(std::vector<CycleDependency*> upstream)
 {
-  ENTRANCE << get_queue_name() << " add_start_dependency() " << upstream->get_queue_name();
-  upstream_start[upstream->id] = false;
-  upstream->downstream_start.push_back(this);
+  ENTRANCE << get_queue_name() << " add_start_dependency() ";
+  for (auto up : upstream)
+  {
+    upstream_start[up] = false;
+    up->downstream_start.push_back(this);
+  }
 }
 
 
-void CycleDependency::add_finish_dependency(CycleDependency* upstream)
+void CycleDependency::add_finish_dependencies(std::vector<CycleDependency*> upstream)
 {
-  ENTRANCE << get_queue_name() << " add_finish_dependency() " << upstream->get_queue_name();
-  upstream_finished[upstream->id] = false;
-  upstream->downstream_finished.push_back(this);
+  ENTRANCE << get_queue_name() << " add_finish_dependency() ";
+  for (auto up : upstream)
+  {
+    upstream_finished[up] = false;
+    up->downstream_finished.push_back(this);
+  }
 }
 
 
@@ -53,7 +65,7 @@ void CycleDependency::wrap_unlock()
 }
 
 // THIS is the one being notified
-void CycleDependency::notify_can_start(int i)
+void CycleDependency::notify_can_start(CycleDependency* dep)
 {
   ENTRANCE << get_queue_name() << " notify_can_start()";
   wrap_lock();
@@ -65,9 +77,9 @@ void CycleDependency::notify_can_start(int i)
 
   try
   {
-    if (upstream_start.at(i) == false)
+    if (upstream_start.at(dep) == false)
     {
-      upstream_start.at(i) = true;
+      upstream_start.at(dep) = true;
       start_notifications++;
       if (start_notifications == upstream_start.size())
       {
@@ -90,15 +102,15 @@ void CycleDependency::notify_can_start(int i)
 }
 
 // THIS is hte one being notified
-void CycleDependency::notify_can_be_finished(int i)
+void CycleDependency::notify_can_be_finished(CycleDependency* dep)
 {
   ENTRANCE << get_queue_name() << " notify_can_be_finished()";
   wrap_lock();
   try
   {
-    if (upstream_finished.at(i) == false)
+    if (upstream_finished.at(dep) == false)
     {
-      upstream_finished.at(i) = true;
+      upstream_finished.at(dep) = true;
       finish_notifications++;
       if (finish_notifications == upstream_finished.size())
       {
@@ -140,11 +152,11 @@ bool CycleDependency::test_finished()
     wrap_unlock();
     for (auto dependency : downstream_start)
     {
-      dependency->notify_can_start(id);
+      dependency->notify_can_start(this);
     }
     for (auto dependency : downstream_finished)
     {
-      dependency->notify_can_be_finished(id);
+      dependency->notify_can_be_finished(this);
     }
     return true;
   }

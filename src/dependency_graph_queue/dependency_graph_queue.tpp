@@ -63,8 +63,6 @@ class LockedDependencyQueue : public CycleDependency
   std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
 
   std::mutex queue_lock;
-  std::mutex worker_lock;
-  std::condition_variable worker_cv;
   QueueType q;
 
   bool running = false;

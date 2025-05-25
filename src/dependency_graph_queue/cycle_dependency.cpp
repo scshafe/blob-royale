@@ -73,6 +73,7 @@ void CycleDependency::notify_can_start(int i)
       {
         WARNING << get_queue_name() <<  " can start";
         can_start = true;
+        worker_cv.notify_one();
       }
     }
     else

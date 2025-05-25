@@ -7,12 +7,13 @@ const player_color_coding = ['red', 'green', 'orange', 'blue', 'yellow', 'purple
 
 class Player {
   constructor(json, radius) {
-    console.log("Player Constructor");
+    console.log("Player Constructor", json);
     this.id = json["id"];
     this.pos = new PhyVector(json["pos"]);
     this.vel = new PhyVector(json["vel"]);
     this.acc = new PhyVector(json["acc"]);
-    this.radius = Math.floor(radius);
+    this.radius = 10;
+    //this.radius = Math.floor(radius);
     this.main_part = new Cell(json["main_part"]);
     this.parts = new Array();
     json["parts"].map( p => {

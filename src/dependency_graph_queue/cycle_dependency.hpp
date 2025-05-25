@@ -1,6 +1,6 @@
 #pragma once
 
-
+#include <condition_variable>
 #include <mutex>
 #include <queue>
 #include <vector>
@@ -24,6 +24,10 @@ public:
 
 protected:
 
+  // these are used by the above layer
+  std::mutex worker_lock;
+  std::condition_variable worker_cv;
+
   bool can_start = false;
   bool can_be_finished = false;
   bool finished = false;
@@ -38,9 +42,11 @@ private:
   std::function<void(CycleDependency*)> remove_self_from_loop;
   std::function<void(CycleDependency*)> add_self_to_loop;
 
+
   std::mutex m;
   int id;
-  
+ 
+
   std::vector<CycleDependency*> downstream_start;
   std::vector<CycleDependency*> downstream_finished;
 

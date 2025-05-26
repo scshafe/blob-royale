@@ -505,6 +505,11 @@ QueueOperationResults GamePiece::handle_finished()
 
   already_calculated = false;
 
+  std::unique_lock lock(m);
+
+  
+
+
   if (is_stationary())
   {
     assert(false && "separate route for stationary objects to avoid extra computation not yet implemented");

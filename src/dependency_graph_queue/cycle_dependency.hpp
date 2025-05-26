@@ -19,6 +19,7 @@ public:
   // ----------- SETTERS ---------------
   void add_start_dependencies(std::vector<CycleDependency*> upstream);
   void add_finish_dependencies(std::vector<CycleDependency*> upstream);
+  int register_external_start_dependency();
 
   CycleDependency();
 
@@ -28,6 +29,7 @@ protected:
   std::mutex worker_lock;
   std::condition_variable worker_cv;
 
+  bool check_can_start();
   bool can_start = false;
   bool can_be_finished = false;
   bool finished = false;
@@ -50,18 +52,11 @@ private:
   std::vector<CycleDependency*> downstream_start;
   std::vector<CycleDependency*> downstream_finished;
 
+  int external_notifications = 0;
   int start_notifications = 0;
   int finish_notifications = 0;
-  //std::unordered_map<int, bool> upstream_start;
-  //std::unordered_map<int, bool> upstream_finished;
 
-//  struct CycleDepPointerHash {
-//    std::size_t operator()(const CycleDependency*& key) const
-//    {
-//      return std::hash<int>()(key->id);
-//    }
-//  };
-
+  std::unordered_map<int, bool> external_start;
   std::unordered_map<CycleDependency*, bool> upstream_start;
   std::unordered_map<CycleDependency*, bool> upstream_finished;
 
@@ -76,6 +71,7 @@ public:
   // THIS is hte one being notified
   void notify_can_be_finished(CycleDependency* dep);
   
+  void external_notify_can_start(int dep);
 
   // ------------ RESET CYCLE -----------
 

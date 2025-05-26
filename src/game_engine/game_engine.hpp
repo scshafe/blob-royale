@@ -107,26 +107,11 @@ private:
   GamePieceQueue update_partition_queue;
   GamePieceQueue update_finished_queue;
 
-  void print_queue_change_info(const char* msg = "");
-  void gain_sim_loop_access();
-  void letgo_sim_loop_access();
-  void add_queue_to_loop(CycleDependency* gp_queue);
-  void rem_queue_from_loop(CycleDependency* gp_queue);
-  void disown_outer_queue();
-  void own_outer_queue();
-  // in future, potentially make collision_velocity_queue a priority_queue
+  int external_queue_notification_id;
+  void input_player_controls();
 
-  //LockedGamePieceQueue<std::priority_queue<std::shared_ptr<GamePiece>, std::vector<std::shared_ptr<GamePiece>>, NearestCollisionComparator>, std::shared_ptr<GamePiece>, VelocityResults> collision_velocity_queue;
-
-
-
-  //std::vector<std::vector<Partition*>> spatial_partition;
   std::vector<std::vector<std::shared_ptr<Partition>>> spatial_partition;
 
-//  void update_partitions();
-//  void update_positions();
-//  void update_velocities();
-//  void calculate_next_velocities();
 };
 
 #endif

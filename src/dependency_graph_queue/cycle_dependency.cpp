@@ -7,6 +7,7 @@
 
 int id_cycle_dependency_counter = 0;
 
+int external_dependency_counter = 0;
 
 CycleDependency::CycleDependency() :
   id(id_cycle_dependency_counter++)
@@ -47,6 +48,12 @@ void CycleDependency::add_finish_dependencies(std::vector<CycleDependency*> upst
   }
 }
 
+int CycleDependency::register_external_start_dependency()
+{
+  external_start[external_dependency_counter] = false;
+  return external_dependency_counter++;
+}
+
 
 
 void CycleDependency::wrap_lock()
@@ -62,6 +69,14 @@ void CycleDependency::wrap_unlock()
   LOCK << get_queue_name() << " CycleDependency - attempting to unlock...";
   m.unlock();
   LOCK << get_queue_name() << " CycleDependency - unlocked";
+}
+
+bool CycleDependency::check_can_start()
+{
+  return can_start = (
+      start_notifications == upstream_start.size() &&
+      external_notifications == external_start.size()
+      );
 }
 
 // THIS is the one being notified
@@ -81,10 +96,9 @@ void CycleDependency::notify_can_start(CycleDependency* dep)
     {
       upstream_start.at(dep) = true;
       start_notifications++;
-      if (start_notifications == upstream_start.size())
+      if (check_can_start())
       {
         WARNING << get_queue_name() <<  " can start";
-        can_start = true;
         worker_cv.notify_one();
       }
     }
@@ -98,6 +112,34 @@ void CycleDependency::notify_can_start(CycleDependency* dep)
     assert(false && "notify_can_start() received invalid id");
   }
 
+  wrap_unlock();
+}
+
+void CycleDependency::external_notify_can_start(int dep)
+{
+  wrap_lock();
+  try
+  {
+    if (external_start.at(dep) == false)
+    {
+      external_start.at(dep) = true;
+      external_notifications++;
+      if (check_can_start())
+      {
+        WARNING << get_queue_name() << " can start";
+        worker_cv.notify_one();
+      }
+    }
+    else
+    {
+      assert(false && "external_notify_can_start() received repeat call");
+    }
+  }
+  catch (const std::out_of_range& oor)
+  {
+    assert(false && "external_notify_can_start() received invalid dep");
+  }
+  
   wrap_unlock();
 }
 
@@ -180,6 +222,10 @@ void CycleDependency::reset_cycle()
     value = false;
   }
   for (auto& [key, value] : upstream_finished)
+  {
+    value = false;
+  }
+  for (auto& [key, value] : external_start)
   {
     value = false;
   }

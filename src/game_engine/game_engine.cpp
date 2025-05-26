@@ -150,6 +150,8 @@ void GameEngine::initialize(std::string testfile)
   detect_collision_queue.add_start_dependencies({&update_finished_queue});
   // can probably relax to:                    update_partition_queue
   detect_collision_queue.add_finish_dependencies({&update_finished_queue});
+
+  external_queue_notification_id = detect_collision_queue.register_external_start_dependency();
   
   // ADD SEND MAPS
 
@@ -271,6 +273,11 @@ std::string GameEngine::game_info_serialized()
 {
   boost::json::array json_players = game_info();
   return boost::json::serialize(json_players);
+}
+
+void GameEngine::input_player_controls()
+{
+  detect_collision_queue.external_notify_can_start(external_queue_notification_id);
 }
 
 

@@ -53,7 +53,7 @@ static QueueOperationResults handle_finished(std::shared_ptr<GamePiece> gp);
 
 
 
-class GameEngine {
+class GameEngine : public CycleDependencyExternalInterface {
 public:
   void initialize(std::string testfile);
   GameEngine();

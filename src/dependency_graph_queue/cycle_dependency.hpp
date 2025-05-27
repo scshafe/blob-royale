@@ -11,7 +11,7 @@
 
 
 
-class CycleDependency
+class CycleDependency 
 {
 public:
   bool ready_to_begin();

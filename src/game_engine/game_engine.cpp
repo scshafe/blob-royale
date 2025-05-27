@@ -243,6 +243,15 @@ void GameEngine::start_sim()
 
 }
 
+void GameEngine::run_game_clock()
+{
+  while (running)
+  {
+    auto next = std::chrono::system_clock::now() + 1;
+    std::async(detected_collision_queue.external_notify_can_start(external_queue_notification_id));
+    next += 1;
+  }
+}
 
 
 

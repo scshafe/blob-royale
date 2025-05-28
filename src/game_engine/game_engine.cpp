@@ -241,6 +241,8 @@ void GameEngine::start_sim()
   update_finished_queue.set_running(true);
 
 
+  game_clock_thread = new std::thread(&GameEngine::run_game_clock);
+  game_clock_thread->detach();
 }
 
 void GameEngine::run_game_clock()

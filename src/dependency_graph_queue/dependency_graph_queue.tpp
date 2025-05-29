@@ -83,7 +83,7 @@ public:
       workers.push_back(new std::thread(&LockedDependencyQueue::initialize_worker, this, thread_name));
       workers[i]->detach();
     }
-    waiting_workers = 0;
+    waiting_workers = worker_count_;
     worker_count = worker_count_;
   }
 
@@ -138,7 +138,7 @@ public:
   virtual bool last_one_done()
   { 
     ENTRANCE << *this << " last_one_done()";
-    std::unique_lock lock(worker_lock);
+    //std::unique_lock lock(worker_lock);
     TRACE << *this << " queue-size: " << q.size() << " , ops: " << operations_in_progress;
     return can_be_finished && q.empty() && operations_in_progress == 0;
   }
@@ -160,8 +160,9 @@ public:
   {
     ENTRANCE << "perform_operation_worker()";
     Object obj;
-    {
-      std::unique_lock lock(worker_lock);
+
+    run_with_worker_lock([this] {
+      worker_running();
       while (!ready_for_work())
       {
         worker_waiting();
@@ -171,17 +172,21 @@ public:
       obj = q.front();
       q.pop();
       operations_in_progress++;  
-    }
+          
+    });
 
     OperationResult res = operation(obj);
     next_queue_map[res](obj);
 
-    {
+    
+    run_with_worker_lock([this] {
       std::unique_lock lock(worker_lock);
       operations_in_progress--;
-    }
+      test_finished(false);
+    });
 
-    test_finished(false);
+  }
+
 
 
     perform_operation_worker();

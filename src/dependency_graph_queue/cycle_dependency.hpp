@@ -36,7 +36,7 @@ protected:
 
   void worker_running();
   void worker_waiting();
-  unsigned int get_waiting_workers()
+  unsigned int get_waiting_workers();
 
   bool check_can_start();
   bool can_start = false;

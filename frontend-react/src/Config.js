@@ -25,17 +25,13 @@ function Config({config, onConfigReceived }) {
       })
   };
 
-  if (config.size === 0) getGameConfig();
+  //if (config.size === 0) getGameConfig();
 
 
   return (
     <div className="Config">
       <button onClick={getGameConfig}>get config</button>
 
-      <h3>Config parameters</h3>
-        <ul>
-          { config.keys().toArray().map( k => (<li key={k}> {k}: {config.get(k)}</li>))}
-        </ul>
     </div>
   );
 

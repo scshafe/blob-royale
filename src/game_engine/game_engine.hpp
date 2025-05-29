@@ -53,7 +53,8 @@ static QueueOperationResults handle_finished(std::shared_ptr<GamePiece> gp);
 
 
 
-class GameEngine : public CycleDependencyExternalInterface {
+//class GameEngine : public CycleDependencyExternalInterface {
+class GameEngine {
 public:
   void initialize(std::string testfile);
   GameEngine();
@@ -65,6 +66,7 @@ public:
   void operator()();
   void sim_loop();
   void start_sim();
+  void run_game_clock();
   void pause_sim();
   boost::json::array game_info();
   std::string game_info_serialized();
@@ -95,6 +97,7 @@ private:
   int changing_threads = 0;
   int active_threads = 0;
   std::vector<std::thread*> workers;
+  std::thread* game_clock_thread;
   void initialize_worker(std::string thread_name_);
 
   std::vector<GamePieceQueue*> game_loop_queue;
@@ -103,9 +106,9 @@ private:
   GamePieceQueue detect_collision_queue;
   GamePieceQueue simple_velocity_queue;
   GamePieceQueue collision_velocity_queue;
-  GamePieceQueue update_position_queue;
-  GamePieceQueue update_partition_queue;
-  GamePieceQueue update_finished_queue;
+  GamePieceQueue position_queue;
+  GamePieceQueue partition_queue;
+  GamePieceQueue finished_queue;
 
   int external_queue_notification_id;
   void input_player_controls();

@@ -70,7 +70,10 @@ void websocket_session::on_read(
 
     TRACE << "attempting websocket read";
     if(ec)
-        fail(ec, "read");
+    {
+      ERROR << "websocket read";
+      fail(ec, "read");
+    }
 
     // Echo the message
     ws_.text(ws_.got_text());

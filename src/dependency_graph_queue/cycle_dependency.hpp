@@ -17,27 +17,36 @@ public:
   bool ready_to_begin();
 
   // ----------- SETTERS ---------------
+  void print_dependency_relations();
   void add_start_dependencies(std::vector<CycleDependency*> upstream);
   void add_finish_dependencies(std::vector<CycleDependency*> upstream);
   int register_external_start_dependency();
 
-  CycleDependency();
+  CycleDependency(std::string name_);
 
 protected:
+
+  std::string name = "example";
 
   // these are used by the above layer
   std::mutex worker_lock;
   std::condition_variable worker_cv;
+  unsigned int waiting_workers = 0;
+  unsigned int worker_count = 0;
+
+  void worker_running();
+  void worker_waiting();
+  unsigned int get_waiting_workers()
 
   bool check_can_start();
   bool can_start = false;
   bool can_be_finished = false;
-  bool finished = false;
-  bool test_finished();
+  //bool finished = false;
+  void test_finished(bool external_call);
 
   virtual bool unsafe_last_one_done() = 0;
   virtual bool last_one_done() = 0;
-  virtual std::string get_queue_name() = 0;
+  virtual std::string container_info() const = 0;
 
 private:
 
@@ -45,7 +54,8 @@ private:
   std::function<void(CycleDependency*)> add_self_to_loop;
 
 
-  std::mutex m;
+  std::mutex dependency_lock;
+  std::mutex worker_waiting_lock;
   int id;
  
 
@@ -60,8 +70,6 @@ private:
   std::unordered_map<CycleDependency*, bool> upstream_start;
   std::unordered_map<CycleDependency*, bool> upstream_finished;
 
-  void wrap_lock();
-  void wrap_unlock();
 
   // ----------- NOTIFIERS ---------------
 public:
@@ -75,9 +83,35 @@ public:
 
   // ------------ RESET CYCLE -----------
 
+  void notify_dependents();
   void reset_cycle();
   
   bool operator==(const CycleDependency& other) const;
+  friend std::ostream& operator<<(std::ostream& os, const CycleDependency& dep);
+  std::string print_comprehensive() const;
+
+private:
+
+  template<typename T, typename K>
+  void handle_notification(T container, K key, int& notification_count)
+  {
+    try
+    {
+      if (container.at(key) == false)
+      {
+        container.at(key) = true;
+        notification_count++;
+      }
+      else
+      {
+  
+      }
+    }
+    catch (const std::out_of_range& oor)
+    {
+      assert(false && "handle_notifications() received duplicate");
+    }
+  }
 };
 
 

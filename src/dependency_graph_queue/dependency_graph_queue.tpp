@@ -57,12 +57,11 @@ class LockedDependencyQueue : public CycleDependency
 
   //std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
   //std::unordered_map<OperationResult, void (LockedDependencyQueue::*)(Object)> next_queue_map;
-  std::string queue_name;
+  //std::string queue_name;
   std::unordered_map<OperationResult, std::string> next_queue_name_map;
 
   std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
 
-  std::mutex queue_lock;
   QueueType q;
 
   bool running = false;
@@ -73,18 +72,19 @@ class LockedDependencyQueue : public CycleDependency
 public:
  
   LockedDependencyQueue(OperationResult (*operation_)(Object),
-                        std::string queue_name_,
+                        std::string name_,
                         int worker_count_) : 
-    CycleDependency(),
-    operation(operation_),
-    queue_name(queue_name_)
+    CycleDependency(name_),
+    operation(operation_)
   {
     for (int i = 0; i < worker_count_; i++)
     {
-      std::string thread_name = queue_name + "-" + std::to_string(i);
+      std::string thread_name = name + "-" + std::to_string(i);
       workers.push_back(new std::thread(&LockedDependencyQueue::initialize_worker, this, thread_name));
       workers[i]->detach();
     }
+    waiting_workers = 0;
+    worker_count = worker_count_;
   }
 
 
@@ -97,29 +97,16 @@ public:
   }
 
 
-  void wrap_q_lock()
-  {
-    LOCK << queue_name << " attempting to lock...";
-    queue_lock.lock();
-    LOCK << queue_name << " successfully locked";
-  }
-
-  void wrap_q_unlock()
-  {
-    LOCK << queue_name << " attempting to lock...";
-    queue_lock.unlock();
-    LOCK << queue_name << " successfully locked";
-  }
 
   void add_send_to_option(OperationResult op_res, LockedDependencyQueue* receiving_queue)
   {
     if (next_queue_name_map.find(op_res) != next_queue_name_map.end() ||
         next_queue_map.find(op_res) != next_queue_map.end())
     {
-      ERROR << "ERROR: already added " << receiving_queue->queue_name << " to " << queue_name;
+      ERROR << "ERROR: already added " << *receiving_queue << " to " << *this;
     }
 
-    next_queue_name_map[op_res] = receiving_queue->queue_name;
+    next_queue_name_map[op_res] = receiving_queue->name;
     next_queue_map[op_res] = std::bind(&LockedDependencyQueue::receive_game_piece, receiving_queue, std::placeholders::_1);
   }
   
@@ -142,29 +129,30 @@ public:
   // a much quicker pre-test to see if locking is worth it
   virtual bool unsafe_last_one_done()
   {
-    return q.empty() && operations_in_progress == 0;
+    ENTRANCE << *this << " unsafe_last_one_done()";
+    TRACE << *this << " queue-size: " << q.size() << " , ops: " << operations_in_progress;
+    return can_be_finished && q.empty() && operations_in_progress == 0;
   }
 
   // this one is much slower but guarantees correctness
   virtual bool last_one_done()
   { 
-    ENTRANCE << get_queue_name() << " last_one_done()";
-    wrap_q_lock();
-    bool finished = q.empty() && operations_in_progress == 0;
-    wrap_q_unlock();
-    return finished;
+    ENTRANCE << *this << " last_one_done()";
+    std::unique_lock lock(worker_lock);
+    TRACE << *this << " queue-size: " << q.size() << " , ops: " << operations_in_progress;
+    return can_be_finished && q.empty() && operations_in_progress == 0;
   }
 
-  virtual std::string get_queue_name()
+  virtual std::string container_info() const
   {
-    return queue_name;
+    return "queue-size: [" + std::to_string(q.size()) + "]";
   }
 
   bool ready_for_work()
   {
     return running &&
            can_start == true &&
-           finished == false &&
+           //finished == false &&
            !q.empty() ;
   }
 
@@ -176,7 +164,9 @@ public:
       std::unique_lock lock(worker_lock);
       while (!ready_for_work())
       {
+        worker_waiting();
         worker_cv.wait(lock, [this]{ return ready_for_work(); });
+        worker_running();
       }
       obj = q.front();
       q.pop();
@@ -191,7 +181,8 @@ public:
       operations_in_progress--;
     }
 
-    test_finished();
+    test_finished(false);
+
 
     perform_operation_worker();
   }
@@ -200,17 +191,21 @@ public:
   void receive_game_piece(Object gp)
   {
     {
-    ENTRANCE << queue_name << " receive_game_piece()";
+    ENTRANCE << *this << " receive_game_piece()";
     std::unique_lock lock(worker_lock);
 
     q.push(gp);
 
 
-    WARNING << queue_name << " receiving " << *gp;
+    WARNING << *this << " receiving " << *gp;
     }
     worker_cv.notify_one();
   }
 
+  friend std::ostream& operator<<(std::ostream& os, const LockedDependencyQueue& ldq)
+  {
+    return os << ldq.name;
+  }
 };
 
 

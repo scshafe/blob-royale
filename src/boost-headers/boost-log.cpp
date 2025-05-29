@@ -63,7 +63,7 @@ void coloring_formatter(
       strm << "\033[35m";
       break;
     case severity_level::error: // red
-      strm << "\e[41m";
+      strm << "\e[41mError: ";
       break;
     default:
         break;

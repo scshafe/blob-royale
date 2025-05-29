@@ -1,4 +1,5 @@
 #include <cassert>
+#include <future>
 
 #include "boost-log.hpp"
 
@@ -9,27 +10,44 @@ int id_cycle_dependency_counter = 0;
 
 int external_dependency_counter = 0;
 
-CycleDependency::CycleDependency() :
+CycleDependency::CycleDependency(std::string name_) :
+  name(name_),
   id(id_cycle_dependency_counter++)
 {}
 
 bool CycleDependency::ready_to_begin()
 {
-  ENTRANCE << get_queue_name() << " ready_to_begin()";
+  ENTRANCE << *this << " ready_to_begin()";
   return can_start;
 }
 
 
-//void CycleDependency::add_start_dependency(CycleDependency* upstream)
-//{
-//  ENTRANCE << get_queue_name() << " add_start_dependency() " << upstream->get_queue_name();
-//  upstream_start[upstream->id] = false;
-//  upstream->downstream_start.push_back(this);
-//}
+void CycleDependency::print_dependency_relations()
+{
+  ENTRANCE << *this << " dependency relations:";
+  for (auto& [dep, val] : upstream_start)
+  {
+    TRACE << "start waits on: " << *dep;
+  }
+  for (auto& [dep, val] : upstream_finished)
+  {
+    TRACE << "finished waits on: " << *dep;
+  }
+
+  for (auto dep : downstream_start)
+  {
+    TRACE << "enables start for: " << *dep;
+  }
+  for (auto dep : downstream_finished)
+  {
+    TRACE << "enables finish for: " << *dep;
+  }
+}
+
 
 void CycleDependency::add_start_dependencies(std::vector<CycleDependency*> upstream)
 {
-  ENTRANCE << get_queue_name() << " add_start_dependency() ";
+  ENTRANCE << *this << " add_start_dependency() ";
   for (auto up : upstream)
   {
     upstream_start[up] = false;
@@ -40,9 +58,10 @@ void CycleDependency::add_start_dependencies(std::vector<CycleDependency*> upstr
 
 void CycleDependency::add_finish_dependencies(std::vector<CycleDependency*> upstream)
 {
-  ENTRANCE << get_queue_name() << " add_finish_dependency() ";
+  ENTRANCE << *this << " add_finish_dependency() ";
   for (auto up : upstream)
   {
+    TRACE << "adding " << *up;
     upstream_finished[up] = false;
     up->downstream_finished.push_back(this);
   }
@@ -56,155 +75,138 @@ int CycleDependency::register_external_start_dependency()
 
 
 
-void CycleDependency::wrap_lock()
-{
-  LOCK << get_queue_name() << " CycleDependency - attempting to lock...";
-  m.lock();
-  LOCK << get_queue_name() << " CycleDependency - locked";
-}
-
-
-void CycleDependency::wrap_unlock()
-{
-  LOCK << get_queue_name() << " CycleDependency - attempting to unlock...";
-  m.unlock();
-  LOCK << get_queue_name() << " CycleDependency - unlocked";
-}
-
 bool CycleDependency::check_can_start()
 {
+  // ERROR HERE: external_notifications should be == external_start.size()
+  //    - currently set up this way to make sure faster time clocks do not lock up the queues
+  //
   return can_start = (
       start_notifications == upstream_start.size() &&
-      external_notifications == external_start.size()
+      external_notifications >= external_start.size()
       );
 }
+
+
 
 // THIS is the one being notified
 void CycleDependency::notify_can_start(CycleDependency* dep)
 {
-  ENTRANCE << get_queue_name() << " notify_can_start()";
-  wrap_lock();
+  ENTRANCE << *this << " notify_can_start(" << *dep << ")";
+  std::unique_lock lock(dependency_lock);
 
-  if (finished)
-  {
-    reset_cycle();
-  }
+  handle_notification(upstream_start, dep, start_notifications);
 
-  try
+  if (check_can_start())
   {
-    if (upstream_start.at(dep) == false)
-    {
-      upstream_start.at(dep) = true;
-      start_notifications++;
-      if (check_can_start())
-      {
-        WARNING << get_queue_name() <<  " can start";
-        worker_cv.notify_one();
-      }
-    }
-    else
-    {
-      assert(false && "notify_can_start() received repeat call from the same queue");
-    }
+    LOCK << *this << " can start";
+    worker_cv.notify_one();
   }
-  catch (const std::out_of_range& oor)
+  else
   {
-    assert(false && "notify_can_start() received invalid id");
+    LOCK << *this << " cannot start";
   }
-
-  wrap_unlock();
 }
+
 
 void CycleDependency::external_notify_can_start(int dep)
 {
-  wrap_lock();
-  try
+  ENTRANCE << *this << " external_notify_can_start(" << dep << ")";
+  std::unique_lock lock(dependency_lock);
+
+  handle_notification(external_start, dep, external_notifications);
+
+  if (check_can_start())
   {
-    if (external_start.at(dep) == false)
-    {
-      external_start.at(dep) = true;
-      external_notifications++;
-      if (check_can_start())
-      {
-        WARNING << get_queue_name() << " can start";
-        worker_cv.notify_one();
-      }
-    }
-    else
-    {
-      assert(false && "external_notify_can_start() received repeat call");
-    }
+    LOCK << *this << " can start";
+    worker_cv.notify_one();
   }
-  catch (const std::out_of_range& oor)
+  else
   {
-    assert(false && "external_notify_can_start() received invalid dep");
+    LOCK << *this << " cannot start";
   }
-  
-  wrap_unlock();
 }
+
 
 // THIS is hte one being notified
 void CycleDependency::notify_can_be_finished(CycleDependency* dep)
 {
-  ENTRANCE << get_queue_name() << " notify_can_be_finished()";
-  wrap_lock();
-  try
+  ENTRANCE << *this << " notify_can_be_finished(" << *dep << ")";
+
   {
-    if (upstream_finished.at(dep) == false)
+    std::unique_lock lock(dependency_lock);
+  
+    handle_notification(upstream_finished, dep, finish_notifications);
+  
+    if (finish_notifications == upstream_finished.size())
     {
-      upstream_finished.at(dep) = true;
-      finish_notifications++;
-      if (finish_notifications == upstream_finished.size())
-      {
-        WARNING << get_queue_name() << " can be fully finished";
-        can_be_finished = true;
-      }
-      else
-      {
-        WARNING << get_queue_name() << " cannot yet be finished";
-      }
+      can_be_finished = true;
+      LOCK << *this << " can be finish";
     }
     else
     {
-      assert(false && "notify_can_be_finished() received repeat call from the same queue");
+      LOCK << *this << " cannot finish";
     }
   }
-  catch (const std::out_of_range& oor)
-  {
-    assert(false && "notify_can_be_finished() received invalid id");
-  }
-  wrap_unlock();
-
-  test_finished(); // important to test here in case this queue never received any
+  test_finished(true);
 }
 
 
-bool CycleDependency::test_finished()
+void CycleDependency::test_finished(bool external_call)
 {
-  ENTRANCE << get_queue_name() << " test_finished()";
-
-  if (!unsafe_last_one_done()) return false;
+  ENTRANCE << *this << " test_finished()";
+  if (!unsafe_last_one_done()) return;
   
-
-  wrap_lock();
-  if (can_be_finished == true && finished == false && last_one_done())
+  std::unique_lock lock(dependency_lock);
+  TRACE << *this << " attempting finished test";
+  
+  if (!last_one_done() || can_start == false)
   {
-    WARNING << get_queue_name() << " is finished";
-    finished = true;
-    wrap_unlock();
-    for (auto dependency : downstream_start)
-    {
-      dependency->notify_can_start(this);
-    }
-    for (auto dependency : downstream_finished)
-    {
-      dependency->notify_can_be_finished(this);
-    }
-    return true;
+    TRACE << *this << " not finished";
+    return;
   }
-  wrap_unlock();
-  return false;
+  if ((external_call  && waiting_workers == 0 ) ||
+      (!external_call && waiting_workers == 1))
+  {
+    LOCK << *this << " is finished";
+  
+    notify_dependents();
+    reset_cycle();
+  }
+  else
+  {
+    TRACE << *this << " not finished. waiting_workers: " << waiting_workers;
+  }
+}
 
+void CycleDependency::notify_dependents()
+{
+  for (auto dep : downstream_start)
+  {
+    dep->notify_can_start(this);
+  }
+  for (auto dep : downstream_finished)
+  {
+    TRACE << "notifying " << *dep;
+    dep->notify_can_be_finished(this);
+  }
+}
+
+void CycleDependency::worker_running()
+{
+  std::unique_lock(worker_waiting_lock);
+  waiting_workers--;
+}
+
+void CycleDependency::worker_waiting()
+{
+  std::unique_lock(worker_waiting_lock);
+  waiting_workers++;
+}
+
+unsigned int CycleDependency::get_waiting_workers()
+{
+  std::unique_lock(worker_waiting_lock);
+  return waiting_workers;
 }
 
 
@@ -212,8 +214,10 @@ bool CycleDependency::test_finished()
 
 void CycleDependency::reset_cycle()
 {
-  finished = false;
-  can_start = upstream_start.size() == 0;
+  ENTRANCE << *this << " reset_cycle()";
+
+  TRACE << *this << " acquired lock for reset_cycle()";
+  can_start = upstream_start.size() == 0 && external_start.size() == 0;
   can_be_finished = upstream_finished.size() == 0;
   start_notifications = 0;
   finish_notifications = 0; 
@@ -236,3 +240,14 @@ bool CycleDependency::operator==(const CycleDependency& other) const
 {
   return id == other.id;
 }
+
+std::string CycleDependency::print_comprehensive() const
+{
+  return name + " " + container_info();
+}
+
+std::ostream& operator<<(std::ostream& os, const CycleDependency& dep)
+{
+  return os << dep.name;
+}
+

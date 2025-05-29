@@ -49,6 +49,8 @@ void init_logging();
 #define WARNING                BOOST_LOG_SEV(lg, severity_level::warning)
 #define ERROR                  BOOST_LOG_SEV(lg, severity_level::error)
 
+#define ASSERT(expr, msg)      if (!expr) { BOOST_LOG_SEV(lg, severity_level::error) << msg; exit(1); }
+
 #define LOG BOOST_LOG_TRIVIAL(severity_level::trace)
 
 // weird that this doesn't work but putting it in manually (in boost-program-options lets it print

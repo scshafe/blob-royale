@@ -161,7 +161,7 @@ public:
     ENTRANCE << "perform_operation_worker()";
     Object obj;
 
-    run_with_worker_lock([this] {
+    run_with_worker_lock([this, &obj] (std::unique_lock<std::mutex> lock) {
       worker_running();
       while (!ready_for_work())
       {
@@ -179,18 +179,13 @@ public:
     next_queue_map[res](obj);
 
     
-    run_with_worker_lock([this] {
-      std::unique_lock lock(worker_lock);
+    run_with_worker_lock([this] (std::unique_lock<std::mutex> lock) {
       operations_in_progress--;
       test_finished(false);
     });
 
   }
 
-
-
-    perform_operation_worker();
-  }
 
 
   void receive_game_piece(Object gp)

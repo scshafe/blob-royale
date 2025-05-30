@@ -151,8 +151,8 @@ void CycleDependency::notify_can_be_finished(CycleDependency* dep)
 
   ASSERT(can_be_finished, " can_be_finished must be true at this point");
   
-  std::unique_lock w_lock(worker_lock); // probably faster if it's possible to give this thread priority in 
-  run_with_worker_lock([this] {
+  //std::unique_lock w_lock(worker_lock); // probably faster if it's possible to give this thread priority in 
+  run_with_worker_lock([this] (std::unique_lock<std::mutex> lock){
 
       if (get_waiting_workers() == waiting_workers)
       {
@@ -193,7 +193,7 @@ void CycleDependency::run_with_worker_lock(std::function<void(std::unique_lock<s
 {
   std::unique_lock lock(worker_lock);
 
-  func(lock);
+  func(std::move(lock));
 
 }
 

@@ -51,21 +51,15 @@
 template<typename QueueType, typename Object, typename OperationResult>
 class LockedDependencyQueue : public CycleDependency
 { 
-  //std::function<bool(Object)> operation;
   OperationResult (*operation)(Object);
   
-
-  //std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
-  //std::unordered_map<OperationResult, void (LockedDependencyQueue::*)(Object)> next_queue_map;
-  //std::string queue_name;
   std::unordered_map<OperationResult, std::string> next_queue_name_map;
-
   std::unordered_map<OperationResult, std::function<void(Object)>> next_queue_map;
 
   QueueType q;
+  Object obj;
 
   bool running = false;
-  int operations_in_progress = 0;
 
   std::vector<std::thread*> workers;
 
@@ -126,21 +120,17 @@ public:
   }
 
 
-  // a much quicker pre-test to see if locking is worth it
-  virtual bool unsafe_last_one_done()
-  {
-    ENTRANCE << *this << " unsafe_last_one_done()";
-    TRACE << *this << " queue-size: " << q.size() << " , ops: " << operations_in_progress;
-    return can_be_finished && q.empty() && operations_in_progress == 0;
-  }
-
-  // this one is much slower but guarantees correctness
-  virtual bool last_one_done()
+  virtual bool last_one_done(bool external_call)
   { 
-    ENTRANCE << *this << " last_one_done()";
-    //std::unique_lock lock(worker_lock);
-    TRACE << *this << " queue-size: " << q.size() << " , ops: " << operations_in_progress;
-    return can_be_finished && q.empty() && operations_in_progress == 0;
+    ENTRANCE << *this << " last_one_done().  external_call[" << (external_call ? "true" : "false") << "]";
+    if (!can_be_finished)            TRACE << "can_be_finished == false";
+    if (!q.empty())                  TRACE << "queue not empty";
+    TRACE << "operations in progress: " << operations_in_progress;
+
+    bool last_op = external_call ? operations_in_progress == 0 : operations_in_progress == 1;
+    TRACE << "last op: " << (last_op ? "true" : "false");
+
+    return can_be_finished && q.empty() && last_op;
   }
 
   virtual std::string container_info() const
@@ -159,15 +149,14 @@ public:
   void perform_operation_worker()
   {
     ENTRANCE << "perform_operation_worker()";
-    Object obj;
 
-    run_with_worker_lock([this, &obj] (std::unique_lock<std::mutex> lock) {
-      worker_running();
+    run_with_worker_lock([this] (std::unique_lock<std::mutex> lock) {
+      //worker_running();
       while (!ready_for_work())
       {
-        worker_waiting();
+        //worker_waiting();
         worker_cv.wait(lock, [this]{ return ready_for_work(); });
-        worker_running();
+        //worker_running();
       }
       obj = q.front();
       q.pop();
@@ -180,25 +169,24 @@ public:
 
     
     run_with_worker_lock([this] (std::unique_lock<std::mutex> lock) {
-      operations_in_progress--;
       test_finished(false);
+      operations_in_progress--;
+      //worker_waiting();
     });
 
+    perform_operation_worker();
   }
 
 
 
   void receive_game_piece(Object gp)
   {
-    {
-    ENTRANCE << *this << " receive_game_piece()";
-    std::unique_lock lock(worker_lock);
 
-    q.push(gp);
+    run_with_worker_lock([this, gp] (std::unique_lock<std::mutex> lock) {
+      q.push(gp);
+      WARNING << *this << " receiving " << *gp;
+    });
 
-
-    WARNING << *this << " receiving " << *gp;
-    }
     worker_cv.notify_one();
   }
 

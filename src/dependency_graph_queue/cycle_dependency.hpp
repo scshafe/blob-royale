@@ -34,9 +34,9 @@ protected:
   unsigned int waiting_workers = 0;
   unsigned int worker_count = 0;
 
-  void worker_running();
-  void worker_waiting();
-  unsigned int get_waiting_workers();
+//  void worker_running();
+//  void worker_waiting();
+//  unsigned int get_waiting_workers();
   void run_with_worker_lock(std::function<void(std::unique_lock<std::mutex>)> func);
 
   bool check_can_start();
@@ -44,9 +44,9 @@ protected:
   bool can_be_finished = false;
   //bool finished = false;
   void test_finished(bool external_call);
+  unsigned int operations_in_progress = 0;
 
-  virtual bool unsafe_last_one_done() = 0;
-  virtual bool last_one_done() = 0;
+  virtual bool last_one_done(bool external_call) = 0;
   virtual std::string container_info() const = 0;
 
 private:

@@ -257,6 +257,8 @@ void GameEngine::run_game_clock()
     std::this_thread::sleep_until(next);
     success = std::async(&CycleDependency::external_notify_can_start, dynamic_cast<CycleDependency*>(&detect_collision_queue), external_queue_notification_id);
     next += std::chrono::milliseconds{int(GAME_TICK_PERIOD_MS)};
+
+    TRACE << "Game tick: " << game_tick++;
     // if game parameters are switched to compile time variables, should be able to use something like:
     //next += GAME_TICK_PERIOD_MSms;
     // ( this operator: `operator""ms` is a constexpr operator for hardcoded values

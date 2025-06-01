@@ -98,6 +98,7 @@ private:
   int active_threads = 0;
   std::vector<std::thread*> workers;
   std::thread* game_clock_thread;
+  unsigned int game_tick = 0;
   void initialize_worker(std::string thread_name_);
 
   std::vector<GamePieceQueue*> game_loop_queue;

@@ -94,6 +94,11 @@ void CycleDependency::notify_can_start(CycleDependency* dep)
   ENTRANCE << *this << " notify_can_start(" << *dep << ")";
   std::unique_lock lock(dependency_lock);
 
+  while (can_start == true)
+  {
+    dependency_cv.wait(lock, [this] { return can_start == false; });
+  }
+
   handle_notification(upstream_start, dep, start_notifications);
 
   if (check_can_start())
@@ -112,6 +117,13 @@ void CycleDependency::external_notify_can_start(int dep)
 {
   ENTRANCE << *this << " external_notify_can_start(" << dep << ")";
   std::unique_lock lock(dependency_lock);
+
+  
+  while (can_start == true)
+  {
+    dependency_cv.wait(lock, [this] { return can_start == false; });
+    ERROR << "THE GAME ENGINE CANNOT KEEP UP WITH THE GAME CLOCK! This should never happen. (not an assert currently to allow testing).";
+  }
 
   handle_notification(external_start, dep, external_notifications);
 
@@ -165,7 +177,8 @@ void CycleDependency::notify_can_be_finished(CycleDependency* dep)
 void CycleDependency::test_finished(bool external_call)
 {
   ENTRANCE << *this << " test_finished()";
- 
+  std::unique_lock lock(dependency_lock);
+
   if (!last_one_done(external_call) /*|| can_start == false*/)
   {
     TRACE << " not finished";
@@ -173,9 +186,18 @@ void CycleDependency::test_finished(bool external_call)
   }
 
   LOCK << *this << " is finished";
+
   
   notify_dependents();
   reset_cycle();
+}
+
+
+void CycleDependency::run_with_dependency_lock(std::function<void(std::unique_lock<std::mutex>)> func)
+{
+  std::unique_lock lock(dependency_lock);
+
+  func(std::move(lock));
 }
 
 
@@ -212,7 +234,6 @@ void CycleDependency::reset_cycle()
 {
   ENTRANCE << *this << " reset_cycle()";
 
-  std::unique_lock lock(dependency_lock);
 
   can_start = upstream_start.size() == 0 && external_start.size() == 0;
   can_be_finished = upstream_finished.size() == 0;

@@ -138,7 +138,7 @@ GamePiece::~GamePiece()
 
 std::ostream& operator<<(std::ostream& os, const GamePiece& gp)
 {
-  os << gp.id;
+  os << "GP[" << gp.id << "]: pos:" << gp.position;
 //  os << "GP(" 
 //     << "m: " << gp.mass << " "
 //     << "pos:" << gp.position << " "

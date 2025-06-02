@@ -243,6 +243,7 @@ void GameEngine::start_sim()
   partition_queue.set_running(true);
   finished_queue.set_running(true);
 
+  running = true;
 
   game_clock_thread = new std::thread(&GameEngine::run_game_clock, this);
   game_clock_thread->detach();
@@ -319,8 +320,9 @@ boost::json::object GameEngine::game_config()
   
 std::shared_ptr<Partition> GameEngine::get_partition(std::shared_ptr<GamePiece> gp)
 {
+  ENTRANCE << "get_partition(" << *gp << ")";
   Cell tmp (gp);
-  TRACE << "Cell for get_partition() : " << tmp;
+  TRACE << "is in partition: " << tmp;
   return spatial_partition[tmp.row()][tmp.col()];
 }
 

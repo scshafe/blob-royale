@@ -38,6 +38,7 @@ protected:
 //  void worker_waiting();
 //  unsigned int get_waiting_workers();
   void run_with_worker_lock(std::function<void(std::unique_lock<std::mutex>)> func);
+  void run_with_dependency_lock(std::function<void(std::unique_lock<std::mutex>)> func);
 
   bool check_can_start();
   bool can_start = false;
@@ -56,6 +57,7 @@ private:
 
 
   std::mutex dependency_lock;
+  std::condition_variable dependency_cv;
   std::mutex worker_waiting_lock;
   int id;
  

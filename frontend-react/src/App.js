@@ -38,6 +38,7 @@ function App() {
 
 
   const send_game_inputs = () => {
+    console.log("sending game inputs");
     const msg = {
       acc: [0.7, 1.1]
     };

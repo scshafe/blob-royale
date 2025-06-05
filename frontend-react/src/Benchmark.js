@@ -6,10 +6,17 @@ import reportWebVitals from './reportWebVitals';
 
 function Benchmark() {
 
+  const startBenchmark = () => {
+    axios.get("benchmark")
+      .then( (response) => {
+        console.log("benchmark response: ", response);
+      }
+  };
+
   return (
     <div className="Benchmark" >
       <div>
-        Hello test from React
+        <button onClick={startBenchmark}> start benchmark </button>
       </div>
     </div>
   );

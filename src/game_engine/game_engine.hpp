@@ -67,6 +67,7 @@ public:
   void sim_loop();
   void start_sim();
   void run_game_clock();
+  void run_benchmark();
   void pause_sim();
   boost::json::array game_info();
   std::string game_info_serialized();

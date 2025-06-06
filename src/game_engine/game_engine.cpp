@@ -249,7 +249,7 @@ void GameEngine::start_sim()
   game_clock_thread->detach();
 }
 
-void GameEngine::run_game_clock()
+void GameEngine::run_game_clock(int game_tick)
 {
   auto next = std::chrono::system_clock::now() + std::chrono::milliseconds{int(GAME_TICK_PERIOD_MS)};
   auto success = std::async(&CycleDependency::external_notify_can_start, dynamic_cast<CycleDependency*>(&detect_collision_queue), external_queue_notification_id);
@@ -266,6 +266,24 @@ void GameEngine::run_game_clock()
   }
 }
 
+
+void GameEngine::run_benchmark()
+{
+  auto start_time = std::chrono::high_resolution_clock::now();
+
+  detect_collision_queue.set_running(true);
+  simple_velocity_queue.set_running(true);
+  collision_velocity_queue.set_running(true);
+  position_queue.set_running(true);
+  partition_queue.set_running(true);
+  finished_queue.set_running(true);
+
+  running = true;
+
+
+  game_clock_thread = new std::thread(&GameEngine::run_game_clock, this, 0.00001);
+  game_clock_thread->detach();
+}
 
 
 

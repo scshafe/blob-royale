@@ -20,7 +20,9 @@ public:
   void print_dependency_relations();
   void add_start_dependencies(std::vector<CycleDependency*> upstream);
   void add_finish_dependencies(std::vector<CycleDependency*> upstream);
-  int register_external_start_dependency();
+  void register_external_start_dependency();
+
+  void register_external_finish_callback(std::function<void(void)> callback);
 
   CycleDependency(std::string name_);
 
@@ -64,6 +66,7 @@ private:
 
   std::vector<CycleDependency*> downstream_start;
   std::vector<CycleDependency*> downstream_finished;
+  std::vector<std::function<void(void)>> external_finish_callbacks;
 
   int external_notifications = 0;
   int start_notifications = 0;

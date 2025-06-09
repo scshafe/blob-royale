@@ -225,6 +225,10 @@ void CycleDependency::notify_dependents()
     TRACE << "notifying " << *dep;
     dep->notify_can_be_finished(this);
   }
+  for (auto callback : external_finish_callbacks)
+  {
+    callback();
+  }
 }
 
 

@@ -148,33 +148,32 @@ public:
 
   void perform_operation_worker()
   {
-    ENTRANCE << "perform_operation_worker()";
+    while (true)
+    {
+      ENTRANCE << "perform_operation_worker()";
 
-    run_with_worker_lock([this] (std::unique_lock<std::mutex> lock) {
-      //worker_running();
-      while (!ready_for_work())
-      {
-        //worker_waiting();
-        worker_cv.wait(lock, [this]{ return ready_for_work(); });
+      run_with_worker_lock([this] (std::unique_lock<std::mutex> lock) {
         //worker_running();
-      }
-      obj = q.front();
-      q.pop();
-      operations_in_progress++;  
-          
-    });
+        while (!ready_for_work())
+        {
+          //worker_waiting();
+          worker_cv.wait(lock, [this]{ return ready_for_work(); });
+          //worker_running();
+        }
+        obj = q.front();
+        q.pop();
+        operations_in_progress++;
+      });
 
-    OperationResult res = operation(obj);
-    next_queue_map[res](obj);
+      OperationResult res = operation(obj);
+      next_queue_map[res](obj);
 
-    
-    run_with_worker_lock([this] (std::unique_lock<std::mutex> lock) {
-      test_finished(false);
-      operations_in_progress--;
-      //worker_waiting();
-    });
-
-    perform_operation_worker();
+      run_with_worker_lock([this] (std::unique_lock<std::mutex>) {
+        test_finished(false);
+        operations_in_progress--;
+        //worker_waiting();
+      });
+    }
   }
 
 
@@ -182,7 +181,7 @@ public:
   void receive_game_piece(Object gp)
   {
 
-    run_with_worker_lock([this, gp] (std::unique_lock<std::mutex> lock) {
+    run_with_worker_lock([this, gp] (std::unique_lock<std::mutex>) {
       q.push(gp);
       WARNING << *this << " receiving " << *gp;
     });
@@ -195,9 +194,6 @@ public:
     return os << ldq.name;
   }
 };
-
-
-
 
 
 

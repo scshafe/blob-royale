@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+
+# Runs one explicit Linux quality profile inside the pinned Linux/amd64 OCI image.
+# Inputs: exactly one of `pr`, `nightly`, or `release`.
+# Side effects: builds the toolchain image, replaces build/test outputs under out,
+# installs web dependencies, and writes only dependency downloads to out/cache.
+# Idempotent: yes; each check starts from its declared clean-build boundary.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly EXPECTED_TOOLCHAIN_ID="ubuntu-24.04-amd64-20260804"
+readonly EXPECTED_BASE_IMAGE_DIGEST="sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
+readonly EXPECTED_OPERATING_SYSTEM="Linux"
+readonly EXPECTED_ARCHITECTURE="x86_64"
+readonly ASAN_OPTIONS_VALUE="detect_leaks=1:halt_on_error=1:strict_string_checks=1"
+readonly UBSAN_OPTIONS_VALUE="halt_on_error=1:print_stacktrace=1"
+readonly NATIVE_GCC_DEBUG_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/linux-gcc-debug/blob-royale"
+readonly NATIVE_SERVER_CONFIGURATION="${REPOSITORY_DIRECTORY}/config/blob-royale.cfg"
+readonly NATIVE_SERVER_SCENARIO="${REPOSITORY_DIRECTORY}/tests/fixtures/player-on-wall-collision-test.csv"
+readonly NATIVE_SERVER_ADDRESS="127.0.0.1"
+readonly NATIVE_SERVER_PORT="18080"
+
+declare -a temporary_files=()
+
+usage() {
+  printf 'Usage: %s <pr|nightly|release>\n' "$0"
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'verify_linux.status=failed\n' >&2
+  printf 'verify_linux.error_code=%s\n' "${error_code}" >&2
+  printf 'verify_linux.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+cleanup() {
+  if [[ "${#temporary_files[@]}" -gt 0 ]]; then
+    rm -f -- "${temporary_files[@]}"
+  fi
+}
+trap cleanup EXIT
+
+run_named_check() {
+  local check_name="$1"
+  shift
+
+  printf 'verify_linux.check=%s status=running\n' "${check_name}"
+  if ! "$@"; then
+    fail "QUALITY.CHECK_FAILED" "${check_name} failed"
+  fi
+  printf 'verify_linux.check=%s status=passed\n' "${check_name}"
+}
+
+run_ctest_check() {
+  local preset_name="$1"
+  local check_name="ctest-${preset_name}"
+  local ctest_output
+  local total_test_count
+  local -a ctest_command=(
+    ctest
+    --preset "${preset_name}"
+    --output-on-failure
+    --no-tests=error
+  )
+
+  ctest_output="$(mktemp "${TMPDIR:-/tmp}/blob-royale-${preset_name}.XXXXXX")"
+  temporary_files+=("${ctest_output}")
+
+  printf 'verify_linux.check=%s status=running\n' "${check_name}"
+  if [[ "${preset_name}" == "linux-clang-asan-ubsan" ]]; then
+    if ! env \
+      ASAN_OPTIONS="${ASAN_OPTIONS_VALUE}" \
+      UBSAN_OPTIONS="${UBSAN_OPTIONS_VALUE}" \
+      "${ctest_command[@]}" 2>&1 | tee "${ctest_output}"; then
+      fail "QUALITY.CTEST_FAILED" "${preset_name} returned a failure"
+    fi
+  elif ! "${ctest_command[@]}" 2>&1 | tee "${ctest_output}"; then
+    fail "QUALITY.CTEST_FAILED" "${preset_name} returned a failure"
+  fi
+
+  total_test_count="$(
+    sed -nE 's/.*out of ([0-9]+).*/\1/p' "${ctest_output}" | tail -n 1
+  )"
+  if [[ ! "${total_test_count}" =~ ^[0-9]+$ ]] || ((total_test_count < 1)); then
+    fail "QUALITY.ZERO_CTESTS" "${preset_name} did not report a nonzero test count"
+  fi
+
+  if grep -Eiq '\*\*\*(Not Run|Skipped)|\(Disabled\)|tests? skipped' "${ctest_output}"; then
+    fail "QUALITY.CTEST_SKIPPED" "${preset_name} reported a skipped or disabled test"
+  fi
+
+  printf 'verify_linux.check=%s test_count=%s status=passed\n' \
+    "${check_name}" "${total_test_count}"
+}
+
+run_required_checks() {
+  local ctest_preset
+
+  cd "${REPOSITORY_DIRECTORY}"
+  run_named_check "toolchain-report" ./scripts/report-toolchain
+  run_named_check "native-deterministic-build" ./scripts/verify-native-build
+  for ctest_preset in "$@"; do
+    run_ctest_check "${ctest_preset}"
+  done
+  run_named_check "native-process-smoke" \
+    ./scripts/assert-native-process-smoke \
+    --executable "${NATIVE_GCC_DEBUG_EXECUTABLE}" \
+    --config "${NATIVE_SERVER_CONFIGURATION}" \
+    --scenario "${NATIVE_SERVER_SCENARIO}" \
+    --address "${NATIVE_SERVER_ADDRESS}" \
+    --port "${NATIVE_SERVER_PORT}"
+  run_named_check "web" ./scripts/verify-web
+}
+
+if [[ "$#" -ne 1 ]]; then
+  usage >&2
+  exit 64
+fi
+
+readonly PROFILE="$1"
+case "${PROFILE}" in
+  pr | nightly | release)
+    ;;
+  --help | -h)
+    usage
+    exit 0
+    ;;
+  *)
+    usage >&2
+    fail "QUALITY.INVALID_PROFILE" "unknown profile: ${PROFILE}"
+    ;;
+esac
+
+# A host invocation always re-enters through the one canonical image wrapper.
+# The image's immutable identity markers prevent recursive Docker invocation when
+# this script is already running inside that pinned userspace.
+if [[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" != "${EXPECTED_TOOLCHAIN_ID}" ]] ||
+  [[ "${BLOB_ROYALE_BASE_IMAGE_DIGEST:-}" != "${EXPECTED_BASE_IMAGE_DIGEST}" ]]; then
+  exec "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- ./scripts/verify-linux "${PROFILE}"
+fi
+
+if [[ "$(uname -s)" != "${EXPECTED_OPERATING_SYSTEM}" ]]; then
+  fail "QUALITY.LINUX_REQUIRED" "expected Linux inside the pinned toolchain"
+fi
+
+if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
+  fail "QUALITY.X86_64_REQUIRED" "expected x86_64 inside the pinned toolchain"
+fi
+
+printf 'verify_linux.profile=%s status=running\n' "${PROFILE}"
+case "${PROFILE}" in
+  pr)
+    run_required_checks \
+      "linux-gcc-debug" \
+      "linux-clang-asan-ubsan"
+    ;;
+  nightly)
+    # TSan is intentionally added only when the owned runtime concurrency lands.
+    run_required_checks \
+      "linux-gcc-debug" \
+      "linux-clang-asan-ubsan"
+    ;;
+  release)
+    run_required_checks \
+      "linux-gcc-debug" \
+      "linux-gcc-release" \
+      "linux-clang-asan-ubsan"
+    ;;
+esac
+
+printf 'verify_linux.profile=%s status=passed\n' "${PROFILE}"

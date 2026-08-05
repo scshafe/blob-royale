@@ -44,7 +44,7 @@ docker run \
   --user "$(id -u):$(id -g)" \
   --env BLOB_ROYALE_TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE}" \
   --env XDG_CACHE_HOME=/tmp/blob-royale-cache \
-  --env npm_config_cache=/tmp/blob-royale-npm-cache \
+  --env npm_config_cache=/workspace/out/cache/npm \
   --volume "${REPOSITORY_DIRECTORY}:/workspace" \
   --workdir /workspace \
   "${TOOLCHAIN_IMAGE}" \

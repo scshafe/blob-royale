@@ -1,0 +1,48 @@
+name: quality
+
+'on':
+  pull_request:
+  push:
+    branches:
+      - main
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-linux-authoritative-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-linux-authoritative:
+    name: quality/linux-authoritative
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Cache npm dependency downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cache/npm
+          key: npm-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend-react/package-lock.json', 'ci/linux/Dockerfile') }}
+          restore-keys: |
+            npm-downloads-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Require native Linux x86_64 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(uname -s)" = "Linux"
+          test "$(uname -m)" = "x86_64"
+
+      - name: Run Linux pull-request quality profile
+        shell: bash
+        run: ./scripts/verify-linux pr

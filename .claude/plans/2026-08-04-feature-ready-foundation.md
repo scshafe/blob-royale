@@ -65,6 +65,7 @@ Create React App is deprecated, and the React team explicitly supports migrating
   - Verify: `./scripts/verify-linux pr`
   - Specialist: `testineer`
   - Notes: Add `.github/workflows/quality.yml` with one aggregate status named `quality/linux-authoritative`, executed on a real `linux/amd64` runner through the same pinned image and named scripts used locally. Cache dependencies, never test results; fail on unavailable tools or skipped checks; and keep optional macOS-native checks outside the aggregate. Require the Linux aggregate in branch protection when repository settings access is available. Add ASan+UBSan immediately; add TSan to the aggregate when Step 17 introduces owned concurrency.
+  - Execution note (2026-08-04): The workflow and shared `pr`/`nightly`/`release` verifier are installed. In the macOS-hosted amd64 container, both GCC builds, the Clang ASan+UBSan build, 13/13 GCC tests, process smoke, and the complete web pipeline passed; executing even a trivial already-built ASan Catch2 discovery process is killed by the QEMU boundary with exit 137. Sanitizer execution remains mandatory and unskipped. Keep this step unchecked until the same command passes on the native Linux runner and branch protection can require its one aggregate status.
 
 ### Phase 2 — Build and atomically cut over the deterministic core
 

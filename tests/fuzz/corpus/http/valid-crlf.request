@@ -1,0 +1,2 @@
+CRLF:GET /api/v1/config HTTP/1.1
+Host: localhost

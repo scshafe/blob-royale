@@ -1,0 +1,430 @@
+#!/usr/bin/env bash
+
+# Scans the saved final runtime image and the separately shipped web dependency graph.
+# Inputs: a verified profile, immutable release directory, Docker archive, image reference/content
+# ID, and an empty evidence staging directory under out/security. Side effects: updates the Grype
+# database cache and installs unselected content-addressed evidence for later atomic publication.
+# Idempotent: yes for identical scanner inputs and database contents.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly SECURITY_DIRECTORY="${REPOSITORY_DIRECTORY}/out/security"
+readonly SECURITY_VERSIONS_DIRECTORY="${SECURITY_DIRECTORY}/versions"
+readonly EXPECTED_TOOLCHAIN_ID="ubuntu-24.04-amd64-20260804"
+readonly EXPECTED_SYFT_VERSION="1.44.0"
+readonly EXPECTED_GRYPE_VERSION="0.112.0"
+
+usage() {
+  printf '%s\n' \
+    "Usage: $0 --profile <pr|nightly|release> --release-directory <path> \\" \
+    "  --image-archive <path> --image-reference <name> --image-content-id <sha256:...> \\" \
+    '  --evidence-directory <path>'
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'dependency_security.status=failed\n' >&2
+  printf 'dependency_security.error_code=%s\n' "${error_code}" >&2
+  printf 'dependency_security.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+sha256_file() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+read_metadata_value() {
+  local metadata_file="$1"
+  local metadata_key="$2"
+  local metadata_value
+
+  metadata_value="$(sed -n "s/^${metadata_key}=//p" "${metadata_file}")"
+  [[ -n "${metadata_value}" ]] ||
+    fail "DEPENDENCY_EVIDENCE.METADATA_MISSING" \
+      "missing ${metadata_key} in ${metadata_file}"
+  [[ "$(grep -c "^${metadata_key}=" "${metadata_file}")" -eq 1 ]] ||
+    fail "DEPENDENCY_EVIDENCE.METADATA_DUPLICATE" \
+      "duplicate ${metadata_key} in ${metadata_file}"
+  printf '%s' "${metadata_value}"
+}
+
+PROFILE=""
+RELEASE_DIRECTORY_ARGUMENT=""
+IMAGE_ARCHIVE_ARGUMENT=""
+IMAGE_REFERENCE=""
+IMAGE_CONTENT_ID=""
+EVIDENCE_DIRECTORY_ARGUMENT=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --profile)
+      [[ "$#" -ge 2 ]] || fail "DEPENDENCY_EVIDENCE.ARGUMENT_MISSING" "$1 requires a value"
+      PROFILE="$2"
+      shift 2
+      ;;
+    --release-directory)
+      [[ "$#" -ge 2 ]] || fail "DEPENDENCY_EVIDENCE.ARGUMENT_MISSING" "$1 requires a value"
+      RELEASE_DIRECTORY_ARGUMENT="$2"
+      shift 2
+      ;;
+    --image-archive)
+      [[ "$#" -ge 2 ]] || fail "DEPENDENCY_EVIDENCE.ARGUMENT_MISSING" "$1 requires a value"
+      IMAGE_ARCHIVE_ARGUMENT="$2"
+      shift 2
+      ;;
+    --image-reference)
+      [[ "$#" -ge 2 ]] || fail "DEPENDENCY_EVIDENCE.ARGUMENT_MISSING" "$1 requires a value"
+      IMAGE_REFERENCE="$2"
+      shift 2
+      ;;
+    --image-content-id)
+      [[ "$#" -ge 2 ]] || fail "DEPENDENCY_EVIDENCE.ARGUMENT_MISSING" "$1 requires a value"
+      IMAGE_CONTENT_ID="$2"
+      shift 2
+      ;;
+    --evidence-directory)
+      [[ "$#" -ge 2 ]] || fail "DEPENDENCY_EVIDENCE.ARGUMENT_MISSING" "$1 requires a value"
+      EVIDENCE_DIRECTORY_ARGUMENT="$2"
+      shift 2
+      ;;
+    --help | -h)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      fail "DEPENDENCY_EVIDENCE.ARGUMENT_UNKNOWN" "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "${PROFILE}" && -n "${RELEASE_DIRECTORY_ARGUMENT}" &&
+  -n "${IMAGE_ARCHIVE_ARGUMENT}" && -n "${IMAGE_REFERENCE}" &&
+  -n "${IMAGE_CONTENT_ID}" && -n "${EVIDENCE_DIRECTORY_ARGUMENT}" ]] || {
+  usage >&2
+  fail "DEPENDENCY_EVIDENCE.ARGUMENT_INCOMPLETE" "every named input is required"
+}
+case "${PROFILE}" in
+  pr | nightly | release)
+    ;;
+  *)
+    fail "DEPENDENCY_EVIDENCE.INVALID_PROFILE" "unknown profile: ${PROFILE}"
+    ;;
+esac
+[[ "${IMAGE_REFERENCE}" =~ ^[a-z0-9][a-z0-9._/-]*:[a-zA-Z0-9._-]+$ ]] ||
+  fail "DEPENDENCY_EVIDENCE.IMAGE_REFERENCE_INVALID" "image reference has an invalid form"
+[[ "${IMAGE_CONTENT_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] ||
+  fail "DEPENDENCY_EVIDENCE.IMAGE_ID_INVALID" "image content ID must be a sha256 digest"
+
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  fail "DEPENDENCY_EVIDENCE.LINUX_X86_64_REQUIRED" "the pinned Linux x86_64 toolchain is required"
+fi
+[[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" == "${EXPECTED_TOOLCHAIN_ID}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.TOOLCHAIN_MISMATCH" "the canonical toolchain identity is required"
+[[ -n "${BLOB_ROYALE_RELEASE_LOCK_TOKEN:-}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.RELEASE_LOCK_REQUIRED" "the release pipeline lock is required"
+"${SCRIPT_DIRECTORY}/release-pipeline-lock" verify "${BLOB_ROYALE_RELEASE_LOCK_TOKEN}"
+for required_command in cmp diff find git grype npm node realpath sed sha256sum syft tar; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "DEPENDENCY_EVIDENCE.TOOL_MISSING" "required command is unavailable: ${required_command}"
+done
+syft version | grep -Fq "${EXPECTED_SYFT_VERSION}" ||
+  fail "DEPENDENCY_EVIDENCE.SYFT_VERSION_MISMATCH" "Syft ${EXPECTED_SYFT_VERSION} is required"
+grype version | grep -Fq "${EXPECTED_GRYPE_VERSION}" ||
+  fail "DEPENDENCY_EVIDENCE.GRYPE_VERSION_MISMATCH" "Grype ${EXPECTED_GRYPE_VERSION} is required"
+
+RELEASE_DIRECTORY="$(realpath -e "${RELEASE_DIRECTORY_ARGUMENT}")"
+readonly RELEASE_DIRECTORY
+IMAGE_ARCHIVE="$(realpath -e "${IMAGE_ARCHIVE_ARGUMENT}")"
+readonly IMAGE_ARCHIVE
+EVIDENCE_DIRECTORY="$(realpath -e "${EVIDENCE_DIRECTORY_ARGUMENT}")"
+readonly EVIDENCE_DIRECTORY
+case "${RELEASE_DIRECTORY}/" in
+  "${REPOSITORY_DIRECTORY}/out/release/versions/"*)
+    ;;
+  *)
+    fail "DEPENDENCY_EVIDENCE.RELEASE_PATH_INVALID" \
+      "release directory must be under out/release/versions"
+    ;;
+esac
+case "${EVIDENCE_DIRECTORY}/" in
+  "${SECURITY_DIRECTORY}/.staging."*)
+    ;;
+  *)
+    fail "DEPENDENCY_EVIDENCE.OUTPUT_PATH_INVALID" \
+      "evidence directory must be an explicit out/security staging directory"
+    ;;
+esac
+case "${IMAGE_ARCHIVE}" in
+  "${EVIDENCE_DIRECTORY}/"*)
+    ;;
+  *)
+    fail "DEPENDENCY_EVIDENCE.ARCHIVE_PATH_INVALID" \
+      "runtime archive must be inside the evidence staging directory"
+    ;;
+esac
+[[ -s "${IMAGE_ARCHIVE}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.ARCHIVE_EMPTY" "runtime image archive is missing or empty"
+tar --list --file "${IMAGE_ARCHIVE}" |
+  grep -Fx "${IMAGE_CONTENT_ID#sha256:}.json" >/dev/null ||
+  fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+    "runtime image archive does not contain the recorded image content ID"
+
+"${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
+
+readonly LAYOUT_METADATA="${RELEASE_DIRECTORY}/release-layout.env"
+RELEASE_ID="$(read_metadata_value "${LAYOUT_METADATA}" release_id)"
+readonly RELEASE_ID
+LAYOUT_PROFILE="$(read_metadata_value "${LAYOUT_METADATA}" profile)"
+readonly LAYOUT_PROFILE
+LAYOUT_STAMP_SHA256="$(read_metadata_value \
+  "${LAYOUT_METADATA}" verification_stamp_sha256)"
+readonly LAYOUT_STAMP_SHA256
+readonly CURRENT_STAMP="${REPOSITORY_DIRECTORY}/out/verification/linux/${PROFILE}.env"
+CURRENT_STAMP_SHA256="$(sha256_file "${CURRENT_STAMP}")"
+readonly CURRENT_STAMP_SHA256
+GIT_HEAD_COMMIT="$(read_metadata_value "${CURRENT_STAMP}" git_head_commit)"
+readonly GIT_HEAD_COMMIT
+SOURCE_TREE_STATE="$(read_metadata_value "${CURRENT_STAMP}" source_tree_state)"
+readonly SOURCE_TREE_STATE
+VERIFICATION_AUTHORITY="$(read_metadata_value \
+  "${CURRENT_STAMP}" verification_authority)"
+readonly VERIFICATION_AUTHORITY
+VERIFICATION_HOST_OS="$(read_metadata_value \
+  "${CURRENT_STAMP}" verification_host_os)"
+readonly VERIFICATION_HOST_OS
+VERIFICATION_HOST_ARCH="$(read_metadata_value \
+  "${CURRENT_STAMP}" verification_host_arch)"
+readonly VERIFICATION_HOST_ARCH
+VERIFICATION_DOCKER_OS="$(read_metadata_value \
+  "${CURRENT_STAMP}" verification_docker_os)"
+readonly VERIFICATION_DOCKER_OS
+VERIFICATION_DOCKER_ARCH="$(read_metadata_value \
+  "${CURRENT_STAMP}" verification_docker_arch)"
+readonly VERIFICATION_DOCKER_ARCH
+LAYOUT_AUTHORITY="$(read_metadata_value \
+  "${LAYOUT_METADATA}" verification_authority)"
+readonly LAYOUT_AUTHORITY
+LAYOUT_HOST_OS="$(read_metadata_value "${LAYOUT_METADATA}" verification_host_os)"
+readonly LAYOUT_HOST_OS
+LAYOUT_HOST_ARCH="$(read_metadata_value "${LAYOUT_METADATA}" verification_host_arch)"
+readonly LAYOUT_HOST_ARCH
+LAYOUT_DOCKER_OS="$(read_metadata_value "${LAYOUT_METADATA}" verification_docker_os)"
+readonly LAYOUT_DOCKER_OS
+LAYOUT_DOCKER_ARCH="$(read_metadata_value \
+  "${LAYOUT_METADATA}" verification_docker_arch)"
+readonly LAYOUT_DOCKER_ARCH
+[[ "${GIT_HEAD_COMMIT}" =~ ^[0-9a-f]{40}$ ]] ||
+  fail "DEPENDENCY_EVIDENCE.GIT_HEAD_INVALID" "verification stamp Git commit is invalid"
+[[ "${SOURCE_TREE_STATE}" == "clean" || "${SOURCE_TREE_STATE}" == "modified" ]] ||
+  fail "DEPENDENCY_EVIDENCE.SOURCE_STATE_INVALID" "verification stamp source state is invalid"
+[[ "${VERIFICATION_AUTHORITY}" == "authoritative" ||
+  "${VERIFICATION_AUTHORITY}" == "advisory" ]] ||
+  fail "DEPENDENCY_EVIDENCE.AUTHORITY_INVALID" "verification authority is invalid"
+[[ "${LAYOUT_AUTHORITY}" == "${VERIFICATION_AUTHORITY}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.AUTHORITY_MISMATCH" \
+    "release layout and verification stamp authority differ"
+[[ "${LAYOUT_HOST_OS}" == "${VERIFICATION_HOST_OS}" &&
+  "${LAYOUT_HOST_ARCH}" == "${VERIFICATION_HOST_ARCH}" &&
+  "${LAYOUT_DOCKER_OS}" == "${VERIFICATION_DOCKER_OS}" &&
+  "${LAYOUT_DOCKER_ARCH}" == "${VERIFICATION_DOCKER_ARCH}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.EXECUTION_IDENTITY_MISMATCH" \
+    "release layout and verification stamp execution identities differ"
+[[ "${LAYOUT_PROFILE}" == "${PROFILE}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.PROFILE_MISMATCH" "release layout profile does not match"
+[[ "${LAYOUT_STAMP_SHA256}" == "${CURRENT_STAMP_SHA256}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.STAMP_MISMATCH" "release layout was staged from another stamp"
+[[ "$(basename "${RELEASE_DIRECTORY}")" == "${RELEASE_ID}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.RELEASE_ID_MISMATCH" "release directory does not match its ID"
+[[ "$(basename "${EVIDENCE_DIRECTORY}")" == ".staging.${RELEASE_ID}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.STAGING_ID_MISMATCH" \
+    "evidence staging directory does not match the release ID"
+[[ "${IMAGE_ARCHIVE}" == "${EVIDENCE_DIRECTORY}/blob-royale-runtime.docker.tar" ]] ||
+  fail "DEPENDENCY_EVIDENCE.ARCHIVE_NAME_INVALID" "runtime archive name is not canonical"
+
+readonly RUNTIME_SYFT_SBOM="${EVIDENCE_DIRECTORY}/blob-royale-runtime.syft.json"
+readonly RUNTIME_CYCLONEDX_SBOM="${EVIDENCE_DIRECTORY}/blob-royale-runtime.cdx.json"
+readonly FRONTEND_CYCLONEDX_SBOM="${EVIDENCE_DIRECTORY}/blob-royale-web.cdx.json"
+readonly RUNTIME_VULNERABILITY_REPORT="${EVIDENCE_DIRECTORY}/blob-royale-runtime.grype.json"
+readonly FRONTEND_VULNERABILITY_REPORT="${EVIDENCE_DIRECTORY}/blob-royale-web.grype.json"
+readonly NPM_AUDIT_REPORT="${EVIDENCE_DIRECTORY}/blob-royale-web.npm-audit.json"
+readonly EVIDENCE_MANIFEST="${EVIDENCE_DIRECTORY}/release-evidence.env"
+
+cd "${REPOSITORY_DIRECTORY}/frontend-react"
+if ! npm audit --omit=dev --audit-level=high --json >"${NPM_AUDIT_REPORT}"; then
+  cat "${NPM_AUDIT_REPORT}" >&2
+  fail "DEPENDENCY_EVIDENCE.NPM_AUDIT_FAILED" \
+    "npm audit failed or reported a high or critical web runtime dependency finding"
+fi
+if ! "${SCRIPT_DIRECTORY}/generate-frontend-sbom.mjs" \
+  "${REPOSITORY_DIRECTORY}/frontend-react" "${FRONTEND_CYCLONEDX_SBOM}"; then
+  fail "DEPENDENCY_EVIDENCE.FRONTEND_SBOM_FAILED" \
+    "the production npm graph could not be rendered as CycloneDX evidence"
+fi
+[[ -s "${FRONTEND_CYCLONEDX_SBOM}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.FRONTEND_SBOM_EMPTY" "web CycloneDX SBOM is empty"
+
+cd "${REPOSITORY_DIRECTORY}"
+if ! syft scan "docker-archive:${IMAGE_ARCHIVE}" \
+  --output "syft-json=${RUNTIME_SYFT_SBOM}" \
+  --output "cyclonedx-json=${RUNTIME_CYCLONEDX_SBOM}"; then
+  fail "DEPENDENCY_EVIDENCE.RUNTIME_SBOM_FAILED" \
+    "Syft could not inventory the saved final runtime image"
+fi
+[[ -s "${RUNTIME_SYFT_SBOM}" && -s "${RUNTIME_CYCLONEDX_SBOM}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.RUNTIME_SBOM_EMPTY" "runtime image SBOM output is empty"
+
+# Fail if either evidence path silently changed shape: the image SBOM must contain the explicitly
+# installed native runtime closure, while the web SBOM must contain only production npm packages.
+if ! node - "${RUNTIME_SYFT_SBOM}" "${FRONTEND_CYCLONEDX_SBOM}" <<'NODE'
+const fs = require('node:fs');
+
+const runtimeSbom = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const webSbom = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
+const runtimeNames = new Set((runtimeSbom.artifacts ?? []).map(({ name }) => name));
+for (const requiredName of ['libc6', 'libgcc-s1', 'libstdc++6', 'libboost-json1.83.0']) {
+  if (!runtimeNames.has(requiredName)) {
+    throw new Error(`DEPENDENCY_EVIDENCE.RUNTIME_PACKAGE_MISSING: ${requiredName}`);
+  }
+}
+const webNames = new Set((webSbom.components ?? []).map(({ name }) => name));
+for (const requiredName of ['react', 'react-dom', 'ajv', 'ajv-formats']) {
+  if (!webNames.has(requiredName)) {
+    throw new Error(`DEPENDENCY_EVIDENCE.WEB_PACKAGE_MISSING: ${requiredName}`);
+  }
+}
+for (const forbiddenName of ['vite', 'typescript', '@playwright/test']) {
+  if (webNames.has(forbiddenName)) {
+    throw new Error(`DEPENDENCY_EVIDENCE.WEB_DEV_PACKAGE_PRESENT: ${forbiddenName}`);
+  }
+}
+NODE
+then
+  fail "DEPENDENCY_EVIDENCE.SBOM_CONTENT_INVALID" \
+    "runtime or web SBOM contents do not match the shipped dependency contracts"
+fi
+
+export GRYPE_DB_CACHE_DIR="${REPOSITORY_DIRECTORY}/out/cache/grype/db"
+mkdir -p "${GRYPE_DB_CACHE_DIR}"
+if ! grype db update; then
+  fail "DEPENDENCY_EVIDENCE.GRYPE_DB_UPDATE_FAILED" \
+    "the current Grype vulnerability database could not be acquired"
+fi
+export GRYPE_DB_AUTO_UPDATE=false
+if ! grype "sbom:${RUNTIME_SYFT_SBOM}" --fail-on high --output json \
+  --file "${RUNTIME_VULNERABILITY_REPORT}"; then
+  [[ -s "${RUNTIME_VULNERABILITY_REPORT}" ]] &&
+    cat "${RUNTIME_VULNERABILITY_REPORT}" >&2
+  fail "DEPENDENCY_EVIDENCE.RUNTIME_VULNERABILITY" \
+    "Grype reported a high or critical runtime image finding"
+fi
+[[ -s "${RUNTIME_VULNERABILITY_REPORT}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.RUNTIME_REPORT_EMPTY" "runtime Grype report is empty"
+
+if ! grype "sbom:${FRONTEND_CYCLONEDX_SBOM}" --fail-on high --output json \
+  --file "${FRONTEND_VULNERABILITY_REPORT}"; then
+  [[ -s "${FRONTEND_VULNERABILITY_REPORT}" ]] &&
+    cat "${FRONTEND_VULNERABILITY_REPORT}" >&2
+  fail "DEPENDENCY_EVIDENCE.FRONTEND_VULNERABILITY" \
+    "Grype reported a high or critical web runtime dependency finding"
+fi
+[[ -s "${FRONTEND_VULNERABILITY_REPORT}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.FRONTEND_REPORT_EMPTY" "web Grype report is empty"
+
+# Source and built artifacts are checked again after every network-backed scanner operation. A
+# concurrent edit can leave an unselected diagnostic version behind, but final publication rechecks.
+"${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
+
+IMAGE_ARCHIVE_SHA256="$(sha256_file "${IMAGE_ARCHIVE}")"
+readonly IMAGE_ARCHIVE_SHA256
+RUNTIME_SYFT_SBOM_SHA256="$(sha256_file "${RUNTIME_SYFT_SBOM}")"
+readonly RUNTIME_SYFT_SBOM_SHA256
+RUNTIME_SBOM_SHA256="$(sha256_file "${RUNTIME_CYCLONEDX_SBOM}")"
+readonly RUNTIME_SBOM_SHA256
+FRONTEND_SBOM_SHA256="$(sha256_file "${FRONTEND_CYCLONEDX_SBOM}")"
+readonly FRONTEND_SBOM_SHA256
+RUNTIME_REPORT_SHA256="$(sha256_file "${RUNTIME_VULNERABILITY_REPORT}")"
+readonly RUNTIME_REPORT_SHA256
+FRONTEND_REPORT_SHA256="$(sha256_file "${FRONTEND_VULNERABILITY_REPORT}")"
+readonly FRONTEND_REPORT_SHA256
+NPM_AUDIT_SHA256="$(sha256_file "${NPM_AUDIT_REPORT}")"
+readonly NPM_AUDIT_SHA256
+EVIDENCE_PAYLOAD_SHA256="$({
+  printf '%s\n' \
+    "${CURRENT_STAMP_SHA256}" \
+    "${IMAGE_ARCHIVE_SHA256}" \
+    "${RUNTIME_SYFT_SBOM_SHA256}" \
+    "${RUNTIME_SBOM_SHA256}" \
+    "${FRONTEND_SBOM_SHA256}" \
+    "${RUNTIME_REPORT_SHA256}" \
+    "${FRONTEND_REPORT_SHA256}" \
+    "${NPM_AUDIT_SHA256}"
+} | sha256sum | awk '{print $1}')"
+readonly EVIDENCE_PAYLOAD_SHA256
+readonly EVIDENCE_ID="${RELEASE_ID}-${EVIDENCE_PAYLOAD_SHA256}"
+readonly FINAL_EVIDENCE_DIRECTORY="${SECURITY_VERSIONS_DIRECTORY}/${EVIDENCE_ID}"
+
+printf '%s\n' \
+  'release_evidence_format=1' \
+  "evidence_id=${EVIDENCE_ID}" \
+  "release_id=${RELEASE_ID}" \
+  "profile=${PROFILE}" \
+  "verification_stamp_sha256=${CURRENT_STAMP_SHA256}" \
+  "git_head_commit=${GIT_HEAD_COMMIT}" \
+  "source_tree_state=${SOURCE_TREE_STATE}" \
+  "verification_authority=${VERIFICATION_AUTHORITY}" \
+  "verification_host_os=${VERIFICATION_HOST_OS}" \
+  "verification_host_arch=${VERIFICATION_HOST_ARCH}" \
+  "verification_docker_os=${VERIFICATION_DOCKER_OS}" \
+  "verification_docker_arch=${VERIFICATION_DOCKER_ARCH}" \
+  "runtime_image_reference=${IMAGE_REFERENCE}" \
+  "runtime_image_content_id=${IMAGE_CONTENT_ID}" \
+  "runtime_image_archive=blob-royale-runtime.docker.tar" \
+  "runtime_image_archive_sha256=${IMAGE_ARCHIVE_SHA256}" \
+  'runtime_syft_sbom=blob-royale-runtime.syft.json' \
+  "runtime_syft_sbom_sha256=${RUNTIME_SYFT_SBOM_SHA256}" \
+  "runtime_cyclonedx_sbom=blob-royale-runtime.cdx.json" \
+  "runtime_cyclonedx_sbom_sha256=${RUNTIME_SBOM_SHA256}" \
+  "web_cyclonedx_sbom=blob-royale-web.cdx.json" \
+  "web_cyclonedx_sbom_sha256=${FRONTEND_SBOM_SHA256}" \
+  'web_dependency_source=frontend-react/package-lock.json' \
+  'web_sbom_generator=scripts/generate-frontend-sbom.mjs' \
+  "runtime_vulnerability_report=blob-royale-runtime.grype.json" \
+  "runtime_vulnerability_report_sha256=${RUNTIME_REPORT_SHA256}" \
+  "web_vulnerability_report=blob-royale-web.grype.json" \
+  "web_vulnerability_report_sha256=${FRONTEND_REPORT_SHA256}" \
+  "web_npm_audit_report=blob-royale-web.npm-audit.json" \
+  "web_npm_audit_report_sha256=${NPM_AUDIT_SHA256}" \
+  'high_critical_findings=0' \
+  >"${EVIDENCE_MANIFEST}"
+
+find "${EVIDENCE_DIRECTORY}" -type f -exec chmod 0444 {} +
+chmod 0555 "${EVIDENCE_DIRECTORY}"
+mkdir -p "${SECURITY_VERSIONS_DIRECTORY}"
+if [[ -d "${FINAL_EVIDENCE_DIRECTORY}" ]]; then
+  if ! diff --brief --recursive --no-dereference \
+    "${EVIDENCE_DIRECTORY}" "${FINAL_EVIDENCE_DIRECTORY}" >/dev/null; then
+    fail "DEPENDENCY_EVIDENCE.CONTENT_COLLISION" \
+      "the content-addressed evidence version exists with different files"
+  fi
+  chmod u+w "${EVIDENCE_DIRECTORY}"
+  find "${EVIDENCE_DIRECTORY}" -type f -exec chmod u+w {} +
+  rm -rf -- "${EVIDENCE_DIRECTORY}"
+else
+  mv -- "${EVIDENCE_DIRECTORY}" "${FINAL_EVIDENCE_DIRECTORY}"
+fi
+
+printf '%s\n' \
+  "dependency_security.evidence_id=${EVIDENCE_ID}" \
+  "dependency_security.directory=${FINAL_EVIDENCE_DIRECTORY}" \
+  "dependency_security.runtime_image_content_id=${IMAGE_CONTENT_ID}" \
+  "dependency_security.verification_authority=${VERIFICATION_AUTHORITY}" \
+  "dependency_security.runtime_sbom=${FINAL_EVIDENCE_DIRECTORY}/blob-royale-runtime.cdx.json" \
+  "dependency_security.web_sbom=${FINAL_EVIDENCE_DIRECTORY}/blob-royale-web.cdx.json" \
+  'dependency_security.high_critical_findings=0' \
+  'dependency_security.status=passed'

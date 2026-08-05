@@ -1,18 +1,61 @@
-add_library(my_server STATIC
-  helpers.cpp
-  my_http_server.cpp
-  my_listener.cpp
-  my_websocket.cpp
+add_library(blob_server_configuration STATIC
+  server_config.cpp
 )
 
-blob_royale_configure_first_party_target(my_server)
+blob_royale_configure_first_party_target(blob_server_configuration)
 
-target_include_directories(my_server PUBLIC
+target_include_directories(blob_server_configuration PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-target_link_libraries(my_server PUBLIC
-  game_engine
-  my_boost_config
-  Threads::Threads
+target_link_libraries(blob_server_configuration PUBLIC
+  blob_protocol
+)
+
+add_library(blob_server_http_preflight STATIC
+  http_header_preflight.cpp
+)
+
+blob_royale_configure_first_party_target(blob_server_http_preflight)
+
+target_include_directories(blob_server_http_preflight PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+target_link_libraries(blob_server_http_preflight PRIVATE
+  blob_protocol
+)
+
+add_library(blob_server STATIC
+  game_api_router.cpp
+  game_server.cpp
+  game_server_error.cpp
+  http_session.cpp
+  peer_traffic_policy.cpp
+  request_id_generator.cpp
+  server_execution_context.cpp
+  snapshot_delivery_state.cpp
+  snapshot_egress_budget.cpp
+  snapshot_websocket_session.cpp
+  tcp_listener.cpp
+)
+
+blob_royale_configure_first_party_target(blob_server)
+
+target_compile_definitions(blob_server PRIVATE
+  BOOST_ASIO_NO_DEPRECATED
+)
+
+target_include_directories(blob_server PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+target_link_libraries(blob_server
+  PUBLIC
+    blob_observability
+    blob_protocol
+    blob_runtime
+    blob_server_configuration
+    blob_server_http_preflight
+    Threads::Threads
 )

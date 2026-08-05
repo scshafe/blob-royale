@@ -92,6 +92,11 @@ For one axis with permitted center interval `[lower, upper]`, let `span = upper 
 3. Set the terminal velocity sign from the final reflected segment. An endpoint at `lower` is assigned non-negative velocity; an endpoint at `upper` is assigned non-positive velocity. Zero remains zero.
 4. Snap a folded endpoint within `ε_position` of a wall to that exact wall value.
 
+Exact endpoints take precedence over tolerance snapping. In a valid interval so small that a
+non-exact folded endpoint is within tolerance of both walls, snap to the nearer wall; an exact
+distance tie selects the lower wall. This keeps the result total and deterministic without moving
+an exact upper-wall state to the lower wall.
+
 The tick-local displacement is `folded_endpoint - position`; phase 5 applies it while retaining the terminal velocity from phase 4. This defines one bounce, multiple bounces, starting exactly at a wall, and arbitrarily large finite overshoot without iteration-count behavior. If x and y contacts occur at the same simulated instant, x resolves first and y second. The independent-axis result is the same, but the order governs diagnostics and any future non-axis-aligned extension. If a player-pair contact and wall contact occur in the same tick, the canonical pair response precedes the wall response.
 
 ### Spatial-grid policy and partition boundaries

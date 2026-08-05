@@ -1,0 +1,238 @@
+#!/usr/bin/env bash
+
+# Builds, saves, and scans the final Linux runtime image on the Docker host.
+# Inputs: none for a standalone release verification, or the internal verified-profile handoff.
+# Side effects: updates the local image tag, versioned release layout, and external evidence.
+# Idempotent: yes for unchanged source, artifacts, scanner database, and Docker builder inputs.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly RUNTIME_IMAGE="blob-royale:linux-amd64-local"
+readonly RELEASE_PARENT="${REPOSITORY_DIRECTORY}/out/release"
+readonly SECURITY_DIRECTORY="${REPOSITORY_DIRECTORY}/out/security"
+readonly EXPECTED_TOOLCHAIN_ID="ubuntu-24.04-amd64-20260804"
+
+usage() {
+  printf 'Usage: %s [--from-verified-profile <pr|nightly|release>]\n' "$0"
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'release_image.status=failed\n' >&2
+  printf 'release_image.error_code=%s\n' "${error_code}" >&2
+  printf 'release_image.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+read_output_value() {
+  local output_file="$1"
+  local output_key="$2"
+  local output_value
+
+  output_value="$(sed -n "s/^${output_key}=//p" "${output_file}")"
+  [[ -n "${output_value}" && "$(grep -c "^${output_key}=" "${output_file}")" -eq 1 ]] ||
+    fail "RELEASE_IMAGE.CHILD_OUTPUT_INVALID" \
+      "pipeline child did not emit exactly one ${output_key} value"
+  printf '%s' "${output_value}"
+}
+
+if [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+  usage
+  exit 0
+fi
+if [[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" == "${EXPECTED_TOOLCHAIN_ID}" ]]; then
+  fail "RELEASE_IMAGE.HOST_REQUIRED" \
+    "the runtime image must be built and saved by the Docker host, not inside the toolchain"
+fi
+if ! command -v docker >/dev/null 2>&1; then
+  fail "RELEASE_IMAGE.DOCKER_MISSING" "Docker is required on the host"
+fi
+
+# Standalone use delegates to the canonical release profile. Its host wrapper calls this script
+# back exactly once with the verified-profile handoff, avoiding a second verification or recursion.
+if [[ "$#" -eq 0 ]]; then
+  exec "${SCRIPT_DIRECTORY}/verify-linux" release
+fi
+if [[ "$#" -ne 2 || "$1" != "--from-verified-profile" ]]; then
+  usage >&2
+  exit 64
+fi
+
+readonly PROFILE="$2"
+case "${PROFILE}" in
+  pr | nightly | release)
+    ;;
+  *)
+    usage >&2
+    fail "RELEASE_IMAGE.INVALID_PROFILE" "unknown profile: ${PROFILE}"
+    ;;
+esac
+[[ -n "${BLOB_ROYALE_RELEASE_LOCK_TOKEN:-}" ]] ||
+  fail "RELEASE_IMAGE.RELEASE_LOCK_REQUIRED" "host orchestration must hold the release pipeline lock"
+"${SCRIPT_DIRECTORY}/release-pipeline-lock" verify "${BLOB_ROYALE_RELEASE_LOCK_TOKEN}"
+for required_command in grep mktemp sed tee; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "RELEASE_IMAGE.TOOL_MISSING" "required host command is unavailable: ${required_command}"
+done
+
+temporary_evidence_directory=""
+dependency_evidence_log=""
+release_assembly_log=""
+cleanup() {
+  if [[ -n "${temporary_evidence_directory}" && -d "${temporary_evidence_directory}" ]]; then
+    chmod -R u+w "${temporary_evidence_directory}" 2>/dev/null || true
+    rm -rf -- "${temporary_evidence_directory}"
+  fi
+  rm -f -- "${dependency_evidence_log}" "${release_assembly_log}"
+}
+trap cleanup EXIT
+
+"${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+  ./scripts/linux-verification-evidence verify "${PROFILE}"
+release_assembly_log="$(mktemp "${TMPDIR:-/tmp}/blob-royale-release-assembly.XXXXXX")"
+if ! "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+  ./scripts/assemble-release-linux "${PROFILE}" | tee "${release_assembly_log}"; then
+  fail "RELEASE_IMAGE.LAYOUT_STAGING_FAILED" "the immutable release layout could not be staged"
+fi
+
+RELEASE_ID="$(read_output_value "${release_assembly_log}" release_layout.id)"
+readonly RELEASE_ID
+[[ "${RELEASE_ID}" =~ ^${PROFILE}-[0-9a-f]{64}$ ]] ||
+  fail "RELEASE_IMAGE.LAYOUT_ID_INVALID" "staged release ID is invalid"
+readonly RELEASE_DIRECTORY="${RELEASE_PARENT}/versions/${RELEASE_ID}"
+readonly SERVER_CONTEXT="${RELEASE_DIRECTORY}/server"
+readonly VERSIONED_RUNTIME_IMAGE="blob-royale:${RELEASE_ID}"
+readonly RELEASE_METADATA="${RELEASE_DIRECTORY}/release-layout.env"
+VERIFICATION_AUTHORITY="$(read_output_value \
+  "${RELEASE_METADATA}" verification_authority)"
+readonly VERIFICATION_AUTHORITY
+[[ "${VERIFICATION_AUTHORITY}" == "authoritative" ||
+  "${VERIFICATION_AUTHORITY}" == "advisory" ]] ||
+  fail "RELEASE_IMAGE.AUTHORITY_INVALID" "staged verification authority is invalid"
+if [[ "${PROFILE}" == "release" && "${VERIFICATION_AUTHORITY}" != "authoritative" ]]; then
+  fail "RELEASE_IMAGE.AUTHORITATIVE_HOST_REQUIRED" \
+    "release publication requires a native Linux x86_64 Docker host"
+fi
+[[ -x "${SERVER_CONTEXT}/blob-royale" ]] ||
+  fail "RELEASE_IMAGE.SERVER_MISSING" "staged server executable is missing"
+[[ -f "${RELEASE_DIRECTORY}/web/index.html" ]] ||
+  fail "RELEASE_IMAGE.WEB_MISSING" "separate staged web deployable is missing"
+
+docker build \
+  --platform linux/amd64 \
+  --build-arg "BLOB_ROYALE_RELEASE_ID=${RELEASE_ID}" \
+  --file "${REPOSITORY_DIRECTORY}/ci/linux/runtime.Dockerfile" \
+  --tag "${VERSIONED_RUNTIME_IMAGE}" \
+  "${SERVER_CONTEXT}"
+
+IMAGE_CONTENT_ID="$(docker image inspect --format '{{.Id}}' "${VERSIONED_RUNTIME_IMAGE}")"
+readonly IMAGE_CONTENT_ID
+IMAGE_OPERATING_SYSTEM="$(docker image inspect --format '{{.Os}}' "${VERSIONED_RUNTIME_IMAGE}")"
+readonly IMAGE_OPERATING_SYSTEM
+IMAGE_ARCHITECTURE="$(docker image inspect --format '{{.Architecture}}' "${VERSIONED_RUNTIME_IMAGE}")"
+readonly IMAGE_ARCHITECTURE
+IMAGE_USER="$(docker image inspect --format '{{.Config.User}}' "${VERSIONED_RUNTIME_IMAGE}")"
+readonly IMAGE_USER
+IMAGE_RELEASE_LABEL="$(docker image inspect \
+  --format '{{index .Config.Labels "org.opencontainers.image.version"}}' \
+  "${VERSIONED_RUNTIME_IMAGE}")"
+readonly IMAGE_RELEASE_LABEL
+[[ "${IMAGE_CONTENT_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] ||
+  fail "RELEASE_IMAGE.CONTENT_ID_INVALID" "Docker returned an invalid image content ID"
+[[ "${IMAGE_OPERATING_SYSTEM}" == "linux" && "${IMAGE_ARCHITECTURE}" == "amd64" ]] ||
+  fail "RELEASE_IMAGE.PLATFORM_MISMATCH" "runtime image is not linux/amd64"
+[[ "${IMAGE_USER}" == "65532:65532" ]] ||
+  fail "RELEASE_IMAGE.USER_MISMATCH" "runtime image does not default to numeric user 65532:65532"
+[[ "${IMAGE_RELEASE_LABEL}" == "${RELEASE_ID}" ]] ||
+  fail "RELEASE_IMAGE.LABEL_MISMATCH" "runtime image label does not match its release ID"
+
+# Inspect the built filesystem as its real runtime user. Project files must be root-owned and
+# non-writable, and browser assets must not be embedded in the native server image.
+docker run --rm --platform linux/amd64 --entrypoint /bin/sh "${VERSIONED_RUNTIME_IMAGE}" -eu -c '
+  test "$(id -u):$(id -g)" = "65532:65532"
+  test "$(stat -c "%u:%g:%a" /usr/local/bin/blob-royale)" = "0:0:555"
+  test ! -e /usr/share/blob-royale/web
+  invalid_path="$(find /usr/share/blob-royale -type f \( ! -user root -o -perm /222 \) -print -quit)"
+  test -z "${invalid_path}"
+'
+if ! docker run --rm --platform linux/amd64 "${VERSIONED_RUNTIME_IMAGE}" --help >/dev/null; then
+  fail "RELEASE_IMAGE.EXECUTABLE_SMOKE_FAILED" \
+    "the packaged server could not load its runtime libraries and exit zero for --help"
+fi
+
+mkdir -p "${SECURITY_DIRECTORY}"
+temporary_evidence_directory="${SECURITY_DIRECTORY}/.staging.${RELEASE_ID}"
+readonly temporary_evidence_directory
+if ! mkdir "${temporary_evidence_directory}"; then
+  fail "RELEASE_IMAGE.EVIDENCE_STAGING_CONFLICT" \
+    "evidence staging path already exists; another build or interrupted cleanup must be resolved"
+fi
+readonly IMAGE_ARCHIVE="${temporary_evidence_directory}/blob-royale-runtime.docker.tar"
+
+docker image save --output "${IMAGE_ARCHIVE}" "${VERSIONED_RUNTIME_IMAGE}"
+[[ -s "${IMAGE_ARCHIVE}" ]] ||
+  fail "RELEASE_IMAGE.ARCHIVE_EMPTY" "Docker produced an empty image archive"
+
+readonly EVIDENCE_DIRECTORY_RELATIVE="${temporary_evidence_directory#"${REPOSITORY_DIRECTORY}"/}"
+readonly IMAGE_ARCHIVE_RELATIVE="${IMAGE_ARCHIVE#"${REPOSITORY_DIRECTORY}"/}"
+readonly RELEASE_DIRECTORY_RELATIVE="${RELEASE_DIRECTORY#"${REPOSITORY_DIRECTORY}"/}"
+dependency_evidence_log="$(mktemp "${TMPDIR:-/tmp}/blob-royale-dependency-evidence.XXXXXX")"
+readonly dependency_evidence_log
+if ! "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+  ./scripts/verify-dependencies \
+  --profile "${PROFILE}" \
+  --release-directory "${RELEASE_DIRECTORY_RELATIVE}" \
+  --image-archive "${IMAGE_ARCHIVE_RELATIVE}" \
+  --image-reference "${VERSIONED_RUNTIME_IMAGE}" \
+  --image-content-id "${IMAGE_CONTENT_ID}" \
+  --evidence-directory "${EVIDENCE_DIRECTORY_RELATIVE}" | tee "${dependency_evidence_log}"; then
+  fail "RELEASE_IMAGE.DEPENDENCY_SCAN_FAILED" \
+    "the saved runtime image or production web dependency evidence failed"
+fi
+
+"${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+  ./scripts/linux-verification-evidence verify "${PROFILE}"
+
+EVIDENCE_ID="$(read_output_value \
+  "${dependency_evidence_log}" dependency_security.evidence_id)"
+readonly EVIDENCE_ID
+[[ "${EVIDENCE_ID}" =~ ^${RELEASE_ID}-[0-9a-f]{64}$ ]] ||
+  fail "RELEASE_IMAGE.EVIDENCE_ID_INVALID" "dependency evidence ID does not match the release"
+readonly FINAL_EVIDENCE_DIRECTORY="${SECURITY_DIRECTORY}/versions/${EVIDENCE_ID}"
+readonly EVIDENCE_MANIFEST="${FINAL_EVIDENCE_DIRECTORY}/release-evidence.env"
+[[ -f "${EVIDENCE_MANIFEST}" ]] ||
+  fail "RELEASE_IMAGE.EVIDENCE_MANIFEST_MISSING" "dependency evidence manifest is missing"
+[[ "$(sed -n 's/^release_id=//p' "${EVIDENCE_MANIFEST}")" == "${RELEASE_ID}" ]] ||
+  fail "RELEASE_IMAGE.EVIDENCE_RELEASE_MISMATCH" "evidence manifest release ID is inconsistent"
+[[ "$(sed -n 's/^runtime_image_content_id=//p' "${EVIDENCE_MANIFEST}")" == \
+  "${IMAGE_CONTENT_ID}" ]] ||
+  fail "RELEASE_IMAGE.EVIDENCE_IMAGE_MISMATCH" "evidence manifest image ID is inconsistent"
+
+# The human-friendly tag changes only after the versioned image and all matching evidence pass.
+# The canonical publication pointer moves only after this tag and a final in-lock freshness check.
+docker image tag "${IMAGE_CONTENT_ID}" "${RUNTIME_IMAGE}"
+"${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+  ./scripts/publish-release-linux \
+  --profile "${PROFILE}" \
+  --release-id "${RELEASE_ID}" \
+  --evidence-id "${EVIDENCE_ID}" \
+  --image-reference "${VERSIONED_RUNTIME_IMAGE}" \
+  --image-content-id "${IMAGE_CONTENT_ID}"
+
+printf '%s\n' \
+  "release_image.name=${RUNTIME_IMAGE}" \
+  "release_image.versioned_name=${VERSIONED_RUNTIME_IMAGE}" \
+  "release_image.content_id=${IMAGE_CONTENT_ID}" \
+  'release_image.platform=linux/amd64' \
+  "release_image.release_id=${RELEASE_ID}" \
+  "release_image.server_layout=${SERVER_CONTEXT}" \
+  "release_image.web_layout=${RELEASE_DIRECTORY}/web" \
+  "release_image.evidence=${FINAL_EVIDENCE_DIRECTORY}" \
+  "release_image.verification_authority=${VERIFICATION_AUTHORITY}" \
+  'release_image.status=passed'

@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+
+# Runs the blocking Chromium production-browser flow in the pinned Linux image.
+# Inputs: the GCC Debug server and production web assets built by verify-linux.
+# Side effects: downloads only the exact Playwright browser into out/cache and
+# replaces Playwright test output under out/test-results. Idempotent: yes.
+
+set -Eeuo pipefail
+
+readonly EXPECTED_OPERATING_SYSTEM="Linux"
+readonly EXPECTED_ARCHITECTURE="x86_64"
+readonly EXPECTED_NODE_VERSION="v22.23.1"
+readonly EXPECTED_NPM_VERSION="10.9.8"
+readonly EXPECTED_PLAYWRIGHT_VERSION="1.62.1"
+readonly EXPECTED_CHROMIUM_REVISION="1234"
+readonly EXPECTED_CHROMIUM_VERSION="151.0.7922.34"
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly WEB_DIRECTORY="${REPOSITORY_DIRECTORY}/frontend-react"
+readonly SERVER_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/linux-gcc-debug/blob-royale"
+readonly PRODUCTION_INDEX="${WEB_DIRECTORY}/dist/index.html"
+readonly PLAYWRIGHT_EXECUTABLE="${WEB_DIRECTORY}/node_modules/.bin/playwright"
+readonly TYPESCRIPT_EXECUTABLE="${WEB_DIRECTORY}/node_modules/.bin/tsc"
+
+declare -a temporary_files=()
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf '{"status":"error","error_code":"%s","message":"%s"}\n' \
+    "${error_code}" "${error_message}" >&2
+  exit 1
+}
+
+cleanup() {
+  if [[ "${#temporary_files[@]}" -gt 0 ]]; then
+    rm -f -- "${temporary_files[@]}"
+  fi
+}
+trap cleanup EXIT
+
+run_step() {
+  local step_name="$1"
+  shift
+
+  printf '{"status":"running","step":"%s"}\n' "${step_name}"
+  if ! "$@"; then
+    fail "BROWSER_E2E.VERIFICATION_STEP_FAILED" \
+      "Browser E2E verification failed during ${step_name}"
+  fi
+}
+
+if [[ "$#" -ne 0 ]]; then
+  fail "BROWSER_E2E.ARGUMENT_INVALID" "verify-browser-e2e accepts no arguments"
+fi
+
+if [[ "$(uname -s)" != "${EXPECTED_OPERATING_SYSTEM}" ]]; then
+  fail "BROWSER_E2E.LINUX_REQUIRED" "Browser E2E verification requires Linux"
+fi
+
+if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
+  fail "BROWSER_E2E.X86_64_REQUIRED" "Browser E2E verification requires x86_64"
+fi
+
+if [[ "$(node --version)" != "${EXPECTED_NODE_VERSION}" ]]; then
+  fail "BROWSER_E2E.NODE_VERSION_MISMATCH" \
+    "Expected Node.js ${EXPECTED_NODE_VERSION}"
+fi
+
+if [[ "$(npm --version)" != "${EXPECTED_NPM_VERSION}" ]]; then
+  fail "BROWSER_E2E.NPM_VERSION_MISMATCH" \
+    "Expected npm ${EXPECTED_NPM_VERSION}"
+fi
+
+if [[ ! -x "${SERVER_EXECUTABLE}" ]]; then
+  fail "BROWSER_E2E.SERVER_EXECUTABLE_UNAVAILABLE" \
+    "Expected the exact GCC Debug blob-royale executable"
+fi
+
+if [[ ! -r "${PRODUCTION_INDEX}" ]]; then
+  fail "BROWSER_E2E.PRODUCTION_ASSETS_UNAVAILABLE" \
+    "Expected production Vite assets from verify-web"
+fi
+
+if [[ ! -x "${PLAYWRIGHT_EXECUTABLE}" || ! -x "${TYPESCRIPT_EXECUTABLE}" ]]; then
+  fail "BROWSER_E2E.LOCKED_DEPENDENCIES_UNAVAILABLE" \
+    "Expected exact npm dependencies installed by verify-web"
+fi
+
+if [[ "$("${PLAYWRIGHT_EXECUTABLE}" --version)" != \
+  "Version ${EXPECTED_PLAYWRIGHT_VERSION}" ]]; then
+  fail "BROWSER_E2E.PLAYWRIGHT_VERSION_MISMATCH" \
+    "Expected Playwright ${EXPECTED_PLAYWRIGHT_VERSION}"
+fi
+
+run_step \
+  "browser-revision-contract" \
+  env \
+  EXPECTED_PLAYWRIGHT_VERSION="${EXPECTED_PLAYWRIGHT_VERSION}" \
+  EXPECTED_CHROMIUM_REVISION="${EXPECTED_CHROMIUM_REVISION}" \
+  EXPECTED_CHROMIUM_VERSION="${EXPECTED_CHROMIUM_VERSION}" \
+  node --input-type=module - "${WEB_DIRECTORY}" <<'NODE'
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+const webDirectory = process.argv[2];
+const playwrightPackage = JSON.parse(
+  readFileSync(path.join(webDirectory, 'node_modules/@playwright/test/package.json'), 'utf8'),
+);
+const browserRegistry = JSON.parse(
+  readFileSync(path.join(webDirectory, 'node_modules/playwright-core/browsers.json'), 'utf8'),
+);
+const expectedPlaywrightVersion = process.env.EXPECTED_PLAYWRIGHT_VERSION;
+const expectedChromiumRevision = process.env.EXPECTED_CHROMIUM_REVISION;
+const expectedChromiumVersion = process.env.EXPECTED_CHROMIUM_VERSION;
+const requiredBrowserNames = ['chromium', 'chromium-headless-shell'];
+
+if (playwrightPackage.version !== expectedPlaywrightVersion) {
+  throw new Error(
+    `BROWSER_E2E.PLAYWRIGHT_PACKAGE_MISMATCH: expected=${expectedPlaywrightVersion} actual=${playwrightPackage.version}`,
+  );
+}
+
+for (const browserName of requiredBrowserNames) {
+  const browser = browserRegistry.browsers.find(
+    (candidate) => candidate.name === browserName,
+  );
+  if (
+    browser?.revision !== expectedChromiumRevision ||
+    browser?.browserVersion !== expectedChromiumVersion ||
+    browser?.installByDefault !== true
+  ) {
+    throw new Error(
+      `BROWSER_E2E.CHROMIUM_REVISION_MISMATCH: browser=${browserName} expected_revision=${expectedChromiumRevision} expected_version=${expectedChromiumVersion}`,
+    );
+  }
+}
+NODE
+
+PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-${REPOSITORY_DIRECTORY}/out/cache/playwright}"
+export PLAYWRIGHT_BROWSERS_PATH
+install -d "${PLAYWRIGHT_BROWSERS_PATH}"
+
+cd "${WEB_DIRECTORY}"
+run_step \
+  "e2e-strict-typecheck" \
+  "${TYPESCRIPT_EXECUTABLE}" --project ./e2e/tsconfig.json --noEmit
+run_step "chromium-install" "${PLAYWRIGHT_EXECUTABLE}" install chromium
+
+test_report="$(mktemp "${TMPDIR:-/tmp}/blob-royale-playwright.XXXXXX")"
+readonly test_report
+temporary_files+=("${test_report}")
+export BLOB_ROYALE_BROWSER_E2E_SERVER_EXECUTABLE="${SERVER_EXECUTABLE}"
+export PLAYWRIGHT_JSON_OUTPUT_FILE="${test_report}"
+run_step \
+  "chromium-production-reconnect" \
+  npm run test:e2e -- --reporter=json --workers=1
+
+node --input-type=module - "${test_report}" <<'NODE'
+import { readFileSync } from 'node:fs';
+
+const reportPath = process.argv[2];
+const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+const stats = report.stats ?? {};
+const projects = report.config?.projects ?? [];
+
+if (
+  report.config?.version !== '1.62.1' ||
+  report.config?.workers !== 1 ||
+  report.config?.failOnFlakyTests !== true ||
+  projects.length !== 1 ||
+  projects[0]?.name !== 'chromium' ||
+  projects[0]?.retries !== 0
+) {
+  throw new Error('BROWSER_E2E.CONFIGURATION_RESULT_INVALID');
+}
+
+if (
+  stats.expected !== 1 ||
+  stats.unexpected !== 0 ||
+  stats.flaky !== 0 ||
+  stats.skipped !== 0
+) {
+  throw new Error(
+    `BROWSER_E2E.TEST_RESULT_REJECTED: expected=${stats.expected} unexpected=${stats.unexpected} flaky=${stats.flaky} skipped=${stats.skipped}`,
+  );
+}
+
+const tests = (report.suites ?? []).flatMap((suite) =>
+  (suite.specs ?? []).flatMap((spec) => spec.tests ?? []),
+);
+const results = tests.flatMap((test) => test.results ?? []);
+if (
+  tests.length !== 1 ||
+  tests[0]?.status !== 'expected' ||
+  results.length !== 1 ||
+  results[0]?.status !== 'passed' ||
+  results[0]?.retry !== 0
+) {
+  throw new Error('BROWSER_E2E.EXECUTION_RESULT_INVALID');
+}
+
+console.log(
+  JSON.stringify({
+    browser: 'chromium',
+    passed_tests: stats.expected,
+    retries: 0,
+    skipped_tests: stats.skipped,
+    status: 'passed',
+  }),
+);
+NODE
+
+printf '{"status":"passed","verification":"browser-e2e"}\n'

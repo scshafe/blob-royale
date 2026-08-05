@@ -7,12 +7,15 @@
 
 set -euo pipefail
 
-readonly SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
 readonly -a BUILD_PRESETS=(
   "linux-gcc-debug"
   "linux-gcc-release"
   "linux-clang-asan-ubsan"
+  "linux-clang-tsan"
 )
 
 fail() {
@@ -28,13 +31,23 @@ if [[ "$(uname -m)" != "x86_64" ]]; then
   fail "x86_64 is required"
 fi
 
-for required_command in cmake ninja g++ clang++; do
+for required_command in clang++ clang-format cmake find g++ ninja sort; do
   if ! command -v "${required_command}" >/dev/null 2>&1; then
     fail "required command is missing: ${required_command}"
   fi
 done
 
 cd "${REPOSITORY_DIRECTORY}"
+
+mapfile -d '' first_party_sources < <(
+  find main.cpp src tests benchmarks -type f \( -name '*.cpp' -o -name '*.hpp' \) -print0 |
+    sort -z
+)
+if [[ "${#first_party_sources[@]}" -eq 0 ]]; then
+  fail "no first-party C++ sources were discovered for formatting verification"
+fi
+clang-format --dry-run --Werror "${first_party_sources[@]}"
+printf 'native_build.format.status=passed\n'
 
 for build_preset in "${BUILD_PRESETS[@]}"; do
   build_directory="${REPOSITORY_DIRECTORY}/out/build/${build_preset}"

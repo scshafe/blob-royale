@@ -1,0 +1,3 @@
+# Terminal blank lines in these raw malformed HTTP seeds are protocol framing bytes.
+tests/fuzz/corpus/http/fold-shaped-request.txt whitespace=-blank-at-eof
+tests/fuzz/corpus/http/line-feed-request.txt whitespace=-blank-at-eof

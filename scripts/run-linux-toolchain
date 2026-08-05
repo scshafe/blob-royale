@@ -7,9 +7,16 @@
 
 set -euo pipefail
 
-readonly SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
 readonly TOOLCHAIN_IMAGE="blob-royale-linux-toolchain:ubuntu-24.04-amd64-20260804"
+HOST_OPERATING_SYSTEM="$(uname -s)"
+readonly HOST_OPERATING_SYSTEM
+HOST_ARCHITECTURE="$(uname -m)"
+readonly HOST_ARCHITECTURE
+readonly OFFLINE_ALIAS_MIGRATION="${BLOB_ROYALE_OFFLINE_ALIAS_MIGRATION:-}"
 
 usage() {
   printf 'Usage: %s -- <command> [arguments...]\n' "$0"
@@ -26,9 +33,45 @@ if [[ "${1:-}" != "--" || "$#" -lt 2 ]]; then
 fi
 shift
 
+case "${OFFLINE_ALIAS_MIGRATION}" in
+  '' | readers-stopped)
+    ;;
+  *)
+    printf '%s\n' \
+      'run-linux-toolchain: BLOB_ROYALE_OFFLINE_ALIAS_MIGRATION must be empty or readers-stopped' \
+      >&2
+    exit 64
+    ;;
+esac
+
 if ! command -v docker >/dev/null 2>&1; then
   printf 'run-linux-toolchain: docker is required but was not found\n' >&2
   exit 69
+fi
+
+if ! DOCKER_DAEMON_IDENTITY="$(docker info --format '{{.OSType}}|{{.Architecture}}')"; then
+  printf 'run-linux-toolchain: Docker daemon identity is unavailable\n' >&2
+  exit 69
+fi
+readonly DOCKER_DAEMON_IDENTITY
+DOCKER_DAEMON_OPERATING_SYSTEM="${DOCKER_DAEMON_IDENTITY%%|*}"
+readonly DOCKER_DAEMON_OPERATING_SYSTEM
+DOCKER_DAEMON_ARCHITECTURE="${DOCKER_DAEMON_IDENTITY#*|}"
+readonly DOCKER_DAEMON_ARCHITECTURE
+if [[ "${DOCKER_DAEMON_IDENTITY}" != *'|'* ||
+  ! "${DOCKER_DAEMON_OPERATING_SYSTEM}" =~ ^[A-Za-z0-9._-]+$ ||
+  ! "${DOCKER_DAEMON_ARCHITECTURE}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  printf 'run-linux-toolchain: Docker daemon returned an invalid OS/architecture identity\n' >&2
+  exit 69
+fi
+
+if [[ "${HOST_OPERATING_SYSTEM}" == "Linux" && "${HOST_ARCHITECTURE}" == "x86_64" &&
+  "${DOCKER_DAEMON_OPERATING_SYSTEM}" == "linux" &&
+  ( "${DOCKER_DAEMON_ARCHITECTURE}" == "x86_64" ||
+    "${DOCKER_DAEMON_ARCHITECTURE}" == "amd64" ) ]]; then
+  readonly VERIFICATION_AUTHORITY="authoritative"
+else
+  readonly VERIFICATION_AUTHORITY="advisory"
 fi
 
 docker build \
@@ -43,6 +86,14 @@ docker run \
   --platform linux/amd64 \
   --user "$(id -u):$(id -g)" \
   --env BLOB_ROYALE_TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE}" \
+  --env BLOB_ROYALE_VERIFICATION_AUTHORITY="${VERIFICATION_AUTHORITY}" \
+  --env BLOB_ROYALE_VERIFICATION_HOST_OS="${HOST_OPERATING_SYSTEM}" \
+  --env BLOB_ROYALE_VERIFICATION_HOST_ARCH="${HOST_ARCHITECTURE}" \
+  --env BLOB_ROYALE_VERIFICATION_DOCKER_OS="${DOCKER_DAEMON_OPERATING_SYSTEM}" \
+  --env BLOB_ROYALE_VERIFICATION_DOCKER_ARCH="${DOCKER_DAEMON_ARCHITECTURE}" \
+  --env "BLOB_ROYALE_RELEASE_LOCK_TOKEN=${BLOB_ROYALE_RELEASE_LOCK_TOKEN:-}" \
+  --env "BLOB_ROYALE_OFFLINE_ALIAS_MIGRATION=${OFFLINE_ALIAS_MIGRATION}" \
+  --env PLAYWRIGHT_BROWSERS_PATH=/workspace/out/cache/playwright \
   --env XDG_CACHE_HOME=/tmp/blob-royale-cache \
   --env npm_config_cache=/workspace/out/cache/npm \
   --volume "${REPOSITORY_DIRECTORY}:/workspace" \

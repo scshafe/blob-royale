@@ -76,33 +76,35 @@ Steps 11–21 are one expand/cutover/delete migration unit. They may be separate
   - Specialist: `rigorous-architect`
   - Notes: Use world-units/second, world-units/second-squared, exact fixed `dt`, stable `EntityId` ordering, and stored acceleration only. Define the simplest correct collision/wall policy needed for this game and expected outcomes for head-on, oblique, separating, simultaneous/equal-distance, wall-overshoot, and partition-boundary cases. The old racy interleavings and per-tick unit accident are not preserved.
 
-- [ ] **Step 11: Build validated configuration and scenario boundaries**
+- [x] **Step 11: Build validated configuration and scenario boundaries**
   - Verify: `./scripts/verify-linux pr`
   - Notes: Add immutable `ApplicationConfig`, `ServerConfig`, and `SimulationConfig` plus one `ApplicationConfigLoader` and one `ScenarioLoader`. Parse CLI/INI/CSV into typed values before object construction; reject missing files, short rows, duplicate IDs, non-finite numbers, invalid bounds, zero/negative rates or dimensions, and unsafe allocations with descriptive typed errors. Use semantic lower-case keys in the replacement path and migrate checked-in files during the final cutover; do not add legacy aliases.
 
-- [ ] **Step 12: Build the value-owned world model**
+- [x] **Step 12: Build the value-owned world model**
   - Verify: `./scripts/verify-linux pr`
   - Notes: Add regular values `Vector2`, `EntityId`, `PhysicsBody`, `Player`, and `GameWorld` under `src/simulation`. `GameWorld` owns players in deterministic ID order; players contain physics data and no mutex, scheduler, partition, JSON, or back-reference. Constructors/factories create only valid states. Do not add an entity base class or speculative `MapObject` replacement.
 
-- [ ] **Step 13: Build the deterministic spatial grid**
+- [x] **Step 13: Build the deterministic spatial grid**
   - Verify: `./scripts/verify-linux pr`
   - Notes: Add `CellCoord` and `SpatialGrid` whose value-owned cells store non-owning `EntityId` values with one canonical coordinate ordering. Prefer a deterministic rebuild per tick over incremental bidirectional membership until profiling proves it costly. Test corners, edges, exact boundaries, neighboring cells, out-of-range positions, non-divisible dimensions, stable candidate pairs, and no duplicate pairs.
 
-- [ ] **Step 14: Implement the physics specification**
+- [x] **Step 14: Implement the physics specification**
   - Verify: `./scripts/verify-linux pr`
   - Notes: Implement named pure functions for fixed-step velocity/position integration, wall resolution, collision detection, and two-body response. Preserve equal-distance candidates, reject separating overlaps, use stable pair ordering, correct tangential terms, handle overshoot, and reject non-finite results. Assert the accepted contract's wall, head-on, oblique, simultaneous, conservation, and high-speed cases; do not introduce strategy hierarchies without multiple real policies.
 
-- [ ] **Step 15: Implement the canonical simulation tick**
+- [x] **Step 15: Implement the canonical simulation tick**
   - Verify: `./scripts/verify-linux pr`
   - Notes: `GameSimulation::step(FixedDelta)` is the only mutable-world entry point. Its documented phases operate on stable state: apply stored acceleration, build canonical pairs, resolve each pair once, resolve walls, integrate, rebuild the grid, and commit the tick. Convert all current fixtures plus malformed/boundary cases into fixed-tick specifications. Require 100 identical ordered runs per toolchain; across compilers assert documented tolerances and physical invariants rather than accidental bit identity.
 
-- [ ] **Step 16: Publish immutable simulation snapshots**
+- [x] **Step 16: Publish immutable simulation snapshots**
   - Verify: `./scripts/verify-linux pr && ! rg "boost::|json|mutex|condition_variable|jthread|thread" src/simulation --glob '*.{hpp,cpp}'`
   - Notes: Add immutable `WorldSnapshot` and `PlayerSnapshot` values with tick sequence and canonical ordering. Snapshot creation occurs only after a complete tick. Tests prove older snapshots do not change after later ticks and that every snapshot contains one coherent tick. Keep `blob_simulation` free of Boost, JSON, logging, network, and concurrency dependencies.
+  - Execution note (2026-08-04): The pinned Linux GCC suite passes 111/111 discovered tests after integrating the strict input boundary, value-owned world, deterministic grid, pure physics, transactional tick, and copy-owned snapshots. The simulation target also builds and passes its focused suite under pinned Clang, formatting and focused static analysis are clean, and its forbidden-dependency scan is empty. A long-horizon fixture exposed and now pins the required tolerance-conservative grid coverage at exact partition boundaries. Native sanitizer execution remains governed by the Step 9 runner constraint; the gate itself was not weakened.
 
 - [ ] **Step 17: Own the simulation runtime and publication**
   - Verify: `./scripts/verify-linux nightly`
   - Notes: `SimulationRuntime` owns one persistent `std::jthread`, one `GameSimulation`, and one stateful `SnapshotPublication` containing the atomically published `shared_ptr<const WorldSnapshot>`. Only the runtime thread mutates the simulation; readers receive retained immutable snapshots. Use `steady_clock`, exact chrono durations, stop tokens, and an explicit idempotent lifecycle; no transition allocates another clock. Test with latches/barriers and bounded deadlines under TSan, including repeated start/pause/stop, concurrent readers, and destruction while active.
+  - Execution note (2026-08-04): The persistent `std::jthread`, single-writer lifecycle, atomic immutable publication, and eight focused runtime tests are implemented and pass under pinned GCC and Clang as part of both 253-test suites. Keep this step unchecked until the mandatory TSan suite executes on native Linux/amd64; sanitizer execution is killed by the local Apple-Silicon QEMU boundary and remains unskipped.
 
 - [x] **Step 18: Specify the versioned network protocol**
   - Verify: human review — `docs/protocol/v1.md` and its machine-readable schemas have status `Accepted` and define every route, envelope, field, limit, cadence, error, and trust-boundary decision.
@@ -112,15 +114,18 @@ Steps 11–21 are one expand/cutover/delete migration unit. They may be separate
 - [ ] **Step 19: Implement the isolated protocol target**
   - Verify: `./scripts/verify-linux pr`
   - Notes: Create `blob_protocol` as the only Boost.JSON encoding/decoding boundary. Encode snapshots/config/errors against the accepted schemas with deterministic ordering and explicit version metadata; validate golden examples and rejection cases. Domain values must not serialize themselves, and frontend types later derive from the same machine-readable schemas rather than hand-maintained duplicates.
+  - Execution note (2026-08-04): `blob_protocol` is isolated, owns the only Boost.JSON boundary, and passes its golden/rejection tests plus all eight schema/example generation checks and the native request-ID fuzz build. The exact pull-request profile remains pending native sanitizer execution.
 
 - [ ] **Step 20: Rebuild the server against read-only publication**
   - Verify: `./scripts/verify-linux pr`
   - Notes: Build `blob_server` around `GameServer`, `TcpListener`, `HttpSession`, `SnapshotWebSocketSession`, and `GameApiRouter`, constructor-injected with `const SnapshotPublication&` and immutable server config—never a mutable simulation/runtime capability. Preserve the useful Beast body, timeout, strand, and response-queue bounds; return immediately after errors; own all timers/sessions; and prove bounded shutdown. Default to loopback, enforce route/method/origin policy, cap connections/messages/rate, reject unexpected application frames, and document reverse-proxy TLS.
+  - Execution note (2026-08-04): The read-only server cutover and its bounded transport policies are complete. Sixty-eight server unit cases and six real-process integration cases pass under both pinned compilers, including startup failure truthfulness, ordered lifecycle events, handshake failure, peer close codes, churn, slow-client backpressure, and shutdown. The exact pull-request profile remains pending native sanitizer execution.
 
 - [ ] **Step 21: Cut production to the new composition root**
   - Verify: `./scripts/verify-linux release && ! rg "dependency_graph_queue|CycleDependency|LockedDependencyQueue|GameEngine|get_instance|GamePiece|MapObject|Partition|QueueOperationResults|game_engine_parameters|my_|helpers\.(hpp|cpp)|new std::thread|\.detach\(" CMakeLists.txt main.cpp src`
   - Specialist: `makeover`
   - Notes: `BlobRoyaleApplication` becomes the composition root, owning config, `SimulationRuntime`, then `GameServer` in destruction-safe order; `main()` only loads config, constructs, translates top-level errors, and runs. Start the runtime as process policy, coordinate SIGINT/SIGTERM shutdown, and return success. Switch CMake and checked-in config/scenarios to the replacement targets, then delete the singleton engine, global constants, entity hierarchy, partitions, scheduler, Boost umbrella target, old server, hard-coded paths/addresses, and every migration adapter in this same cutover. Git history is the archive.
+  - Execution note (2026-08-04): The cutover adds a narrow `blob_application` library between the four domain targets and `blob-royale`. This amends ADR 0002's original five-target wording because CMake executables are not linkable test subjects; the library lets application tests link the exact production input/composition translation units instead of recompiling them through a test-only path. Dependency direction and the minimal `main()` decision are unchanged.
 
 ### Phase 3 — Recover the client and certify the whole product slice
 
@@ -133,25 +138,31 @@ Steps 11–21 are one expand/cutover/delete migration unit. They may be separate
   - Verify: `./scripts/verify-linux pr`
   - Specialist: `testineer`
   - Notes: A CTest fixture launches the release-layout server on loopback with an ephemeral port, waits on readiness, validates config/snapshot/error schemas and monotonic complete ticks, exercises wrong methods/paths/origins/frames, then sends SIGTERM and proves clean exit. Add one blocking Playwright Chromium flow that loads production assets, connects, renders successive snapshots, handles server loss, and reconnects. Firefox/WebKit remain advisory until stable; do not invent gameplay input.
+  - Execution note (2026-08-04): Six fixture-managed CTest process cases pass under pinned GCC and Clang, and the production-assets Chromium recovery flow has passed while driving the Linux server from the macOS host. Full Chromium execution inside the emulated amd64 container is killed by QEMU; the native-Linux browser gate remains blocking and unmodified.
 
 - [ ] **Step 24: Enforce sanitizer, abuse, and dependency gates**
   - Verify: `./scripts/verify-linux nightly && ./scripts/verify-linux release`
   - Specialist: `doddy`
   - Notes: Keep ASan+UBSan blocking on pull requests and TSan blocking after the runtime cutover. Add deterministic regression corpora/fuzz targets for CLI/INI/CSV/HTTP/protocol parsers, repeated lifecycle/read/shutdown stress, connection churn, slow-client/backpressure checks, and bounded soak tests. Block shipped high/critical dependency findings, generate a release SBOM, and fail when a sanitizer/fuzzer is unavailable. Extended fuzz/soak execution may be nightly; its regression corpus remains a pull-request gate.
+  - Execution note (2026-08-04): Five canonical parser fuzz targets compile, browser protocol mutations execute as fixed regressions, and the 12-second real-process abuse lane passes with healthy-client progress under slow-peer pressure. The release transaction scans the actual saved OCI archive and the separate production npm graph. Keep this step unchecked until native Linux executes ASan/UBSan, TSan, libFuzzer, Chromium, Syft, and Grype end to end.
 
 - [ ] **Step 25: Add observability, operations, and legal hygiene**
   - Verify: `./scripts/verify-linux pr && git diff --check`
   - Notes: Emit structured JSON logs with severity, event, request/connection ID, lifecycle state, and tick where relevant; remove colorized hot-loop chatter and unsafe `std::cout` ownership. Update root, simulation, runtime, server, frontend, protocol, and Linux operations READMEs with canonical build/run/shutdown/debug flows and explicitly marked extension points. Restore RapidCSV's required license text, add `THIRD_PARTY_NOTICES`, and state that project code remains all-rights-reserved until the owner explicitly chooses a license.
+  - Execution note (2026-08-04): The injected process logger, parsed lifecycle/correlation assertions, domain/runbook documentation, third-party license texts, notices, repository-wide C++ format gate, and whitespace checks are complete. The exact pull-request profile remains pending the native-only execution gates above.
 
-- [ ] **Step 26: Establish a truthful Linux performance baseline**
+- [x] **Step 26: Establish a truthful Linux performance baseline**
   - Verify: `./scripts/run-benchmarks-linux`
   - Specialist: `wolf`
   - Notes: Add a registered `blob_simulation_benchmarks` target against `GameSimulation::step()` only. Measure deterministic tick throughput by player count/density, candidate pairs, grid rebuild, snapshot creation, JSON encoding, peak memory, and delivery backpressure; every case verifies its final snapshot hash. Store native-Linux hardware/toolchain metadata, keep shared-runner comparisons advisory, and require a dedicated Linux runner before enforcing regression budgets. Never reintroduce a second engine or clock-driven benchmark path.
+  - Execution note (2026-08-04): The exact benchmark command passed in the pinned Linux/amd64 environment with four simulation distributions, nine timed samples, deterministic result hashes, peak RSS, and the production `SnapshotDeliveryState` backpressure model. It is explicitly advisory; no regression budget is enabled without a dedicated native runner.
 
 - [ ] **Step 27: Remove residue and certify feature readiness**
   - Verify: `./scripts/verify-linux release && git diff --check && ! rg "dependency_graph_queue|CycleDependency|LockedDependencyQueue|GameEngine|get_instance|GamePiece|MapObject|Partition|QueueOperationResults|option1|option2|my_|helpers\.(hpp|cpp)|react-scripts|Benchmark-Test|new std::thread|\.detach\(" CMakeLists.txt main.cpp src frontend-react/package.json frontend-react/src`
   - Specialist: `proofreader`
   - Notes: Delete obsolete sources, CMake entries, scripts, dependencies, stock assets, comments, and migration adapters; update every ADR/README to final names; and verify a clean clone through the release tier. Record genuinely deferred gameplay work as product/design backlog, not code TODOs. Run optional native macOS checks only after Linux passes, and treat discrepancies as portability reports rather than authority to weaken Linux behavior.
+  - Execution note (2026-08-04): Legacy engine, scheduler, server, Boost umbrella, RapidCSV source, CRA, benchmark, and developer-alias residue are deleted; the forbidden-symbol and simulation-dependency scans are empty, formatting and diff checks pass, and two independent focused reviews report no remaining High/Medium issue. Final certification still requires `verify-linux release` from a clean checkout on native Linux/amd64.
+  - Final local evidence (2026-08-04): After the last formatting and verifier cleanup, the pinned Linux/amd64 GCC Release and independent Clang Release trees rebuilt successfully and each passed all 253 discovered tests, including six fixture-managed process cases and the 12-second abuse/backpressure soak. The standalone SIGTERM process smoke also passed with exit code zero. Because Docker ran through Apple-Silicon emulation, this evidence remains advisory and does not close the native sanitizer, fuzzer, browser, scanner, or release-publication gates above.
 
 ## Done criteria
 

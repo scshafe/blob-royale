@@ -34,6 +34,16 @@
       }
     },
     {
+      "name": "linux-gcc-benchmark",
+      "displayName": "Linux GCC Release Benchmark",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF",
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER": "g++"
+      }
+    },
+    {
       "name": "linux-clang-asan-ubsan",
       "displayName": "Linux Clang ASan and UBSan",
       "inherits": "linux-base",
@@ -54,6 +64,19 @@
         "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread"
       }
+    },
+    {
+      "name": "linux-clang-fuzz",
+      "displayName": "Linux Clang libFuzzer with ASan and UBSan",
+      "inherits": "linux-base",
+      "cacheVariables": {
+        "BLOB_ROYALE_BUILD_FUZZERS": "ON",
+        "BUILD_TESTING": "OFF",
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_FLAGS": "-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      }
     }
   ],
   "buildPresets": [
@@ -66,12 +89,26 @@
       "configurePreset": "linux-gcc-release"
     },
     {
+      "name": "linux-gcc-benchmark",
+      "configurePreset": "linux-gcc-benchmark",
+      "targets": [
+        "blob_simulation_benchmarks"
+      ]
+    },
+    {
       "name": "linux-clang-asan-ubsan",
       "configurePreset": "linux-clang-asan-ubsan"
     },
     {
       "name": "linux-clang-tsan",
       "configurePreset": "linux-clang-tsan"
+    },
+    {
+      "name": "linux-clang-fuzz",
+      "configurePreset": "linux-clang-fuzz",
+      "targets": [
+        "blob_royale_fuzzers"
+      ]
     }
   ],
   "testPresets": [

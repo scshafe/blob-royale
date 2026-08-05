@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+
+# Runs a reproducibly configured, time-bounded mutating campaign in disposable corpus copies.
+# Inputs: optional positive seconds per target (default 30). Side effects: replaces out/fuzz.
+# Re-runnable: yes; explored run counts and generated corpus members vary with host scheduling.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly BUILD_PRESET="linux-clang-fuzz"
+readonly BUILD_DIRECTORY="${REPOSITORY_DIRECTORY}/out/build/${BUILD_PRESET}"
+readonly FUZZ_OUTPUT_DIRECTORY="${REPOSITORY_DIRECTORY}/out/fuzz"
+readonly ASAN_OPTIONS_VALUE="detect_leaks=1:halt_on_error=1:strict_string_checks=1"
+readonly UBSAN_OPTIONS_VALUE="halt_on_error=1:print_stacktrace=1"
+
+fail() {
+  printf 'verify-fuzz-bounded: %s\n' "$1" >&2
+  exit 1
+}
+
+if (($# > 1)); then
+  fail "expected at most one positive integer duration"
+fi
+if (($# == 1)) && [[ ! "$1" =~ ^[1-9][0-9]*$ ]]; then
+  fail "expected at most one positive integer duration"
+fi
+readonly DURATION_SECONDS="${1:-30}"
+
+if [[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" != "ubuntu-24.04-amd64-20260804" ]]; then
+  exec "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+    ./scripts/verify-fuzz-bounded "${DURATION_SECONDS}"
+fi
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  fail "Linux x86_64 is required"
+fi
+
+"${SCRIPT_DIRECTORY}/verify-fuzz-regressions"
+
+if [[ "${FUZZ_OUTPUT_DIRECTORY}" != "${REPOSITORY_DIRECTORY}/out/fuzz" ]]; then
+  fail "fuzz output path invariant failed"
+fi
+rm -rf -- "${FUZZ_OUTPUT_DIRECTORY}"
+mkdir -p "${FUZZ_OUTPUT_DIRECTORY}/artifacts"
+
+run_campaign() {
+  local target_name="$1"
+  local source_corpus="$2"
+  local maximum_input_bytes="$3"
+  local executable="${BUILD_DIRECTORY}/tests/fuzz/${target_name}"
+  local working_corpus="${FUZZ_OUTPUT_DIRECTORY}/${target_name}-corpus"
+  local artifact_prefix="${FUZZ_OUTPUT_DIRECTORY}/artifacts/${target_name}-"
+
+  mkdir -p "${working_corpus}"
+  cp -R "${source_corpus}/." "${working_corpus}/"
+  env ASAN_OPTIONS="${ASAN_OPTIONS_VALUE}" UBSAN_OPTIONS="${UBSAN_OPTIONS_VALUE}" \
+    "${executable}" \
+    -artifact_prefix="${artifact_prefix}" \
+    -max_total_time="${DURATION_SECONDS}" \
+    -seed=424242 \
+    -timeout=5 \
+    -rss_limit_mb=1024 \
+    -max_len="${maximum_input_bytes}" \
+    "${working_corpus}"
+  printf 'fuzz_bounded.target=%s seconds=%s status=passed\n' \
+    "${target_name}" "${DURATION_SECONDS}"
+}
+
+run_campaign \
+  "blob_application_config_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/application" \
+  65537
+run_campaign \
+  "blob_application_cli_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/cli" \
+  4096
+run_campaign \
+  "blob_http_request_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/http" \
+  32768
+run_campaign \
+  "blob_protocol_request_id_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/protocol" \
+  4096
+run_campaign \
+  "blob_scenario_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/scenario" \
+  1048577
+
+printf 'fuzz_bounded.status=passed\n'

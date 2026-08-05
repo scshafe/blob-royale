@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+# Serializes the complete quality-to-publication transaction across every profile.
+# Inputs: `acquire|verify|release` plus an opaque owner token. Side effects: acquire/release mutate
+# one lock directory under out/release; verify is read-only. A stale lock fails closed for recovery.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly RELEASE_DIRECTORY="${REPOSITORY_DIRECTORY}/out/release"
+readonly LOCK_DIRECTORY="${RELEASE_DIRECTORY}/.pipeline-lock"
+readonly OWNER_FILE="${LOCK_DIRECTORY}/owner-token"
+
+usage() {
+  printf 'Usage: %s <acquire|verify|release> <owner-token>\n' "$0"
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'release_pipeline_lock.status=failed\n' >&2
+  printf 'release_pipeline_lock.error_code=%s\n' "${error_code}" >&2
+  printf 'release_pipeline_lock.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+if [[ "$#" -ne 2 ]]; then
+  usage >&2
+  exit 64
+fi
+
+readonly ACTION="$1"
+readonly OWNER_TOKEN="$2"
+case "${ACTION}" in
+  acquire | verify | release)
+    ;;
+  *)
+    usage >&2
+    fail "RELEASE_LOCK.INVALID_ACTION" "unknown action: ${ACTION}"
+    ;;
+esac
+[[ "${OWNER_TOKEN}" =~ ^[a-z0-9][a-z0-9.-]{0,127}$ ]] ||
+  fail "RELEASE_LOCK.INVALID_TOKEN" "owner token has an invalid form"
+
+verify_owner() {
+  local recorded_owner
+
+  [[ -d "${LOCK_DIRECTORY}" && -f "${OWNER_FILE}" ]] ||
+    fail "RELEASE_LOCK.NOT_HELD" "the release pipeline lock is not held"
+  IFS= read -r recorded_owner <"${OWNER_FILE}" ||
+    fail "RELEASE_LOCK.OWNER_UNREADABLE" "the release pipeline lock owner is unreadable"
+  [[ "${recorded_owner}" == "${OWNER_TOKEN}" ]] ||
+    fail "RELEASE_LOCK.OWNER_MISMATCH" "the release pipeline lock belongs to another invocation"
+}
+
+case "${ACTION}" in
+  acquire)
+    mkdir -p "${RELEASE_DIRECTORY}"
+    if ! mkdir "${LOCK_DIRECTORY}"; then
+      fail "RELEASE_LOCK.ALREADY_HELD" \
+        "another invocation or an interrupted pipeline owns out/release/.pipeline-lock"
+    fi
+    printf '%s\n' "${OWNER_TOKEN}" >"${OWNER_FILE}"
+    chmod 0444 "${OWNER_FILE}"
+    ;;
+  verify)
+    verify_owner
+    ;;
+  release)
+    verify_owner
+    chmod u+w "${OWNER_FILE}"
+    rm -f -- "${OWNER_FILE}"
+    rmdir "${LOCK_DIRECTORY}" ||
+      fail "RELEASE_LOCK.NOT_EMPTY" "unexpected files remain in the release pipeline lock"
+    ;;
+esac
+
+printf '%s\n' \
+  "release_pipeline_lock.action=${ACTION}" \
+  "release_pipeline_lock.owner=${OWNER_TOKEN}" \
+  'release_pipeline_lock.status=passed'

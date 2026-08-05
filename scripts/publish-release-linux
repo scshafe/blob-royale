@@ -1,0 +1,495 @@
+#!/usr/bin/env bash
+
+# Atomically selects one matching release layout, evidence set, and immutable runtime image ID.
+# Inputs: verified profile/release/evidence/image identities under the held pipeline lock; the exact
+# `BLOB_ROYALE_OFFLINE_ALIAS_MIGRATION=readers-stopped` acknowledgement for legacy conversion only.
+# Side effects: installs an immutable publication record and switches one canonical current symlink.
+# Idempotent: yes for identical inputs.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly RELEASE_PARENT="${REPOSITORY_DIRECTORY}/out/release"
+readonly RELEASE_VERSIONS_DIRECTORY="${RELEASE_PARENT}/versions"
+readonly PUBLICATION_VERSIONS_DIRECTORY="${RELEASE_PARENT}/publications"
+readonly CURRENT_PUBLICATION_LINK="${RELEASE_PARENT}/current"
+readonly RELEASE_ALIAS="${RELEASE_PARENT}/blob-royale"
+readonly SECURITY_DIRECTORY="${REPOSITORY_DIRECTORY}/out/security"
+readonly SECURITY_VERSIONS_DIRECTORY="${SECURITY_DIRECTORY}/versions"
+readonly SECURITY_ALIAS="${SECURITY_DIRECTORY}/current"
+readonly EXPECTED_TOOLCHAIN_ID="ubuntu-24.04-amd64-20260804"
+readonly OFFLINE_ALIAS_MIGRATION="${BLOB_ROYALE_OFFLINE_ALIAS_MIGRATION:-}"
+
+usage() {
+  printf '%s\n' \
+    "Usage: $0 --profile <pr|nightly|release> --release-id <id> \\" \
+    '  --evidence-id <id> --image-reference <name> --image-content-id <sha256:...>'
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'release_publication.status=failed\n' >&2
+  printf 'release_publication.error_code=%s\n' "${error_code}" >&2
+  printf 'release_publication.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+read_metadata_value() {
+  local metadata_file="$1"
+  local metadata_key="$2"
+  local metadata_value
+
+  metadata_value="$(sed -n "s/^${metadata_key}=//p" "${metadata_file}")"
+  [[ -n "${metadata_value}" && "$(grep -c "^${metadata_key}=" "${metadata_file}")" -eq 1 ]] ||
+    fail "RELEASE_PUBLICATION.METADATA_INVALID" \
+      "${metadata_file} must contain exactly one ${metadata_key} value"
+  printf '%s' "${metadata_value}"
+}
+
+sha256_file() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+PROFILE=""
+RELEASE_ID=""
+EVIDENCE_ID=""
+IMAGE_REFERENCE=""
+IMAGE_CONTENT_ID=""
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --profile)
+      [[ "$#" -ge 2 ]] || fail "RELEASE_PUBLICATION.ARGUMENT_MISSING" "$1 requires a value"
+      PROFILE="$2"
+      shift 2
+      ;;
+    --release-id)
+      [[ "$#" -ge 2 ]] || fail "RELEASE_PUBLICATION.ARGUMENT_MISSING" "$1 requires a value"
+      RELEASE_ID="$2"
+      shift 2
+      ;;
+    --evidence-id)
+      [[ "$#" -ge 2 ]] || fail "RELEASE_PUBLICATION.ARGUMENT_MISSING" "$1 requires a value"
+      EVIDENCE_ID="$2"
+      shift 2
+      ;;
+    --image-reference)
+      [[ "$#" -ge 2 ]] || fail "RELEASE_PUBLICATION.ARGUMENT_MISSING" "$1 requires a value"
+      IMAGE_REFERENCE="$2"
+      shift 2
+      ;;
+    --image-content-id)
+      [[ "$#" -ge 2 ]] || fail "RELEASE_PUBLICATION.ARGUMENT_MISSING" "$1 requires a value"
+      IMAGE_CONTENT_ID="$2"
+      shift 2
+      ;;
+    --help | -h)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      fail "RELEASE_PUBLICATION.ARGUMENT_UNKNOWN" "unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "${PROFILE}" && -n "${RELEASE_ID}" && -n "${EVIDENCE_ID}" &&
+  -n "${IMAGE_REFERENCE}" && -n "${IMAGE_CONTENT_ID}" ]] || {
+  usage >&2
+  fail "RELEASE_PUBLICATION.ARGUMENT_INCOMPLETE" "every named input is required"
+}
+case "${PROFILE}" in
+  pr | nightly | release)
+    ;;
+  *)
+    fail "RELEASE_PUBLICATION.INVALID_PROFILE" "unknown profile: ${PROFILE}"
+    ;;
+esac
+case "${OFFLINE_ALIAS_MIGRATION}" in
+  '' | readers-stopped)
+    ;;
+  *)
+    fail "RELEASE_PUBLICATION.OFFLINE_MIGRATION_CONFIRMATION_INVALID" \
+      "BLOB_ROYALE_OFFLINE_ALIAS_MIGRATION must be empty or readers-stopped"
+    ;;
+esac
+[[ "${RELEASE_ID}" =~ ^${PROFILE}-[0-9a-f]{64}$ ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_ID_INVALID" "release ID has an invalid form"
+[[ "${EVIDENCE_ID}" =~ ^${RELEASE_ID}-[0-9a-f]{64}$ ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_ID_INVALID" "evidence ID does not match the release"
+[[ "${IMAGE_REFERENCE}" =~ ^[a-z0-9][a-z0-9._/-]*:[a-zA-Z0-9._-]+$ ]] ||
+  fail "RELEASE_PUBLICATION.IMAGE_REFERENCE_INVALID" "image reference has an invalid form"
+[[ "${IMAGE_CONTENT_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] ||
+  fail "RELEASE_PUBLICATION.IMAGE_ID_INVALID" "image content ID has an invalid form"
+
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  fail "RELEASE_PUBLICATION.LINUX_X86_64_REQUIRED" "the pinned Linux x86_64 toolchain is required"
+fi
+[[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" == "${EXPECTED_TOOLCHAIN_ID}" ]] ||
+  fail "RELEASE_PUBLICATION.TOOLCHAIN_MISMATCH" "the canonical toolchain identity is required"
+[[ -n "${BLOB_ROYALE_RELEASE_LOCK_TOKEN:-}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_LOCK_REQUIRED" "the release pipeline lock is required"
+"${SCRIPT_DIRECTORY}/release-pipeline-lock" verify "${BLOB_ROYALE_RELEASE_LOCK_TOKEN}"
+for required_command in awk cmp diff find grep install ln mktemp mv readlink realpath sed sha256sum stat; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "RELEASE_PUBLICATION.TOOL_MISSING" "required command is unavailable: ${required_command}"
+done
+
+readonly RELEASE_DIRECTORY="${RELEASE_VERSIONS_DIRECTORY}/${RELEASE_ID}"
+readonly EVIDENCE_DIRECTORY="${SECURITY_VERSIONS_DIRECTORY}/${EVIDENCE_ID}"
+readonly RELEASE_METADATA="${RELEASE_DIRECTORY}/release-layout.env"
+readonly EVIDENCE_MANIFEST="${EVIDENCE_DIRECTORY}/release-evidence.env"
+readonly VERIFICATION_STAMP="${REPOSITORY_DIRECTORY}/out/verification/linux/${PROFILE}.env"
+[[ -f "${RELEASE_METADATA}" && -f "${EVIDENCE_MANIFEST}" && -f "${VERIFICATION_STAMP}" ]] ||
+  fail "RELEASE_PUBLICATION.INPUT_MISSING" "release, evidence, or verification metadata is missing"
+
+"${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
+
+STAMP_SHA256="$(sha256_file "${VERIFICATION_STAMP}")"
+readonly STAMP_SHA256
+VERIFICATION_AUTHORITY="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_authority)"
+readonly VERIFICATION_AUTHORITY
+VERIFICATION_HOST_OS="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_host_os)"
+readonly VERIFICATION_HOST_OS
+VERIFICATION_HOST_ARCH="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_host_arch)"
+readonly VERIFICATION_HOST_ARCH
+VERIFICATION_DOCKER_OS="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_docker_os)"
+readonly VERIFICATION_DOCKER_OS
+VERIFICATION_DOCKER_ARCH="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_docker_arch)"
+readonly VERIFICATION_DOCKER_ARCH
+[[ "${VERIFICATION_AUTHORITY}" == "authoritative" ||
+  "${VERIFICATION_AUTHORITY}" == "advisory" ]] ||
+  fail "RELEASE_PUBLICATION.AUTHORITY_INVALID" "verification authority is invalid"
+if [[ "${PROFILE}" == "release" && "${VERIFICATION_AUTHORITY}" != "authoritative" ]]; then
+  fail "RELEASE_PUBLICATION.AUTHORITATIVE_HOST_REQUIRED" \
+    "a release-profile current pointer can be published only by native Linux x86_64"
+fi
+[[ "${RELEASE_ID}" == "${PROFILE}-${STAMP_SHA256}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_CONTENT_ADDRESS_MISMATCH" \
+    "release ID is not the content address of the current verification stamp"
+
+[[ "$(read_metadata_value "${RELEASE_METADATA}" release_id)" == "${RELEASE_ID}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_LAYOUT_MISMATCH" "release layout ID differs"
+[[ "$(read_metadata_value "${RELEASE_METADATA}" profile)" == "${PROFILE}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_PROFILE_MISMATCH" "release layout profile differs"
+[[ "$(read_metadata_value "${RELEASE_METADATA}" verification_stamp_sha256)" == \
+  "${STAMP_SHA256}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_STAMP_MISMATCH" "release layout stamp differs"
+[[ "$(read_metadata_value "${RELEASE_METADATA}" verification_authority)" == \
+  "${VERIFICATION_AUTHORITY}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_AUTHORITY_MISMATCH" "release layout authority differs"
+[[ "$(read_metadata_value "${RELEASE_METADATA}" verification_host_os)" == \
+  "${VERIFICATION_HOST_OS}" &&
+  "$(read_metadata_value "${RELEASE_METADATA}" verification_host_arch)" == \
+  "${VERIFICATION_HOST_ARCH}" &&
+  "$(read_metadata_value "${RELEASE_METADATA}" verification_docker_os)" == \
+  "${VERIFICATION_DOCKER_OS}" &&
+  "$(read_metadata_value "${RELEASE_METADATA}" verification_docker_arch)" == \
+  "${VERIFICATION_DOCKER_ARCH}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_EXECUTION_IDENTITY_MISMATCH" \
+    "release layout execution identity differs"
+[[ "$(sha256_file "${RELEASE_DIRECTORY}/verification-stamp.env")" == "${STAMP_SHA256}" ]] ||
+  fail "RELEASE_PUBLICATION.STAGED_STAMP_MISMATCH" "staged verification stamp differs"
+
+# Reassembly is side-effect free for an existing content address and compares every staged byte.
+# Exact modes are checked separately because recursive diff intentionally compares content only.
+"${SCRIPT_DIRECTORY}/assemble-release-linux" "${PROFILE}" >/dev/null
+invalid_release_mode="$(find "${RELEASE_DIRECTORY}" -type d ! -perm 0555 -print -quit)"
+[[ -z "${invalid_release_mode}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_DIRECTORY_MODE_INVALID" \
+    "release directory is not read-only: ${invalid_release_mode}"
+[[ "$(stat -c '%a' "${RELEASE_DIRECTORY}/server/blob-royale")" == "555" ]] ||
+  fail "RELEASE_PUBLICATION.SERVER_MODE_INVALID" "staged server executable mode is not 0555"
+invalid_release_mode="$(find "${RELEASE_DIRECTORY}" -type f \
+  ! -path "${RELEASE_DIRECTORY}/server/blob-royale" ! -perm 0444 -print -quit)"
+[[ -z "${invalid_release_mode}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_FILE_MODE_INVALID" \
+    "release file is not read-only: ${invalid_release_mode}"
+
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" evidence_id)" == "${EVIDENCE_ID}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_MANIFEST_MISMATCH" "evidence manifest ID differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" release_id)" == "${RELEASE_ID}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_RELEASE_MISMATCH" "evidence release ID differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" profile)" == "${PROFILE}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_PROFILE_MISMATCH" "evidence profile differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" verification_stamp_sha256)" == \
+  "${STAMP_SHA256}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_STAMP_MISMATCH" "evidence stamp differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" verification_authority)" == \
+  "${VERIFICATION_AUTHORITY}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_AUTHORITY_MISMATCH" "evidence authority differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" verification_host_os)" == \
+  "${VERIFICATION_HOST_OS}" &&
+  "$(read_metadata_value "${EVIDENCE_MANIFEST}" verification_host_arch)" == \
+  "${VERIFICATION_HOST_ARCH}" &&
+  "$(read_metadata_value "${EVIDENCE_MANIFEST}" verification_docker_os)" == \
+  "${VERIFICATION_DOCKER_OS}" &&
+  "$(read_metadata_value "${EVIDENCE_MANIFEST}" verification_docker_arch)" == \
+  "${VERIFICATION_DOCKER_ARCH}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_EXECUTION_IDENTITY_MISMATCH" \
+    "evidence execution identity differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" runtime_image_reference)" == \
+  "${IMAGE_REFERENCE}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_IMAGE_REFERENCE_MISMATCH" \
+    "evidence image reference differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" runtime_image_content_id)" == \
+  "${IMAGE_CONTENT_ID}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_IMAGE_ID_MISMATCH" "evidence image ID differs"
+[[ "$(read_metadata_value "${EVIDENCE_MANIFEST}" high_critical_findings)" == "0" ]] ||
+  fail "RELEASE_PUBLICATION.VULNERABILITY_FINDINGS" \
+    "evidence does not certify zero high/critical findings"
+
+readonly -a EVIDENCE_FILE_KEYS=(
+  runtime_image_archive
+  runtime_syft_sbom
+  runtime_cyclonedx_sbom
+  web_cyclonedx_sbom
+  runtime_vulnerability_report
+  web_vulnerability_report
+  web_npm_audit_report
+)
+for evidence_file_key in "${EVIDENCE_FILE_KEYS[@]}"; do
+  evidence_file_name="$(read_metadata_value "${EVIDENCE_MANIFEST}" "${evidence_file_key}")"
+  [[ "${evidence_file_name}" =~ ^[a-zA-Z0-9._-]+$ ]] ||
+    fail "RELEASE_PUBLICATION.EVIDENCE_FILE_INVALID" \
+      "${evidence_file_key} does not name a direct evidence file"
+  evidence_file="${EVIDENCE_DIRECTORY}/${evidence_file_name}"
+  [[ -s "${evidence_file}" ]] ||
+    fail "RELEASE_PUBLICATION.EVIDENCE_FILE_MISSING" "${evidence_file_name} is missing or empty"
+  expected_evidence_sha256="$(read_metadata_value \
+    "${EVIDENCE_MANIFEST}" "${evidence_file_key}_sha256")"
+  [[ "$(sha256_file "${evidence_file}")" == "${expected_evidence_sha256}" ]] ||
+    fail "RELEASE_PUBLICATION.EVIDENCE_HASH_MISMATCH" \
+      "${evidence_file_name} does not match its manifest hash"
+done
+EVIDENCE_PAYLOAD_SHA256="$({
+  printf '%s\n' \
+    "${STAMP_SHA256}" \
+    "$(read_metadata_value "${EVIDENCE_MANIFEST}" runtime_image_archive_sha256)" \
+    "$(read_metadata_value "${EVIDENCE_MANIFEST}" runtime_syft_sbom_sha256)" \
+    "$(read_metadata_value "${EVIDENCE_MANIFEST}" runtime_cyclonedx_sbom_sha256)" \
+    "$(read_metadata_value "${EVIDENCE_MANIFEST}" web_cyclonedx_sbom_sha256)" \
+    "$(read_metadata_value "${EVIDENCE_MANIFEST}" runtime_vulnerability_report_sha256)" \
+    "$(read_metadata_value "${EVIDENCE_MANIFEST}" web_vulnerability_report_sha256)" \
+    "$(read_metadata_value "${EVIDENCE_MANIFEST}" web_npm_audit_report_sha256)"
+} | sha256sum | awk '{print $1}')"
+readonly EVIDENCE_PAYLOAD_SHA256
+[[ "${EVIDENCE_ID}" == "${RELEASE_ID}-${EVIDENCE_PAYLOAD_SHA256}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_CONTENT_ADDRESS_MISMATCH" \
+    "evidence ID is not the content address of its verified payload"
+[[ "$(stat -c '%a' "${EVIDENCE_DIRECTORY}")" == "555" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_DIRECTORY_MODE_INVALID" \
+    "evidence directory mode is not 0555"
+invalid_evidence_mode="$(find "${EVIDENCE_DIRECTORY}" -type f ! -perm 0444 -print -quit)"
+[[ -z "${invalid_evidence_mode}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_FILE_MODE_INVALID" \
+    "evidence file is not read-only: ${invalid_evidence_mode}"
+
+readonly PUBLICATION_ID="${EVIDENCE_ID}"
+readonly PUBLICATION_DIRECTORY="${PUBLICATION_VERSIONS_DIRECTORY}/${PUBLICATION_ID}"
+readonly RELEASE_LEGACY_PATH="${RELEASE_PARENT}/legacy-blob-royale"
+readonly SECURITY_LEGACY_PATH="${SECURITY_DIRECTORY}/legacy-current"
+mkdir -p "${PUBLICATION_VERSIONS_DIRECTORY}" "${SECURITY_DIRECTORY}"
+temporary_publication_directory="$(mktemp -d \
+  "${PUBLICATION_VERSIONS_DIRECTORY}/.staging.XXXXXX")"
+temporary_current_directory="$(mktemp -d "${RELEASE_PARENT}/.current-staging.XXXXXX")"
+temporary_release_alias_directory="$(mktemp -d \
+  "${RELEASE_PARENT}/.alias-staging.XXXXXX")"
+temporary_security_alias_directory="$(mktemp -d \
+  "${SECURITY_DIRECTORY}/.alias-staging.XXXXXX")"
+readonly temporary_publication_directory temporary_current_directory
+readonly temporary_release_alias_directory temporary_security_alias_directory
+readonly temporary_current_link="${temporary_current_directory}/current"
+readonly temporary_release_alias="${temporary_release_alias_directory}/blob-royale"
+readonly temporary_security_alias="${temporary_security_alias_directory}/current"
+initial_alias_migration=0
+publication_committed=0
+release_alias_requires_migration=0
+security_alias_requires_migration=0
+
+alias_points_to() {
+  local alias_path="$1"
+  local expected_target="$2"
+
+  [[ -L "${alias_path}" && "$(readlink "${alias_path}")" == "${expected_target}" ]]
+}
+
+restore_initial_alias() {
+  local alias_path="$1"
+  local expected_target="$2"
+  local legacy_path="$3"
+  local requires_migration="$4"
+
+  [[ "${requires_migration}" == "1" ]] || return
+  if [[ -e "${legacy_path}" || -L "${legacy_path}" ]]; then
+    if alias_points_to "${alias_path}" "${expected_target}"; then
+      rm -f -- "${alias_path}" || true
+    fi
+    if [[ ! -e "${alias_path}" && ! -L "${alias_path}" ]]; then
+      mv -- "${legacy_path}" "${alias_path}" || true
+    fi
+  elif alias_points_to "${alias_path}" "${expected_target}"; then
+    rm -f -- "${alias_path}" || true
+  fi
+}
+
+cleanup() {
+  if [[ "${initial_alias_migration}" == "1" && "${publication_committed}" != "1" ]] &&
+    ! alias_points_to "${CURRENT_PUBLICATION_LINK}" "publications/${PUBLICATION_ID}"; then
+    restore_initial_alias \
+      "${SECURITY_ALIAS}" '../release/current/evidence' "${SECURITY_LEGACY_PATH}" \
+      "${security_alias_requires_migration}"
+    restore_initial_alias \
+      "${RELEASE_ALIAS}" 'current/deployable' "${RELEASE_LEGACY_PATH}" \
+      "${release_alias_requires_migration}"
+  fi
+  if [[ -d "${temporary_publication_directory}" ]]; then
+    chmod -R u+w "${temporary_publication_directory}" 2>/dev/null || true
+    rm -rf -- "${temporary_publication_directory}"
+  fi
+  rm -rf -- "${temporary_current_directory}" \
+    "${temporary_release_alias_directory}" "${temporary_security_alias_directory}"
+}
+trap cleanup EXIT
+
+ln -s "../../versions/${RELEASE_ID}" \
+  "${temporary_publication_directory}/deployable"
+ln -s "../../../security/versions/${EVIDENCE_ID}" \
+  "${temporary_publication_directory}/evidence"
+printf '%s\n' \
+  'release_publication_format=1' \
+  "publication_id=${PUBLICATION_ID}" \
+  "profile=${PROFILE}" \
+  "verification_authority=${VERIFICATION_AUTHORITY}" \
+  "verification_host_os=${VERIFICATION_HOST_OS}" \
+  "verification_host_arch=${VERIFICATION_HOST_ARCH}" \
+  "verification_docker_os=${VERIFICATION_DOCKER_OS}" \
+  "verification_docker_arch=${VERIFICATION_DOCKER_ARCH}" \
+  "verification_stamp_sha256=${STAMP_SHA256}" \
+  "release_id=${RELEASE_ID}" \
+  "evidence_id=${EVIDENCE_ID}" \
+  "runtime_image_reference=${IMAGE_REFERENCE}" \
+  "runtime_image_content_id=${IMAGE_CONTENT_ID}" \
+  >"${temporary_publication_directory}/publication.env"
+chmod 0444 "${temporary_publication_directory}/publication.env"
+chmod 0555 "${temporary_publication_directory}"
+
+if [[ -d "${PUBLICATION_DIRECTORY}" ]]; then
+  if ! diff --brief --recursive --no-dereference \
+    "${temporary_publication_directory}" "${PUBLICATION_DIRECTORY}" >/dev/null; then
+    fail "RELEASE_PUBLICATION.CONTENT_COLLISION" \
+      "the publication ID exists with different content"
+  fi
+  chmod u+w "${temporary_publication_directory}"
+  rm -rf -- "${temporary_publication_directory}"
+else
+  mv -- "${temporary_publication_directory}" "${PUBLICATION_DIRECTORY}"
+fi
+[[ "$(stat -c '%a' "${PUBLICATION_DIRECTORY}")" == "555" ]] ||
+  fail "RELEASE_PUBLICATION.RECORD_DIRECTORY_MODE_INVALID" \
+    "publication record directory mode is not 0555"
+[[ "$(stat -c '%a' "${PUBLICATION_DIRECTORY}/publication.env")" == "444" ]] ||
+  fail "RELEASE_PUBLICATION.RECORD_FILE_MODE_INVALID" \
+    "publication record metadata mode is not 0444"
+
+# After initialization these aliases never change. Existing legacy readers may be converted only
+# during an explicitly acknowledged maintenance window; otherwise publication fails before change.
+install_initial_alias() {
+  local alias_path="$1"
+  local legacy_path="$2"
+  local temporary_alias_path="$3"
+
+  if [[ -e "${alias_path}" || -L "${alias_path}" ]]; then
+    mv -- "${alias_path}" "${legacy_path}"
+  fi
+  mv -Tf -- "${temporary_alias_path}" "${alias_path}"
+}
+
+if [[ -e "${CURRENT_PUBLICATION_LINK}" && ! -L "${CURRENT_PUBLICATION_LINK}" ]]; then
+  fail "RELEASE_PUBLICATION.CURRENT_POINTER_INVALID" \
+    "out/release/current exists but is not the canonical symlink"
+fi
+if [[ -L "${CURRENT_PUBLICATION_LINK}" ]]; then
+  alias_points_to "${RELEASE_ALIAS}" 'current/deployable' ||
+    fail "RELEASE_PUBLICATION.RELEASE_ALIAS_INVALID" "release alias is not canonical"
+  alias_points_to "${SECURITY_ALIAS}" '../release/current/evidence' ||
+    fail "RELEASE_PUBLICATION.SECURITY_ALIAS_INVALID" "security alias is not canonical"
+else
+  initial_alias_migration=1
+  legacy_alias_migration_required=0
+  if ! alias_points_to "${RELEASE_ALIAS}" 'current/deployable'; then
+    release_alias_requires_migration=1
+    if [[ -e "${RELEASE_ALIAS}" || -L "${RELEASE_ALIAS}" ]]; then
+      legacy_alias_migration_required=1
+      [[ ! -e "${RELEASE_LEGACY_PATH}" && ! -L "${RELEASE_LEGACY_PATH}" ]] ||
+        fail "RELEASE_PUBLICATION.LEGACY_RELEASE_CONFLICT" \
+          "the legacy release recovery destination already exists"
+    fi
+  fi
+  if ! alias_points_to "${SECURITY_ALIAS}" '../release/current/evidence'; then
+    security_alias_requires_migration=1
+    if [[ -e "${SECURITY_ALIAS}" || -L "${SECURITY_ALIAS}" ]]; then
+      legacy_alias_migration_required=1
+      [[ ! -e "${SECURITY_LEGACY_PATH}" && ! -L "${SECURITY_LEGACY_PATH}" ]] ||
+        fail "RELEASE_PUBLICATION.LEGACY_SECURITY_CONFLICT" \
+          "the legacy evidence recovery destination already exists"
+    fi
+  fi
+  if [[ "${legacy_alias_migration_required}" == "1" &&
+    "${OFFLINE_ALIAS_MIGRATION}" != "readers-stopped" ]]; then
+    fail "RELEASE_PUBLICATION.OFFLINE_MIGRATION_CONFIRMATION_REQUIRED" \
+      "legacy aliases require readers-stopped maintenance; see docs/operations/linux.md"
+  fi
+fi
+
+ln -s "publications/${PUBLICATION_ID}" "${temporary_current_link}"
+ln -s 'current/deployable' "${temporary_release_alias}"
+ln -s '../release/current/evidence' "${temporary_security_alias}"
+
+[[ "$(realpath -e "${PUBLICATION_DIRECTORY}/deployable")" == "${RELEASE_DIRECTORY}" ]] ||
+  fail "RELEASE_PUBLICATION.RELEASE_RECORD_MISMATCH" \
+    "publication record does not select the verified release"
+[[ "$(realpath -e "${PUBLICATION_DIRECTORY}/evidence")" == "${EVIDENCE_DIRECTORY}" ]] ||
+  fail "RELEASE_PUBLICATION.EVIDENCE_RECORD_MISMATCH" \
+    "publication record does not select the verified evidence"
+
+if [[ "${initial_alias_migration}" == "1" ]]; then
+  if [[ "${release_alias_requires_migration}" == "1" ]]; then
+    install_initial_alias \
+      "${RELEASE_ALIAS}" "${RELEASE_LEGACY_PATH}" "${temporary_release_alias}"
+  fi
+  if [[ "${security_alias_requires_migration}" == "1" ]]; then
+    install_initial_alias \
+      "${SECURITY_ALIAS}" "${SECURITY_LEGACY_PATH}" "${temporary_security_alias}"
+  fi
+  alias_points_to "${RELEASE_ALIAS}" 'current/deployable' ||
+    fail "RELEASE_PUBLICATION.RELEASE_ALIAS_INVALID" "release alias is not canonical"
+  alias_points_to "${SECURITY_ALIAS}" '../release/current/evidence' ||
+    fail "RELEASE_PUBLICATION.SECURITY_ALIAS_INVALID" "security alias is not canonical"
+fi
+
+# The canonical pointer remains absent or unchanged through every owned fallible preparation. No
+# command runs between the last in-lock freshness proof and its single atomic selection rename.
+"${SCRIPT_DIRECTORY}/release-pipeline-lock" verify "${BLOB_ROYALE_RELEASE_LOCK_TOKEN}"
+"${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
+mv -Tf -- "${temporary_current_link}" "${CURRENT_PUBLICATION_LINK}"
+publication_committed=1
+
+printf '%s\n' \
+  "release_publication.id=${PUBLICATION_ID}" \
+  "release_publication.directory=${PUBLICATION_DIRECTORY}" \
+  "release_publication.release=${RELEASE_DIRECTORY}" \
+  "release_publication.evidence=${EVIDENCE_DIRECTORY}" \
+  "release_publication.runtime_image_content_id=${IMAGE_CONTENT_ID}" \
+  "release_publication.verification_authority=${VERIFICATION_AUTHORITY}" \
+  'release_publication.status=passed'

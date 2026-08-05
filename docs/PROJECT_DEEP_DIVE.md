@@ -2,7 +2,11 @@
 
 # Blob Royale: Project Deep Dive
 
-Reviewed on 2026-08-04 at commit `049f4a4` (`main`, matching `origin/main`). This document describes the repository as it exists at that commit. It distinguishes reachable, verified behavior from intended behavior that is currently blocked by build failures.
+> **Historical assessment:** Reviewed on 2026-08-04 at commit `049f4a4` (`main`, matching
+> `origin/main`). This document intentionally describes that prototype exactly as it existed at the
+> reviewed commit. Many linked paths were deleted by the canonical-engine cutover and now resolve
+> only through Git history. For the current architecture and operations, use the root README,
+> accepted ADRs, component READMEs, and `docs/operations/linux.md`.
 
 ## Executive assessment
 

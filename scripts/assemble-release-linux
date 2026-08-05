@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+
+# Stages immutable server and web deployables from a verified Linux profile.
+# Inputs: exactly one `pr|nightly|release` profile with a current verification stamp.
+# Side effects: creates a content-addressed staged version; publication is a later transaction.
+# Idempotent: yes; an identical verified input reuses its existing version.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly SERVER_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/linux-gcc-release/blob-royale"
+readonly WEB_DISTRIBUTION="${REPOSITORY_DIRECTORY}/frontend-react/dist"
+readonly RELEASE_PARENT="${REPOSITORY_DIRECTORY}/out/release"
+readonly RELEASE_VERSIONS_DIRECTORY="${RELEASE_PARENT}/versions"
+
+usage() {
+  printf 'Usage: %s <pr|nightly|release>\n' "$0"
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'release_layout.status=failed\n' >&2
+  printf 'release_layout.error_code=%s\n' "${error_code}" >&2
+  printf 'release_layout.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+read_metadata_value() {
+  local metadata_file="$1"
+  local metadata_key="$2"
+  local metadata_value
+
+  metadata_value="$(sed -n "s/^${metadata_key}=//p" "${metadata_file}")"
+  [[ -n "${metadata_value}" && "$(grep -c "^${metadata_key}=" "${metadata_file}")" -eq 1 ]] ||
+    fail "RELEASE_LAYOUT.METADATA_INVALID" \
+      "${metadata_file} must contain exactly one ${metadata_key} value"
+  printf '%s' "${metadata_value}"
+}
+
+if [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+  usage
+  exit 0
+fi
+if [[ "$#" -ne 1 ]]; then
+  usage >&2
+  exit 64
+fi
+
+readonly PROFILE="$1"
+case "${PROFILE}" in
+  pr | nightly | release)
+    ;;
+  *)
+    usage >&2
+    fail "RELEASE_LAYOUT.INVALID_PROFILE" "unknown profile: ${PROFILE}"
+    ;;
+esac
+
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  fail "RELEASE_LAYOUT.LINUX_X86_64_REQUIRED" "the pinned Linux x86_64 toolchain is required"
+fi
+for required_command in cmp diff find grep install mv sed sha256sum; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "RELEASE_LAYOUT.TOOL_MISSING" "required command is unavailable: ${required_command}"
+done
+[[ -n "${BLOB_ROYALE_RELEASE_LOCK_TOKEN:-}" ]] ||
+  fail "RELEASE_LAYOUT.RELEASE_LOCK_REQUIRED" "the release pipeline lock is required"
+"${SCRIPT_DIRECTORY}/release-pipeline-lock" verify "${BLOB_ROYALE_RELEASE_LOCK_TOKEN}"
+
+"${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
+
+readonly VERIFICATION_STAMP="${REPOSITORY_DIRECTORY}/out/verification/linux/${PROFILE}.env"
+VERIFICATION_STAMP_SHA256="$(sha256sum "${VERIFICATION_STAMP}" | awk '{print $1}')"
+readonly VERIFICATION_STAMP_SHA256
+VERIFICATION_AUTHORITY="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_authority)"
+readonly VERIFICATION_AUTHORITY
+VERIFICATION_HOST_OS="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_host_os)"
+readonly VERIFICATION_HOST_OS
+VERIFICATION_HOST_ARCH="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_host_arch)"
+readonly VERIFICATION_HOST_ARCH
+VERIFICATION_DOCKER_OS="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_docker_os)"
+readonly VERIFICATION_DOCKER_OS
+VERIFICATION_DOCKER_ARCH="$(read_metadata_value \
+  "${VERIFICATION_STAMP}" verification_docker_arch)"
+readonly VERIFICATION_DOCKER_ARCH
+readonly RELEASE_ID="${PROFILE}-${VERIFICATION_STAMP_SHA256}"
+readonly VERSION_DIRECTORY="${RELEASE_VERSIONS_DIRECTORY}/${RELEASE_ID}"
+
+[[ -x "${SERVER_EXECUTABLE}" ]] ||
+  fail "RELEASE_LAYOUT.SERVER_MISSING" "the verified GCC release executable is missing"
+[[ -f "${WEB_DISTRIBUTION}/index.html" ]] ||
+  fail "RELEASE_LAYOUT.WEB_MISSING" "the verified production web distribution is missing"
+[[ -f "${REPOSITORY_DIRECTORY}/THIRD_PARTY_NOTICES.md" ]] ||
+  fail "RELEASE_LAYOUT.NOTICES_MISSING" "THIRD_PARTY_NOTICES.md is missing"
+[[ -d "${REPOSITORY_DIRECTORY}/third_party/licenses" ]] ||
+  fail "RELEASE_LAYOUT.LICENSES_MISSING" "third-party license texts are missing"
+
+mkdir -p "${RELEASE_VERSIONS_DIRECTORY}"
+temporary_release_directory="$(mktemp -d "${RELEASE_VERSIONS_DIRECTORY}/.staging.XXXXXX")"
+readonly temporary_release_directory
+
+cleanup() {
+  if [[ -d "${temporary_release_directory}" ]]; then
+    chmod -R u+w "${temporary_release_directory}" 2>/dev/null || true
+    rm -rf -- "${temporary_release_directory}"
+  fi
+}
+trap cleanup EXIT
+
+mkdir -p \
+  "${temporary_release_directory}/server/examples" \
+  "${temporary_release_directory}/server/legal/licenses" \
+  "${temporary_release_directory}/web"
+install -m 0555 "${SERVER_EXECUTABLE}" \
+  "${temporary_release_directory}/server/blob-royale"
+install -m 0444 "${REPOSITORY_DIRECTORY}/config/blob-royale.cfg" \
+  "${temporary_release_directory}/server/examples/blob-royale.cfg"
+install -m 0444 "${REPOSITORY_DIRECTORY}/tests/fixtures/player-on-wall-collision-test.csv" \
+  "${temporary_release_directory}/server/examples/scenario.csv"
+install -m 0444 "${REPOSITORY_DIRECTORY}/THIRD_PARTY_NOTICES.md" \
+  "${temporary_release_directory}/server/legal/THIRD_PARTY_NOTICES.md"
+cp -R "${REPOSITORY_DIRECTORY}/third_party/licenses/." \
+  "${temporary_release_directory}/server/legal/licenses/"
+cp -R "${WEB_DISTRIBUTION}/." "${temporary_release_directory}/web/"
+install -m 0444 "${VERIFICATION_STAMP}" \
+  "${temporary_release_directory}/verification-stamp.env"
+printf '%s\n' \
+  'release_layout_format=1' \
+  "release_id=${RELEASE_ID}" \
+  "profile=${PROFILE}" \
+  "verification_stamp_sha256=${VERIFICATION_STAMP_SHA256}" \
+  "verification_authority=${VERIFICATION_AUTHORITY}" \
+  "verification_host_os=${VERIFICATION_HOST_OS}" \
+  "verification_host_arch=${VERIFICATION_HOST_ARCH}" \
+  "verification_docker_os=${VERIFICATION_DOCKER_OS}" \
+  "verification_docker_arch=${VERIFICATION_DOCKER_ARCH}" \
+  'server_deployable=server' \
+  'web_deployable=web' \
+  >"${temporary_release_directory}/release-layout.env"
+
+# Copying is not an atomic read of the source trees. Compare every staged input before normalizing
+# permissions, then re-evaluate the stamp so a concurrent edit can never publish a torn version.
+cmp --silent "${SERVER_EXECUTABLE}" \
+  "${temporary_release_directory}/server/blob-royale" ||
+  fail "RELEASE_LAYOUT.SERVER_COPY_MISMATCH" "staged server bytes changed while copying"
+cmp --silent "${REPOSITORY_DIRECTORY}/config/blob-royale.cfg" \
+  "${temporary_release_directory}/server/examples/blob-royale.cfg" ||
+  fail "RELEASE_LAYOUT.CONFIG_COPY_MISMATCH" "staged example configuration is inconsistent"
+cmp --silent "${REPOSITORY_DIRECTORY}/tests/fixtures/player-on-wall-collision-test.csv" \
+  "${temporary_release_directory}/server/examples/scenario.csv" ||
+  fail "RELEASE_LAYOUT.SCENARIO_COPY_MISMATCH" "staged example scenario is inconsistent"
+cmp --silent "${REPOSITORY_DIRECTORY}/THIRD_PARTY_NOTICES.md" \
+  "${temporary_release_directory}/server/legal/THIRD_PARTY_NOTICES.md" ||
+  fail "RELEASE_LAYOUT.NOTICES_COPY_MISMATCH" "staged third-party notice is inconsistent"
+diff --brief --recursive --no-dereference \
+  "${REPOSITORY_DIRECTORY}/third_party/licenses" \
+  "${temporary_release_directory}/server/legal/licenses" >/dev/null ||
+  fail "RELEASE_LAYOUT.LICENSE_COPY_MISMATCH" "staged license tree is inconsistent"
+diff --brief --recursive --no-dereference \
+  "${WEB_DISTRIBUTION}" "${temporary_release_directory}/web" >/dev/null ||
+  fail "RELEASE_LAYOUT.WEB_COPY_MISMATCH" "staged web tree changed while copying"
+"${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
+
+# The deployables are immutable inputs to the host-side image build. Docker COPY changes ownership
+# to root while retaining these non-writable modes; the web tree is deployed separately.
+find "${temporary_release_directory}" -type d -exec chmod 0555 {} +
+find "${temporary_release_directory}" -type f -exec chmod 0444 {} +
+chmod 0555 "${temporary_release_directory}/server/blob-royale"
+
+if [[ -d "${VERSION_DIRECTORY}" ]]; then
+  if ! diff --brief --recursive --no-dereference \
+    "${temporary_release_directory}" "${VERSION_DIRECTORY}" >/dev/null; then
+    fail "RELEASE_LAYOUT.CONTENT_COLLISION" \
+      "the content-addressed release version exists with different files"
+  fi
+  chmod -R u+w "${temporary_release_directory}"
+  rm -rf -- "${temporary_release_directory}"
+else
+  mv -- "${temporary_release_directory}" "${VERSION_DIRECTORY}"
+fi
+
+printf '%s\n' \
+  "release_layout.id=${RELEASE_ID}" \
+  "release_layout.directory=${VERSION_DIRECTORY}" \
+  "release_layout.server=${VERSION_DIRECTORY}/server/blob-royale" \
+  "release_layout.web=${VERSION_DIRECTORY}/web/index.html" \
+  'release_layout.status=staged'

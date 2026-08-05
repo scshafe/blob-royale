@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+
+# Replays every versioned parser fuzz input once under Clang libFuzzer, ASan, and UBSan.
+# Inputs: none. Side effects: clean-configures out/build/linux-clang-fuzz. Idempotent: yes.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly BUILD_PRESET="linux-clang-fuzz"
+readonly BUILD_DIRECTORY="${REPOSITORY_DIRECTORY}/out/build/${BUILD_PRESET}"
+readonly ASAN_OPTIONS_VALUE="detect_leaks=1:halt_on_error=1:strict_string_checks=1"
+readonly UBSAN_OPTIONS_VALUE="halt_on_error=1:print_stacktrace=1"
+
+fail() {
+  printf 'verify-fuzz-regressions: %s\n' "$1" >&2
+  exit 1
+}
+
+if [[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" != "ubuntu-24.04-amd64-20260804" ]]; then
+  exec "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- ./scripts/verify-fuzz-regressions
+fi
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  fail "Linux x86_64 is required"
+fi
+for required_command in clang++ cmake find sort; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "required command is unavailable: ${required_command}"
+done
+
+cd "${REPOSITORY_DIRECTORY}"
+cmake --fresh --preset "${BUILD_PRESET}"
+cmake --build --preset "${BUILD_PRESET}" --parallel 1
+
+run_corpus() {
+  local target_name="$1"
+  local corpus_directory="$2"
+  local maximum_input_bytes="$3"
+  local executable="${BUILD_DIRECTORY}/tests/fuzz/${target_name}"
+  local corpus_member_count=0
+  local corpus_member
+
+  [[ -x "${executable}" ]] || fail "fuzzer executable is missing: ${target_name}"
+  [[ -d "${corpus_directory}" ]] || fail "corpus directory is missing: ${corpus_directory}"
+
+  while IFS= read -r corpus_member; do
+    corpus_member_count=$((corpus_member_count + 1))
+    env ASAN_OPTIONS="${ASAN_OPTIONS_VALUE}" UBSAN_OPTIONS="${UBSAN_OPTIONS_VALUE}" \
+      "${executable}" \
+      -runs=1 \
+      -seed=424242 \
+      -timeout=5 \
+      -rss_limit_mb=1024 \
+      -max_len="${maximum_input_bytes}" \
+      "${corpus_member}"
+  done < <(find "${corpus_directory}" -maxdepth 1 -type f -print | sort)
+
+  if ((corpus_member_count < 2)); then
+    fail "${target_name} must have at least two regression corpus members"
+  fi
+  printf 'fuzz_regression.target=%s corpus_members=%s status=passed\n' \
+    "${target_name}" "${corpus_member_count}"
+}
+
+run_corpus \
+  "blob_application_config_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/application" \
+  65537
+run_corpus \
+  "blob_application_cli_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/cli" \
+  4096
+run_corpus \
+  "blob_http_request_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/http" \
+  32768
+run_corpus \
+  "blob_protocol_request_id_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/protocol" \
+  4096
+run_corpus \
+  "blob_scenario_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/scenario" \
+  1048577
+
+printf 'fuzz_regression.status=passed\n'

@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+
+# canonical: linux_verification_evidence -- binds a completed Linux profile to source and artifacts.
+# Inputs: `begin|create|verify` and one quality profile. Side effects: `begin` captures the source
+# presented to the checks and `create` atomically certifies matching artifacts; `verify` is read-only.
+# Idempotent: yes.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly EVIDENCE_DIRECTORY="${REPOSITORY_DIRECTORY}/out/verification/linux"
+readonly EXPECTED_TOOLCHAIN_ID="ubuntu-24.04-amd64-20260804"
+readonly EXPECTED_BASE_IMAGE_DIGEST="sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
+readonly SERVER_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/linux-gcc-release/blob-royale"
+readonly WEB_DISTRIBUTION="${REPOSITORY_DIRECTORY}/frontend-react/dist"
+readonly VERIFICATION_AUTHORITY="${BLOB_ROYALE_VERIFICATION_AUTHORITY:-}"
+readonly VERIFICATION_HOST_OS="${BLOB_ROYALE_VERIFICATION_HOST_OS:-}"
+readonly VERIFICATION_HOST_ARCH="${BLOB_ROYALE_VERIFICATION_HOST_ARCH:-}"
+readonly VERIFICATION_DOCKER_OS="${BLOB_ROYALE_VERIFICATION_DOCKER_OS:-}"
+readonly VERIFICATION_DOCKER_ARCH="${BLOB_ROYALE_VERIFICATION_DOCKER_ARCH:-}"
+
+usage() {
+  printf 'Usage: %s <begin|create|verify> <pr|nightly|release>\n' "$0"
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'linux_verification_evidence.status=failed\n' >&2
+  printf 'linux_verification_evidence.error_code=%s\n' "${error_code}" >&2
+  printf 'linux_verification_evidence.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+sha256_file() {
+  sha256sum "$1" | awk '{print $1}'
+}
+
+hash_path_set() {
+  local path_source_command="$1"
+  local root_directory="$2"
+  local manifest_file
+  local relative_path
+  local content_digest
+  local file_mode
+  local path_list_file
+
+  manifest_file="$(mktemp "${TMPDIR:-/tmp}/blob-royale-path-hash.XXXXXX")"
+  if [[ "${path_source_command}" == "git" ]]; then
+    path_list_file="$(mktemp "${TMPDIR:-/tmp}/blob-royale-source-paths.XXXXXX")"
+    if ! git -c safe.directory="${root_directory}" -C "${root_directory}" \
+      ls-files --cached --others --exclude-standard -z | LC_ALL=C sort -z \
+      >"${path_list_file}"; then
+      rm -f -- "${manifest_file}" "${path_list_file}"
+      fail "RELEASE_EVIDENCE.SOURCE_ENUMERATION_FAILED" \
+        "Git could not enumerate the current tracked and unignored source set"
+    fi
+    while IFS= read -r -d '' relative_path; do
+      [[ -f "${root_directory}/${relative_path}" || -L "${root_directory}/${relative_path}" ]] ||
+        continue
+      file_mode="$(stat -c '%a' "${root_directory}/${relative_path}")"
+      if [[ -L "${root_directory}/${relative_path}" ]]; then
+        content_digest="$(printf 'symlink:%s' "$(readlink "${root_directory}/${relative_path}")" |
+          sha256sum | awk '{print $1}')"
+      else
+        content_digest="$(sha256_file "${root_directory}/${relative_path}")"
+      fi
+      printf '%s\0%s\0%s\0' "${relative_path}" "${file_mode}" "${content_digest}" \
+        >>"${manifest_file}"
+    done <"${path_list_file}"
+    rm -f -- "${path_list_file}"
+  else
+    path_list_file="$(mktemp "${TMPDIR:-/tmp}/blob-royale-tree-paths.XXXXXX")"
+    if ! (
+      cd "${root_directory}"
+      find . \( -type f -o -type l \) -print0 | LC_ALL=C sort -z
+    ) >"${path_list_file}"; then
+      rm -f -- "${manifest_file}" "${path_list_file}"
+      fail "RELEASE_EVIDENCE.ARTIFACT_ENUMERATION_FAILED" \
+        "the artifact tree could not be enumerated"
+    fi
+    while IFS= read -r -d '' relative_path; do
+      relative_path="${relative_path#./}"
+      file_mode="$(stat -c '%a' "${root_directory}/${relative_path}")"
+      if [[ -L "${root_directory}/${relative_path}" ]]; then
+        content_digest="$(printf 'symlink:%s' "$(readlink "${root_directory}/${relative_path}")" |
+          sha256sum | awk '{print $1}')"
+      else
+        content_digest="$(sha256_file "${root_directory}/${relative_path}")"
+      fi
+      printf '%s\0%s\0%s\0' "${relative_path}" "${file_mode}" "${content_digest}" \
+        >>"${manifest_file}"
+    done <"${path_list_file}"
+    rm -f -- "${path_list_file}"
+  fi
+
+  sha256_file "${manifest_file}"
+  rm -f -- "${manifest_file}"
+}
+
+render_source_identity() {
+  local profile="$1"
+  local git_head_commit
+  local git_status
+  local source_tree_state
+  local source_sha256
+
+  git_head_commit="$(git -c safe.directory="${REPOSITORY_DIRECTORY}" \
+    -C "${REPOSITORY_DIRECTORY}" rev-parse --verify 'HEAD^{commit}')" ||
+    fail "RELEASE_EVIDENCE.GIT_HEAD_UNAVAILABLE" "the current Git HEAD commit is unavailable"
+  [[ "${git_head_commit}" =~ ^[0-9a-f]{40}$ ]] ||
+    fail "RELEASE_EVIDENCE.GIT_HEAD_INVALID" "Git HEAD is not a canonical 40-hex commit ID"
+  git_status="$(git -c safe.directory="${REPOSITORY_DIRECTORY}" \
+    -C "${REPOSITORY_DIRECTORY}" status --porcelain=v1 --untracked-files=all)" ||
+    fail "RELEASE_EVIDENCE.GIT_STATUS_UNAVAILABLE" "the current Git tree state is unavailable"
+  if [[ -z "${git_status}" ]]; then
+    source_tree_state="clean"
+  else
+    source_tree_state="modified"
+  fi
+  if [[ "${profile}" == "release" && "${source_tree_state}" != "clean" ]]; then
+    fail "RELEASE_EVIDENCE.RELEASE_TREE_MODIFIED" \
+      "the release profile can certify only a clean checkout"
+  fi
+
+  source_sha256="$(hash_path_set git "${REPOSITORY_DIRECTORY}")"
+
+  printf '%s\n' \
+    'source_identity_format=1' \
+    "profile=${profile}" \
+    "toolchain_id=${EXPECTED_TOOLCHAIN_ID}" \
+    "base_image_digest=${EXPECTED_BASE_IMAGE_DIGEST}" \
+    "verification_authority=${VERIFICATION_AUTHORITY}" \
+    "verification_host_os=${VERIFICATION_HOST_OS}" \
+    "verification_host_arch=${VERIFICATION_HOST_ARCH}" \
+    "verification_docker_os=${VERIFICATION_DOCKER_OS}" \
+    "verification_docker_arch=${VERIFICATION_DOCKER_ARCH}" \
+    "git_head_commit=${git_head_commit}" \
+    "source_tree_state=${source_tree_state}" \
+    "source_sha256=${source_sha256}"
+}
+
+render_artifact_identity() {
+  [[ -x "${SERVER_EXECUTABLE}" ]] ||
+    fail "RELEASE_EVIDENCE.SERVER_MISSING" "the verified GCC release executable is missing"
+  [[ -f "${WEB_DISTRIBUTION}/index.html" ]] ||
+    fail "RELEASE_EVIDENCE.WEB_MISSING" "the verified production web distribution is missing"
+
+  printf '%s\n' \
+    'artifact_identity_format=1' \
+    "server_sha256=$(sha256_file "${SERVER_EXECUTABLE}")" \
+    "web_sha256=$(hash_path_set tree "${WEB_DISTRIBUTION}")"
+}
+
+render_expected_stamp() {
+  local source_identity_file="$1"
+  local artifact_identity_file="$2"
+
+  printf '%s\n' \
+    'verification_stamp_format=2' \
+    'verification_scope=completed_linux_quality_profile'
+  cat "${source_identity_file}" "${artifact_identity_file}"
+}
+
+make_temporary_file() {
+  local destination_variable="$1"
+  local temporary_file
+
+  temporary_file="$(mktemp "${TMPDIR:-/tmp}/blob-royale-verification-evidence.XXXXXX")"
+  temporary_files+=("${temporary_file}")
+  printf -v "${destination_variable}" '%s' "${temporary_file}"
+}
+
+publish_readonly_file() {
+  local source_file="$1"
+  local destination_file="$2"
+  local temporary_destination
+
+  temporary_destination="$(mktemp "${destination_file}.new.XXXXXX")"
+  temporary_files+=("${temporary_destination}")
+  install -m 0444 "${source_file}" "${temporary_destination}"
+  mv -f -- "${temporary_destination}" "${destination_file}"
+}
+
+if [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+  usage
+  exit 0
+fi
+if [[ "$#" -ne 2 ]]; then
+  usage >&2
+  exit 64
+fi
+
+readonly ACTION="$1"
+readonly PROFILE="$2"
+case "${ACTION}" in
+  begin | create | verify)
+    ;;
+  *)
+    usage >&2
+    fail "RELEASE_EVIDENCE.INVALID_ACTION" "unknown action: ${ACTION}"
+    ;;
+esac
+case "${PROFILE}" in
+  pr | nightly | release)
+    ;;
+  *)
+    usage >&2
+    fail "RELEASE_EVIDENCE.INVALID_PROFILE" "unknown profile: ${PROFILE}"
+    ;;
+esac
+
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  fail "RELEASE_EVIDENCE.LINUX_X86_64_REQUIRED" "the pinned Linux x86_64 toolchain is required"
+fi
+if [[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" != "${EXPECTED_TOOLCHAIN_ID}" ]] ||
+  [[ "${BLOB_ROYALE_BASE_IMAGE_DIGEST:-}" != "${EXPECTED_BASE_IMAGE_DIGEST}" ]]; then
+  fail "RELEASE_EVIDENCE.TOOLCHAIN_MISMATCH" "the canonical toolchain identity is required"
+fi
+case "${VERIFICATION_AUTHORITY}" in
+  authoritative | advisory)
+    ;;
+  *)
+    fail "RELEASE_EVIDENCE.AUTHORITY_INVALID" \
+      "host orchestration must classify verification as authoritative or advisory"
+    ;;
+esac
+[[ "${VERIFICATION_HOST_OS}" =~ ^[A-Za-z0-9._-]+$ &&
+  "${VERIFICATION_HOST_ARCH}" =~ ^[A-Za-z0-9._-]+$ &&
+  "${VERIFICATION_DOCKER_OS}" =~ ^[A-Za-z0-9._-]+$ &&
+  "${VERIFICATION_DOCKER_ARCH}" =~ ^[A-Za-z0-9._-]+$ ]] ||
+  fail "RELEASE_EVIDENCE.HOST_IDENTITY_INVALID" \
+    "verification client or Docker daemon identity is invalid"
+if [[ "${VERIFICATION_AUTHORITY}" == "authoritative" &&
+  ( "${VERIFICATION_HOST_OS}" != "Linux" || "${VERIFICATION_HOST_ARCH}" != "x86_64" ||
+    "${VERIFICATION_DOCKER_OS}" != "linux" ||
+    ( "${VERIFICATION_DOCKER_ARCH}" != "x86_64" &&
+      "${VERIFICATION_DOCKER_ARCH}" != "amd64" ) ) ]]; then
+  fail "RELEASE_EVIDENCE.AUTHORITY_MISMATCH" \
+    "only a native Linux x86_64 client and Docker daemon can issue authoritative evidence"
+fi
+[[ -n "${BLOB_ROYALE_RELEASE_LOCK_TOKEN:-}" ]] ||
+  fail "RELEASE_EVIDENCE.RELEASE_LOCK_REQUIRED" "the release pipeline lock is required"
+"${SCRIPT_DIRECTORY}/release-pipeline-lock" verify "${BLOB_ROYALE_RELEASE_LOCK_TOKEN}"
+for required_command in awk cat cmp find git install mktemp mv readlink sha256sum sort stat; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "RELEASE_EVIDENCE.TOOL_MISSING" "required command is unavailable: ${required_command}"
+done
+
+readonly STAMP_FILE="${EVIDENCE_DIRECTORY}/${PROFILE}.env"
+readonly SOURCE_BASELINE_FILE="${EVIDENCE_DIRECTORY}/${PROFILE}.source.env"
+declare -a temporary_files=()
+cleanup() {
+  if [[ "${#temporary_files[@]}" -gt 0 ]]; then
+    rm -f -- "${temporary_files[@]}"
+  fi
+}
+trap cleanup EXIT
+
+if [[ "${ACTION}" == "begin" ]]; then
+  mkdir -p "${EVIDENCE_DIRECTORY}"
+  make_temporary_file first_source_identity
+  make_temporary_file second_source_identity
+  readonly first_source_identity second_source_identity
+  render_source_identity "${PROFILE}" >"${first_source_identity}"
+  render_source_identity "${PROFILE}" >"${second_source_identity}"
+  cmp --silent "${first_source_identity}" "${second_source_identity}" ||
+    fail "RELEASE_EVIDENCE.SOURCE_CHANGED_DURING_CAPTURE" \
+      "the source changed while the Linux quality profile baseline was captured"
+  publish_readonly_file "${second_source_identity}" "${SOURCE_BASELINE_FILE}"
+  printf '%s\n' \
+    "linux_verification_evidence.profile=${PROFILE}" \
+    "linux_verification_evidence.source_baseline=${SOURCE_BASELINE_FILE}" \
+    "linux_verification_evidence.source_baseline_sha256=$(sha256_file \
+      "${SOURCE_BASELINE_FILE}")" \
+    'linux_verification_evidence.status=passed'
+  exit 0
+fi
+
+if [[ "${ACTION}" == "create" && ! -f "${SOURCE_BASELINE_FILE}" ]]; then
+  fail "RELEASE_EVIDENCE.SOURCE_BASELINE_MISSING" \
+    "begin must capture the tested source before the Linux checks run"
+fi
+make_temporary_file current_source_identity
+make_temporary_file current_artifact_identity
+make_temporary_file temporary_stamp_file
+readonly current_source_identity current_artifact_identity temporary_stamp_file
+render_source_identity "${PROFILE}" >"${current_source_identity}"
+render_artifact_identity >"${current_artifact_identity}"
+render_expected_stamp "${current_source_identity}" "${current_artifact_identity}" \
+  >"${temporary_stamp_file}"
+
+if [[ "${ACTION}" == "create" ]]; then
+  cmp --silent "${current_source_identity}" "${SOURCE_BASELINE_FILE}" ||
+    fail "RELEASE_EVIDENCE.SOURCE_CHANGED_DURING_PROFILE" \
+      "the source changed while the ${PROFILE} Linux quality profile was running"
+
+  make_temporary_file confirmation_artifact_identity
+  make_temporary_file confirmation_source_identity
+  readonly confirmation_artifact_identity confirmation_source_identity
+  render_artifact_identity >"${confirmation_artifact_identity}"
+  render_source_identity "${PROFILE}" >"${confirmation_source_identity}"
+  cmp --silent "${current_artifact_identity}" "${confirmation_artifact_identity}" ||
+    fail "RELEASE_EVIDENCE.ARTIFACT_CHANGED_DURING_CAPTURE" \
+      "release artifacts changed while verification evidence was captured"
+  cmp --silent "${confirmation_source_identity}" "${SOURCE_BASELINE_FILE}" ||
+    fail "RELEASE_EVIDENCE.SOURCE_CHANGED_DURING_CAPTURE" \
+      "the tested source changed while verification evidence was captured"
+
+  render_expected_stamp "${confirmation_source_identity}" \
+    "${confirmation_artifact_identity}" >"${temporary_stamp_file}"
+  publish_readonly_file "${temporary_stamp_file}" "${STAMP_FILE}"
+else
+  [[ -f "${STAMP_FILE}" ]] ||
+    fail "RELEASE_EVIDENCE.STAMP_MISSING" "verification stamp is missing: ${STAMP_FILE}"
+  cmp --silent "${temporary_stamp_file}" "${STAMP_FILE}" ||
+    fail "RELEASE_EVIDENCE.STALE_OR_CHANGED" \
+      "source or release artifacts changed after the ${PROFILE} Linux profile passed"
+fi
+
+printf '%s\n' \
+  "linux_verification_evidence.profile=${PROFILE}" \
+  "linux_verification_evidence.stamp=${STAMP_FILE}" \
+  "linux_verification_evidence.stamp_sha256=$(sha256_file "${STAMP_FILE}")" \
+  "linux_verification_evidence.status=passed"

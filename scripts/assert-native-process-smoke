@@ -123,10 +123,8 @@ done
 
 server_log="$(mktemp)"
 "${server_executable}" \
-  --IPv4 "${server_address}" \
-  --port "${server_port}" \
   --config "${server_configuration}" \
-  --testfile "${server_scenario}" \
+  --scenario "${server_scenario}" \
   >"${server_log}" 2>&1 &
 server_pid=$!
 
@@ -146,7 +144,7 @@ for ((attempt = 1; attempt <= STARTUP_ATTEMPTS; attempt++)); do
     --silent \
     --show-error \
     --max-time 1 \
-    "http://${server_address}:${server_port}/game-config" \
+    "http://${server_address}:${server_port}/api/v1/health/ready" \
     >/dev/null 2>&1; then
     server_ready=true
     break
@@ -159,6 +157,8 @@ done
 
 kill -TERM "${server_pid}"
 
+# The inner shell must expand its positional parameter, not this parent shell.
+# shellcheck disable=SC2016
 if ! timeout "${SHUTDOWN_DEADLINE_SECONDS}s" \
   bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done' \
   assert-native-process-smoke "${server_pid}"; then

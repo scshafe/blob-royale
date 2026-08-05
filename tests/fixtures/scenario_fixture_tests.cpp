@@ -3,6 +3,7 @@
 #include <array>
 #include <charconv>
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -10,7 +11,11 @@
 #include <vector>
 
 namespace {
-constexpr std::string_view expected_header = "type,x_pos,y_pos,x_vel,y_vel,x_acc,y_acc";
+constexpr std::string_view expected_header =
+    "entity_id,position_x_world_units,position_y_world_units,"
+    "velocity_x_world_units_per_second,velocity_y_world_units_per_second,"
+    "acceleration_x_world_units_per_second_squared,"
+    "acceleration_y_world_units_per_second_squared";
 constexpr std::size_t expected_column_count = 7;
 
 std::vector<std::string> split_csv_row(const std::string& row) {
@@ -28,8 +33,16 @@ std::vector<std::string> split_csv_row(const std::string& row) {
   return columns;
 }
 
-bool is_float(const std::string& value) {
-  float parsed_value = 0.0F;
+bool is_unsigned_integer(const std::string& value) {
+  std::uint64_t parsed_value = 0;
+  const char* const value_begin = value.data();
+  const char* const value_end = value_begin + value.size();
+  const auto [parse_end, parse_error] = std::from_chars(value_begin, value_end, parsed_value);
+  return parse_error == std::errc{} && parse_end == value_end;
+}
+
+bool is_double(const std::string& value) {
+  double parsed_value = 0.0;
   const char* const value_begin = value.data();
   const char* const value_end = value_begin + value.size();
   const auto [parse_end, parse_error] = std::from_chars(value_begin, value_end, parsed_value);
@@ -51,9 +64,9 @@ void require_readable_scenario_shape(const std::string& fixture_filename) {
     REQUIRE_FALSE(row.empty());
     const std::vector<std::string> columns = split_csv_row(row);
     REQUIRE(columns.size() == expected_column_count);
-    REQUIRE(columns.front() == "player");
+    REQUIRE(is_unsigned_integer(columns.front()));
     for (std::size_t column_index = 1; column_index < columns.size(); ++column_index) {
-      REQUIRE(is_float(columns[column_index]));
+      REQUIRE(is_double(columns[column_index]));
     }
     ++player_row_count;
   }

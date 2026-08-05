@@ -8,28 +8,44 @@
 
 ## Context
 
-The prototype mixes simulation state, scheduling, locking, serialization, and ambient access. `GameEngine` is a singleton (`src/game_engine/game_engine.cpp:225`), `GamePiece` owns mutexes, collision scratch state, partition links, and JSON concerns (`src/game_engine/game_piece.hpp:45`), partitions and pieces share ownership in both directions (`src/game_engine/game_piece.hpp:66`, `src/game_engine/partition.hpp:55`), and detached recursive workers make lifecycle and ordering implicit (`src/dependency_graph_queue/dependency_graph_queue.tpp:64`, `src/dependency_graph_queue/dependency_graph_queue.tpp:149`). Network handlers reach the singleton directly while workers mutate it (`src/server/helpers.hpp:127`, `src/server/my_websocket.cpp:82`).
+At the reviewed prototype commit, simulation state, scheduling, locking, serialization, and ambient
+access were mixed together. The deleted `GameEngine` singleton, entity hierarchy, cyclic partition
+ownership, recursive scheduler, and direct network access are documented with exact historical
+source evidence in `docs/PROJECT_DEEP_DIVE.md` and remain available in Git history.
 
 The replacement needs one legible owner for every mutable value, one deterministic reference behavior, and object boundaries that express real state and lifecycle rather than class ceremony.
 
 ## Decision
 
-Use five one-way build targets:
+Use six one-way domain libraries plus the production executable:
 
 | Target | Canonical responsibility | May depend on |
 |---|---|---|
+| `blob_observability` | Bounded atomic JSON-lines events with an injected sink and clock | C++ standard library only |
 | `blob_simulation` | Validated simulation values, world ownership, spatial indexing, pure physics, deterministic ticks, immutable snapshot values | C++ standard library only; no Boost, JSON, logging, network, mutexes, condition variables, or threads |
 | `blob_runtime` | Clock, lifecycle state machine, one simulation-writer thread, immutable snapshot publication | `blob_simulation`, Threads |
 | `blob_protocol` | Versioned JSON envelopes and schema-conformant encoding/decoding | `blob_simulation`, Boost.JSON |
-| `blob_server` | TCP/HTTP/WebSocket sessions, routing, limits, and delivery of published snapshots | `blob_runtime`, `blob_protocol`, Boost.Asio/Beast |
-| `blob-royale` | Configuration composition, process signals, startup, and ordered shutdown | all four targets |
+| `blob_server` | TCP/HTTP/WebSocket sessions, routing, limits, and delivery of published snapshots | `blob_runtime`, `blob_protocol`, `blob_observability`, Boost.Asio/Beast |
+| `blob_application` | Strict CLI/INI/CSV input boundaries, application composition, process signals, and ordered shutdown | all five domain targets |
+| `blob-royale` | Minimal process entry point and top-level error translation | `blob_application` |
 
 Dependencies point downward only. A lower target never calls into or includes a higher target.
+`blob_application` is a separately linkable library so application tests exercise the identical
+production translation units; compiling those sources again inside a test-only target is forbidden.
+
+Small internal build targets may expose a cohesive production boundary to more than one consumer
+without changing this domain graph. `blob_application_input` owns the canonical CLI/INI/CSV
+translation units, `blob_server_configuration` owns validated server configuration, and
+`blob_server_http_preflight` owns raw HTTP header inspection. The application, server, tests, and
+fuzzers link those targets; none recompiles their `.cpp` files. These are implementation components,
+not alternate applications or plugin interfaces.
 
 ```mermaid
 flowchart TD
     Application[BlobRoyaleApplication] --> Runtime[SimulationRuntime]
     Application --> Server[GameServer]
+    Application --> Logger[StructuredLogger]
+    Server --> Logger
     Server --> Publication[const SnapshotPublication]
     Server --> Protocol[blob_protocol]
     Runtime --> Simulation[GameSimulation]
@@ -52,10 +68,18 @@ flowchart TD
 * `GameWorld` owns `Player` values in stable `EntityId` order. `Player` composes `PhysicsBody`; neither type owns synchronization, serialization, or spatial membership.
 * `SpatialGrid` owns cells containing `EntityId` values. It never owns players and players never point back to cells.
 * Stateless vector, integration, wall, and collision equations are named pure functions. A class is introduced only when a capability gains independent state or lifecycle.
+* `StructuredLogger` is one concrete process-owned dependency injected into application and server
+  boundaries. It never enters simulation, runtime, or protocol values and is not an ambient
+  singleton.
 
 ### OOP policy
 
-Professional OOP here means encapsulated invariants, explicit construction, deterministic destruction, and honest relationships. Composition and value semantics are the default. Concrete constructor injection is preferred while there is one implementation. Inheritance requires a stable, substitutable “is-a” relationship; the current `Player -> GamePiece` hierarchy does not meet that test because `Player` adds only a serialization envelope and a constant answer (`src/game_engine/player.cpp:25`).
+Professional OOP here means encapsulated invariants, explicit construction, deterministic
+destruction, and honest relationships. Composition and value semantics are the default. Concrete
+constructor injection is preferred while there is one implementation. Inheritance requires a
+stable, substitutable “is-a” relationship; the deleted prototype's `Player -> GamePiece` hierarchy
+did not meet that test because it represented neither independent ownership nor substitutable
+behavior.
 
 The architecture deliberately does not introduce an entity base class, generic repository, service locator, strategy per equation, or interface for every object. These would add names without adding independent capabilities.
 
@@ -71,7 +95,10 @@ These are documented seams, not plugin systems. The lightest mechanism is chosen
 
 ### Repair the dependency-graph scheduler
 
-Rejected. Notification state is copied instead of updated (`src/dependency_graph_queue/cycle_dependency.hpp:101`), external counts are not reset (`src/dependency_graph_queue/cycle_dependency.cpp:237`), predicates span incompatible synchronization domains (`src/dependency_graph_queue/dependency_graph_queue.tpp:141`), and workers recurse and detach. Repair would preserve a general graph around six fixed phases before correctness has a serial oracle.
+Rejected. The historical implementation copied notification state instead of updating it, failed to
+reset external counts, evaluated predicates across incompatible synchronization domains, and used
+recursive detached workers. The exact evidence is retained in `docs/PROJECT_DEEP_DIVE.md`. Repair
+would preserve a general graph around six fixed phases before correctness has a serial oracle.
 
 ### Adopt an ECS or actor-per-player model
 
@@ -104,5 +131,8 @@ Rejected. More locks do not create an ownership model and would keep network, li
 ## Related
 
 * [`0001-linux-runtime-contract.md`](0001-linux-runtime-contract.md) — authoritative build and deployment boundary.
-* [`../PROJECT_DEEP_DIVE.md`](../PROJECT_DEEP_DIVE.md) — evidence for current ownership, concurrency, and correctness failures.
+* [`../PROJECT_DEEP_DIVE.md`](../PROJECT_DEEP_DIVE.md) — historical evidence that motivated the replacement.
+* [`../../src/simulation/README.md`](../../src/simulation/README.md) — current deterministic domain contract.
+* [`../../src/runtime/README.md`](../../src/runtime/README.md) — current single-writer lifecycle and publication contract.
+* [`../../src/observability/README.md`](../../src/observability/README.md) — current structured event boundary.
 * [`../../.claude/plans/2026-08-04-feature-ready-foundation.md`](../../.claude/plans/2026-08-04-feature-ready-foundation.md) — accepted migration and verification sequence.

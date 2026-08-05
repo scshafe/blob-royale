@@ -8,14 +8,16 @@
 
 set -euo pipefail
 
-readonly SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
 readonly BUILD_PRESET="linux-gcc-debug"
 readonly SERVER_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/${BUILD_PRESET}/blob-royale"
 readonly SERVER_CONFIGURATION="${REPOSITORY_DIRECTORY}/config/blob-royale.cfg"
 readonly SERVER_SCENARIO="${REPOSITORY_DIRECTORY}/tests/fixtures/player-on-wall-collision-test.csv"
 readonly SERVER_ADDRESS="127.0.0.1"
-readonly SERVER_PORT="18080"
+readonly SERVER_PORT="8000"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   printf 'verify-native-smoke: Linux is required\n' >&2

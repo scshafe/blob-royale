@@ -6,3 +6,5 @@ frontend-react/node_modules
 frontend-react/dist
 logs
 *.log
+**/*.core
+**/qemu_*

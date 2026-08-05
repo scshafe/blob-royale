@@ -20,16 +20,27 @@ if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
   exit 69
 fi
 
-for required_command in cmake g++ clang++ clang-format clang-tidy ld ldd ninja node npm; do
+for required_command in cmake g++ clang++ clang-format clang-tidy git grype ld ldd ninja node npm syft; do
   if ! command -v "${required_command}" >/dev/null 2>&1; then
     printf 'report-toolchain: required command is missing: %s\n' "${required_command}" >&2
     exit 69
   fi
 done
 
-readonly DISTRIBUTION="$(. /etc/os-release && printf '%s' "${PRETTY_NAME}")"
-readonly BOOST_VERSION="$(dpkg-query --show --showformat='${Version}' libboost-json-dev)"
+# The pinned Linux image always supplies this standard distribution metadata file.
+# shellcheck disable=SC1091
+DISTRIBUTION="$(. /etc/os-release && printf '%s' "${PRETTY_NAME}")"
+readonly DISTRIBUTION
+BOOST_VERSION="$(dpkg-query --show --showformat='${Version}' libboost-json-dev)"
+readonly BOOST_VERSION
+NPM_VERSION="$(npm --version)"
+readonly NPM_VERSION
 readonly CATCH2_SOURCE_DIRECTORY=/opt/blob-royale-deps/catch2
+
+if [[ -z "${NPM_VERSION}" ]]; then
+  printf 'report-toolchain: npm returned an empty version\n' >&2
+  exit 69
+fi
 
 for catch2_metadata_file in \
   .blob-royale-source-version \
@@ -55,10 +66,13 @@ printf 'clang_tidy=%s\n' "$(clang-tidy --version | sed -n '1p')"
 printf 'linker=%s\n' "$(ld --version | sed -n '1p')"
 printf 'cmake=%s\n' "$(cmake --version | sed -n '1p')"
 printf 'ninja=%s\n' "$(ninja --version)"
+printf 'git=%s\n' "$(git --version)"
 printf 'boost=%s\n' "${BOOST_VERSION}"
 printf 'catch2=%s\n' "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-version")"
 printf 'catch2_commit=%s\n' "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-commit")"
 printf 'catch2_archive_sha256=%s\n' \
   "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-sha256")"
 printf 'node=%s\n' "$(node --version)"
-printf 'npm=%s\n' "$(npm --version)"
+printf 'npm=%s\n' "${NPM_VERSION}"
+printf 'syft=%s\n' "$(syft version | sed -nE 's/^Version:[[:space:]]*//p')"
+printf 'grype=%s\n' "$(grype version | sed -nE 's/^Version:[[:space:]]*//p')"

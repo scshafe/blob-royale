@@ -4,10 +4,12 @@ project(blob-royale LANGUAGES CXX)
 
 include(CTest)
 
+option(BLOB_ROYALE_BUILD_FUZZERS "Build Clang libFuzzer boundary targets" OFF)
+
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL
     "Export compile commands for deterministic analysis tooling" FORCE)
 
-find_package(Boost 1.83 REQUIRED COMPONENTS json log log_setup program_options)
+find_package(Boost 1.83 REQUIRED COMPONENTS json)
 find_package(Threads REQUIRED)
 
 # canonical: first-party-native-target-policy -- every maintained C++ target uses
@@ -38,10 +40,13 @@ function(blob_royale_configure_first_party_target target_name)
   endif()
 endfunction()
 
-add_subdirectory(src/boost-headers)
-add_subdirectory(src/dependency_graph_queue)
-add_subdirectory(src/game_engine)
+add_subdirectory(src/observability)
+add_subdirectory(src/simulation)
+add_subdirectory(src/runtime)
+add_subdirectory(src/protocol)
 add_subdirectory(src/server)
+add_subdirectory(src/application)
+add_subdirectory(benchmarks)
 
 add_executable(blob-royale
   main.cpp
@@ -50,10 +55,7 @@ add_executable(blob-royale
 blob_royale_configure_first_party_target(blob-royale)
 
 target_link_libraries(blob-royale PRIVATE
-  my_boost_config
-  game_engine
-  my_server
-  Threads::Threads
+  blob_application
 )
 
 if(BUILD_TESTING)
@@ -104,4 +106,8 @@ if(BUILD_TESTING)
   include("${Catch2_DIR}/Catch.cmake")
 
   add_subdirectory(tests)
+endif()
+
+if(BLOB_ROYALE_BUILD_FUZZERS)
+  add_subdirectory(tests/fuzz)
 endif()

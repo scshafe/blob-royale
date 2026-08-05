@@ -12,11 +12,13 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test:e2e": "playwright test --config ./playwright.config.ts",
     "test": "vitest",
     "test:ci": "vitest run",
     "typecheck": "tsc --noEmit",
     "generate:protocol": "node ./scripts/generateProtocolV1Types.mjs",
     "generate:protocol:check": "node ./scripts/generateProtocolV1Types.mjs --check",
+    "validate:protocol-examples": "node ./scripts/validateProtocolV1Examples.mjs",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.62.1",
     "@testing-library/dom": "10.4.1",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "16.3.2",

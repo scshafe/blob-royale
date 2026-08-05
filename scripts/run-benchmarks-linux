@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+# Builds and runs the deterministic simulation benchmark in the pinned Linux/amd64 toolchain.
+# Inputs: none. Side effects: builds/caches the toolchain image, replaces the isolated benchmark
+# build tree, and replaces out/benchmarks/blob-simulation-benchmark.json.
+# Re-runnable: yes; correctness hashes are deterministic, while advisory timing samples vary.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly EXPECTED_TOOLCHAIN_ID="ubuntu-24.04-amd64-20260804"
+readonly EXPECTED_BASE_IMAGE_DIGEST="sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467"
+readonly EXPECTED_OPERATING_SYSTEM="Linux"
+readonly EXPECTED_ARCHITECTURE="x86_64"
+readonly BUILD_PRESET="linux-gcc-benchmark"
+readonly BENCHMARK_TARGET="blob_simulation_benchmarks"
+readonly BENCHMARK_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/${BUILD_PRESET}/benchmarks/${BENCHMARK_TARGET}"
+readonly BENCHMARK_RESULT_DIRECTORY="${REPOSITORY_DIRECTORY}/out/benchmarks"
+readonly BENCHMARK_RESULT_FILE="${BENCHMARK_RESULT_DIRECTORY}/blob-simulation-benchmark.json"
+readonly CONFIGURE_LOG_FILE="${BENCHMARK_RESULT_DIRECTORY}/configure.log"
+readonly BUILD_LOG_FILE="${BENCHMARK_RESULT_DIRECTORY}/build.log"
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf '{"schema":"blob-royale-benchmark-v1","status":"failed","error":{"code":"%s","message":"%s"}}\n' \
+    "${error_code}" "${error_message}" >&2
+  exit 1
+}
+
+if [[ "$#" -ne 0 ]]; then
+  fail "BENCHMARK.ARGUMENTS_UNSUPPORTED" "run-benchmarks-linux accepts no arguments"
+fi
+
+if [[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" != "${EXPECTED_TOOLCHAIN_ID}" ]] ||
+  [[ "${BLOB_ROYALE_BASE_IMAGE_DIGEST:-}" != "${EXPECTED_BASE_IMAGE_DIGEST}" ]]; then
+  exec "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- ./scripts/run-benchmarks-linux
+fi
+
+if [[ "$(uname -s)" != "${EXPECTED_OPERATING_SYSTEM}" ]]; then
+  fail "BENCHMARK.LINUX_REQUIRED" "expected Linux inside the pinned toolchain"
+fi
+
+if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
+  fail "BENCHMARK.X86_64_REQUIRED" "expected x86_64 inside the pinned toolchain"
+fi
+
+if ! grep -Eq '^[[:space:]]*add_subdirectory\(benchmarks\)[[:space:]]*$' \
+  "${REPOSITORY_DIRECTORY}/CMakeLists.txt"; then
+  fail "BENCHMARK.ROOT_CMAKE_INTEGRATION_MISSING" \
+    "register benchmarks with add_subdirectory(benchmarks) in the root CMakeLists.txt"
+fi
+
+mkdir -p "${BENCHMARK_RESULT_DIRECTORY}"
+
+if ! cmake --preset "${BUILD_PRESET}" --fresh >"${CONFIGURE_LOG_FILE}" 2>&1; then
+  cat "${CONFIGURE_LOG_FILE}" >&2
+  fail "BENCHMARK.CONFIGURE_FAILED" "CMake release preset configuration failed"
+fi
+
+if ! cmake --build --preset "${BUILD_PRESET}" --target "${BENCHMARK_TARGET}" --clean-first \
+  --parallel 1 >"${BUILD_LOG_FILE}" 2>&1; then
+  cat "${BUILD_LOG_FILE}" >&2
+  fail "BENCHMARK.BUILD_FAILED" "blob_simulation_benchmarks release build failed"
+fi
+
+if [[ ! -x "${BENCHMARK_EXECUTABLE}" ]]; then
+  fail "BENCHMARK.EXECUTABLE_MISSING" "built benchmark executable is missing"
+fi
+
+benchmark_output="$("${BENCHMARK_EXECUTABLE}")"
+readonly benchmark_output
+printf '%s\n' "${benchmark_output}" | tee "${BENCHMARK_RESULT_FILE}"

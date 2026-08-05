@@ -2,8 +2,8 @@
 
 # Runs one explicit Linux quality profile inside the pinned Linux/amd64 OCI image.
 # Inputs: exactly one of `pr`, `nightly`, or `release`.
-# Side effects: builds the toolchain image, replaces build/test outputs under out,
-# installs web dependencies, and writes only dependency downloads to out/cache.
+# Side effects: builds the toolchain/runtime images, replaces build/test outputs under out,
+# installs web dependencies, and records versioned release/dependency evidence.
 # Idempotent: yes; each check starts from its declared clean-build boundary.
 
 set -euo pipefail
@@ -18,13 +18,16 @@ readonly EXPECTED_OPERATING_SYSTEM="Linux"
 readonly EXPECTED_ARCHITECTURE="x86_64"
 readonly ASAN_OPTIONS_VALUE="detect_leaks=1:halt_on_error=1:strict_string_checks=1"
 readonly UBSAN_OPTIONS_VALUE="halt_on_error=1:print_stacktrace=1"
+readonly TSAN_OPTIONS_VALUE="halt_on_error=1:history_size=7"
 readonly NATIVE_GCC_DEBUG_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/linux-gcc-debug/blob-royale"
 readonly NATIVE_SERVER_CONFIGURATION="${REPOSITORY_DIRECTORY}/config/blob-royale.cfg"
 readonly NATIVE_SERVER_SCENARIO="${REPOSITORY_DIRECTORY}/tests/fixtures/player-on-wall-collision-test.csv"
 readonly NATIVE_SERVER_ADDRESS="127.0.0.1"
-readonly NATIVE_SERVER_PORT="18080"
+readonly NATIVE_SERVER_PORT="8000"
 
 declare -a temporary_files=()
+release_lock_owned=0
+release_lock_token=""
 
 usage() {
   printf 'Usage: %s <pr|nightly|release>\n' "$0"
@@ -43,6 +46,9 @@ fail() {
 cleanup() {
   if [[ "${#temporary_files[@]}" -gt 0 ]]; then
     rm -f -- "${temporary_files[@]}"
+  fi
+  if [[ "${release_lock_owned}" -eq 1 ]]; then
+    "${SCRIPT_DIRECTORY}/release-pipeline-lock" release "${release_lock_token}" || true
   fi
 }
 trap cleanup EXIT
@@ -81,6 +87,11 @@ run_ctest_check() {
       "${ctest_command[@]}" 2>&1 | tee "${ctest_output}"; then
       fail "QUALITY.CTEST_FAILED" "${preset_name} returned a failure"
     fi
+  elif [[ "${preset_name}" == "linux-clang-tsan" ]]; then
+    if ! env TSAN_OPTIONS="${TSAN_OPTIONS_VALUE}" "${ctest_command[@]}" 2>&1 |
+      tee "${ctest_output}"; then
+      fail "QUALITY.CTEST_FAILED" "${preset_name} returned a failure"
+    fi
   elif ! "${ctest_command[@]}" 2>&1 | tee "${ctest_output}"; then
     fail "QUALITY.CTEST_FAILED" "${preset_name} returned a failure"
   fi
@@ -117,6 +128,7 @@ run_required_checks() {
     --address "${NATIVE_SERVER_ADDRESS}" \
     --port "${NATIVE_SERVER_PORT}"
   run_named_check "web" ./scripts/verify-web
+  run_named_check "browser-e2e" ./scripts/verify-browser-e2e
 }
 
 if [[ "$#" -ne 1 ]]; then
@@ -143,7 +155,25 @@ esac
 # this script is already running inside that pinned userspace.
 if [[ "${BLOB_ROYALE_TOOLCHAIN_ID:-}" != "${EXPECTED_TOOLCHAIN_ID}" ]] ||
   [[ "${BLOB_ROYALE_BASE_IMAGE_DIGEST:-}" != "${EXPECTED_BASE_IMAGE_DIGEST}" ]]; then
-  exec "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- ./scripts/verify-linux "${PROFILE}"
+  release_lock_token="${PROFILE}-$$"
+  "${SCRIPT_DIRECTORY}/release-pipeline-lock" acquire "${release_lock_token}"
+  release_lock_owned=1
+  export BLOB_ROYALE_RELEASE_LOCK_TOKEN="${release_lock_token}"
+  printf 'verify_linux.profile=%s status=running\n' "${PROFILE}"
+  if ! "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+    env BLOB_ROYALE_VERIFY_LINUX_HOST_ORCHESTRATED=1 ./scripts/verify-linux "${PROFILE}"; then
+    fail "QUALITY.LINUX_CHECKS_FAILED" "${PROFILE} Linux checks failed"
+  fi
+  printf 'verify_linux.check=dependency-security status=running\n'
+  if ! "${SCRIPT_DIRECTORY}/build-release-linux" --from-verified-profile "${PROFILE}"; then
+    fail "QUALITY.DEPENDENCY_EVIDENCE_FAILED" \
+      "runtime-image and shipped-dependency evidence failed"
+  fi
+  printf 'verify_linux.check=dependency-security status=passed\n'
+  "${SCRIPT_DIRECTORY}/release-pipeline-lock" release "${release_lock_token}"
+  release_lock_owned=0
+  printf 'verify_linux.profile=%s status=passed\n' "${PROFILE}"
+  exit 0
 fi
 
 if [[ "$(uname -s)" != "${EXPECTED_OPERATING_SYSTEM}" ]]; then
@@ -153,26 +183,42 @@ fi
 if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
   fail "QUALITY.X86_64_REQUIRED" "expected x86_64 inside the pinned toolchain"
 fi
+if [[ "${BLOB_ROYALE_VERIFY_LINUX_HOST_ORCHESTRATED:-}" != "1" ]]; then
+  fail "QUALITY.HOST_ORCHESTRATION_REQUIRED" \
+    "invoke scripts/verify-linux from the Docker host so the final image can be saved and scanned"
+fi
+[[ -n "${BLOB_ROYALE_RELEASE_LOCK_TOKEN:-}" ]] ||
+  fail "QUALITY.RELEASE_LOCK_REQUIRED" "host orchestration did not provide the release pipeline lock"
+"${SCRIPT_DIRECTORY}/release-pipeline-lock" verify "${BLOB_ROYALE_RELEASE_LOCK_TOKEN}"
 
 printf 'verify_linux.profile=%s status=running\n' "${PROFILE}"
+run_named_check "linux-verification-source-baseline" \
+  ./scripts/linux-verification-evidence begin "${PROFILE}"
 case "${PROFILE}" in
   pr)
     run_required_checks \
       "linux-gcc-debug" \
-      "linux-clang-asan-ubsan"
+      "linux-clang-asan-ubsan" \
+      "linux-clang-tsan"
+    run_named_check "fuzz-regressions" ./scripts/verify-fuzz-regressions
     ;;
   nightly)
-    # TSan is intentionally added only when the owned runtime concurrency lands.
     run_required_checks \
       "linux-gcc-debug" \
-      "linux-clang-asan-ubsan"
+      "linux-clang-asan-ubsan" \
+      "linux-clang-tsan"
+    run_named_check "fuzz-bounded" ./scripts/verify-fuzz-bounded
     ;;
   release)
     run_required_checks \
       "linux-gcc-debug" \
       "linux-gcc-release" \
-      "linux-clang-asan-ubsan"
+      "linux-clang-asan-ubsan" \
+      "linux-clang-tsan"
+    run_named_check "fuzz-bounded" ./scripts/verify-fuzz-bounded
     ;;
 esac
 
-printf 'verify_linux.profile=%s status=passed\n' "${PROFILE}"
+run_named_check "linux-verification-stamp" \
+  ./scripts/linux-verification-evidence create "${PROFILE}"
+printf 'verify_linux.profile=%s linux_checks_status=passed\n' "${PROFILE}"

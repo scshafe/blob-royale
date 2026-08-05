@@ -1,6 +1,6 @@
 name: quality
 
-'on':
+"on":
   pull_request:
   push:
     branches:
@@ -35,6 +35,22 @@ jobs:
           key: npm-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend-react/package-lock.json', 'ci/linux/Dockerfile') }}
           restore-keys: |
             npm-downloads-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Playwright Chromium downloads
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cache/playwright
+          key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend-react/package-lock.json', 'ci/linux/Dockerfile') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Cache Grype vulnerability database
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cache/grype
+          key: grype-db-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/linux/Dockerfile') }}
+          restore-keys: |
+            grype-db-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Require native Linux x86_64 runner
         shell: bash

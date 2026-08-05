@@ -1,0 +1,2 @@
+entity_id,position_x_world_units,position_y_world_units,velocity_x_world_units_per_second,velocity_y_world_units_per_second,acceleration_x_world_units_per_second_squared,acceleration_y_world_units_per_second_squared
+1,nan,100,0trailing,0,0,0

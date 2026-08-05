@@ -1,0 +1,4 @@
+--config
+ignored.cfg
+--scenario
+ignored.csv

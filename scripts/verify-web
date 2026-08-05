@@ -40,10 +40,13 @@ if [[ "$(npm --version)" != "$EXPECTED_NPM_VERSION" ]]; then
   fail "WEB.NPM_VERSION_MISMATCH" "Expected npm ${EXPECTED_NPM_VERSION}"
 fi
 
-readonly script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly repository_root="$(cd "${script_directory}/.." && pwd)"
+script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_directory
+repository_root="$(cd "${script_directory}/.." && pwd)"
+readonly repository_root
 readonly web_root="${repository_root}/frontend-react"
-readonly test_report="$(mktemp "${TMPDIR:-/tmp}/blob-royale-vitest.XXXXXX")"
+test_report="$(mktemp "${TMPDIR:-/tmp}/blob-royale-vitest.XXXXXX")"
+readonly test_report
 
 cleanup() {
   rm -f -- "$test_report"
@@ -55,6 +58,7 @@ cd "$web_root"
 run_step "install" npm ci
 run_step "format" npm run format:check
 run_step "protocol-generation-drift" npm run generate:protocol:check
+run_step "protocol-schema-examples" npm run validate:protocol-examples
 run_step "strict-typecheck" npm run typecheck
 run_step "lint" npm run lint
 run_step \

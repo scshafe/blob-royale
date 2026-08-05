@@ -1,99 +1,88 @@
+#include "application_config_loader.hpp"
+#include "application_input_error.hpp"
+#include "application_lifecycle_error.hpp"
+#include "blob_royale_application.hpp"
+#include "game_server_error.hpp"
+#include "protocol_encoding_error.hpp"
+#include "scenario_loader.hpp"
+#include "server_config.hpp"
+#include "simulation_runtime_lifecycle_error.hpp"
+#include "simulation_runtime_state.hpp"
+#include "simulation_validation_error.hpp"
+#include "structured_logger.hpp"
 
-#include "boost-log.hpp"
-#include "boost-program-options.hpp"
+#include <exception>
+#include <iostream>
+#include <string_view>
+#include <utility>
+#include <variant>
 
-#include "game_engine_parameters.hpp"
-#include "game_engine.hpp"
+namespace {
 
-#include "my_listener.hpp"
+constexpr int kInvalidInvocationExitCode = 64;
+constexpr int kConfigurationExitCode = 78;
+constexpr int kRuntimeFailureExitCode = 1;
 
-
-void start_my_server(std::string address_input, unsigned int port, unsigned int threads, const char* doc_root_input)
-{
-    auto const address = net::ip::make_address(address_input);
-    //auto const port = static_cast<unsigned short>(std::atoi(argv[2]));
-    TRACE << "YEET";
-    
-    auto const doc_root = std::make_shared<std::string>(doc_root_input);
-    // The io_context is required for all I/O
-    net::io_context ioc{static_cast<int>(threads)};
-
-
-    TRACE << "2";
-    // Create and launch a listening port
-    std::make_shared<listener>(
-        ioc,
-        tcp::endpoint{address, static_cast<unsigned short>(port)},
-        doc_root)->run();
-
-    TRACE << "3";
-    // Capture SIGINT and SIGTERM to perform a clean shutdown
-    net::signal_set signals(ioc, SIGINT, SIGTERM);
-    signals.async_wait(
-        [&](beast::error_code const&, int)
-        {
-            // Stop the `io_context`. This will cause `run()`
-            // to return immediately, eventually destroying the
-            // `io_context` and all of the sockets in it.
-            ioc.stop();
-        });
-
-    TRACE << "4";
-    // Run the I/O service on the requested number of threads
-    std::vector<std::thread> v;
-    v.reserve(threads - 1);
-    for(auto i = threads - 1; i > 0; --i)
-        v.emplace_back(
-        [&ioc]
-        {
-            ioc.run();
-        });
-    ioc.run();
-
-    // (If we get here, it means we got a SIGINT or SIGTERM)
-
-    // Block until all the threads exit
-    for(auto& t : v)
-        t.join();
-
-//    return EXIT_SUCCESS;
+void report_process_failure(blob_royale::observability::StructuredLogger& logger,
+                            const std::string_view code, const std::string_view context,
+                            const std::string_view detail) noexcept {
+  logger.write({.severity = blob_royale::observability::LogSeverity::kError,
+                .event = "process.failed",
+                .lifecycle_state = "failed",
+                .error_code = code,
+                .context = context,
+                .detail = detail});
 }
 
-// ---------------------------------------------------
+} // namespace
 
-int main(int argc, char** argv)
-{
-  // setup logging with boost
-  init_logging();
+int main(const int argument_count, const char* const arguments[]) {
+  namespace application = blob_royale::application;
+  blob_royale::observability::StructuredLogger logger{std::cerr};
 
-  // get command line and configuration file variable map
-  po::variables_map vm = handle_configuration(argc, argv);
+  try {
+    application::ApplicationConfigLoader::Result startup_request =
+        application::ApplicationConfigLoader::load(argument_count, arguments);
+    if (std::holds_alternative<application::ApplicationConfigLoader::HelpRequest>(
+            startup_request)) {
+      std::cout << application::ApplicationConfigLoader::help_text();
+      return 0;
+    }
 
-  // initialize game constants
-  initialize_constants(vm["game_constants.MAP_HEIGHT"].as<int>(),
-                          vm["game_constants.MAP_WIDTH"].as<int>(),
-                          vm["game_constants.GAME_TICKS_PER_SECOND"].as<int>(),
-                          vm["game_constants.PLAYER_RADIUS"].as<float>(),
-                          vm["game_constants.SPATIAL_PARTITION_COLS"].as<int>(),
-                          vm["game_constants.SPATIAL_PARTITION_ROWS"].as<int>(),
-                          vm["game_constants.WORKER_COUNT"].as<int>()
-                          );
-
-  // initialize the game state engine
-
-  GameEngine* gs = GameEngine::get_instance();
-  gs->initialize(vm["testfile"].as<std::string>());
-
-  
-  constexpr unsigned int server_threads = 2;
-  //auto const doc_root_str = std::make_shared<std::string>("/home/cole/github-projects/blob/royale/build");
-  //auto const threads = std::max<int>(1, std::atoi(argv[4]));
-  //auto const doc_root = std::make_shared<std::string>(argv[3]);
-  std::string address = vm["IPv4"].as<std::string>();
-  unsigned int port = vm["port"].as<unsigned int>();
-  //std::string doc_root_string = vm["doc_root"].as<std::string>();
-  const char* doc_root = "/home/cole/github-projects/blob-royale/build";
-  start_my_server(address, port, server_threads, doc_root);
-
-  return EXIT_SUCCESS;
+    const auto& run_request =
+        std::get<application::ApplicationConfigLoader::RunRequest>(startup_request);
+    blob_royale::simulation::GameWorld initial_world = application::ScenarioLoader::load(
+        run_request.scenario_path(), run_request.application_config().simulation_config());
+    application::BlobRoyaleApplication blob_royale = application::BlobRoyaleApplication::create(
+        run_request.application_config(), std::move(initial_world), logger);
+    blob_royale.run();
+    return 0;
+  } catch (const application::ApplicationInputError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+    return error.error_code() == application::ApplicationInputErrorCode::kCommandLineInvalid
+               ? kInvalidInvocationExitCode
+               : kConfigurationExitCode;
+  } catch (const blob_royale::server::ServerConfigValidationError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+    return kConfigurationExitCode;
+  } catch (const blob_royale::simulation::SimulationValidationError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+    return kConfigurationExitCode;
+  } catch (const application::ApplicationLifecycleError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+  } catch (const blob_royale::server::GameServerError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+  } catch (const blob_royale::runtime::SimulationRuntimeLifecycleError& error) {
+    report_process_failure(
+        logger, error.code(), error.operation(),
+        blob_royale::runtime::simulation_runtime_state_name(error.current_state()));
+  } catch (const blob_royale::protocol::ProtocolEncodingError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+  } catch (const std::exception& error) {
+    report_process_failure(logger, "APPLICATION.UNEXPECTED_FAILURE", "main", error.what());
+  } catch (...) {
+    report_process_failure(logger, "APPLICATION.NON_STANDARD_FAILURE", "main",
+                           "non-standard exception");
+  }
+  return kRuntimeFailureExitCode;
 }

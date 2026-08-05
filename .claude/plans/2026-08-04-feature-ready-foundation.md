@@ -68,7 +68,7 @@ Create React App is deprecated, and the React team explicitly supports migrating
 
 Steps 11–21 are one expand/cutover/delete migration unit. They may be separate local commits for review, but must not be merged, released, or used for feature work until Step 21 removes the old engine, scheduler, server path, and configuration globals.
 
-- [ ] **Step 10: Specify the simulation contract**
+- [x] **Step 10: Specify the simulation contract**
   - Verify: human review — `docs/architecture/0003-deterministic-simulation-contract.md` has status `Accepted` and defines units, fixed timestep, tick phase order, wall/pair tie-breaking, floating-point tolerance, fixture expectations, and explicitly excludes player commands.
   - Specialist: `rigorous-architect`
   - Notes: Use world-units/second, world-units/second-squared, exact fixed `dt`, stable `EntityId` ordering, and stored acceleration only. Define the simplest correct collision/wall policy needed for this game and expected outcomes for head-on, oblique, separating, simultaneous/equal-distance, wall-overshoot, and partition-boundary cases. The old racy interleavings and per-tick unit accident are not preserved.

@@ -1,16 +1,8 @@
-import React from 'react';
-import axios from 'axios';
-
 import './style/DebugPanel.css';
 
-
-function DebugPanel({players, config, started}) {
-
-
-
+function DebugPanel({ players, config }) {
   return (
     <div className="DebugPanel">
-
       <table className="ConfigTable">
         <thead>
           <tr>
@@ -19,10 +11,10 @@ function DebugPanel({players, config, started}) {
           </tr>
         </thead>
         <tbody>
-          { config.keys().toArray().map( k => (
-            <tr>
-              <th>{k}</th>
-              <th>{config.get(k)}</th>
+          {Array.from(config.entries()).map(([key, value]) => (
+            <tr key={key}>
+              <th scope="row">{key}</th>
+              <td>{value}</td>
             </tr>
           ))}
         </tbody>
@@ -38,20 +30,24 @@ function DebugPanel({players, config, started}) {
           </tr>
         </thead>
         <tbody>
-          { players.map( p => (
-            <tr>
-            <th scope="row">{p.id}</th>
-            <td>({p.pos.x}, {p.pos.y})</td>
-            <td>({p.vel.x}, {p.vel.y})</td>
-            <td>({p.main_part.row}, {p.main_part.col})</td>
+          {players.map((player) => (
+            <tr key={player.id}>
+              <th scope="row">{player.id}</th>
+              <td>
+                ({player.pos.x}, {player.pos.y})
+              </td>
+              <td>
+                ({player.vel.x}, {player.vel.y})
+              </td>
+              <td>
+                ({player.mainPart.row}, {player.mainPart.col})
+              </td>
             </tr>
           ))}
         </tbody>
-    </table>
-
+      </table>
     </div>
   );
-
 }
 
 export default DebugPanel;

@@ -1,41 +1,36 @@
-import PhyVector from './PhyVector.js';
 import Cell from './Cell.js';
+import PhyVector from './PhyVector.js';
 
-
-
-const player_color_coding = ['red', 'green', 'orange', 'blue', 'yellow', 'purple'];
+const PLAYER_COLORS = ['red', 'green', 'orange', 'blue', 'yellow', 'purple'];
+const PLAYER_RADIUS = 10;
 
 class Player {
-  constructor(json, radius) {
-    console.log("Player Constructor", json);
-    this.id = json["id"];
-    this.pos = new PhyVector(json["pos"]);
-    this.vel = new PhyVector(json["vel"]);
-    this.acc = new PhyVector(json["acc"]);
-    this.radius = 10;
-    //this.radius = Math.floor(radius);
-    this.main_part = new Cell(json["main_part"]);
-    this.parts = new Array();
-    json["parts"].map( p => {
-      this.parts.push(new Cell(p));
-    });
-    console.log("Player: ", this);
-
+  constructor(json) {
+    this.id = json.id;
+    this.pos = new PhyVector(json.pos);
+    this.vel = new PhyVector(json.vel);
+    this.acc = new PhyVector(json.acc);
+    this.radius = PLAYER_RADIUS;
+    this.mainPart = new Cell(json.main_part);
+    this.parts = json.parts.map((part) => new Cell(part));
   }
 
-  draw_player(ctx, config) {
-    ctx.beginPath();
-    ctx.arc(Math.floor(this.pos.x), Math.floor(this.pos.y), this.radius, 0, 2 * Math.PI);
-    ctx.fillStyle = player_color_coding[this.id];
-    ctx.fill();
-    ctx.strokeStyle = "green";
-    ctx.stroke();
+  draw(context, config) {
+    context.beginPath();
+    context.arc(
+      Math.floor(this.pos.x),
+      Math.floor(this.pos.y),
+      this.radius,
+      0,
+      2 * Math.PI,
+    );
+    context.fillStyle = PLAYER_COLORS[this.id];
+    context.fill();
+    context.strokeStyle = 'green';
+    context.stroke();
 
-    this.parts.map( p => {
-      p.draw_cell(ctx, config);
-    });
+    this.parts.forEach((part) => part.draw(context, config));
   }
-
 }
 
 export default Player;

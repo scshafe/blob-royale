@@ -1,25 +1,15 @@
-
-
-
-
 .DebugPanel {
   border: 1px solid;
+}
 
-  table {
-    border: 2px solid;
-    display: inline-block;
-    border-collapse: collapse;
-  }
+.DebugPanel table {
+  display: inline-block;
+  border: 2px solid;
+  border-collapse: collapse;
+}
 
-  tr, th {
-    border: 1px solid;
-  }
-
-  .ConfigTable {
-
-  };
-
-  .PlayerTable {
-    
-  };
-};
+.DebugPanel tr,
+.DebugPanel th,
+.DebugPanel td {
+  border: 1px solid;
+}

@@ -1,7 +1,3 @@
-
-
-
-
 class PhyVector {
   constructor(json) {
     this.x = json[0];

@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Verifies the web client in the pinned Linux toolchain. Takes no inputs, writes
+# frontend-react/node_modules and frontend-react/dist, and is safe to rerun.
+
+set -Eeuo pipefail
+
+readonly EXPECTED_NODE_VERSION="v22.23.1"
+readonly EXPECTED_NPM_VERSION="10.9.8"
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf '{"status":"error","error_code":"%s","message":"%s"}\n' \
+    "$error_code" "$error_message" >&2
+  exit 1
+}
+
+run_step() {
+  local step_name="$1"
+  shift
+
+  printf '{"status":"running","step":"%s"}\n' "$step_name"
+  "$@" || fail "WEB.VERIFICATION_STEP_FAILED" "Web verification failed during ${step_name}"
+}
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+  fail "WEB.LINUX_REQUIRED" "Web verification requires Linux"
+fi
+
+if [[ "$(uname -m)" != "x86_64" ]]; then
+  fail "WEB.X86_64_REQUIRED" "Web verification requires x86_64"
+fi
+
+if [[ "$(node --version)" != "$EXPECTED_NODE_VERSION" ]]; then
+  fail "WEB.NODE_VERSION_MISMATCH" "Expected Node.js ${EXPECTED_NODE_VERSION}"
+fi
+
+if [[ "$(npm --version)" != "$EXPECTED_NPM_VERSION" ]]; then
+  fail "WEB.NPM_VERSION_MISMATCH" "Expected npm ${EXPECTED_NPM_VERSION}"
+fi
+
+readonly script_directory="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly repository_root="$(cd "${script_directory}/.." && pwd)"
+readonly web_root="${repository_root}/frontend-react"
+readonly test_report="$(mktemp "${TMPDIR:-/tmp}/blob-royale-vitest.XXXXXX")"
+
+cleanup() {
+  rm -f -- "$test_report"
+}
+trap cleanup EXIT
+
+cd "$web_root"
+
+run_step "install" npm ci
+run_step "format" npm run format:check
+run_step "lint" npm run lint
+run_step \
+  "test" \
+  npm run test:ci -- --reporter=json --outputFile="$test_report"
+
+node --input-type=module - "$test_report" <<'NODE'
+import { readFileSync } from 'node:fs';
+
+const reportPath = process.argv[2];
+const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+const testResults = Array.isArray(report.testResults) ? report.testResults : [];
+const assertionResults = testResults.flatMap(
+  (testResult) => testResult.assertionResults ?? [],
+);
+const blockedStatuses = new Set(['disabled', 'failed', 'pending', 'skipped', 'todo']);
+const blockedAssertions = assertionResults.filter((assertion) =>
+  blockedStatuses.has(assertion.status),
+);
+
+const totalTests = report.numTotalTests;
+const passedTests = report.numPassedTests;
+const failedTests = report.numFailedTests;
+const pendingTests = report.numPendingTests ?? 0;
+const todoTests = report.numTodoTests ?? 0;
+
+if (!Number.isInteger(totalTests)) {
+  throw new Error('WEB.TEST_REPORT_INVALID: numTotalTests is missing');
+}
+
+if (totalTests < 1) {
+  throw new Error('WEB.ZERO_TESTS_EXECUTED: expected at least one test');
+}
+
+if (
+  failedTests !== 0 ||
+  pendingTests !== 0 ||
+  todoTests !== 0 ||
+  blockedAssertions.length !== 0 ||
+  passedTests !== totalTests
+) {
+  throw new Error(
+    `WEB.TEST_RESULT_REJECTED: total=${totalTests} passed=${passedTests} failed=${failedTests} pending=${pendingTests} todo=${todoTests} blocked=${blockedAssertions.length}`,
+  );
+}
+
+console.log(
+  JSON.stringify({
+    status: 'passed',
+    step: 'test-result-assertion',
+    total_tests: totalTests,
+    passed_tests: passedTests,
+    failed_tests: failedTests,
+    skipped_tests: pendingTests,
+    todo_tests: todoTests,
+  }),
+);
+NODE
+
+run_step "build" npm run build
+
+printf '{"status":"passed","verification":"web"}\n'

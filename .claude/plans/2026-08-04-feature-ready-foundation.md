@@ -45,6 +45,7 @@ Create React App is deprecated, and the React team explicitly supports migrating
 - [ ] **Step 5: Restore the native executable baseline**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-native-smoke`
   - Notes: Reconcile the two declaration/definition conflicts and make normal SIGINT/SIGTERM shutdown return success without attempting to repair scheduler behavior. The smoke script must clean-configure, build, run `blob-royale --help`, start with checked-in config/fixture on loopback, send SIGTERM, enforce a bounded deadline, and require exit code zero.
+  - Execution note (2026-08-04): The legacy `PUBLIC` source propagation recompiles the same Boost-heavy translation units across dependent targets and exhausted the 2 GiB macOS-hosted amd64 VM even with a serial build. Apply Step 6's target-graph cleanup before completing this verifier; do not encode host-specific compiler flags or weaken the Linux preset.
 
 - [ ] **Step 6: Make the native build deterministic**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-native-build`
@@ -55,7 +56,7 @@ Create React App is deprecated, and the React team explicitly supports migrating
   - Specialist: `testineer`
   - Notes: Enable CTest, pin Catch2, create mirrored `tests/unit`, `tests/integration`, and `tests/fixtures` targets, and add initial vector, fixture-readability, test-discovery, and process-smoke assertions without pinning defective scheduler behavior. Rename the three current scenario files with `.csv` and retain them as inputs, not truth about the broken scheduler. A zero-test or skipped-test run must fail.
 
-- [ ] **Step 8: Replace CRA and Jest with Vite and Vitest**
+- [x] **Step 8: Replace CRA and Jest with Vite and Vitest**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-web`
   - Notes: Hard-cut the existing client build to Vite, Vitest, React Testing Library, ESLint flat config, and Prettier; delete `react-scripts`, Jest configuration, stock CRA assets, and unused dependencies. Keep the small existing application in JavaScript during this build-tool-only change; Step 22 performs one strict-TypeScript/domain-boundary rewrite after the protocol is fixed. Verification runs `npm ci`, lint with zero warnings, non-watch tests with at least one executed test, and a production build.
 

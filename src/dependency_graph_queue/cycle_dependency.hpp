@@ -7,6 +7,7 @@
 #include <functional>
 #include <unordered_map>
 #include <array>
+#include <cstddef>
 
 
 
@@ -20,7 +21,7 @@ public:
   void print_dependency_relations();
   void add_start_dependencies(std::vector<CycleDependency*> upstream);
   void add_finish_dependencies(std::vector<CycleDependency*> upstream);
-  void register_external_start_dependency();
+  int register_external_start_dependency();
 
   void register_external_finish_callback(std::function<void(void)> callback);
 
@@ -68,9 +69,9 @@ private:
   std::vector<CycleDependency*> downstream_finished;
   std::vector<std::function<void(void)>> external_finish_callbacks;
 
-  int external_notifications = 0;
-  int start_notifications = 0;
-  int finish_notifications = 0;
+  std::size_t external_notifications = 0;
+  std::size_t start_notifications = 0;
+  std::size_t finish_notifications = 0;
 
   std::unordered_map<int, bool> external_start;
   std::unordered_map<CycleDependency*, bool> upstream_start;
@@ -99,7 +100,7 @@ public:
 private:
 
   template<typename T, typename K>
-  void handle_notification(T container, K key, int& notification_count)
+  void handle_notification(T container, K key, std::size_t& notification_count)
   {
     try
     {
@@ -119,8 +120,6 @@ private:
     }
   }
 };
-
-
 
 
 

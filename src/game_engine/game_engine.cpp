@@ -80,13 +80,14 @@ void GameEngine::initialize(std::string testfile)
 {
   ENTRANCE << "GameEngine::initialize()";
 
-  for (size_t row = 0; row < SPATIAL_PARTITION_ROWS; row++)
+  for (int row = 0; row < SPATIAL_PARTITION_ROWS; row++)
   {
     spatial_partition.emplace_back();
-    for (size_t col = 0; col < SPATIAL_PARTITION_COLS; col++)
+    for (int col = 0; col < SPATIAL_PARTITION_COLS; col++)
     {
-      std::shared_ptr<Partition> tmp = Partition::buildPartition(row, col);
-      spatial_partition[row].push_back(std::move(tmp));
+      std::shared_ptr<Partition> tmp = Partition::buildPartition(
+        static_cast<std::size_t>(row), static_cast<std::size_t>(col));
+      spatial_partition[static_cast<std::size_t>(row)].push_back(std::move(tmp));
     }
   }
 
@@ -210,13 +211,13 @@ GameEngine::GameEngine() :
   players(),
   width(MAP_WIDTH),
   height(MAP_HEIGHT),
+  running(false),
   detect_collision_queue(detect_collisions, "detect_collisions",     1),
   simple_velocity_queue(simple_velocity, "simple_velocity",          1),
   collision_velocity_queue(collision_velocity, "collision_velocity", 1),
   position_queue(update_position, "position",                 1),
   partition_queue(update_partitions, "partitions",            1),
-  finished_queue(handle_finished, "finished",                 1),
-  running(false)
+  finished_queue(handle_finished, "finished",                 1)
 
 {
 
@@ -245,12 +246,13 @@ void GameEngine::start_sim()
 
   running = true;
 
-  game_clock_thread = new std::thread(&GameEngine::run_game_clock, this);
+  game_clock_thread = new std::thread(&GameEngine::run_game_clock, this, 0);
   game_clock_thread->detach();
 }
 
-void GameEngine::run_game_clock(int game_tick)
+void GameEngine::run_game_clock(int initial_game_tick)
 {
+  int game_tick = initial_game_tick;
   auto next = std::chrono::system_clock::now() + std::chrono::milliseconds{int(GAME_TICK_PERIOD_MS)};
   auto success = std::async(&CycleDependency::external_notify_can_start, dynamic_cast<CycleDependency*>(&detect_collision_queue), external_queue_notification_id);
   while (running)
@@ -345,7 +347,5 @@ void GameEngine::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::se
     }
   }
 }
-
-
 
 

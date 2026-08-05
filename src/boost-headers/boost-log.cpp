@@ -1,5 +1,6 @@
 #include <unordered_map>
 
+#include <boost/core/null_deleter.hpp>
 
 #include "boost-log.hpp"
 
@@ -48,13 +49,13 @@ void coloring_formatter(
     switch (severity.get())
     {
       case severity_level::entrance: // light green
-      strm << "\e[38:5:41m";
+      strm << "\033[38:5:41m";
       break;
       case severity_level::lock:
       strm << "\033[33m";
       break;
     case severity_level::outer_queue_change:
-      strm << "\e[36m";
+      strm << "\033[36m";
       break;
     case severity_level::caught_exception: // pink-purple
       strm << "\033[34m";
@@ -63,7 +64,7 @@ void coloring_formatter(
       strm << "\033[35m";
       break;
     case severity_level::error: // red
-      strm << "\e[41mError: ";
+      strm << "\033[41mError: ";
       break;
     default:
         break;
@@ -94,7 +95,7 @@ void init_logging()
   boost::shared_ptr< text_sink > sink = boost::make_shared< text_sink >();
 
   sink->locked_backend()->add_stream(
-    boost::shared_ptr< std::ostream >(&std::cout)
+    boost::shared_ptr<std::ostream>(&std::cout, boost::null_deleter())
   );
 
   sink->set_formatter(&coloring_formatter);
@@ -105,6 +106,4 @@ void init_logging()
 
   //core->add_global_attribute("Scope", attrs::named_scope());
 }
-
-
 

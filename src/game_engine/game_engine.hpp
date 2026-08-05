@@ -43,16 +43,6 @@ struct  NearestCollisionComparator {
 } ;
 
 
-static QueueOperationResults detect_collisions(std::shared_ptr<GamePiece> gp);
-static QueueOperationResults collision_velocity(std::shared_ptr<GamePiece> gp);
-static QueueOperationResults simple_velocity(std::shared_ptr<GamePiece> gp);
-static QueueOperationResults update_position(std::shared_ptr<GamePiece> gp);
-static QueueOperationResults update_partitions(std::shared_ptr<GamePiece> gp);
-static QueueOperationResults handle_finished(std::shared_ptr<GamePiece> gp);
-
-
-
-
 //class GameEngine : public CycleDependencyExternalInterface {
 class GameEngine {
 public:
@@ -66,7 +56,7 @@ public:
   void operator()();
   void sim_loop();
   void start_sim();
-  void run_game_clock();
+  void run_game_clock(int initial_game_tick);
   void pause_sim();
   boost::json::array game_info();
   std::string game_info_serialized();

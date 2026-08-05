@@ -42,7 +42,7 @@ Create React App is deprecated, and the React team explicitly supports migrating
   - Verify: `test ! -e benchmark-test.cpp && test ! -e frontend-react/src/Benchmark.js && ! rg "run_benchmark|Benchmark-Test|Benchmark\.js|benchmark-test\.cpp" CMakeLists.txt main.cpp src frontend-react/src frontend-react/package.json`
   - Notes: Remove the malformed native entry point, unused engine benchmark method, broken React component/route/import, and React Router if the benchmark was its only consumer. Do not replace them yet; Step 26 establishes a benchmark only after the canonical engine is correct.
 
-- [ ] **Step 5: Restore the native executable baseline**
+- [x] **Step 5: Restore the native executable baseline**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-native-smoke`
   - Notes: Reconcile the two declaration/definition conflicts and make normal SIGINT/SIGTERM shutdown return success without attempting to repair scheduler behavior. The smoke script must clean-configure, build, run `blob-royale --help`, start with checked-in config/fixture on loopback, send SIGTERM, enforce a bounded deadline, and require exit code zero.
   - Execution note (2026-08-04): The legacy `PUBLIC` source propagation recompiles the same Boost-heavy translation units across dependent targets and exhausted the 2 GiB macOS-hosted amd64 VM even with a serial build. Apply Step 6's target-graph cleanup before completing this verifier; do not encode host-specific compiler flags or weaken the Linux preset.

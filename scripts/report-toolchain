@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+# Reports the exact Linux toolchain facts used by build and release evidence.
+# Inputs: none. Side effects: none. Idempotent: yes.
+
+set -euo pipefail
+
+readonly EXPECTED_ARCHITECTURE=x86_64
+readonly EXPECTED_BASE_IMAGE_DIGEST=sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467
+readonly EXPECTED_TOOLCHAIN_ID=ubuntu-24.04-amd64-20260804
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+  printf 'report-toolchain: Linux is required\n' >&2
+  exit 69
+fi
+
+if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
+  printf 'report-toolchain: expected architecture %s, received %s\n' \
+    "${EXPECTED_ARCHITECTURE}" "$(uname -m)" >&2
+  exit 69
+fi
+
+for required_command in cmake g++ clang++ ld ldd ninja node npm; do
+  if ! command -v "${required_command}" >/dev/null 2>&1; then
+    printf 'report-toolchain: required command is missing: %s\n' "${required_command}" >&2
+    exit 69
+  fi
+done
+
+readonly DISTRIBUTION="$(. /etc/os-release && printf '%s' "${PRETTY_NAME}")"
+readonly BOOST_VERSION="$(dpkg-query --show --showformat='${Version}' libboost-json-dev)"
+
+printf 'toolchain_id=%s\n' "${BLOB_ROYALE_TOOLCHAIN_ID:-${EXPECTED_TOOLCHAIN_ID}}"
+printf 'base_image_digest=%s\n' "${BLOB_ROYALE_BASE_IMAGE_DIGEST:-${EXPECTED_BASE_IMAGE_DIGEST}}"
+printf 'kernel=%s\n' "$(uname -sr)"
+printf 'architecture=%s\n' "$(uname -m)"
+printf 'distribution=%s\n' "${DISTRIBUTION}"
+printf 'glibc=%s\n' "$(ldd --version | sed -n '1p')"
+printf 'gcc=%s\n' "$(g++ --version | sed -n '1p')"
+printf 'clang=%s\n' "$(clang++ --version | sed -n '1p')"
+printf 'linker=%s\n' "$(ld --version | sed -n '1p')"
+printf 'cmake=%s\n' "$(cmake --version | sed -n '1p')"
+printf 'ninja=%s\n' "$(ninja --version)"
+printf 'boost=%s\n' "${BOOST_VERSION}"
+printf 'node=%s\n' "$(node --version)"
+printf 'npm=%s\n' "$(npm --version)"

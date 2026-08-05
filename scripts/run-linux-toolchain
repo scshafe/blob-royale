@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+# Runs one command inside Blob Royale's pinned Linux/amd64 toolchain.
+# Inputs: `--` followed by the command and its arguments.
+# Side effects: builds/caches a local OCI image and may write to the mounted repo.
+# Idempotent: yes; Docker layer caching and command behavior determine repeated cost.
+
+set -euo pipefail
+
+readonly SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly TOOLCHAIN_IMAGE="blob-royale-linux-toolchain:ubuntu-24.04-amd64-20260804"
+
+usage() {
+  printf 'Usage: %s -- <command> [arguments...]\n' "$0"
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ "${1:-}" != "--" || "$#" -lt 2 ]]; then
+  usage >&2
+  exit 64
+fi
+shift
+
+if ! command -v docker >/dev/null 2>&1; then
+  printf 'run-linux-toolchain: docker is required but was not found\n' >&2
+  exit 69
+fi
+
+docker build \
+  --platform linux/amd64 \
+  --file "${REPOSITORY_DIRECTORY}/ci/linux/Dockerfile" \
+  --tag "${TOOLCHAIN_IMAGE}" \
+  "${REPOSITORY_DIRECTORY}"
+
+docker run \
+  --rm \
+  --init \
+  --platform linux/amd64 \
+  --user "$(id -u):$(id -g)" \
+  --env BLOB_ROYALE_TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE}" \
+  --env XDG_CACHE_HOME=/tmp/blob-royale-cache \
+  --env npm_config_cache=/tmp/blob-royale-npm-cache \
+  --volume "${REPOSITORY_DIRECTORY}:/workspace" \
+  --workdir /workspace \
+  "${TOOLCHAIN_IMAGE}" \
+  "$@"

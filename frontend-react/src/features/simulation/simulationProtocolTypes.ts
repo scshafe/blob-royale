@@ -1,0 +1,9 @@
+export type {
+  BlobRoyaleProtocolV1ConfigurationResponse as SimulationConfigurationResponse,
+  BlobRoyaleProtocolV1HTTPErrorResponse as SimulationHttpErrorResponse,
+  BlobRoyaleProtocolV1PublicConfigurationData as SimulationConfiguration,
+  BlobRoyaleProtocolV1WebSocketSnapshotMessage as SimulationSnapshotMessage,
+  BlobRoyaleProtocolV1WorldSnapshotData as SimulationWorldSnapshot,
+  PlayerSnapshot as SimulationPlayerSnapshot,
+  Vector2 as SimulationVector2,
+} from './generated/protocolV1Types.generated';

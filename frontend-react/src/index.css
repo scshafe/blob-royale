@@ -8,6 +8,6 @@ body {
   margin: 0;
 }
 
-button {
-  font: inherit;
+* {
+  box-sizing: border-box;
 }

@@ -123,9 +123,10 @@ Steps 11–21 are one expand/cutover/delete migration unit. They may be separate
 
 ### Phase 3 — Recover the client and certify the whole product slice
 
-- [ ] **Step 22: Build one typed React connection boundary**
+- [x] **Step 22: Build one typed React connection boundary**
   - Verify: `./scripts/verify-linux pr`
   - Notes: Convert the client once to strict TypeScript and organize functional components under `frontend-react/src/features/simulation`. Centralize config fetching, endpoint validation, schema validation, WebSocket ownership, bounded reconnect/backoff, connection/error state, and cleanup in one `SimulationApi`/`useSimulationConnection` boundary. Derive immutable types from the protocol schemas, reject malformed/oversized frames before rendering, remove Axios/timer polling/class-shaped transport models, and keep canvas/debug components presentational.
+  - Execution note (2026-08-04): The exact pinned-Linux web pipeline passed formatting, eight-schema generation drift, strict type checking, type-aware lint, 49/49 isolated tests with no skips/todos, and a 122-module production build. The client refetches configuration for each bounded reconnect attempt, enforces request-ID/status/error invariants and transport deadlines, and exposes no mutation surface.
 
 - [ ] **Step 23: Add server integration and browser E2E tests**
   - Verify: `./scripts/verify-linux pr`

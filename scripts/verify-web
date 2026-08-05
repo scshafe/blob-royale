@@ -54,6 +54,8 @@ cd "$web_root"
 
 run_step "install" npm ci
 run_step "format" npm run format:check
+run_step "protocol-generation-drift" npm run generate:protocol:check
+run_step "strict-typecheck" npm run typecheck
 run_step "lint" npm run lint
 run_step \
   "test" \

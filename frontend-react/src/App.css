@@ -1,9 +1,49 @@
 .App {
   min-height: 100vh;
-  padding: 1.5rem;
-  text-align: center;
+  padding: clamp(1rem, 3vw, 2rem);
 }
 
-.GameCanvas canvas {
-  border: 2px solid;
+.SimulationLayout {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+}
+
+.SimulationCanvas {
+  margin: 0;
+}
+
+.SimulationCanvas canvas {
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.DebugPanel {
+  min-width: 0;
+  overflow: auto;
+}
+
+.DebugPanel table {
+  border-collapse: collapse;
+  margin-block-end: 1rem;
+  width: 100%;
+}
+
+.DebugPanel caption,
+.DebugPanel th,
+.DebugPanel td {
+  border: 1px solid #94a3b8;
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+}
+
+.ConnectionError {
+  color: #991b1b;
+}
+
+@media (max-width: 56rem) {
+  .SimulationLayout {
+    grid-template-columns: 1fr;
+  }
 }

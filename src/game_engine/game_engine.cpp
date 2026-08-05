@@ -267,27 +267,6 @@ void GameEngine::run_game_clock(int game_tick)
 }
 
 
-void GameEngine::run_benchmark()
-{
-  auto start_time = std::chrono::high_resolution_clock::now();
-
-  detect_collision_queue.set_running(true);
-  simple_velocity_queue.set_running(true);
-  collision_velocity_queue.set_running(true);
-  position_queue.set_running(true);
-  partition_queue.set_running(true);
-  finished_queue.set_running(true);
-
-  running = true;
-
-
-  game_clock_thread = new std::thread(&GameEngine::run_game_clock, this, 0.00001);
-  game_clock_thread->detach();
-}
-
-
-
-
 void GameEngine::pause_sim()
 {
   running = false;
@@ -366,7 +345,6 @@ void GameEngine::get_partition_and_nearby(std::shared_ptr<GamePiece> gp, std::se
     }
   }
 }
-
 
 
 

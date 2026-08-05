@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v1/snapshot-data.schema.json",
+  "title": "Blob Royale protocol v1 world snapshot data",
+  "description": "One complete immutable simulation tick in ascending entity_id order.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tick_sequence", "players"],
+  "properties": {
+    "tick_sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "players": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/player_snapshot"
+      }
+    }
+  },
+  "$defs": {
+    "player_snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_id", "position", "velocity", "acceleration"],
+      "properties": {
+        "entity_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "position": {
+          "$ref": "common.schema.json#/$defs/vector2"
+        },
+        "velocity": {
+          "$ref": "common.schema.json#/$defs/vector2"
+        },
+        "acceleration": {
+          "$ref": "common.schema.json#/$defs/vector2"
+        }
+      }
+    }
+  }
+}

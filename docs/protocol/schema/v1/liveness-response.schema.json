@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v1/liveness-response.schema.json",
+  "title": "Blob Royale protocol v1 liveness response",
+  "description": "Successful GET /api/v1/health/live response envelope.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data", "error", "meta"],
+  "properties": {
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "const": "alive"
+        }
+      }
+    },
+    "error": {
+      "type": "null"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "schema_id", "request_id"],
+      "properties": {
+        "protocol_version": {
+          "$ref": "common.schema.json#/$defs/protocol_version"
+        },
+        "schema_id": {
+          "const": "blob-royale://protocol/v1/liveness-response"
+        },
+        "request_id": {
+          "$ref": "common.schema.json#/$defs/request_id"
+        }
+      }
+    }
+  }
+}

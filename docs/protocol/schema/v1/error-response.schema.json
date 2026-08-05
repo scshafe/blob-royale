@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v1/error-response.schema.json",
+  "title": "Blob Royale protocol v1 HTTP error response",
+  "description": "Failure envelope for every protocol v1 HTTP error that can be represented after request parsing.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data", "error", "meta"],
+  "properties": {
+    "data": {
+      "type": "null"
+    },
+    "error": {
+      "$ref": "common.schema.json#/$defs/error"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "schema_id", "request_id"],
+      "properties": {
+        "protocol_version": {
+          "$ref": "common.schema.json#/$defs/protocol_version"
+        },
+        "schema_id": {
+          "const": "blob-royale://protocol/v1/error-response"
+        },
+        "request_id": {
+          "$ref": "common.schema.json#/$defs/request_id"
+        }
+      }
+    }
+  }
+}

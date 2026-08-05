@@ -1,0 +1,24 @@
+{
+  "data": {
+    "world": {
+      "width_world_units": 960,
+      "height_world_units": 640,
+      "player_radius_world_units": 10
+    },
+    "simulation": {
+      "ticks_per_second": 400,
+      "fixed_delta_seconds": 0.0025
+    },
+    "presentation": {
+      "snapshots_per_second": 30,
+      "snapshot_player_limit": 4096,
+      "snapshot_frame_max_bytes": 2097152
+    }
+  },
+  "error": null,
+  "meta": {
+    "protocol_version": "1.0",
+    "schema_id": "blob-royale://protocol/v1/configuration-response",
+    "request_id": "018f47a4-5d5b-7b86-bd4a-273c2dd6f4ee"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "data": {
+    "tick_sequence": 1601,
+    "players": [
+      {
+        "entity_id": 1,
+        "position": {
+          "x": 240,
+          "y": 300
+        },
+        "velocity": {
+          "x": 0,
+          "y": -5
+        },
+        "acceleration": {
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "entity_id": 2,
+        "position": {
+          "x": 240,
+          "y": 320
+        },
+        "velocity": {
+          "x": 0,
+          "y": 5
+        },
+        "acceleration": {
+          "x": 0,
+          "y": 0
+        }
+      }
+    ]
+  },
+  "error": null,
+  "meta": {
+    "protocol_version": "1.0",
+    "schema_id": "blob-royale://protocol/v1/snapshot-message",
+    "request_id": "018f47a4-70b7-77c8-aa51-f91265a9bb2f",
+    "message_sequence": 48,
+    "sent_at_utc": "2026-08-05T19:42:17.125Z"
+  }
+}

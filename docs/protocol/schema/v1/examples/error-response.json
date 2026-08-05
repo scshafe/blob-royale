@@ -1,0 +1,16 @@
+{
+  "data": null,
+  "error": {
+    "code": "PROTOCOL.METHOD_NOT_ALLOWED",
+    "message": "GET is the only method allowed for this route.",
+    "retryable": false,
+    "details": {
+      "allowed_methods": ["GET"]
+    }
+  },
+  "meta": {
+    "protocol_version": "1.0",
+    "schema_id": "blob-royale://protocol/v1/error-response",
+    "request_id": "018f47a4-66c3-79b4-91ac-ecb672f93fc0"
+  }
+}

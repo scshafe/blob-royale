@@ -1,0 +1,12 @@
+{
+  "data": {
+    "status": "ready",
+    "snapshot_available": true
+  },
+  "error": null,
+  "meta": {
+    "protocol_version": "1.0",
+    "schema_id": "blob-royale://protocol/v1/readiness-response",
+    "request_id": "probe-ready-0001"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "data": {
+    "status": "alive"
+  },
+  "error": null,
+  "meta": {
+    "protocol_version": "1.0",
+    "schema_id": "blob-royale://protocol/v1/liveness-response",
+    "request_id": "probe-live-0001"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v1/configuration-data.schema.json",
+  "title": "Blob Royale protocol v1 public configuration data",
+  "description": "Immutable presentation-facing configuration. Spatial-grid and process configuration are intentionally absent.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["world", "simulation", "presentation"],
+  "properties": {
+    "world": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_world_units", "height_world_units", "player_radius_world_units"],
+      "properties": {
+        "width_world_units": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000
+        },
+        "height_world_units": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000
+        },
+        "player_radius_world_units": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000
+        }
+      }
+    },
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ticks_per_second", "fixed_delta_seconds"],
+      "properties": {
+        "ticks_per_second": {
+          "type": "integer",
+          "const": 400
+        },
+        "fixed_delta_seconds": {
+          "type": "number",
+          "const": 0.0025
+        }
+      }
+    },
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshots_per_second", "snapshot_player_limit", "snapshot_frame_max_bytes"],
+      "properties": {
+        "snapshots_per_second": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        },
+        "snapshot_player_limit": {
+          "type": "integer",
+          "const": 4096
+        },
+        "snapshot_frame_max_bytes": {
+          "type": "integer",
+          "const": 2097152
+        }
+      }
+    }
+  }
+}

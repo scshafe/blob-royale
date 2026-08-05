@@ -102,7 +102,7 @@ Steps 11–21 are one expand/cutover/delete migration unit. They may be separate
   - Verify: `./scripts/verify-linux nightly`
   - Notes: `SimulationRuntime` owns one persistent `std::jthread`, one `GameSimulation`, and one stateful `SnapshotPublication` containing the atomically published `shared_ptr<const WorldSnapshot>`. Only the runtime thread mutates the simulation; readers receive retained immutable snapshots. Use `steady_clock`, exact chrono durations, stop tokens, and an explicit idempotent lifecycle; no transition allocates another clock. Test with latches/barriers and bounded deadlines under TSan, including repeated start/pause/stop, concurrent readers, and destruction while active.
 
-- [ ] **Step 18: Specify the versioned network protocol**
+- [x] **Step 18: Specify the versioned network protocol**
   - Verify: human review — `docs/protocol/v1.md` and its machine-readable schemas have status `Accepted` and define every route, envelope, field, limit, cadence, error, and trust-boundary decision.
   - Specialist: `doddy`
   - Notes: Choose one canonical state path before creating server classes: bounded server-push WebSocket snapshots at an independent presentation rate, with at most one write in flight and stale pending state replaced by the latest. Expose only versioned config, liveness, readiness, and snapshot routes. Remove public start/pause and duplicate HTTP state; process lifecycle is internal. Use stable `data/error/meta` envelopes and request IDs. Player commands/authentication remain a future protocol version or extension.

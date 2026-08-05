@@ -41,12 +41,12 @@ Cell::Cell(const GamePiece& gp)
   _col = floor(gp.get_position().x / PARTITION_WIDTH);
 }
 
-const size_t Cell::row()
+size_t Cell::row()
 {
   return _row;
 }
 
-const size_t Cell::col()
+size_t Cell::col()
 {
   return _col;
 }
@@ -142,5 +142,4 @@ bool Partition::operator<(const Partition& other) const
 {
   return c < other.c;
 }
-
 

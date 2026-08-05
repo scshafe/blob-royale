@@ -47,7 +47,7 @@ Create React App is deprecated, and the React team explicitly supports migrating
   - Notes: Reconcile the two declaration/definition conflicts and make normal SIGINT/SIGTERM shutdown return success without attempting to repair scheduler behavior. The smoke script must clean-configure, build, run `blob-royale --help`, start with checked-in config/fixture on loopback, send SIGTERM, enforce a bounded deadline, and require exit code zero.
   - Execution note (2026-08-04): The legacy `PUBLIC` source propagation recompiles the same Boost-heavy translation units across dependent targets and exhausted the 2 GiB macOS-hosted amd64 VM even with a serial build. Apply Step 6's target-graph cleanup before completing this verifier; do not encode host-specific compiler flags or weaken the Linux preset.
 
-- [ ] **Step 6: Make the native build deterministic**
+- [x] **Step 6: Make the native build deterministic**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-native-build`
   - Notes: Replace CMake globs and `target_link_directories` with explicit sources, imported targets, target-scoped C++20 features, and first-party warnings-as-errors. Pin test-only dependencies by immutable revision, mark vendored/system includes correctly, add `.clang-format` and a focused `.clang-tidy`, and expose compile commands. GCC and Clang must build every target from a clean tree without developer-installed dependencies or warnings.
 

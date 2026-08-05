@@ -164,7 +164,7 @@ void CycleDependency::notify_can_be_finished(CycleDependency* dep)
 
   
   //std::unique_lock w_lock(worker_lock); // probably faster if it's possible to give this thread priority in 
-  run_with_worker_lock([this] (std::unique_lock<std::mutex> lock){
+  run_with_worker_lock([this] (std::unique_lock<std::mutex>){
 
       if (operations_in_progress == 0)
       {
@@ -272,4 +272,3 @@ std::ostream& operator<<(std::ostream& os, const CycleDependency& dep)
 {
   return os << dep.name;
 }
-

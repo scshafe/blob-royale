@@ -33,7 +33,7 @@ PhyVector::PhyVector(const float& x_in, const float& y_in)
 
 PhyVector::~PhyVector() {}
 
-PhyVector& PhyVector::operator=(PhyVector& other)
+PhyVector& PhyVector::operator=(const PhyVector& other)
 {
   if (this == &other) return *this;
   x = other.x;

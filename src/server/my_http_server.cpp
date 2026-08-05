@@ -24,6 +24,8 @@
 #include "my_http_server.hpp"
 #include "my_websocket.hpp"
 
+#include <boost/log/trivial.hpp>
+
 
 
     // Take ownership of the socket
@@ -76,7 +78,7 @@ void http_session::do_read()
 
 void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred)
 {
-  ENTRANCE << "http_session::on_read()";
+  BOOST_LOG_TRIVIAL(trace) << "http_session::on_read()";
   boost::ignore_unused(bytes_transferred);
 
   // This means they closed the connection
@@ -86,11 +88,11 @@ void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred)
   if(ec)
       return fail(ec, "read");
 
-  TRACE << "reading http message";
+  BOOST_LOG_TRIVIAL(trace) << "reading http message";
   // See if it is a WebSocket Upgrade
   if(websocket::is_upgrade(parser_->get()))
   {
-    TRACE << "attempting websocket upgrade";
+    BOOST_LOG_TRIVIAL(trace) << "attempting websocket upgrade";
     // Create a websocket session, transferring ownership
     // of both the socket and the HTTP request.
     std::make_shared<websocket_session>(
@@ -104,11 +106,6 @@ void http_session::on_read(beast::error_code ec, std::size_t bytes_transferred)
   // If we aren't at the queue limit, try to pipeline another request
   if (response_queue_.size() < queue_limit)
       do_read();
-}
-
-void  http_session::queue_write_data(http::response<http::dynamic_body> res)
-{
-
 }
 
 void http_session::queue_write(http::message_generator response)
@@ -173,4 +170,3 @@ void http_session::do_close()
 
     // At this point the connection is closed gracefully
 }
-

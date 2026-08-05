@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+
+# Clean-builds every native target with the canonical GCC and Clang presets.
+# Inputs: none; run from the repository root inside the pinned Linux toolchain.
+# Side effects: replaces native outputs under out/build for each verified preset.
+# Idempotent: yes.
+
+set -euo pipefail
+
+readonly SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly -a BUILD_PRESETS=(
+  "linux-gcc-debug"
+  "linux-gcc-release"
+  "linux-clang-asan-ubsan"
+)
+
+fail() {
+  printf 'verify-native-build: %s\n' "$1" >&2
+  exit 1
+}
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+  fail "Linux is required"
+fi
+
+if [[ "$(uname -m)" != "x86_64" ]]; then
+  fail "x86_64 is required"
+fi
+
+for required_command in cmake ninja g++ clang++; do
+  if ! command -v "${required_command}" >/dev/null 2>&1; then
+    fail "required command is missing: ${required_command}"
+  fi
+done
+
+cd "${REPOSITORY_DIRECTORY}"
+
+for build_preset in "${BUILD_PRESETS[@]}"; do
+  build_directory="${REPOSITORY_DIRECTORY}/out/build/${build_preset}"
+
+  cmake --fresh --preset "${build_preset}"
+  cmake --build --preset "${build_preset}" --clean-first --parallel 1
+
+  if [[ ! -x "${build_directory}/blob-royale" ]]; then
+    fail "${build_preset} did not produce blob-royale"
+  fi
+
+  if [[ ! -s "${build_directory}/compile_commands.json" ]]; then
+    fail "${build_preset} did not export compile_commands.json"
+  fi
+
+  printf 'native_build.%s.status=passed\n' "${build_preset}"
+done
+
+printf '%s\n' \
+  "native_build.compiler_count=2" \
+  "native_build.preset_count=${#BUILD_PRESETS[@]}" \
+  "native_build.status=passed"

@@ -21,6 +21,7 @@
 
 #include "my_websocket.hpp"
 
+#include "boost-log.hpp"
 #include "game_engine.hpp"
 
 
@@ -105,7 +106,6 @@ void websocket_session::on_write(
     // Do another read
     do_read();
 }
-
 
 
 

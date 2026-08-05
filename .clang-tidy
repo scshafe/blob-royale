@@ -1,0 +1,17 @@
+Checks: >
+  -*,
+  bugprone-assert-side-effect,
+  bugprone-dangling-handle,
+  bugprone-infinite-loop,
+  bugprone-macro-parentheses,
+  bugprone-sizeof-expression,
+  bugprone-string-constructor,
+  bugprone-use-after-move,
+  performance-for-range-copy,
+  performance-inefficient-string-concatenation,
+  performance-move-const-arg,
+  performance-unnecessary-copy-initialization
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(.*/)?(main\.cpp|src/.*)'
+SystemHeaders: false
+FormatStyle: file

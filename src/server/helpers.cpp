@@ -23,6 +23,64 @@
 
 #include "helpers.hpp"
 
+#include "boost-log.hpp"
+#include "game_engine.hpp"
+
+
+http::message_generator
+handle_request(
+    beast::string_view doc_root,
+    http::request<http::dynamic_body>&& req)
+{
+    static_cast<void>(doc_root);
+    http::response<http::dynamic_body> res{http::status::ok, req.version()};
+
+    if (req.target() == "/game-config")
+    {
+        BOOST_LOG_TRIVIAL(info) << "game-config";
+        res.set(http::field::server, BOOST_BEAST_VERSION_STRING);
+        res.set(http::field::content_type, "application/json");
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_headers, "*");
+        beast::ostream(res.body()) << GameEngine::get_instance()->game_config();
+    }
+    else if (req.target() == "/game-state")
+    {
+        BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+        res.set(http::field::content_type, "application/json");
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_headers, "*");
+        beast::ostream(res.body()) << GameEngine::get_instance()->game_info();
+    }
+    else if (req.target() == "/start-sim")
+    {
+        BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+        res.set(http::field::content_type, "test/plain");
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_headers, "*");
+        beast::ostream(res.body()) << "Starting sim\r\n";
+        GameEngine::get_instance()->start_sim();
+    }
+    else if (req.target() == "/pause-sim")
+    {
+        BOOST_LOG_TRIVIAL(info) << "game-state endpoint received";
+        res.set(http::field::content_type, "test/plain");
+        res.set(http::field::access_control_allow_origin, "*");
+        res.set(http::field::access_control_allow_headers, "*");
+        beast::ostream(res.body()) << "Stopping sim\r\n";
+        GameEngine::get_instance()->pause_sim();
+    }
+    else
+    {
+        res.result(http::status::not_found);
+        res.set(http::field::content_type, "text/plain");
+        beast::ostream(res.body()) << "File not found\r\n";
+    }
+
+    res.content_length(res.body().size());
+    return res;
+}
+
 
 beast::string_view
 mime_type(beast::string_view path)
@@ -90,5 +148,3 @@ fail(beast::error_code ec, char const* what)
 {
     std::cerr << what << ": " << ec.message() << "\n";
 }
-
-

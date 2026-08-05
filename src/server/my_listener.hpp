@@ -1,11 +1,6 @@
 #ifndef _MY_LISTENER_HPP_
 #define _MY_LISTENER_HPP_
 
-#include "boost-log.hpp"
-
-#include "game_engine_parameters.hpp"
-#include "game_engine.hpp"
-
 #include "helpers.hpp"
 #include "my_http_server.hpp"
 

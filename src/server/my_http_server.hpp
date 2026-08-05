@@ -34,9 +34,6 @@ private:
     void
     on_read(beast::error_code ec, std::size_t bytes_transferred);
     
-    void 
-    queue_write_data(http::response<http::dynamic_body> res);
-    
     void
     queue_write(http::message_generator response);
     

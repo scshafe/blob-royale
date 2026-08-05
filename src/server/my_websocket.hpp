@@ -4,11 +4,6 @@
 
 #include <functional>
 
-#include "boost-log.hpp"
-
-#include "game_engine_parameters.hpp"
-#include "game_engine.hpp"
-
 #include "helpers.hpp"
 
 

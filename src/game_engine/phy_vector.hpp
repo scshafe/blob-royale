@@ -17,11 +17,12 @@ public:
 
   PhyVector();
   PhyVector(const float& x_in, const float& y_in);
+  PhyVector(const PhyVector&) = default;
 
   ~PhyVector();
   
 
-  PhyVector& operator=(PhyVector& other);
+  PhyVector& operator=(const PhyVector& other);
   friend std::ostream& operator<<(std::ostream& os, const PhyVector& pv);
   PhyVector operator-(const PhyVector& b);
   PhyVector operator*(const float& b);

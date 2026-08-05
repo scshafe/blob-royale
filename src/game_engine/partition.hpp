@@ -26,8 +26,8 @@ public:
   Cell(const GamePiece& gp);
   boost::json::array getCellJson();
 
-  const size_t row();
-  const size_t col();
+  size_t row();
+  size_t col();
 
   friend std::ostream& operator<<(std::ostream& os, const Cell& c);
 

@@ -83,9 +83,9 @@ GamePiece::GamePiece() :
   position(0.0, 0.0),
   velocity(0.0, 0.0),
   acceleration(0.0, 0.0),
+  fixed(false),
   current_part(nullptr),
-  parts(),
-  fixed(false)
+  parts()
 {
   ERROR << "GamePiece() constructor should not be called.";
   //exit(1);
@@ -220,6 +220,7 @@ void GamePiece::add_from_both(std::set<std::shared_ptr<Partition>, std::less<std
                               std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& new_parts,
                               std::set<std::shared_ptr<Partition>, std::less<std::shared_ptr<Partition>>>& tmp_parts)
 { 
+  static_cast<void>(old_parts);
   auto new_it = new_parts.begin();
 
   tmp_parts.insert(std::move(*new_it));
@@ -437,7 +438,6 @@ QueueOperationResults GamePiece::simple_velocity()
 {
   ENTRANCE << *this << " simple_velocity()";
   // add acceleration here
-  velocity = velocity;
 
   
   handle_possible_collision_with_wall();
@@ -545,14 +545,11 @@ void GamePiece::update_next_velocities(std::shared_ptr<GamePiece> b)
   float v1t = ut.dot(v1);
 
   float v2n = un.dot(v2);
-  float v2t = ut.dot(v2);
 
   float v1n_after (((v1n * (m1 - m2)) + (v2n * (2 * m2))) / (m1 + m2));
   float v1t_after (v1t);
 
   float v2n_after (((v2n * (m2 - m1)) + (v1n * (2 * m1))) / (m2 + m1));
-  float v2t_after (v2t);
-
   PhyVector v1n_vec(un * v1n_after);
   PhyVector v1t_vec(ut * v1t_after);
 
@@ -566,5 +563,3 @@ void GamePiece::update_next_velocities(std::shared_ptr<GamePiece> b)
   velocity = res1;
 
 }
-
-

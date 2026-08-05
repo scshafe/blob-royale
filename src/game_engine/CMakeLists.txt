@@ -1,39 +1,25 @@
-
-
-file(GLOB game_engine_sources *.cpp)
-
-
-find_package(Threads REQUIRED)
-
-add_library(game_engine 
-            STATIC )
-
-target_sources(game_engine
-               PUBLIC
-               ${game_engine_sources}
-            )
-
-target_include_directories(game_engine
-                           PUBLIC
-                           my_boost_config
-                           dependency_graph_queue
-                           ${CMAKE_CURRENT_SOURCE_DIR}
-                           "../../open-source-libs/rapidcsv"
+add_library(game_engine STATIC
+  game_engine.cpp
+  game_engine_parameters.cpp
+  game_piece.cpp
+  map_object.cpp
+  partition.cpp
+  phy_vector.cpp
+  player.cpp
 )
 
-target_link_directories(game_engine
-                        PUBLIC
-                        my_boost_config
-                        dependency_graph_queue
-                        Threads::Threads
-                      )
+blob_royale_configure_first_party_target(game_engine)
 
-target_link_libraries(game_engine
-                      PUBLIC
-                      my_boost_config
-                      dependency_graph_queue
-                      Threads::Threads
-                    )
+target_include_directories(game_engine PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+)
 
+target_include_directories(game_engine SYSTEM PRIVATE
+  "${PROJECT_SOURCE_DIR}/open-source-libs/rapidcsv"
+)
 
-
+target_link_libraries(game_engine PUBLIC
+  dependency_graph_queue
+  my_boost_config
+  Threads::Threads
+)

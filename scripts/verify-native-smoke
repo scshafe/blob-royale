@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
-# Clean-builds the native server and verifies its command and process lifecycle.
+# Clean-builds the native server, then delegates its command and process
+# lifecycle assertions to the canonical process-only smoke helper.
 # Inputs: none; run from the repository root inside the pinned Linux toolchain.
 # Side effects: replaces the Linux GCC debug build outputs under out/build.
 # Idempotent: yes.
@@ -10,129 +11,34 @@ set -euo pipefail
 readonly SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
 readonly BUILD_PRESET="linux-gcc-debug"
-readonly BUILD_DIRECTORY="${REPOSITORY_DIRECTORY}/out/build/${BUILD_PRESET}"
-readonly SERVER_EXECUTABLE="${BUILD_DIRECTORY}/blob-royale"
+readonly SERVER_EXECUTABLE="${REPOSITORY_DIRECTORY}/out/build/${BUILD_PRESET}/blob-royale"
+readonly SERVER_CONFIGURATION="${REPOSITORY_DIRECTORY}/config/blob-royale.cfg"
+readonly SERVER_SCENARIO="${REPOSITORY_DIRECTORY}/tests/fixtures/player-on-wall-collision-test.csv"
 readonly SERVER_ADDRESS="127.0.0.1"
 readonly SERVER_PORT="18080"
-readonly SERVER_CONFIGURATION="${REPOSITORY_DIRECTORY}/config/blob-royale.cfg"
-readonly SERVER_SCENARIO="${REPOSITORY_DIRECTORY}/tests/player-on-wall-collision-test"
-readonly STARTUP_ATTEMPTS=100
-readonly SHUTDOWN_DEADLINE_SECONDS=10
-
-server_pid=""
-server_log=""
-
-fail() {
-  printf 'verify-native-smoke: %s\n' "$1" >&2
-  if [[ -n "${server_log}" && -s "${server_log}" ]]; then
-    printf '%s\n' '--- server output ---' >&2
-    sed -n '1,240p' "${server_log}" >&2
-  fi
-  exit 1
-}
-
-cleanup() {
-  if [[ -n "${server_pid}" ]] && kill -0 "${server_pid}" 2>/dev/null; then
-    kill -KILL "${server_pid}" 2>/dev/null || true
-    wait "${server_pid}" 2>/dev/null || true
-  fi
-  if [[ -n "${server_log}" ]]; then
-    rm -f "${server_log}"
-  fi
-}
-trap cleanup EXIT
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-  fail "Linux is required"
+  printf 'verify-native-smoke: Linux is required\n' >&2
+  exit 1
 fi
 
 if [[ "$(uname -m)" != "x86_64" ]]; then
-  fail "x86_64 is required"
+  printf 'verify-native-smoke: x86_64 is required\n' >&2
+  exit 1
 fi
-
-for required_command in cmake curl timeout; do
-  if ! command -v "${required_command}" >/dev/null 2>&1; then
-    fail "required command is missing: ${required_command}"
-  fi
-done
-
-for required_file in "${SERVER_CONFIGURATION}" "${SERVER_SCENARIO}"; do
-  if [[ ! -r "${required_file}" ]]; then
-    fail "required fixture is not readable: ${required_file}"
-  fi
-done
 
 cd "${REPOSITORY_DIRECTORY}"
 
 cmake --fresh --preset "${BUILD_PRESET}"
 cmake --build --preset "${BUILD_PRESET}" --clean-first --parallel 1
 
-if [[ ! -x "${SERVER_EXECUTABLE}" ]]; then
-  fail "expected executable was not produced: ${SERVER_EXECUTABLE}"
-fi
-
-"${SERVER_EXECUTABLE}" --help >/dev/null
-
-server_log="$(mktemp)"
-"${SERVER_EXECUTABLE}" \
-  --IPv4 "${SERVER_ADDRESS}" \
-  --port "${SERVER_PORT}" \
+"${SCRIPT_DIRECTORY}/assert-native-process-smoke" \
+  --executable "${SERVER_EXECUTABLE}" \
   --config "${SERVER_CONFIGURATION}" \
-  --testfile "${SERVER_SCENARIO}" \
-  >"${server_log}" 2>&1 &
-server_pid=$!
-
-server_ready=false
-for ((attempt = 1; attempt <= STARTUP_ATTEMPTS; attempt++)); do
-  if ! kill -0 "${server_pid}" 2>/dev/null; then
-    set +e
-    wait "${server_pid}"
-    server_exit_code=$?
-    set -e
-    server_pid=""
-    fail "server exited before accepting requests with code ${server_exit_code}"
-  fi
-
-  if curl \
-    --fail \
-    --silent \
-    --show-error \
-    --max-time 1 \
-    "http://${SERVER_ADDRESS}:${SERVER_PORT}/game-config" \
-    >/dev/null 2>&1; then
-    server_ready=true
-    break
-  fi
-
-  sleep 0.1
-done
-
-if [[ "${server_ready}" != "true" ]]; then
-  fail "server did not accept loopback requests before the startup deadline"
-fi
-
-kill -TERM "${server_pid}"
-
-if ! timeout "${SHUTDOWN_DEADLINE_SECONDS}s" \
-  bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done' \
-  verify-native-smoke "${server_pid}"; then
-  fail "server did not stop within ${SHUTDOWN_DEADLINE_SECONDS} seconds after SIGTERM"
-fi
-
-set +e
-wait "${server_pid}"
-server_exit_code=$?
-set -e
-server_pid=""
-
-if [[ "${server_exit_code}" -ne 0 ]]; then
-  fail "server returned nonzero after SIGTERM: ${server_exit_code}"
-fi
+  --scenario "${SERVER_SCENARIO}" \
+  --address "${SERVER_ADDRESS}" \
+  --port "${SERVER_PORT}"
 
 printf '%s\n' \
   "native_smoke.build_preset=${BUILD_PRESET}" \
-  "native_smoke.address=${SERVER_ADDRESS}" \
-  "native_smoke.port=${SERVER_PORT}" \
-  "native_smoke.signal=SIGTERM" \
-  "native_smoke.exit_code=${server_exit_code}" \
-  'native_smoke.status=passed'
+  "native_smoke.status=passed"

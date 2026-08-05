@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+
+# Verifies one already-built blob-royale process through help, loopback HTTP,
+# and clean SIGTERM shutdown assertions.
+# Inputs: explicit executable, configuration, scenario, loopback address, and port.
+# Side effects: starts one bounded local server process and writes a temporary log.
+# Idempotent: yes, provided the selected loopback port is available.
+
+set -euo pipefail
+
+readonly EXPECTED_OPERATING_SYSTEM="Linux"
+readonly EXPECTED_ARCHITECTURE="x86_64"
+readonly STARTUP_ATTEMPTS=100
+readonly SHUTDOWN_DEADLINE_SECONDS=10
+
+server_executable=""
+server_configuration=""
+server_scenario=""
+server_address=""
+server_port=""
+server_pid=""
+server_log=""
+
+usage() {
+  printf '%s\n' \
+    "Usage: $0 --executable PATH --config PATH --scenario PATH --address 127.0.0.1 --port PORT"
+}
+
+fail() {
+  printf 'native_process_smoke.status=failed\n' >&2
+  printf 'native_process_smoke.error=%s\n' "$1" >&2
+  if [[ -n "${server_log}" && -s "${server_log}" ]]; then
+    printf '%s\n' '--- server output ---' >&2
+    sed -n '1,240p' "${server_log}" >&2
+  fi
+  exit 1
+}
+
+require_option_value() {
+  local option_name="$1"
+  local remaining_argument_count="$2"
+  if ((remaining_argument_count < 2)); then
+    fail "missing value for ${option_name}"
+  fi
+}
+
+cleanup() {
+  if [[ -n "${server_pid}" ]] && kill -0 "${server_pid}" 2>/dev/null; then
+    kill -KILL "${server_pid}" 2>/dev/null || true
+    wait "${server_pid}" 2>/dev/null || true
+  fi
+  if [[ -n "${server_log}" ]]; then
+    rm -f -- "${server_log}"
+  fi
+}
+trap cleanup EXIT
+
+while (($# > 0)); do
+  case "$1" in
+    --executable)
+      require_option_value "$1" "$#"
+      [[ -z "${server_executable}" ]] || fail "duplicate option: $1"
+      server_executable="$2"
+      shift 2
+      ;;
+    --config)
+      require_option_value "$1" "$#"
+      [[ -z "${server_configuration}" ]] || fail "duplicate option: $1"
+      server_configuration="$2"
+      shift 2
+      ;;
+    --scenario)
+      require_option_value "$1" "$#"
+      [[ -z "${server_scenario}" ]] || fail "duplicate option: $1"
+      server_scenario="$2"
+      shift 2
+      ;;
+    --address)
+      require_option_value "$1" "$#"
+      [[ -z "${server_address}" ]] || fail "duplicate option: $1"
+      server_address="$2"
+      shift 2
+      ;;
+    --port)
+      require_option_value "$1" "$#"
+      [[ -z "${server_port}" ]] || fail "duplicate option: $1"
+      server_port="$2"
+      shift 2
+      ;;
+    --help | -h)
+      usage
+      exit 0
+      ;;
+    *)
+      fail "unknown option: $1"
+      ;;
+  esac
+done
+
+[[ -n "${server_executable}" ]] || fail "--executable is required"
+[[ -n "${server_configuration}" ]] || fail "--config is required"
+[[ -n "${server_scenario}" ]] || fail "--scenario is required"
+[[ -n "${server_address}" ]] || fail "--address is required"
+[[ -n "${server_port}" ]] || fail "--port is required"
+
+[[ "$(uname -s)" == "${EXPECTED_OPERATING_SYSTEM}" ]] || fail "Linux is required"
+[[ "$(uname -m)" == "${EXPECTED_ARCHITECTURE}" ]] || fail "x86_64 is required"
+[[ "${server_address}" == "127.0.0.1" ]] || fail "the server address must be IPv4 loopback"
+[[ "${server_port}" =~ ^[0-9]+$ ]] || fail "the server port must be numeric"
+server_port="$((10#${server_port}))"
+((server_port >= 1 && server_port <= 65535)) || fail "the server port must be between 1 and 65535"
+
+for required_command in curl timeout; do
+  command -v "${required_command}" >/dev/null 2>&1 || \
+    fail "required command is missing: ${required_command}"
+done
+
+[[ -x "${server_executable}" ]] || fail "server executable is not executable: ${server_executable}"
+[[ -r "${server_configuration}" ]] || fail "configuration is not readable: ${server_configuration}"
+[[ -r "${server_scenario}" ]] || fail "scenario is not readable: ${server_scenario}"
+
+"${server_executable}" --help >/dev/null
+
+server_log="$(mktemp)"
+"${server_executable}" \
+  --IPv4 "${server_address}" \
+  --port "${server_port}" \
+  --config "${server_configuration}" \
+  --testfile "${server_scenario}" \
+  >"${server_log}" 2>&1 &
+server_pid=$!
+
+server_ready=false
+for ((attempt = 1; attempt <= STARTUP_ATTEMPTS; attempt++)); do
+  if ! kill -0 "${server_pid}" 2>/dev/null; then
+    set +e
+    wait "${server_pid}"
+    server_exit_code=$?
+    set -e
+    server_pid=""
+    fail "server exited before accepting requests with code ${server_exit_code}"
+  fi
+
+  if curl \
+    --fail \
+    --silent \
+    --show-error \
+    --max-time 1 \
+    "http://${server_address}:${server_port}/game-config" \
+    >/dev/null 2>&1; then
+    server_ready=true
+    break
+  fi
+
+  sleep 0.1
+done
+
+[[ "${server_ready}" == "true" ]] || fail "server did not accept loopback requests before the startup deadline"
+
+kill -TERM "${server_pid}"
+
+if ! timeout "${SHUTDOWN_DEADLINE_SECONDS}s" \
+  bash -c 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done' \
+  assert-native-process-smoke "${server_pid}"; then
+  fail "server did not stop within ${SHUTDOWN_DEADLINE_SECONDS} seconds after SIGTERM"
+fi
+
+set +e
+wait "${server_pid}"
+server_exit_code=$?
+set -e
+server_pid=""
+
+[[ "${server_exit_code}" -eq 0 ]] || fail "server returned nonzero after SIGTERM: ${server_exit_code}"
+
+printf '%s\n' \
+  "native_process_smoke.executable=${server_executable}" \
+  "native_process_smoke.address=${server_address}" \
+  "native_process_smoke.port=${server_port}" \
+  "native_process_smoke.signal=SIGTERM" \
+  "native_process_smoke.exit_code=${server_exit_code}" \
+  "native_process_smoke.status=passed"

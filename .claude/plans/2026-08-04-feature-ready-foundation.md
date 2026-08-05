@@ -51,10 +51,11 @@ Create React App is deprecated, and the React team explicitly supports migrating
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-native-build`
   - Notes: Replace CMake globs and `target_link_directories` with explicit sources, imported targets, target-scoped C++20 features, and first-party warnings-as-errors. Pin test-only dependencies by immutable revision, mark vendored/system includes correctly, add `.clang-format` and a focused `.clang-tidy`, and expose compile commands. GCC and Clang must build every target from a clean tree without developer-installed dependencies or warnings.
 
-- [ ] **Step 7: Add the native test foundation**
+- [x] **Step 7: Add the native test foundation**
   - Verify: `./scripts/run-linux-toolchain -- ctest --preset linux-gcc-debug --output-on-failure --no-tests=error`
   - Specialist: `testineer`
   - Notes: Enable CTest, pin Catch2, create mirrored `tests/unit`, `tests/integration`, and `tests/fixtures` targets, and add initial vector, fixture-readability, test-discovery, and process-smoke assertions without pinning defective scheduler behavior. Rename the three current scenario files with `.csv` and retain them as inputs, not truth about the broken scheduler. A zero-test or skipped-test run must fail.
+  - Execution note (2026-08-04): Source-integrating Catch2 caused 134 project actions per preset in the constrained macOS-hosted amd64 VM. The pinned image now checksum-verifies and builds Catch2 once in a cacheable Release layer; project presets import that package offline and require 25 actions. The initial fixture test exposed one ignored eighth field in a seven-field legacy CSV row; removing the redundant zero preserved every value consumed by the legacy loader. The exact GCC Debug CTest gate passed all 6 discovered tests with no skips.
 
 - [x] **Step 8: Replace CRA and Jest with Vite and Vitest**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-web`

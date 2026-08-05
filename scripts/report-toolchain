@@ -20,7 +20,7 @@ if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
   exit 69
 fi
 
-for required_command in cmake g++ clang++ ld ldd ninja node npm; do
+for required_command in cmake g++ clang++ clang-format clang-tidy ld ldd ninja node npm; do
   if ! command -v "${required_command}" >/dev/null 2>&1; then
     printf 'report-toolchain: required command is missing: %s\n' "${required_command}" >&2
     exit 69
@@ -29,6 +29,18 @@ done
 
 readonly DISTRIBUTION="$(. /etc/os-release && printf '%s' "${PRETTY_NAME}")"
 readonly BOOST_VERSION="$(dpkg-query --show --showformat='${Version}' libboost-json-dev)"
+readonly CATCH2_SOURCE_DIRECTORY=/opt/blob-royale-deps/catch2
+
+for catch2_metadata_file in \
+  .blob-royale-source-version \
+  .blob-royale-source-commit \
+  .blob-royale-source-sha256; do
+  if [[ ! -r "${CATCH2_SOURCE_DIRECTORY}/${catch2_metadata_file}" ]]; then
+    printf 'report-toolchain: Catch2 metadata is missing: %s\n' \
+      "${CATCH2_SOURCE_DIRECTORY}/${catch2_metadata_file}" >&2
+    exit 69
+  fi
+done
 
 printf 'toolchain_id=%s\n' "${BLOB_ROYALE_TOOLCHAIN_ID:-${EXPECTED_TOOLCHAIN_ID}}"
 printf 'base_image_digest=%s\n' "${BLOB_ROYALE_BASE_IMAGE_DIGEST:-${EXPECTED_BASE_IMAGE_DIGEST}}"
@@ -38,9 +50,15 @@ printf 'distribution=%s\n' "${DISTRIBUTION}"
 printf 'glibc=%s\n' "$(ldd --version | sed -n '1p')"
 printf 'gcc=%s\n' "$(g++ --version | sed -n '1p')"
 printf 'clang=%s\n' "$(clang++ --version | sed -n '1p')"
+printf 'clang_format=%s\n' "$(clang-format --version | sed -n '1p')"
+printf 'clang_tidy=%s\n' "$(clang-tidy --version | sed -n '1p')"
 printf 'linker=%s\n' "$(ld --version | sed -n '1p')"
 printf 'cmake=%s\n' "$(cmake --version | sed -n '1p')"
 printf 'ninja=%s\n' "$(ninja --version)"
 printf 'boost=%s\n' "${BOOST_VERSION}"
+printf 'catch2=%s\n' "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-version")"
+printf 'catch2_commit=%s\n' "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-commit")"
+printf 'catch2_archive_sha256=%s\n' \
+  "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-sha256")"
 printf 'node=%s\n' "$(node --version)"
 printf 'npm=%s\n' "$(npm --version)"

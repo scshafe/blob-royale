@@ -19,10 +19,10 @@ public:
   Player();
   Player(int id, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   Player(const int& id, std::vector<std::string> row);
-  ~Player();
+  ~Player() override;
   
-  virtual boost::json::object getGamePieceJson();
-  virtual bool is_stationary();
+  boost::json::object getGamePieceJson() override;
+  bool is_stationary() override;
 };
 
 

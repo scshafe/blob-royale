@@ -106,7 +106,7 @@ public:
   GamePiece();
   GamePiece(int id, float x, float y, float vel_x, float vel_y, float accel_x, float accel_y);
   GamePiece(const int& id_, std::vector<std::string> row);
-  ~GamePiece();
+  virtual ~GamePiece();
 
   friend std::ostream& operator<<(std::ostream& os, const GamePiece& gp);
   void print_part_list();

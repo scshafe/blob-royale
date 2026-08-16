@@ -17,6 +17,7 @@ class WorldSnapshot;
 
 namespace blob_royale::protocol {
 
+// canonical: protocol_v1_json_encoding -- sole production entry points for v1 JSON encoding.
 // Encodes the complete schema-valid GET /api/v1/config success envelope.
 // Throws ProtocolEncodingError if the caller's byte limit is invalid or exceeded.
 [[nodiscard]] std::string

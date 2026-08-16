@@ -9,9 +9,43 @@ readonly EXPECTED_ARCHITECTURE=x86_64
 readonly EXPECTED_BASE_IMAGE_DIGEST=sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467
 readonly EXPECTED_TOOLCHAIN_ID=ubuntu-24.04-amd64-20260804
 
-if [[ "$(uname -s)" != "Linux" ]]; then
-  printf 'report-toolchain: Linux is required\n' >&2
+fail() {
+  printf 'report-toolchain: %s\n' "$1" >&2
   exit 69
+}
+
+capture_required_output() {
+  local destination_variable="$1"
+  local field_name="$2"
+  local captured_output
+  shift 2
+
+  if ! captured_output="$("$@")"; then
+    fail "${field_name} version command failed"
+  fi
+  if [[ -z "${captured_output}" ]]; then
+    fail "${field_name} returned an empty value"
+  fi
+  printf -v "${destination_variable}" '%s' "${captured_output}"
+}
+
+first_output_line() {
+  "$@" | sed -n '1p'
+}
+
+anchore_version() {
+  "$1" version | sed -nE 's/^Version:[[:space:]]*//p'
+}
+
+distribution_pretty_name() {
+  # The pinned Linux image always supplies this standard distribution metadata file.
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  printf '%s' "${PRETTY_NAME}"
+}
+
+if [[ "$(uname -s)" != "Linux" ]]; then
+  fail "Linux is required"
 fi
 
 if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
@@ -20,27 +54,15 @@ if [[ "$(uname -m)" != "${EXPECTED_ARCHITECTURE}" ]]; then
   exit 69
 fi
 
-for required_command in cmake g++ clang++ clang-format clang-tidy git grype ld ldd ninja node npm syft; do
+for required_command in \
+  clang++ clang-format clang-tidy cmake dpkg-query g++ git grype ld ldd ninja node npm sed \
+  syft uname; do
   if ! command -v "${required_command}" >/dev/null 2>&1; then
-    printf 'report-toolchain: required command is missing: %s\n' "${required_command}" >&2
-    exit 69
+    fail "required command is missing: ${required_command}"
   fi
 done
 
-# The pinned Linux image always supplies this standard distribution metadata file.
-# shellcheck disable=SC1091
-DISTRIBUTION="$(. /etc/os-release && printf '%s' "${PRETTY_NAME}")"
-readonly DISTRIBUTION
-BOOST_VERSION="$(dpkg-query --show --showformat='${Version}' libboost-json-dev)"
-readonly BOOST_VERSION
-NPM_VERSION="$(npm --version)"
-readonly NPM_VERSION
 readonly CATCH2_SOURCE_DIRECTORY=/opt/blob-royale-deps/catch2
-
-if [[ -z "${NPM_VERSION}" ]]; then
-  printf 'report-toolchain: npm returned an empty version\n' >&2
-  exit 69
-fi
 
 for catch2_metadata_file in \
   .blob-royale-source-version \
@@ -53,26 +75,60 @@ for catch2_metadata_file in \
   fi
 done
 
-printf 'toolchain_id=%s\n' "${BLOB_ROYALE_TOOLCHAIN_ID:-${EXPECTED_TOOLCHAIN_ID}}"
-printf 'base_image_digest=%s\n' "${BLOB_ROYALE_BASE_IMAGE_DIGEST:-${EXPECTED_BASE_IMAGE_DIGEST}}"
-printf 'kernel=%s\n' "$(uname -sr)"
-printf 'architecture=%s\n' "$(uname -m)"
+TOOLCHAIN_ID="${BLOB_ROYALE_TOOLCHAIN_ID:-${EXPECTED_TOOLCHAIN_ID}}"
+BASE_IMAGE_DIGEST="${BLOB_ROYALE_BASE_IMAGE_DIGEST:-${EXPECTED_BASE_IMAGE_DIGEST}}"
+capture_required_output KERNEL_VERSION kernel uname -sr
+capture_required_output ARCHITECTURE architecture uname -m
+capture_required_output DISTRIBUTION distribution distribution_pretty_name
+capture_required_output GLIBC_VERSION glibc first_output_line ldd --version
+capture_required_output GCC_VERSION gcc first_output_line g++ --version
+capture_required_output CLANG_VERSION clang first_output_line clang++ --version
+capture_required_output CLANG_FORMAT_VERSION clang_format first_output_line clang-format --version
+capture_required_output CLANG_TIDY_VERSION clang_tidy first_output_line clang-tidy --version
+capture_required_output LINKER_VERSION linker first_output_line ld --version
+capture_required_output CMAKE_VERSION cmake first_output_line cmake --version
+capture_required_output NINJA_VERSION ninja ninja --version
+capture_required_output GIT_VERSION git git --version
+# dpkg-query expands this expression itself; the shell must preserve it literally.
+# shellcheck disable=SC2016
+capture_required_output BOOST_VERSION boost \
+  dpkg-query --show --showformat='${Version}' libboost-json-dev
+capture_required_output CATCH2_VERSION catch2 \
+  sed -n '1p' "${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-version"
+capture_required_output CATCH2_COMMIT catch2_commit \
+  sed -n '1p' "${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-commit"
+capture_required_output CATCH2_ARCHIVE_SHA256 catch2_archive_sha256 \
+  sed -n '1p' "${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-sha256"
+capture_required_output NODE_VERSION node node --version
+capture_required_output NPM_VERSION npm npm --version
+capture_required_output SYFT_VERSION syft anchore_version syft
+capture_required_output GRYPE_VERSION grype anchore_version grype
+
+for required_value_name in TOOLCHAIN_ID BASE_IMAGE_DIGEST; do
+  if [[ -z "${!required_value_name}" ]]; then
+    fail "${required_value_name} returned an empty value"
+  fi
+done
+
+printf 'toolchain_id=%s\n' "${TOOLCHAIN_ID}"
+printf 'base_image_digest=%s\n' "${BASE_IMAGE_DIGEST}"
+printf 'kernel=%s\n' "${KERNEL_VERSION}"
+printf 'architecture=%s\n' "${ARCHITECTURE}"
 printf 'distribution=%s\n' "${DISTRIBUTION}"
-printf 'glibc=%s\n' "$(ldd --version | sed -n '1p')"
-printf 'gcc=%s\n' "$(g++ --version | sed -n '1p')"
-printf 'clang=%s\n' "$(clang++ --version | sed -n '1p')"
-printf 'clang_format=%s\n' "$(clang-format --version | sed -n '1p')"
-printf 'clang_tidy=%s\n' "$(clang-tidy --version | sed -n '1p')"
-printf 'linker=%s\n' "$(ld --version | sed -n '1p')"
-printf 'cmake=%s\n' "$(cmake --version | sed -n '1p')"
-printf 'ninja=%s\n' "$(ninja --version)"
-printf 'git=%s\n' "$(git --version)"
+printf 'glibc=%s\n' "${GLIBC_VERSION}"
+printf 'gcc=%s\n' "${GCC_VERSION}"
+printf 'clang=%s\n' "${CLANG_VERSION}"
+printf 'clang_format=%s\n' "${CLANG_FORMAT_VERSION}"
+printf 'clang_tidy=%s\n' "${CLANG_TIDY_VERSION}"
+printf 'linker=%s\n' "${LINKER_VERSION}"
+printf 'cmake=%s\n' "${CMAKE_VERSION}"
+printf 'ninja=%s\n' "${NINJA_VERSION}"
+printf 'git=%s\n' "${GIT_VERSION}"
 printf 'boost=%s\n' "${BOOST_VERSION}"
-printf 'catch2=%s\n' "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-version")"
-printf 'catch2_commit=%s\n' "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-commit")"
-printf 'catch2_archive_sha256=%s\n' \
-  "$(<"${CATCH2_SOURCE_DIRECTORY}/.blob-royale-source-sha256")"
-printf 'node=%s\n' "$(node --version)"
+printf 'catch2=%s\n' "${CATCH2_VERSION}"
+printf 'catch2_commit=%s\n' "${CATCH2_COMMIT}"
+printf 'catch2_archive_sha256=%s\n' "${CATCH2_ARCHIVE_SHA256}"
+printf 'node=%s\n' "${NODE_VERSION}"
 printf 'npm=%s\n' "${NPM_VERSION}"
-printf 'syft=%s\n' "$(syft version | sed -nE 's/^Version:[[:space:]]*//p')"
-printf 'grype=%s\n' "$(grype version | sed -nE 's/^Version:[[:space:]]*//p')"
+printf 'syft=%s\n' "${SYFT_VERSION}"
+printf 'grype=%s\n' "${GRYPE_VERSION}"

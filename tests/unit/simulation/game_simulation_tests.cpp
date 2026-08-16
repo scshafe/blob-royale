@@ -205,7 +205,7 @@ TEST_CASE("player crossing during integration receives no swept collision impuls
   check_vector(snapshot_player(snapshot, 2).velocity(), -10'000.0, 0.0);
 }
 
-TEST_CASE("legacy pair seed reaches contact on tick 1600 and resolves on tick 1601",
+TEST_CASE("migrated pair fixture reaches contact on tick 1600 and resolves on tick 1601",
           "[unit][simulation][game_simulation][fixture][horizon]") {
   simulation::GameSimulation simulation_game =
       game({player(1, 250.0, 80.0, 0.0, 2.5), player(2, 250.0, 120.0, 0.0, -2.5),
@@ -234,7 +234,7 @@ TEST_CASE("legacy pair seed reaches contact on tick 1600 and resolves on tick 16
                simulation::kPositionTolerance);
 }
 
-TEST_CASE("legacy wall seed reaches the lower wall inward on tick 2000",
+TEST_CASE("migrated wall fixture reaches the lower wall inward on tick 2000",
           "[unit][simulation][game_simulation][fixture][horizon]") {
   simulation::GameSimulation simulation_game =
       game({player(1, 15.0, 70.0, -1.0, 3.2), player(2, 500.0, 400.0, 2.5, 1.8)},
@@ -294,7 +294,7 @@ TEST_CASE("grid-corner contact resolves once exactly like the exhaustive pair re
                expected.second_velocity().y(), simulation::kVelocityTolerance);
 }
 
-TEST_CASE("legacy partition seed follows the no-grid reference across cell boundaries",
+TEST_CASE("migrated partition fixture follows the no-grid reference across cell boundaries",
           "[unit][simulation][game_simulation][fixture][spatial_grid]") {
   simulation::GameSimulation simulation_game =
       game({player(1, 15.0, 70.0, 3.0, -4.0)}, configuration(100.0, 100.0, 10.0, 10, 10));

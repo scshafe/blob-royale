@@ -25,7 +25,7 @@ release authority while deployment-host facts remain unknown.
 
 **Chosen: Option A.**
 
-Until observed production facts supersede this decision, the authoritative baseline is an Ubuntu 24.04 LTS OCI image for `linux/amd64`. The image must use an immutable manifest digest rather than a floating tag. Step 3 of the feature-ready foundation plan records that digest and the exact tool versions; no release is authoritative until those pins exist (`.claude/plans/2026-08-04-feature-ready-foundation.md` Step 3).
+Until observed production facts supersede this decision, the authoritative baseline is an Ubuntu 24.04 LTS OCI image for `linux/amd64`. The image uses the immutable manifest digest and exact tool versions recorded in `ci/linux/Dockerfile`; `scripts/report-toolchain` verifies and reports those pins for every release gate.
 
 The runtime contract is:
 
@@ -55,7 +55,7 @@ before release.
 
 ### Unknowns and amendment trigger
 
-The actual production host, cloud or on-premises location, kernel, container runtime/orchestrator, CPU model, resource limits, reverse proxy, certificate source, DNS, and public exposure are unknown. The exact OCI digest and compiler/tool versions remain a Step 3 implementation decision. Discovery that production requires a different distribution, architecture, libc, direct-host execution, in-process TLS, or a different trust boundary must amend or supersede this ADR before a release artifact is produced. It must not produce a silent fallback or an Apple-specific production path.
+The actual production host, cloud or on-premises location, kernel, container runtime/orchestrator, CPU model, resource limits, reverse proxy, certificate source, DNS, and public exposure are unknown. The repository's current OCI digest and compiler/tool versions are pinned in `ci/linux/Dockerfile`; deployment-specific facts remain the amendment trigger. Discovery that production requires a different distribution, architecture, libc, direct-host execution, in-process TLS, or a different trust boundary must amend or supersede this ADR before a release artifact is produced. It must not produce a silent fallback or an Apple-specific production path.
 
 ## Consequences
 

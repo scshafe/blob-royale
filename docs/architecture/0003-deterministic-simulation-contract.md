@@ -8,7 +8,7 @@
 
 ## Context and Problem Statement
 
-The prototype treats velocity as displacement per tick, ignores acceleration and elapsed time, drops equal-distance collision candidates, fails to reject separating overlaps, and lets scheduler interleavings select observable results (`docs/PROJECT_DEEP_DIVE.md` § "Core simulation math and spatial indexing are not reliable"). The accepted ownership design makes `GameSimulation::step(FixedDelta)` the only mutable-world entry point and requires stable `EntityId` order, pure physics functions, and a deterministic serial reference (`docs/architecture/0002-simulation-architecture.md` § "Ownership and lifecycle"). The implementation needs one exact contract for units, time, phase order, collision precedence, numerical comparisons, and migrated fixtures before the replacement core is built (`.claude/plans/2026-08-04-feature-ready-foundation.md` Steps 10–15).
+The prototype treated velocity as displacement per tick, ignored acceleration and elapsed time, dropped equal-distance collision candidates, failed to reject separating overlaps, and let scheduler interleavings select observable results (`docs/PROJECT_DEEP_DIVE.md` § "Core simulation math and spatial indexing are not reliable"). The accepted ownership design makes `GameSimulation::step(FixedDelta)` the only mutable-world entry point and requires stable `EntityId` order, pure physics functions, and a deterministic serial reference (`docs/architecture/0002-simulation-architecture.md` § "Ownership and lifecycle"). The canonical `src/simulation` implementation and its tests apply this contract for units, time, phase order, collision precedence, numerical comparisons, and migrated fixtures.
 
 This decision applies the general principles "explicit lifecycle over implicit," "separation of policy from mechanism," and "total functions over partial." Tick state and precedence are explicit; the spatial grid cannot determine physics policy; every finite, validated body state has a defined result, including coincident centers and wall overshoot.
 
@@ -128,7 +128,7 @@ The same executable, configuration, and fixture must produce bit-identical order
 
 ### Fixture contract and expected outcomes
 
-Simulation fixtures are specifications, not recordings of the prototype. Each fixed-tick case must declare the accepted simulation quantum, world dimensions, common radius, explicit unique `EntityId` values, initial position/velocity/stored acceleration, tick count, and either expected ordered snapshots or named invariants. Row order may not provide runtime precedence; IDs do. When the current CSV seeds are migrated, assign explicit IDs once in their existing row order and interpret all velocity and acceleration numbers in the units above. Do not multiply values by 400 to imitate the prototype's per-tick displacement accident.
+Simulation fixtures are specifications, not recordings of the prototype. Each fixed-tick case must declare the accepted simulation quantum, world dimensions, common radius, explicit unique `EntityId` values, initial position/velocity/stored acceleration, tick count, and either expected ordered snapshots or named invariants. Row order may not provide runtime precedence; IDs do. The migrated CSV seeds use explicit IDs assigned once in their prior row order and interpret all velocity and acceleration numbers in the units above. They do not multiply values by 400 to imitate the prototype's per-tick displacement accident.
 
 | Case | Required expected outcome |
 |---|---|
@@ -143,13 +143,13 @@ Simulation fixtures are specifications, not recordings of the prototype. Each fi
 | Partition boundary | A touching pair split by an internal edge or corner appears exactly once and resolves identically to the exhaustive all-pairs reference. A non-colliding cell transition changes neither velocity nor continuous position. |
 | High-speed player crossing | When two players do not overlap at either committed pair phase and cross only during integration, the baseline produces no player-pair impulse. This pins the discrete limitation instead of leaving it implementation-dependent. |
 
-The retained fixture seeds have these migration expectations:
+The migrated fixture seeds have these accepted expectations:
 
-* `tests/partition-trace-test` remains an initial-state seed. With zero acceleration and before any wall contact, its player follows `p_N = p_0 + N × v / 400`; crossing any grid boundary must match the no-grid reference.
-* `tests/player-on-player-collision-test` remains an initial-state seed. Its first two players begin 40 wu apart and close at 5 wu/s. They first reach exact 20 wu contact after 1,600 ticks without an impulse on that tick, then exchange their y velocities during tick 1,601.
-* `tests/player-on-wall-collision-test` remains an initial-state seed. With radius 10, its first player reaches the lower x wall from `x = 15` at `1 wu/s` after 2,000 ticks; that committed tick has `x = 10` and an inward x velocity of `+1 wu/s`.
+* `tests/fixtures/partition-trace-test.csv` is an initial-state seed. With zero acceleration and before any wall contact, its player follows `p_N = p_0 + N × v / 400`; crossing any grid boundary must match the no-grid reference.
+* `tests/fixtures/player-on-player-collision-test.csv` is an initial-state seed. Its first two players begin 40 wu apart and close at 5 wu/s. They first reach exact 20 wu contact after 1,600 ticks without an impulse on that tick, then exchange their y velocities during tick 1,601.
+* `tests/fixtures/player-on-wall-collision-test.csv` is an initial-state seed. With radius 10, its first player reaches the lower x wall from `x = 15` at `1 wu/s` after 2,000 ticks; that committed tick has `x = 10` and an inward x velocity of `+1 wu/s`.
 
-Those paths may gain the `.csv` suffix during the test-foundation migration (`.claude/plans/2026-08-04-feature-ready-foundation.md` Step 7). Their current contents contain no authoritative expected outputs (`docs/PROJECT_DEEP_DIVE.md` § "Tests, fixtures, and benchmark status"). Malformed rows, duplicate IDs, non-finite values, invalid bounds, and unsafe dimensions are loader rejection fixtures, not simulation ticks.
+The CSV files contain initial state rather than authoritative output recordings. Executable fixture and simulation tests assert their shapes and accepted tick horizons. Malformed rows, duplicate IDs, non-finite values, invalid bounds, and unsafe dimensions are loader rejection fixtures, not simulation ticks.
 
 ### Excluded player commands
 
@@ -182,14 +182,14 @@ These are seams in the pure-function and phase boundaries, not plugin registries
 * **Mitigation:** Keep wall-clock scheduling and presentation cadence outside simulation; supersede this ADR deliberately if measured Linux cost or gameplay requirements demand another quantum.
 * **Negative:** Binary64 arithmetic does not promise cross-toolchain bit identity.
 * **Mitigation:** Preserve operation order, forbid fast-math and unordered reductions, require within-toolchain bit identity, and compare cross-toolchain values and invariants with the declared tolerance.
-* **Operational:** Scenario migration must add explicit IDs and expected tick horizons; the current files remain seeds rather than golden outputs.
+* **Operational:** Scenario files carry explicit IDs and remain initial-state seeds; executable tests own the expected tick horizons and outcomes.
 * **Reversibility:** The pure physics functions and phase-local buffers allow a versioned collision or integration policy to replace the baseline without changing world ownership, runtime publication, protocol encoding, or server boundaries.
 
-## Follow-up
+## Implementation evidence
 
-* `src/simulation` — Steps 12–15 must make this ADR's units, exact `FixedDelta`, pure equations, stable ordering, phase buffers, and failure behavior the canonical implementation.
-* `tests/unit` and `tests/fixtures` — Steps 13–15 must encode every outcome in the fixture table, including the discrete high-speed limitation and the migrated seed horizons.
-* `config/blob-royale.cfg` — Step 21 must replace legacy upper-case/per-tick implications with semantic keys and the accepted 400 Hz contract.
+* `src/simulation` owns this ADR's units, exact `FixedDelta`, pure equations, stable ordering, phase buffers, and failure behavior.
+* `tests/unit/simulation` and `tests/fixtures` encode every outcome in the fixture table, including the discrete high-speed limitation and migrated seed horizons.
+* `config/blob-royale.cfg` uses semantic lower-case keys and records the accepted 400 Hz contract.
 
 ## Related
 

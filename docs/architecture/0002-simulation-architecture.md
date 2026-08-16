@@ -125,7 +125,7 @@ Rejected. More locks do not create an ownership model and would keep network, li
 * Network throughput cannot corrupt or block mutable world state; snapshot copying is an accepted initial cost measured later.
 * RAII makes normal shutdown and repeated construction/destruction testable.
 * Stable ID ordering and explicit tick phases trade some peak throughput for reproducibility.
-* The custom scheduler, singleton, global engine parameters, entity locks, cyclic shared ownership, and domain JSON methods must be deleted during the atomic production cutover.
+* The atomic production cutover deleted the custom scheduler, singleton, global engine parameters, entity locks, cyclic shared ownership, and domain JSON methods; Git history remains the archive.
 * Future parallelism or entity polymorphism must earn complexity with a concrete requirement, Linux measurements, and preserved observable behavior.
 
 ## Related

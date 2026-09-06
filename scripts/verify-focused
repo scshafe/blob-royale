@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+
+# Runs one focused CTest selection inside the pinned Linux/amd64 toolchain.
+# Inputs: <ctest-regex> [configure-preset]; the preset defaults to linux-gcc-debug.
+# Side effects: configures and incrementally builds out/build/<preset>, then runs matching tests.
+# Idempotent: yes. This is a development convenience; ./scripts/verify-linux remains the gate.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly DEFAULT_PRESET="linux-gcc-debug"
+readonly KNOWN_PRESETS="linux-gcc-debug|linux-gcc-release|linux-clang-asan-ubsan|linux-clang-tsan"
+readonly ASAN_OPTIONS_VALUE="detect_leaks=1:halt_on_error=1:strict_string_checks=1"
+readonly UBSAN_OPTIONS_VALUE="halt_on_error=1:print_stacktrace=1"
+readonly TSAN_OPTIONS_VALUE="halt_on_error=1:history_size=7"
+
+usage() {
+  printf 'Usage: %s <ctest-regex> [%s]\n' "$0" "${KNOWN_PRESETS}"
+}
+
+fail() {
+  printf 'verify-focused: %s\n' "$1" >&2
+  exit 1
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+if [[ "$#" -lt 1 || "$#" -gt 2 || -z "$1" ]]; then
+  usage >&2
+  exit 64
+fi
+
+readonly TEST_REGEX="$1"
+readonly PRESET="${2:-${DEFAULT_PRESET}}"
+
+case "${PRESET}" in
+  linux-gcc-debug | linux-gcc-release | linux-clang-asan-ubsan | linux-clang-tsan)
+    ;;
+  *)
+    usage >&2
+    exit 64
+    ;;
+esac
+
+# Outside the toolchain, re-enter through the canonical wrapper so the host classification,
+# image pin, user mapping, and mounts are identical to the gate's.
+if [[ -z "${BLOB_ROYALE_TOOLCHAIN_IMAGE:-}" ]]; then
+  exec "${SCRIPT_DIRECTORY}/run-linux-toolchain" -- \
+    ./scripts/verify-focused "${TEST_REGEX}" "${PRESET}"
+fi
+
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  fail "the pinned toolchain must run as Linux x86_64"
+fi
+
+for required_command in cmake ctest ninja; do
+  if ! command -v "${required_command}" >/dev/null 2>&1; then
+    fail "required command is missing: ${required_command}"
+  fi
+done
+
+cd "${REPOSITORY_DIRECTORY}"
+
+printf 'verify_focused.preset=%s\n' "${PRESET}"
+printf 'verify_focused.regex=%s\n' "${TEST_REGEX}"
+printf 'verify_focused.authority=%s\n' "${BLOB_ROYALE_VERIFICATION_AUTHORITY:-unknown}"
+printf 'verify_focused.host=%s/%s docker=%s/%s\n' \
+  "${BLOB_ROYALE_VERIFICATION_HOST_OS:-unknown}" \
+  "${BLOB_ROYALE_VERIFICATION_HOST_ARCH:-unknown}" \
+  "${BLOB_ROYALE_VERIFICATION_DOCKER_OS:-unknown}" \
+  "${BLOB_ROYALE_VERIFICATION_DOCKER_ARCH:-unknown}"
+
+cmake --preset "${PRESET}"
+cmake --build --preset "${PRESET}"
+
+case "${PRESET}" in
+  linux-clang-asan-ubsan)
+    export ASAN_OPTIONS="${ASAN_OPTIONS_VALUE}"
+    export UBSAN_OPTIONS="${UBSAN_OPTIONS_VALUE}"
+    ;;
+  linux-clang-tsan)
+    export TSAN_OPTIONS="${TSAN_OPTIONS_VALUE}"
+    ;;
+esac
+
+ctest --preset "${PRESET}" -R "${TEST_REGEX}" --output-on-failure --no-tests=error
+printf 'verify_focused.status=passed\n'

@@ -162,10 +162,15 @@ printf 'deploy_tailnet.step=container status=passed\n'
 #    proxying, so the backend target carries `/api` to restore the exact v1 routes.
 printf 'deploy_tailnet.step=tailscale-serve status=running\n'
 sudo tailscale serve --bg --yes --https="${SERVE_HTTPS_PORT}" --set-path=/api \
-  "http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api" >/dev/null
-sudo tailscale serve --bg --yes --https="${SERVE_HTTPS_PORT}" "${WEB_DIRECTORY}" >/dev/null
-TAILNET_DNS_NAME="$(tailscale status --self --json |
-  sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n 1)"
+  "http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api" >/dev/null ||
+  fail "DEPLOY.SERVE_API_FAILED" "tailscale serve refused the /api proxy handler"
+sudo tailscale serve --bg --yes --https="${SERVE_HTTPS_PORT}" "${WEB_DIRECTORY}" >/dev/null ||
+  fail "DEPLOY.SERVE_WEB_FAILED" "tailscale serve refused the static web handler"
+# Capture the status document first: a pipeline that stops reading early would fail under pipefail.
+TAILNET_SELF_STATUS="$(tailscale status --self=true --peers=false --json)" ||
+  fail "DEPLOY.TAILNET_STATUS_UNAVAILABLE" "tailscale status did not return the self node document"
+readonly TAILNET_SELF_STATUS
+TAILNET_DNS_NAME="$(sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' <<<"${TAILNET_SELF_STATUS}" | sed -n '1p')"
 readonly TAILNET_DNS_NAME
 [[ -n "${TAILNET_DNS_NAME}" ]] ||
   fail "DEPLOY.TAILNET_NAME_UNAVAILABLE" "tailscale did not report this node's DNS name"

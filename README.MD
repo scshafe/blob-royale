@@ -144,6 +144,8 @@ external origin the same way. The production bundle is produced with `npm run bu
 - `tests` — unit, real-process integration, fixtures, and browser specifications
 - `benchmarks` — deterministic Linux simulation and delivery measurements
 - `docs/operations/linux.md` — deployment, shutdown, diagnostics, and incident guidance
+- `docs/operations/tailnet.md` — deploying and operating the tailnet game host `cole-ubuntu-pc`
+- `deploy/ubuntu-pc` — committed configuration and starting scenario for that host
 
 The first gameplay-command feature should begin by specifying a new authenticated, authorized,
 versioned protocol extension. It must not grant network code mutable access to `GameSimulation` or

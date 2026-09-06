@@ -69,7 +69,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Verify: human review — the page shows "Connected to the read-only snapshot stream." and moving discs on two tailnet devices, and `docs/operations/tailnet.md` documents deploy, rollback (rerun `deploy-tailnet` at the previous commit), logs, and the serve configuration.
   - Notes: Also link the runbook from `README.MD` and `docs/operations/linux.md`.
 
-- [ ] **Step 10: Amend ADR 0001 with the observed deployment host**
+- [x] **Step 10: Amend ADR 0001 with the observed deployment host**
   - Verify: `rg -n 'cole-ubuntu-pc' docs/architecture/0001-linux-runtime-contract.md && rg -n '^\*\*Amended 2026-' docs/architecture/0001-linux-runtime-contract.md`
   - Specialist: `rigorous-architect`
   - Notes: Record distro/kernel/Docker versions, Docker restart policy as the supervisor, `tailscale serve` with Tailscale-issued certificates as the TLS boundary, tailnet-only exposure on 8444, host networking with a loopback listener, and that the same host is the authoritative release runner. Replace "No specific orchestrator is selected yet" and "proxy product and certificate source remain deployment facts to record later".
@@ -95,7 +95,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 
 - [ ] **Step 14: Add `GameplayConfig` and the strict `[gameplay]` configuration section**
   - Verify: `./scripts/verify-focused 'unit.application|unit.simulation|fixtures'`
-  - Notes: Keys named exactly as in Step 11 with units in the names. The loader rejects a missing section, unknown keys, non-finite or negative values, and `lobby_minimum_players` below 1. Add `[gameplay]` to `config/blob-royale.cfg`, `deploy/ubuntu-pc/blob-royale.cfg`, `frontend-react/e2e/fixtures/blob-royale-browser-e2e.cfg`, and the fuzz corpus configs, with `drag_per_second=0` everywhere except the deployment file.
+  - Notes: Keys named exactly as in Step 11 with units in the names. The loader rejects a missing section, unknown keys, non-finite or negative values, and `lobby_minimum_players` below 1. Add `[gameplay]` to `config/blob-royale.cfg`, `deploy/ubuntu-pc/blob-royale.cfg`, `frontend-react/e2e/fixtures/blob-royale-browser-e2e.cfg`, and the fuzz corpus configs, with `drag_per_second=0` everywhere except the deployment file. Fixture and test configurations must also set `lobby_minimum_players` above their CSV roster size so a seeded match stays in `lobby` and the ADR 0003 horizons remain bit-identical (ADR 0003 amendment, bit-identity paragraph).
 
 - [ ] **Step 15: Add `InputBatch` and command values**
   - Verify: `./scripts/verify-focused 'unit.simulation'`
@@ -125,7 +125,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 
 - [ ] **Step 21: Wire the application, then pass the full pull-request profile**
   - Verify: `./scripts/verify-linux pr`
-  - Notes: `BlobRoyaleApplication` passes the runtime's `CommandSink&` into `GameServer` alongside `const SnapshotPublication&`. Update `src/*/README.md` extension-point text and `docs/operations/linux.md` for the new route. The profile is advisory on the Mac; Step 28 makes it authoritative.
+  - Notes: `BlobRoyaleApplication` passes the runtime's `CommandSink&` into `GameServer` alongside `const SnapshotPublication&`. Update `src/*/README.md` extension-point text, the `simulation_input` bullet in `docs/architecture/0002-simulation-architecture.md` (it still says a future batch "may become an argument"), and `docs/operations/linux.md` for the new route. The profile is advisory on the Mac; Step 28 makes it authoritative.
 
 ### Phase 5 — Client
 

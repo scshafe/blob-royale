@@ -7,6 +7,9 @@ OCI userspace defined by `ci/linux/Dockerfile`. A native Linux/amd64 host is req
 release. The process does not daemonize, restart itself, terminate TLS, reload configuration, or
 write persistent state.
 
+The playable tailnet deployment on `cole-ubuntu-pc` has its own runbook in [`tailnet.md`](tailnet.md);
+this document remains the general contract it builds on.
+
 ## Build and evidence
 
 Run the release gate from a clean checkout on the native Linux runner:

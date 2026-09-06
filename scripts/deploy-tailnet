@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+
+# Deploys the verified Blob Royale release to this tailnet host behind tailscale serve.
+# Inputs: none; run from a clean checkout on cole-ubuntu-pc as a docker-group user with sudo.
+# Side effects: runs the authoritative release profile, replaces /srv/blob-royale inputs and web
+# files, replaces the blob-royale container, and (re)applies the tailscale serve handlers.
+# Idempotent: yes; rerunning at the same commit converges to the same running state.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly DEPLOYMENT_SOURCE_DIRECTORY="${REPOSITORY_DIRECTORY}/deploy/ubuntu-pc"
+readonly PUBLICATION_RECORD="${REPOSITORY_DIRECTORY}/out/release/current/publication.env"
+readonly DEPLOYABLE_DIRECTORY="${REPOSITORY_DIRECTORY}/out/release/current/deployable"
+readonly EXPECTED_HOSTNAME="cole-ubuntu-pc"
+readonly DEPLOYMENT_ROOT="/srv/blob-royale"
+readonly CONFIGURATION_DIRECTORY="${DEPLOYMENT_ROOT}/config"
+readonly WEB_DIRECTORY="${DEPLOYMENT_ROOT}/web"
+readonly CONTAINER_NAME="blob-royale"
+readonly CONTAINER_INPUT_DIRECTORY="/run/blob-royale"
+readonly APPLICATION_ADDRESS="127.0.0.1"
+readonly APPLICATION_PORT="8000"
+readonly SERVE_HTTPS_PORT="8444"
+readonly READINESS_DEADLINE_SECONDS=10
+
+usage() {
+  printf 'Usage: %s\n' "$0"
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'deploy_tailnet.status=failed\n' >&2
+  printf 'deploy_tailnet.error_code=%s\n' "${error_code}" >&2
+  printf 'deploy_tailnet.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+read_record_value() {
+  local record_file="$1"
+  local record_key="$2"
+  local record_value
+
+  record_value="$(sed -n "s/^${record_key}=//p" "${record_file}")"
+  [[ -n "${record_value}" && "$(grep -c "^${record_key}=" "${record_file}")" -eq 1 ]] ||
+    fail "DEPLOY.RECORD_INVALID" "${record_file} must contain exactly one ${record_key} value"
+  printf '%s' "${record_value}"
+}
+
+if [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+  usage
+  exit 0
+fi
+if [[ "$#" -ne 0 ]]; then
+  usage >&2
+  exit 64
+fi
+
+# Preconditions: this script encodes one host's deployment facts and must fail closed elsewhere.
+[[ "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" ]] ||
+  fail "DEPLOY.HOST_UNSUPPORTED" "deployment requires native Linux x86_64"
+[[ "$(hostname -s)" == "${EXPECTED_HOSTNAME}" ]] ||
+  fail "DEPLOY.HOST_UNEXPECTED" "this deployment is configured for ${EXPECTED_HOSTNAME}"
+for required_command in curl docker git hostname install rsync sed sudo tailscale; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "DEPLOY.COMMAND_MISSING" "required command is missing: ${required_command}"
+done
+sudo -n true 2>/dev/null ||
+  fail "DEPLOY.SUDO_REQUIRED" "non-interactive sudo is required for /srv and tailscale serve"
+[[ -f "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" &&
+  -f "${DEPLOYMENT_SOURCE_DIRECTORY}/scenario.csv" ]] ||
+  fail "DEPLOY.INPUTS_MISSING" "deploy/ubuntu-pc must contain blob-royale.cfg and scenario.csv"
+
+cd "${REPOSITORY_DIRECTORY}"
+[[ -z "$(git status --porcelain)" ]] ||
+  fail "DEPLOY.DIRTY_CHECKOUT" "deployment requires a clean checkout at a pushed commit"
+DEPLOYED_COMMIT="$(git rev-parse HEAD)"
+readonly DEPLOYED_COMMIT
+
+# 1. Verify and publish. The release profile is authoritative only on a native Linux x86_64 Docker
+#    host and refuses to publish otherwise, so nothing unverified can reach the container step.
+printf 'deploy_tailnet.step=verify-linux-release status=running\n'
+./scripts/verify-linux release
+printf 'deploy_tailnet.step=verify-linux-release status=passed\n'
+
+[[ -f "${PUBLICATION_RECORD}" ]] ||
+  fail "DEPLOY.PUBLICATION_MISSING" "out/release/current/publication.env was not published"
+VERIFICATION_AUTHORITY="$(read_record_value "${PUBLICATION_RECORD}" verification_authority)"
+readonly VERIFICATION_AUTHORITY
+[[ "${VERIFICATION_AUTHORITY}" == "authoritative" ]] ||
+  fail "DEPLOY.AUTHORITY_INVALID" "publication is ${VERIFICATION_AUTHORITY}, not authoritative"
+RELEASE_ID="$(read_record_value "${PUBLICATION_RECORD}" release_id)"
+readonly RELEASE_ID
+RUNTIME_IMAGE="$(read_record_value "${PUBLICATION_RECORD}" runtime_image_reference)"
+readonly RUNTIME_IMAGE
+docker image inspect "${RUNTIME_IMAGE}" >/dev/null 2>&1 ||
+  fail "DEPLOY.IMAGE_MISSING" "published runtime image is not present locally: ${RUNTIME_IMAGE}"
+[[ -f "${DEPLOYABLE_DIRECTORY}/web/index.html" ]] ||
+  fail "DEPLOY.WEB_MISSING" "published web deployable is missing index.html"
+
+# 2. Install immutable inputs and the static site. The container runs as numeric user 65532, so
+#    the mounted inputs are world-readable and nothing under the deployment root is writable.
+printf 'deploy_tailnet.step=install-files status=running\n'
+sudo install -d -m 0755 "${DEPLOYMENT_ROOT}" "${CONFIGURATION_DIRECTORY}" "${WEB_DIRECTORY}"
+sudo install -m 0444 "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" \
+  "${CONFIGURATION_DIRECTORY}/blob-royale.cfg"
+sudo install -m 0444 "${DEPLOYMENT_SOURCE_DIRECTORY}/scenario.csv" \
+  "${CONFIGURATION_DIRECTORY}/scenario.csv"
+sudo rsync --archive --delete --chmod=D0755,F0444 \
+  "${DEPLOYABLE_DIRECTORY}/web/" "${WEB_DIRECTORY}/"
+printf 'deploy_tailnet.step=install-files status=passed\n'
+
+# 3. Replace the container. Host networking keeps the listener on loopback, which is the safest
+#    configuration the server accepts and exactly where tailscale serve connects.
+printf 'deploy_tailnet.step=container status=running\n'
+if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
+  docker rm --force "${CONTAINER_NAME}" >/dev/null
+fi
+docker run \
+  --detach \
+  --name "${CONTAINER_NAME}" \
+  --restart unless-stopped \
+  --network host \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --memory 1g \
+  --cpus 2 \
+  --log-driver json-file \
+  --log-opt max-size=50m \
+  --log-opt max-file=5 \
+  --label "org.opencontainers.image.version=${RELEASE_ID}" \
+  --label "blob-royale.deployed-commit=${DEPLOYED_COMMIT}" \
+  --volume "${CONFIGURATION_DIRECTORY}:${CONTAINER_INPUT_DIRECTORY}:ro" \
+  "${RUNTIME_IMAGE}" \
+  --config "${CONTAINER_INPUT_DIRECTORY}/blob-royale.cfg" \
+  --scenario "${CONTAINER_INPUT_DIRECTORY}/scenario.csv" \
+  >/dev/null
+
+server_ready=false
+readiness_deadline=$((SECONDS + READINESS_DEADLINE_SECONDS))
+while ((SECONDS < readiness_deadline)); do
+  if curl --fail --silent --show-error --max-time 1 \
+    "http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api/v1/health/ready" 2>/dev/null |
+    grep -q '"status":"ready"'; then
+    server_ready=true
+    break
+  fi
+  sleep 0.5
+done
+if [[ "${server_ready}" != "true" ]]; then
+  docker logs --tail 20 "${CONTAINER_NAME}" >&2 || true
+  fail "DEPLOY.NOT_READY" "the server did not report readiness within ${READINESS_DEADLINE_SECONDS}s"
+fi
+printf 'deploy_tailnet.step=container status=passed\n'
+
+# 4. Publish through tailscale serve on the tailnet only. `--set-path` strips its prefix before
+#    proxying, so the backend target carries `/api` to restore the exact v1 routes.
+printf 'deploy_tailnet.step=tailscale-serve status=running\n'
+sudo tailscale serve --bg --yes --https="${SERVE_HTTPS_PORT}" --set-path=/api \
+  "http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api" >/dev/null
+sudo tailscale serve --bg --yes --https="${SERVE_HTTPS_PORT}" "${WEB_DIRECTORY}" >/dev/null
+TAILNET_DNS_NAME="$(tailscale status --self --json |
+  sed -n 's/.*"DNSName": *"\([^"]*\)\.".*/\1/p' | head -n 1)"
+readonly TAILNET_DNS_NAME
+[[ -n "${TAILNET_DNS_NAME}" ]] ||
+  fail "DEPLOY.TAILNET_NAME_UNAVAILABLE" "tailscale did not report this node's DNS name"
+readonly SITE_URL="https://${TAILNET_DNS_NAME}:${SERVE_HTTPS_PORT}"
+
+curl --fail --silent --show-error --max-time 10 "${SITE_URL}/api/v1/health/live" |
+  grep -q '"status":"alive"' ||
+  fail "DEPLOY.PROXY_API_UNREACHABLE" "the v1 liveness route is not reachable through ${SITE_URL}"
+curl --fail --silent --show-error --max-time 10 "${SITE_URL}/" | grep -q '<script' ||
+  fail "DEPLOY.PROXY_WEB_UNREACHABLE" "the web deployable is not served at ${SITE_URL}/"
+printf 'deploy_tailnet.step=tailscale-serve status=passed\n'
+
+printf '%s\n' \
+  "deploy_tailnet.release_id=${RELEASE_ID}" \
+  "deploy_tailnet.runtime_image=${RUNTIME_IMAGE}" \
+  "deploy_tailnet.deployed_commit=${DEPLOYED_COMMIT}" \
+  "deploy_tailnet.url=${SITE_URL}/" \
+  "deploy_tailnet.status=passed"

@@ -36,13 +36,13 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Verify: `rg -n '^allowed_origins=http://127.0.0.1:5173, http://localhost:5173$' config/blob-royale.cfg && test ! -e core && rg -n 'allowed_origins' README.MD`
   - Notes: Add both dev origins to `config/blob-royale.cfg`, delete the untracked `core` dump, and add one README sentence explaining that browsers always send Origin on WebSocket upgrades. No test pins the file's contents; `scripts/assemble-release-linux:125` copies it into the image as an example, which is fine.
 
-- [ ] **Step 3: Resize Colima and switch amd64 emulation to Rosetta**
+- [x] **Step 3: Resize Colima and switch amd64 emulation to Rosetta**
   - Verify: `colima list | rg 'default\s+Running\s+aarch64\s+8\s+12GiB' && ./scripts/run-linux-toolchain -- bash -c 'cmake --preset linux-clang-asan-ubsan && cmake --build --preset linux-clang-asan-ubsan && ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:strict_string_checks=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset linux-clang-asan-ubsan -R unit.simulation --output-on-failure --no-tests=error'`
   - Notes: `colima stop && colima start --cpu 8 --memory 12 --vz-rosetta`. The sanitizer lane previously died with exit 137 under QEMU. Results remain advisory; the point is a usable local loop.
 
-- [ ] **Step 4: Add `scripts/verify-focused` for one-command focused native checks**
-  - Verify: `./scripts/verify-focused 'unit.simulation' && ./scripts/verify-focused 'unit.runtime' linux-clang-tsan`
-  - Notes: Usage `verify-focused <ctest-regex> [preset]`, default preset `linux-gcc-debug`. It re-enters `./scripts/run-linux-toolchain` and runs `cmake --preset`, `cmake --build --preset`, then `ctest --preset -R <regex> --output-on-failure --no-tests=error`. It is a development convenience and must print the same advisory/authoritative host classification the gate prints; it never replaces `verify-linux`.
+- [x] **Step 4: Add `scripts/verify-focused` for one-command focused native checks**
+  - Verify: `./scripts/verify-focused 'unit.simulation' && ./scripts/verify-focused 'unit.runtime' linux-clang-asan-ubsan`
+  - Notes: Usage `verify-focused <ctest-regex> [preset]`, default preset `linux-gcc-debug`. ThreadSanitizer cannot execute under Rosetta because Rosetta rejects `personality(ADDR_NO_RANDOMIZE)`, so the `linux-clang-tsan` preset is native-only: run it on `cole-ubuntu-pc` or in CI. It re-enters `./scripts/run-linux-toolchain` and runs `cmake --preset`, `cmake --build --preset`, then `ctest --preset -R <regex> --output-on-failure --no-tests=error`. It is a development convenience and must print the same advisory/authoritative host classification the gate prints; it never replaces `verify-linux`.
 
 - [ ] **Step 5: Bootstrap `cole-ubuntu-pc` as the authoritative release runner**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && rg -q "^verification_authority=authoritative$" out/release/current/publication.env && docker image inspect --format "{{.Id}}" "$(rg -o "^runtime_image_reference=.*" out/release/current/publication.env | cut -d= -f2)"'`
@@ -50,7 +50,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 
 ### Phase 1 — Deploy the existing read-only build to the tailnet
 
-- [ ] **Step 6: Commit deployment assets and the idempotent deploy script**
+- [x] **Step 6: Commit deployment assets and the idempotent deploy script**
   - Verify: `bash -n scripts/deploy-tailnet && ./scripts/verify-focused 'fixtures.deployment'`
   - Notes: Add `deploy/ubuntu-pc/blob-royale.cfg` with `bind_address=127.0.0.1`, `port=8000`, `allowed_hosts=127.0.0.1:8000, cole-ubuntu-pc.colobus-stargazer.ts.net:8444`, `allowed_origins=https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444`, `trusted_proxy_addresses=` (empty until Step 20), the current world/grid values, and `deploy/ubuntu-pc/scenario.csv` as a copy of `tests/fixtures/player-on-player-collision-test.csv` so the read-only deployment shows moving discs. Add a fixture test that loads both files through `ApplicationConfigLoader` and `ScenarioLoader`. `scripts/deploy-tailnet` runs on the host from the repository root and, in order: refuses non-Linux/x86_64 or a dirty tree; runs `./scripts/verify-linux release`; reads `release_id` and `runtime_image_reference` from `out/release/current/publication.env`; installs `/srv/blob-royale/config/{blob-royale.cfg,scenario.csv}` mode 0444 and rsyncs `out/release/current/deployable/web/` to `/srv/blob-royale/web/`; replaces container `blob-royale` with `docker run -d --name blob-royale --restart unless-stopped --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 1g --cpus 2 -v /srv/blob-royale/config:/run/blob-royale:ro <image> --config /run/blob-royale/blob-royale.cfg --scenario /run/blob-royale/scenario.csv`; waits up to 10 seconds for `http://127.0.0.1:8000/api/v1/health/ready`; then applies Step 8's two `tailscale serve` commands (they are idempotent). Host networking keeps the listener on loopback, which is the safest configuration the server accepts and what the proxy connects to.
 
@@ -109,7 +109,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 ### Phase 4 — Runtime, protocol, server, and application
 
 - [ ] **Step 18: Add the runtime command mailbox and write-only `CommandSink`**
-  - Verify: `./scripts/verify-focused 'unit.runtime' && ./scripts/verify-focused 'unit.runtime' linux-clang-tsan`
+  - Verify: `./scripts/verify-focused 'unit.runtime' linux-clang-asan-ubsan && git push origin main && ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/verify-focused unit.runtime linux-clang-tsan'`
   - Notes: `CommandMailbox` is a bounded, mutex-protected buffer inside `SimulationRuntime`; the worker swaps it out once per tick, builds one `InputBatch`, and calls `step`. `CommandSink` exposes `open_session() -> EntityId`, `set_thrust(EntityId, Vector2)`, and `close_session(EntityId)` and nothing else. Overflow drops the oldest thrust for the same entity, never a spawn or despawn. TSan runs are advisory on the Mac and authoritative on `cole-ubuntu-pc` and CI.
 
 - [ ] **Step 19: Implement v2 encoding and decoding in `blob_protocol` and regenerate client types**
@@ -167,3 +167,5 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 - No gate was skipped or weakened, Funnel is off, and the deployment is reproducible by rerunning `scripts/deploy-tailnet` at the certified commit.
 
 **Amended 2026-09-06:** Swapped Steps 3 and 4 so the Colima resize precedes the first sanitizer verify; the original order asked a TSan lane to pass under the 2 GiB QEMU VM that the resize replaces.
+
+**Amended 2026-09-06:** Steps 4 and 18 no longer run ThreadSanitizer on the Mac. Rosetta rejects the `personality(ADDR_NO_RANDOMIZE)` call TSan needs (`tsan_platform_linux.cpp:282` CHECK failure), so the local loop covers GCC and ASan/UBSan and the TSan lane runs natively on `cole-ubuntu-pc` and in CI.

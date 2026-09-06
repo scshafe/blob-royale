@@ -44,8 +44,9 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Verify: `./scripts/verify-focused 'unit.simulation' && ./scripts/verify-focused 'unit.runtime' linux-clang-asan-ubsan`
   - Notes: Usage `verify-focused <ctest-regex> [preset]`, default preset `linux-gcc-debug`. ThreadSanitizer cannot execute under Rosetta because Rosetta rejects `personality(ADDR_NO_RANDOMIZE)`, so the `linux-clang-tsan` preset is native-only: run it on `cole-ubuntu-pc` or in CI. It re-enters `./scripts/run-linux-toolchain` and runs `cmake --preset`, `cmake --build --preset`, then `ctest --preset -R <regex> --output-on-failure --no-tests=error`. It is a development convenience and must print the same advisory/authoritative host classification the gate prints; it never replaces `verify-linux`.
 
-- [ ] **Step 5: Bootstrap `cole-ubuntu-pc` as the authoritative release runner**
-  - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && rg -q "^verification_authority=authoritative$" out/release/current/publication.env && docker image inspect --format "{{.Id}}" "$(rg -o "^runtime_image_reference=.*" out/release/current/publication.env | cut -d= -f2)"'`
+- [x] **Step 5: Bootstrap `cole-ubuntu-pc` as the authoritative release runner**
+  - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && grep -q "^verification_authority=authoritative$" out/release/current/publication.env && docker image inspect --format "{{.Id}}" "$(grep -o "^runtime_image_reference=.*" out/release/current/publication.env | cut -d= -f2)"'`
+  - Execution note (2026-09-06): The first authoritative publication landed at `57deb18` after four native runs exposed defects no emulated run had reached: the TSan lane needs `vm.mmap_rnd_bits=28` on the host (`/etc/sysctl.d/60-blob-royale-sanitizers.conf`) because Docker's seccomp blocks TSan's `personality(ADDR_NO_RANDOMIZE)`; the archive identity check assumed the graph-driver `docker save` layout; `fast-uri` 3.1.5 carried four high advisories; and the evidence directory was made read-only before a cross-parent move. Each was fixed forward in its own commit.
   - Notes: Clone `git@github.com:scshafe/blob-royale.git` to `~/Projects/blob-royale` with the host's own GitHub credentials, check out the pushed `main`, and run `./scripts/verify-linux release`. The release profile refuses a modified checkout. Expect the first run to take a while; it builds the pinned toolchain image and Catch2 once. This closes the nine open steps of the 2026-08-04 plan; tick them there with an execution note citing this run.
 
 ### Phase 1 — Deploy the existing read-only build to the tailnet
@@ -54,11 +55,12 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Verify: `bash -n scripts/deploy-tailnet && ./scripts/verify-focused 'fixtures.deployment'`
   - Notes: Add `deploy/ubuntu-pc/blob-royale.cfg` with `bind_address=127.0.0.1`, `port=8000`, `allowed_hosts=127.0.0.1:8000, cole-ubuntu-pc.colobus-stargazer.ts.net:8444`, `allowed_origins=https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444`, `trusted_proxy_addresses=` (empty until Step 20), the current world/grid values, and `deploy/ubuntu-pc/scenario.csv` as a copy of `tests/fixtures/player-on-player-collision-test.csv` so the read-only deployment shows moving discs. Add a fixture test that loads both files through `ApplicationConfigLoader` and `ScenarioLoader`. `scripts/deploy-tailnet` runs on the host from the repository root and, in order: refuses non-Linux/x86_64 or a dirty tree; runs `./scripts/verify-linux release`; reads `release_id` and `runtime_image_reference` from `out/release/current/publication.env`; installs `/srv/blob-royale/config/{blob-royale.cfg,scenario.csv}` mode 0444 and rsyncs `out/release/current/deployable/web/` to `/srv/blob-royale/web/`; replaces container `blob-royale` with `docker run -d --name blob-royale --restart unless-stopped --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --memory 1g --cpus 2 -v /srv/blob-royale/config:/run/blob-royale:ro <image> --config /run/blob-royale/blob-royale.cfg --scenario /run/blob-royale/scenario.csv`; waits up to 10 seconds for `http://127.0.0.1:8000/api/v1/health/ready`; then applies Step 8's two `tailscale serve` commands (they are idempotent). Host networking keeps the listener on loopback, which is the safest configuration the server accepts and what the proxy connects to.
 
-- [ ] **Step 7: Run the server container on `cole-ubuntu-pc`**
-  - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet && curl -fsS http://127.0.0.1:8000/api/v1/health/ready | rg -q "\"status\":\"ready\"" && docker ps --filter name=^blob-royale$ --format "{{.Status}}" | rg -q Up'`
+- [x] **Step 7: Run the server container on `cole-ubuntu-pc`**
+  - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet && curl -fsS http://127.0.0.1:8000/api/v1/health/ready | grep -q "\"status\":\"ready\"" && docker ps --filter name=^blob-royale$ --format "{{.Status}}" | grep -q Up'`
   - Notes: Logs are JSON lines on stderr; read them with `docker logs blob-royale`. A nonzero startup exit means a configuration error, not something to retry.
+  - Execution note (2026-09-06): `deploy-tailnet` ran under `nohup` with its log at `~/blob-royale-deploy.log` on the host and ended with `deploy_tailnet.status=passed` at `57deb18`, release `release-e4a99f98f062f99aa5c841449cd520a225d6acea0da5a0c1c612088db139ef66`. The first successful deployment exited nonzero only in its final DNS-name pipeline, fixed in `57deb18` before the rerun.
 
-- [ ] **Step 8: Publish the site through `tailscale serve` on port 8444**
+- [x] **Step 8: Publish the site through `tailscale serve` on port 8444**
   - Verify: `curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v1/health/live | rg -q '"status":"alive"' && curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/ | rg -q '<script'`
   - Notes: On the host: `sudo tailscale serve --bg --https=8444 --set-path=/api http://127.0.0.1:8000/api` and `sudo tailscale serve --bg --https=8444 /srv/blob-royale/web`. The target path `/api` restores the prefix that `--set-path` strips. Tailnet only; never `tailscale funnel`. Fallback if the proxied path or Host does not match exactly: run `caddy:2-alpine` on `127.0.0.1:8081` with `reverse_proxy /api/* 127.0.0.1:8000` plus `root * /srv/blob-royale/web` and `file_server`, and point one `tailscale serve --https=8444 http://127.0.0.1:8081` at it. Record whichever is used in Step 9's runbook.
 
@@ -154,7 +156,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Notes: Do not fix balance or feel inside this plan; file follow-ups.
 
 - [ ] **Step 28: Certify the shipped commit**
-  - Verify: `gh run list --workflow quality.yml --branch main --limit 1 --json conclusion --jq '.[0].conclusion' | rg -q success && ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && rg -q "^verification_authority=authoritative$" out/release/current/publication.env'`
+  - Verify: `gh run list --workflow quality.yml --branch main --limit 1 --json conclusion --jq '.[0].conclusion' | rg -q success && ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && grep -q "^verification_authority=authoritative$" out/release/current/publication.env'`
   - Specialist: `proofreader`
   - Notes: The deployed commit, `origin/main`, and the authoritative publication record must agree. Tick the nine remaining steps of the 2026-08-04 plan with a pointer to this evidence.
 
@@ -169,3 +171,5 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 **Amended 2026-09-06:** Swapped Steps 3 and 4 so the Colima resize precedes the first sanitizer verify; the original order asked a TSan lane to pass under the 2 GiB QEMU VM that the resize replaces.
 
 **Amended 2026-09-06:** Steps 4 and 18 no longer run ThreadSanitizer on the Mac. Rosetta rejects the `personality(ADDR_NO_RANDOMIZE)` call TSan needs (`tsan_platform_linux.cpp:282` CHECK failure), so the local loop covers GCC and ASan/UBSan and the TSan lane runs natively on `cole-ubuntu-pc` and in CI.
+
+**Amended 2026-09-06:** Host-side verifies in Steps 5, 7, and 28 use `grep` instead of `rg` because `cole-ubuntu-pc` has no ripgrep installed.

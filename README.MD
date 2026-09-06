@@ -126,9 +126,11 @@ npm ci
 npm run dev
 ```
 
-Vite binds loopback and proxies same-origin `/api` HTTP and WebSocket traffic to the server. The
-production bundle is produced with `npm run build`; `./scripts/verify-web` is the canonical Linux
-client gate.
+Vite binds loopback and proxies same-origin `/api` HTTP and WebSocket traffic to the server.
+Browsers always send an `Origin` header on WebSocket upgrades, so the checked-in configuration
+allowlists both Vite development origins in `allowed_origins`; a deployment must list its exact
+external origin the same way. The production bundle is produced with `npm run build`;
+`./scripts/verify-web` is the canonical Linux client gate.
 
 ## Repository map
 

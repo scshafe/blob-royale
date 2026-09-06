@@ -32,17 +32,17 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Verify: `git push origin main && gh run watch --exit-status $(gh run list --workflow quality.yml --branch main --limit 1 --json databaseId --jq '.[0].databaseId')`
   - Notes: Fix forward with separate `fix:` commits if a never-exercised lane fails (sanitizers, fuzz regressions, Chromium, Syft/Grype). Fresh Grype databases may flag the 2026-08-04 pins; bump pins deliberately in `ci/linux/Dockerfile` or `frontend-react/package-lock.json`, never suppress findings. Enable branch protection requiring `quality/linux-authoritative` once the run is green.
 
-- [ ] **Step 2: Repair the documented browser dev flow**
+- [x] **Step 2: Repair the documented browser dev flow**
   - Verify: `rg -n '^allowed_origins=http://127.0.0.1:5173, http://localhost:5173$' config/blob-royale.cfg && test ! -e core && rg -n 'allowed_origins' README.MD`
   - Notes: Add both dev origins to `config/blob-royale.cfg`, delete the untracked `core` dump, and add one README sentence explaining that browsers always send Origin on WebSocket upgrades. No test pins the file's contents; `scripts/assemble-release-linux:125` copies it into the image as an example, which is fine.
 
-- [ ] **Step 3: Add `scripts/verify-focused` for one-command focused native checks**
+- [ ] **Step 3: Resize Colima and switch amd64 emulation to Rosetta**
+  - Verify: `colima list | rg 'default\s+Running\s+aarch64\s+8\s+12GiB' && ./scripts/run-linux-toolchain -- bash -c 'cmake --preset linux-clang-asan-ubsan && cmake --build --preset linux-clang-asan-ubsan && ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:strict_string_checks=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 ctest --preset linux-clang-asan-ubsan -R unit.simulation --output-on-failure --no-tests=error'`
+  - Notes: `colima stop && colima start --cpu 8 --memory 12 --vz-rosetta`. The sanitizer lane previously died with exit 137 under QEMU. Results remain advisory; the point is a usable local loop.
+
+- [ ] **Step 4: Add `scripts/verify-focused` for one-command focused native checks**
   - Verify: `./scripts/verify-focused 'unit.simulation' && ./scripts/verify-focused 'unit.runtime' linux-clang-tsan`
   - Notes: Usage `verify-focused <ctest-regex> [preset]`, default preset `linux-gcc-debug`. It re-enters `./scripts/run-linux-toolchain` and runs `cmake --preset`, `cmake --build --preset`, then `ctest --preset -R <regex> --output-on-failure --no-tests=error`. It is a development convenience and must print the same advisory/authoritative host classification the gate prints; it never replaces `verify-linux`.
-
-- [ ] **Step 4: Resize Colima and switch amd64 emulation to Rosetta**
-  - Verify: `colima list | rg 'default\s+Running\s+aarch64\s+8\s+12GiB' && ./scripts/verify-focused 'unit.simulation' linux-clang-asan-ubsan`
-  - Notes: `colima stop && colima start --cpu 8 --memory 12 --vz-rosetta`. The sanitizer lane previously died with exit 137 under QEMU. Results remain advisory; the point is a usable local loop.
 
 - [ ] **Step 5: Bootstrap `cole-ubuntu-pc` as the authoritative release runner**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && rg -q "^verification_authority=authoritative$" out/release/current/publication.env && docker image inspect --format "{{.Id}}" "$(rg -o "^runtime_image_reference=.*" out/release/current/publication.env | cut -d= -f2)"'`
@@ -165,3 +165,5 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 - ADR 0001 records the real host; ADR 0004 and protocol v2 are `Accepted`; ADR 0003 is amended; all existing fixtures still pass with zero drag.
 - `blob_simulation` still depends only on the standard library, only the runtime worker mutates the simulation, and the server holds only `CommandSink&` and `const SnapshotPublication&`.
 - No gate was skipped or weakened, Funnel is off, and the deployment is reproducible by rerunning `scripts/deploy-tailnet` at the certified commit.
+
+**Amended 2026-09-06:** Swapped Steps 3 and 4 so the Colima resize precedes the first sanitizer verify; the original order asked a TSan lane to pass under the 2 GiB QEMU VM that the resize replaces.

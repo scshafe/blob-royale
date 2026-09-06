@@ -28,9 +28,10 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 
 ### Phase 0 — Establish authority and a fast loop
 
-- [ ] **Step 1: Push `main` and obtain the first authoritative CI result**
+- [x] **Step 1: Push `main` and obtain the first authoritative CI result**
   - Verify: `git push origin main && gh run watch --exit-status $(gh run list --workflow quality.yml --branch main --limit 1 --json databaseId --jq '.[0].databaseId')`
   - Notes: Fix forward with separate `fix:` commits if a never-exercised lane fails (sanitizers, fuzz regressions, Chromium, Syft/Grype). Fresh Grype databases may flag the 2026-08-04 pins; bump pins deliberately in `ci/linux/Dockerfile` or `frontend-react/package-lock.json`, never suppress findings. Enable branch protection requiring `quality/linux-authoritative` once the run is green.
+  - Execution note (2026-09-06): Run `34061268911` at `57deb18` is the first green `quality/linux-authoritative`. Runs one to three failed only in dependency evidence (graph-driver archive layout, `fast-uri` advisories, evidence-directory move) and every build, test, sanitizer, browser, and fuzz lane passed from the first run. Branch protection was deliberately not enabled yet: required status checks also reject direct pushes, and Steps 18, 26, and 28 push to `main` directly. Enable it when work moves to pull requests.
 
 - [x] **Step 2: Repair the documented browser dev flow**
   - Verify: `rg -n '^allowed_origins=http://127.0.0.1:5173, http://localhost:5173$' config/blob-royale.cfg && test ! -e core && rg -n 'allowed_origins' README.MD`

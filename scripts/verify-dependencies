@@ -170,42 +170,69 @@ case "${IMAGE_ARCHIVE}" in
 esac
 [[ -s "${IMAGE_ARCHIVE}" ]] ||
   fail "DEPENDENCY_EVIDENCE.ARCHIVE_EMPTY" "runtime image archive is missing or empty"
-# Docker's graph-driver store saves an image with its config at `<content-id>.json`, while the
-# containerd image store saves an OCI layout whose index names the image by manifest digest. Both
-# layouts must present the exact recorded content ID; the OCI blob must also hash to its own name.
+# `docker save` has three layouts. The classic graph-driver store names the config `<id>.json`;
+# graph-driver stores on Docker 25+ write an OCI layout whose manifest.json `Config` points at
+# `blobs/sha256/<id>`; the containerd image store writes an OCI layout whose index names the image
+# by manifest digest. Every layout must present the exact recorded content ID exactly once, and
+# the referenced blob must hash to its own name.
 readonly IMAGE_CONTENT_HEX="${IMAGE_CONTENT_ID#sha256:}"
 archive_inspection_directory=""
 trap '[[ -z "${archive_inspection_directory}" ]] || rm -rf -- "${archive_inspection_directory}"' EXIT
 archive_members="$(tar --list --file "${IMAGE_ARCHIVE}")"
 readonly archive_members
 if grep -Fx "${IMAGE_CONTENT_HEX}.json" <<<"${archive_members}" >/dev/null; then
-  readonly IMAGE_ARCHIVE_LAYOUT="docker-graphdriver"
-elif grep -Fx "index.json" <<<"${archive_members}" >/dev/null &&
-  grep -Fx "blobs/sha256/${IMAGE_CONTENT_HEX}" <<<"${archive_members}" >/dev/null; then
-  readonly IMAGE_ARCHIVE_LAYOUT="oci"
-  archive_inspection_directory="$(mktemp -d "${TMPDIR:-/tmp}/blob-royale-image-archive.XXXXXX")"
-  tar --extract --file "${IMAGE_ARCHIVE}" --directory "${archive_inspection_directory}" \
-    index.json "blobs/sha256/${IMAGE_CONTENT_HEX}" ||
-    fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
-      "runtime image archive OCI members could not be extracted for inspection"
-  node -e '
-    const fs = require("node:fs");
-    const [indexPath, digest] = process.argv.slice(1);
-    const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
-    const manifests = Array.isArray(index.manifests) ? index.manifests : [];
-    const matches = manifests.filter((entry) => entry && entry.digest === digest);
-    process.exit(index.schemaVersion === 2 && matches.length === 1 ? 0 : 1);
-  ' "${archive_inspection_directory}/index.json" "${IMAGE_CONTENT_ID}" ||
-    fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
-      "runtime image archive index does not name the recorded image content ID exactly once"
-  [[ "$(sha256_file "${archive_inspection_directory}/blobs/sha256/${IMAGE_CONTENT_HEX}")" == \
-    "${IMAGE_CONTENT_HEX}" ]] ||
-    fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
-      "runtime image archive manifest blob does not hash to the recorded image content ID"
+  readonly IMAGE_CONTENT_MEMBER="${IMAGE_CONTENT_HEX}.json"
+elif grep -Fx "blobs/sha256/${IMAGE_CONTENT_HEX}" <<<"${archive_members}" >/dev/null; then
+  readonly IMAGE_CONTENT_MEMBER="blobs/sha256/${IMAGE_CONTENT_HEX}"
 else
   fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
     "runtime image archive does not contain the recorded image content ID"
 fi
+grep -Fx "manifest.json" <<<"${archive_members}" >/dev/null ||
+  fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+    "runtime image archive has no manifest.json"
+archive_inspection_directory="$(mktemp -d "${TMPDIR:-/tmp}/blob-royale-image-archive.XXXXXX")"
+archive_inspection_members=("manifest.json" "${IMAGE_CONTENT_MEMBER}")
+if grep -Fx "index.json" <<<"${archive_members}" >/dev/null; then
+  archive_inspection_members+=("index.json")
+fi
+tar --extract --file "${IMAGE_ARCHIVE}" --directory "${archive_inspection_directory}" \
+  "${archive_inspection_members[@]}" ||
+  fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+    "runtime image archive members could not be extracted for inspection"
+IMAGE_ARCHIVE_LAYOUT="$(node -e '
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const [directory, digest, member] = process.argv.slice(1);
+  const hex = digest.slice("sha256:".length);
+  const manifest = JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8"));
+  if (!Array.isArray(manifest) || manifest.length !== 1) process.exit(1);
+  const configMatches = manifest.filter((entry) =>
+    entry && (entry.Config === `blobs/sha256/${hex}` || entry.Config === `${hex}.json`)).length;
+  let indexMatches = 0;
+  const indexPath = path.join(directory, "index.json");
+  if (fs.existsSync(indexPath)) {
+    const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+    if (index.schemaVersion !== 2 || !Array.isArray(index.manifests)) process.exit(1);
+    indexMatches = index.manifests.filter((entry) => entry && entry.digest === digest).length;
+  }
+  if (configMatches === 1 && indexMatches === 0) {
+    process.stdout.write(member.endsWith(".json") ? "graphdriver-legacy" : "graphdriver-oci");
+    process.exit(0);
+  }
+  if (configMatches === 0 && indexMatches === 1) {
+    process.stdout.write("containerd-oci");
+    process.exit(0);
+  }
+  process.exit(1);
+' "${archive_inspection_directory}" "${IMAGE_CONTENT_ID}" "${IMAGE_CONTENT_MEMBER}")" ||
+  fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+    "runtime image archive manifest and index do not name the recorded image content ID exactly once"
+readonly IMAGE_ARCHIVE_LAYOUT
+[[ "$(sha256_file "${archive_inspection_directory}/${IMAGE_CONTENT_MEMBER}")" == \
+  "${IMAGE_CONTENT_HEX}" ]] ||
+  fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+    "runtime image archive content member does not hash to the recorded image content ID"
 
 "${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
 
@@ -436,7 +463,6 @@ printf '%s\n' \
   >"${EVIDENCE_MANIFEST}"
 
 find "${EVIDENCE_DIRECTORY}" -type f -exec chmod 0444 {} +
-chmod 0555 "${EVIDENCE_DIRECTORY}"
 mkdir -p "${SECURITY_VERSIONS_DIRECTORY}"
 if [[ -d "${FINAL_EVIDENCE_DIRECTORY}" ]]; then
   if ! diff --brief --recursive --no-dereference \
@@ -448,7 +474,10 @@ if [[ -d "${FINAL_EVIDENCE_DIRECTORY}" ]]; then
   find "${EVIDENCE_DIRECTORY}" -type f -exec chmod u+w {} +
   rm -rf -- "${EVIDENCE_DIRECTORY}"
 else
+  # Linux rename(2) needs write permission on a directory whose parent changes, so the directory
+  # becomes non-writable only after it reaches its content-addressed name.
   mv -- "${EVIDENCE_DIRECTORY}" "${FINAL_EVIDENCE_DIRECTORY}"
+  chmod 0555 "${FINAL_EVIDENCE_DIRECTORY}"
 fi
 
 printf '%s\n' \

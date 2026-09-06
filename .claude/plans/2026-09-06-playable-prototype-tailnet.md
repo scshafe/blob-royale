@@ -1,11 +1,11 @@
 # Plan: Playable Blob Royale prototype on the tailnet
 
-**Goal:** Two or more people on the tailnet open `https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444`, each steers one blob, a shrinking safe zone eliminates blobs until one wins, and the server is the authoritative release image running on `cole-ubuntu-pc`.
-**Out of scope:** Accounts or passwords (Tailscale is the perimeter), Funnel or any internet exposure, multiple rooms or matchmaking, persistence or leaderboards, client-side prediction or interpolation, growth or unequal-mass mechanics, parallel physics, retiring protocol v1, and any weakening of the Linux-authoritative gates.
+**Goal:** Two or more people on the tailnet open `https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444`, each steers one blob alongside bots that act through the same input path, a shrinking safe zone eliminates blobs until one wins, the server is the authoritative release image running on `cole-ubuntu-pc`, and the gameplay layer is the extensible framework of ADR 0004 in which modes, maps, entity kinds, mechanics, and controllers are added by new files plus one registration line.
+**Out of scope:** Accounts or passwords (Tailscale is the perimeter), Funnel or any internet exposure, multiple rooms or matchmaking, persistence or leaderboards, client-side prediction or interpolation, growth or unequal-mass mechanics, a second game beyond `sandbox` and `royale`, AI-model-driven controllers (the seam ships, not the model), parallel physics, retiring protocol v1, and any weakening of the Linux-authoritative gates.
 
 ## Context
 
-The foundation is complete but has zero gameplay. Protocol v1 is read-only (`docs/protocol/v1.md`), the simulation has no input parameter (`src/simulation/game_simulation.hpp`), the roster is fixed from a CSV at startup (`src/application/scenario_loader.cpp`), and the client only renders (`frontend-react/src/features/simulation/SimulationCanvas.tsx`). The documented seam is `@extension-point simulation_input` in `docs/architecture/0002-simulation-architecture.md:88`, with commands explicitly excluded by `docs/architecture/0003-deterministic-simulation-contract.md:154`.
+The foundation is complete but has zero gameplay. Protocol v1 is read-only (`docs/protocol/v1.md`), the simulation has no input parameter (`src/simulation/game_simulation.hpp`), the roster is fixed from a CSV at startup (`src/application/scenario_loader.cpp`), and the client only renders (`frontend-react/src/features/simulation/SimulationCanvas.tsx`). The documented seam is `@extension-point simulation_input` in `docs/architecture/0002-simulation-architecture.md` § "Extension points", with commands explicitly excluded by `docs/architecture/0003-deterministic-simulation-contract.md:154`.
 
 Local `main` is 19 commits ahead of `origin/main` and has never been pushed, so `.github/workflows/quality.yml` has never run. Nine steps in `.claude/plans/2026-08-04-feature-ready-foundation.md` are unchecked only because no native Linux/x86_64 host ever executed the gate. Every local stamp under `out/verification/linux/` says `verification_authority=advisory`.
 
@@ -13,11 +13,14 @@ Deployment host facts observed over `ssh ubuntu-tailscale` on 2026-09-06: `cole-
 
 `tailscale serve` facts from the Tailscale source (`ipn/ipnlocal/serve.go`): the mount prefix is stripped with `http.StripPrefix`, so the backend target must carry `/api`; the client `Host` header is preserved for TCP backends; `X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Tailscale-User-Login`, `Tailscale-User-Name`, and `Tailscale-User-Profile-Pic` are set (identity headers are absent for tagged devices); a directory target uses Go's `http.FileServer`, which serves `index.html`. The proxy connects to the backend from `127.0.0.1`, so today every tailnet player collapses into one loopback accounting principal capped at 8 WebSocket sessions and 4 upgrades per 20 seconds by `src/server/server_limits.hpp`.
 
+On 2026-09-06, after Steps 1 through 10 were verified, the owner set the gameplay design direction: build the game layer as a DRY, extensible framework so that once the multiplayer engine with inputs works, new games, entity kinds, and interactions are additions rather than edits, and computer-controlled entities act exactly as users do so bots can carry behaviors, later personalities and AI-driven policies. ADR 0002 had reserved this move for when "real gameplay creates that cardinality"; the requirement is that cardinality. The original Phase 2 to 6 steps, which hardcoded Royale as phases inside `GameSimulation`, are struck below and replaced by Phases 2 to 7 built on `docs/architecture/0004-gameplay-architecture.md`.
+
 Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins`, and `src/server/game_api_router.cpp:365` rejects any present Origin not on the list, so the README `npm run dev` flow fails with 403 on the WebSocket upgrade. The local Colima VM is 2 CPUs / 2 GiB with QEMU emulation, which kills sanitizer, fuzz, browser, and scanner lanes; a QEMU `core` dump sits untracked at the repository root.
 
 ## Execution constraints
 
-- **Design accepted on approval.** Approving this plan accepts the decisions in Steps 10, 11, 12, and 13 as written: host networking with a loopback listener behind `tailscale serve`; Tailscale as the only authentication; connection-scoped ownership with proxy-supplied identity; the thrust/drag/shrinking-zone core loop. Record them as ADRs and continue without another design pause unless verification contradicts them.
+- **Design accepted on approval.** Approving this plan accepts the decisions in Steps 10 through 14 as written: host networking with a loopback listener behind `tailscale serve`; Tailscale as the only authentication; connection-scoped ownership with proxy-supplied identity; the ADR 0004 gameplay framework; the ADR 0005 thrust/drag/shrinking-zone Royale mode. Record them as ADRs and continue without another design pause unless verification contradicts them.
+- **Framework discipline.** Values live in `blob_simulation`, rules live in `blob_gameplay`, decisions live in `blob_controllers`. Every seam carries an `@extension-point` tag, is registered in exactly one registry file, and is justified by two named implementations. A new mode, map, entity kind, mechanic, command kind, or bot must not require editing the kernel, another mode, or the server. Bots run outside the tick through the same `CommandSink` as network sessions.
 - **Authority.** GitHub Actions on `ubuntu-24.04` and native runs on `cole-ubuntu-pc` are authoritative. Mac runs, including Colima after resizing, remain advisory. Never skip, retry, or relax a gate to get green.
 - **Deploy only through `scripts/deploy-tailnet`.** It runs the release profile first, so nothing unverified can be served. Never enable Funnel.
 - **Single writer stays.** Only the runtime worker thread calls `GameSimulation::step`; network code receives a write-only command sink and `const SnapshotPublication&`, never the simulation or runtime.
@@ -74,89 +77,140 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Specialist: `rigorous-architect`
   - Notes: Record distro/kernel/Docker versions, Docker restart policy as the supervisor, `tailscale serve` with Tailscale-issued certificates as the TLS boundary, tailnet-only exposure on 8444, host networking with a loopback listener, and that the same host is the authoritative release runner. Replace "No specific orchestrator is selected yet" and "proxy product and certificate source remain deployment facts to record later".
 
-### Phase 2 — Accept the game and protocol contracts
+### ~~Phase 2 — Accept the game and protocol contracts~~ (superseded 2026-09-06)
 
-- [ ] **Step 11: Write ADR 0004, the Blob Royale core loop**
-  - Verify: human review — `docs/architecture/0004-core-loop.md` has status `Accepted` and defines every rule below with units from ADR 0003.
+- [ ] ~~**Step 11: Write ADR 0004, the Blob Royale core loop**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 12: Amend ADR 0003 for input, drag, dynamic roster, and gameplay phases**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 13: Specify protocol v2 with schemas and golden examples**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+### ~~Phase 3 — Deterministic gameplay in `blob_simulation`~~ (superseded 2026-09-06)
+
+- [ ] ~~**Step 14: Add `GameplayConfig` and the strict `[gameplay]` configuration section**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 15: Add `InputBatch` and command values**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 16: Extend `GameSimulation::step` with the input phase and drag**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 17: Add zone, elimination, and match lifecycle phases plus snapshot fields**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+### ~~Phase 4 — Runtime, protocol, server, and application~~ (superseded 2026-09-06)
+
+- [ ] ~~**Step 18: Add the runtime command mailbox and write-only `CommandSink`**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 19: Implement v2 encoding and decoding in `blob_protocol` and regenerate client types**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 20: Add the `/api/v2/session` route, session class, and trusted-proxy identity**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 21: Wire the application, then pass the full pull-request profile**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+### ~~Phase 5 — Client~~ (superseded 2026-09-06)
+
+- [ ] ~~**Step 22: Speak protocol v2 in `SimulationApi` and the connection hook**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 23: Add thrust input**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 24: Render the game**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 25: Add a two-player Chromium end-to-end flow**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+### ~~Phase 6 — Ship and play~~ (superseded 2026-09-06)
+
+- [ ] ~~**Step 26: Redeploy to the tailnet with an empty starting world**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 27: Playtest with at least two tailnet devices**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+- [ ] ~~**Step 28: Certify the shipped commit**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
+### Phase 2 — Accept the gameplay framework and protocol contracts
+
+- [ ] **Step 11: Accept ADR 0004 (gameplay architecture) and the ADR 0002 amendment**
+  - Verify: human review — `docs/architecture/0004-gameplay-architecture.md` has status `Accepted`; `docs/architecture/0002-simulation-architecture.md` carries an `**Amended 2026-09-06:**` note admitting `blob_gameplay`, `blob_controllers`, component composition, staged systems, `GameMode` inheritance, and controllers; both use the existing names `GameWorld` and `PhysicsBody`.
   - Specialist: `rigorous-architect`
-  - Notes: Thrust command sets a unit-clamped direction scaled by `thrust_max_world_units_per_second_squared` into stored acceleration. Linear drag `v ← v × max(0, 1 − drag_per_second × dt)` applied after acceleration. Circular safe zone centered on the arena with radius shrinking linearly from covering the arena to `zone_minimum_radius_world_units` over `zone_shrink_seconds` after `running` begins. A blob whose center is outside the zone for `elimination_grace_seconds` is eliminated, leaves the physics world, and is recorded with its placement. Phases: `lobby` (fewer than `lobby_minimum_players` alive), `countdown` (`countdown_seconds`), `running`, `ended` (`restart_delay_seconds`, winner or draw), then back to `lobby` with every connected player respawned. Spawn requests during `running` wait as pending until the next `lobby`. Spawn positions come from a fixed ring of slots indexed by a spawn counter; an occupied slot advances to the next; a full ring defers the spawn one tick. All ties resolve by ascending `EntityId`. Proposed initial values for a 960×640 arena: thrust 400, drag 2.0, zone minimum 60, shrink 90 s, grace 3 s, lobby minimum 2, countdown 5 s, restart 8 s.
+  - Notes: The framework is the owner's stated requirement of 2026-09-06: modes, maps, entity kinds, mechanics, and bots are added by new files plus one registration line, and computer-controlled entities act exactly as users do. The eight `@extension-point` seams (`entity_component`, `simulation_system`, `contact_rule`, `game_mode`, `map_definition`, `command_kind`, `controller`, `entity_renderer`) and the "values live in `blob_simulation`, rules live in `blob_gameplay`" rule are the contract every later step implements.
 
-- [ ] **Step 12: Amend ADR 0003 for input, drag, dynamic roster, and gameplay phases**
-  - Verify: human review — `rg -n '^\*\*Amended 2026-' docs/architecture/0003-deterministic-simulation-contract.md` and the fixture table gains drag-decay, spawn-order, zone-elimination, and match-transition cases.
+- [ ] **Step 12: Accept ADR 0005, the Royale mode, expressed on the framework**
+  - Verify: human review — `docs/architecture/0005-royale-mode.md` is titled as ADR 5 with status `Accepted`, expresses thrust, drag, zone, elimination, lifecycle, and ring spawns as a `GameMode` (systems at named stages, a `SpawnPolicy`, a `MatchObjective`), defines the `[royale]` configuration section, and cites ADR 0004 for every interface.
   - Specialist: `rigorous-architect`
-  - Notes: Phase 0 becomes "apply the tick's validated `InputBatch`": despawns, then spawns, then thrust into stored acceleration, all in ascending `EntityId`. Drag is part of phase 1. New phases after the grid rebuild and before commit: zone radius, elimination, match transition. State that `drag_per_second=0` and an empty batch reproduce the accepted baseline bit-for-bit, which keeps every existing fixture horizon valid. Replace the "Excluded player commands" section with the accepted input contract.
+  - Notes: Rework the existing draft rather than restarting; its rules and numbers stand. Drag moves to the kernel as `[simulation] drag_per_second` (zero in every fixture and test configuration, `2.0` in deployment), because ADR 0003's phase 1 owns it. Fix the draft's stale citations (`0004-core-loop.md`, ADR 0002 line 88).
 
-- [ ] **Step 13: Specify protocol v2 with schemas and golden examples**
+- [ ] **Step 13: Amend ADR 0003 for the staged kernel and accepted input**
+  - Verify: human review and `rg -n '^\*\*Amended 2026-' docs/architecture/0003-deterministic-simulation-contract.md`
+  - Specialist: `rigorous-architect`
+  - Notes: Redo the in-progress draft: phase 0 applies the `InputBatch` (despawns, spawns through the engine `SpawnSystem` and the mode's `SpawnPolicy`, then commands), phase 1 gains drag, phase 3 evaluates the `ContactRuleTable` (built-in rows reproduce today's elastic and reflect results exactly), and the hook stages `kPreKernel`, `kPostKernel`, `kLifecycle` are where mode systems run; commit clears events. State that zero drag, an empty batch, and a mode with no systems reproduce every accepted fixture bit-for-bit. Cite ADR 0005 for Royale rules (never restate them) and ADR 0004 for interfaces.
+
+- [ ] **Step 14: Specify protocol v2 with schemas and golden examples**
   - Verify: `cd frontend-react && npm run validate:protocol-examples` covers `docs/protocol/schema/v2/examples/*.json` and human review of the trust-boundary section in `docs/protocol/v2.md`.
   - Specialist: `doddy`
-  - Notes: One new route `GET /api/v2/session` upgraded with subprotocol `blob-royale.session.v2`. Connecting is joining; closing is leaving. Server messages: `welcome` (`entity_id`, `display_name`) then `snapshot` frames carrying `tick_sequence`, `match` (`phase`, `phase_started_tick`, `zone` center/radius, `alive_count`, `winner_entity_id` or null, bounded `placements`), and `players` (`entity_id`, `display_name`, position, velocity, acceleration). Client message: `set_thrust` with `x`, `y` in `[-1, 1]`, at most 1,024 bytes, admitted by a per-session token bucket (burst 30, refill 20/s; excess closes `1008 command_rate_exceeded`). The server stamps the session's own `entity_id` on every command; a client cannot address another entity. Identity: authentication is the tailnet; ownership is the connection. When the socket peer is in `trusted_proxy_addresses`, the accounting principal is the single canonical `X-Forwarded-For` address and `display_name` is a sanitized, 64-byte-bounded `Tailscale-User-Name`; malformed or missing forwarding data closes the connection. Direct loopback peers keep the socket principal and the name `player-<entity_id>`. State plainly that a loopback trusted proxy means any local process on the host can forge identity, which is accepted for a single-operator host. v1 stays unchanged.
+  - Notes: One route `GET /api/v2/session` with subprotocol `blob-royale.session.v2`; connecting joins, closing leaves. Server messages: `welcome` (`entity_id`, `display_name`, `mode`, `map`) then `snapshot` frames carrying `tick_sequence`, `entities` (each `entity_id` plus components keyed by component kind, one closed schema per kind, ascending ids), and `match` (`mode`, `phase`, `phase_started_tick`, `outcome`, bounded `placements`, and mode state by schema id). Client messages are command envelopes `{kind, payload}` with one closed schema per command kind (`set_thrust` first), 1,024-byte limit, per-session bucket (burst 30, refill 20/s, excess closes `1008 command_rate_exceeded`); the server stamps the session's entity. Adding a component or command kind is a protocol minor version that clients check. Identity: the tailnet authenticates; the connection owns one entity; when the socket peer is in `trusted_proxy_addresses`, the accounting principal is the single canonical `X-Forwarded-For` and `display_name` is a sanitized 64-byte `Tailscale-User-Name`; direct loopback peers keep the socket principal and `player-<entity_id>`. Bots appear as entities whose `Controllable` names their controller kind. State that a loopback trusted proxy lets any local process forge identity, accepted for a single-operator host. v1 stays unchanged.
 
-### Phase 3 — Deterministic gameplay in `blob_simulation`
+### Phase 3 — Engine kernel in `blob_simulation`
 
-- [ ] **Step 14: Add `GameplayConfig` and the strict `[gameplay]` configuration section**
-  - Verify: `./scripts/verify-focused 'unit.application|unit.simulation|fixtures'`
-  - Notes: Keys named exactly as in Step 11 with units in the names. The loader rejects a missing section, unknown keys, non-finite or negative values, and `lobby_minimum_players` below 1. Add `[gameplay]` to `config/blob-royale.cfg`, `deploy/ubuntu-pc/blob-royale.cfg`, `frontend-react/e2e/fixtures/blob-royale-browser-e2e.cfg`, and the fuzz corpus configs, with `drag_per_second=0` everywhere except the deployment file. Fixture and test configurations must also set `lobby_minimum_players` above their CSV roster size so a seeded match stays in `lobby` and the ADR 0003 horizons remain bit-identical (ADR 0003 amendment, bit-identity paragraph).
+- [ ] **Step 15: Introduce components, stores, and the registry**
+  - Verify: `./scripts/verify-focused 'unit.simulation|fixtures'`
+  - Notes: `ComponentStore<C>` (ascending `EntityId` entries), `ComponentRegistry` as the type list `PhysicsBody, Controllable, Lifetime, Score, Team`, and `GameWorld` becomes ascending entity ids plus one store per registered component, `MatchState`, the bounded `WorldEvent` list, and `DeterministicRandom` (SplitMix64 as specified). `Player` disappears: a player is an entity with `PhysicsBody` and `Controllable`. `WorldSnapshot` is generated from the registry. Existing physics tests and fixtures pass unchanged because the seeded CSV entities carry exactly `PhysicsBody`. `@extension-point entity_component` documented in `src/simulation/README.md`.
 
-- [ ] **Step 15: Add `InputBatch` and command values**
+- [ ] **Step 16: Add commands and the canonical `InputBatch`**
   - Verify: `./scripts/verify-focused 'unit.simulation'`
-  - Notes: `ThrustCommand`, `SpawnCommand`, `DespawnCommand`, and `InputBatch::create` that canonicalizes to ascending `EntityId`, keeps the last thrust per entity, rejects an entity that both spawns and despawns in one batch, and rejects non-finite or out-of-range components. Pure values, no allocation surprises, no dependency additions to `blob_simulation`.
+  - Notes: `command_registry.hpp` holds the closed variant `Command = SpawnCommand | DespawnCommand | ThrustCommand`, `CommandKind`, and `CommandKindMask`. `InputBatch::create(commands, accepted_kinds, EntityIdReservation)` canonicalizes to ascending id, keeps the last command of a kind per entity, rejects spawn-and-despawn for one entity, rejects unaccepted kinds and non-finite or out-of-range components. `@extension-point command_kind`.
 
-- [ ] **Step 16: Extend `GameSimulation::step` with the input phase and drag**
-  - Verify: `./scripts/verify-focused 'unit.simulation|fixtures'` with the pre-existing tests unmodified except for the added empty-batch argument.
-  - Notes: Signature `step(FixedDelta, const InputBatch&)`. Roster changes rebuild `GameWorld` before physics; spawn placement follows Step 11. Existing fixture expectations must pass unchanged with zero drag and empty batches, proving the baseline is preserved. Add tests for thrust integration, drag decay, spawn slot order, occupied-slot advance, and despawn of an entity referenced by a pending pair.
+- [ ] **Step 17: Make the tick a fixed kernel with named hook stages**
+  - Verify: `./scripts/verify-focused 'unit.simulation|fixtures'` with every pre-existing physics and fixture test unmodified except for the added arguments.
+  - Notes: `SimulationSystem`, `TickContext`, `SystemStage`, `SystemPipeline`, and `GameSimulation::create(config, map, mode)` with `step(FixedDelta, const InputBatch&)`: phase 0 input (despawns, engine `SpawnSystem` driven by the mode's `SpawnPolicy`, commands into `Controllable::commands_this_tick` and `PhysicsBody::acceleration` for thrust), phase 1 acceleration then drag from `[simulation] drag_per_second`, then the existing pair, wall, integrate, and reindex phases, with `kPreKernel`, `kPostKernel`, and `kLifecycle` systems run in declared order and events cleared at commit. A test-only mode with no systems, zero drag, and empty batches must reproduce every accepted horizon bit-for-bit. `@extension-point simulation_system`.
 
-- [ ] **Step 17: Add zone, elimination, and match lifecycle phases plus snapshot fields**
-  - Verify: `./scripts/verify-focused 'unit.simulation'` including a test that 100 fresh runs of a scripted multi-player match produce bit-identical ordered snapshots, then `./scripts/run-benchmarks-linux` still passes.
-  - Notes: `MatchState` and `SafeZone` are world-owned values; `WorldSnapshot` gains them and the bounded placement list. Eliminated players are despawned in the same tick they are eliminated. Pending spawns are world state so `lobby` entry is deterministic.
+- [ ] **Step 18: Add the contact rule table, static bodies, and maps as values**
+  - Verify: `./scripts/verify-focused 'unit.simulation'`
+  - Notes: `ContactRule` (predicate and response function pointers), `ContactResponse` (two bodies plus events), `ContactRuleTable::built_in()` with dynamic-dynamic elastic and dynamic-static reflect rows evaluated first-match in row order in phase 3; existing pair tests must pass through the table with identical numbers. `PhysicsBody` gains `mass`, `collision_layer`, and `is_static`. `MapDefinition` (`ArenaBounds`, `static_bodies`, `Marker`s with `spawn` kind, metadata) replaces the world-size configuration as the arena source. `@extension-point contact_rule`, `@extension-point map_definition`.
 
-### Phase 4 — Runtime, protocol, server, and application
+- [ ] **Step 19: Add the match lifecycle engine and the `GameMode` interface**
+  - Verify: `./scripts/verify-focused 'unit.simulation'`
+  - Notes: `MatchPhase`, `MatchOutcome`, `MatchLifecycleDurations`, `MatchObjective`, `SpawnPolicy`, and the abstract `GameMode` (`name`, `systems`, `contact_rules`, `accepted_command_kinds`, `spawn_policy`, `objective`, `validate_map`) live in `blob_simulation`; the engine-owned lifecycle system runs at `kLifecycle` with at most one transition per tick and writes `MatchSnapshot`. Tests use a minimal in-test mode. `@extension-point game_mode`.
 
-- [ ] **Step 18: Add the runtime command mailbox and write-only `CommandSink`**
+### Phase 4 — Games in `blob_gameplay`
+
+- [ ] **Step 20: Create `blob_gameplay` with the registry and the `sandbox` mode**
+  - Verify: `./scripts/verify-focused 'unit.gameplay'`
+  - Notes: New library depending only on `blob_simulation`; `game_mode_registry.hpp` maps mode names to factories; `SandboxMode` accepts thrust, uses built-in contact rules, seats every spawn at the next marker, never leaves `lobby`-equivalent free play. Its size is the seam's acid test: if it exceeds a few dozen lines, fix the interfaces in ADR 0004 before continuing. Tests mirror `src/gameplay` under `tests/unit/gameplay`.
+
+- [ ] **Step 21: Implement `RoyaleMode` per ADR 0005**
+  - Verify: `./scripts/verify-focused 'unit.gameplay|fixtures'` including a test that 100 fresh runs of a scripted multi-entity match replay produce bit-identical ordered snapshots, then `./scripts/run-benchmarks-linux` still passes.
+  - Notes: `ZoneSystem` and `EliminationSystem` at `kPostKernel`, a rotating ring `SpawnPolicy`, a `MatchObjective` with the accepted durations, `[royale]` configuration, and the placement rules from ADR 0005. Introduce the replay fixture format `(map, mode configuration, seed, command log)` under `tests/fixtures/replays/` and make it the primary gameplay fixture.
+
+### Phase 5 — Runtime, controllers, protocol, server, and application
+
+- [ ] **Step 22: Add the runtime command mailbox, `CommandSink`, and entity id reservations**
   - Verify: `./scripts/verify-focused 'unit.runtime' linux-clang-asan-ubsan && git push origin main && ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/verify-focused unit.runtime linux-clang-tsan'`
-  - Notes: `CommandMailbox` is a bounded, mutex-protected buffer inside `SimulationRuntime`; the worker swaps it out once per tick, builds one `InputBatch`, and calls `step`. `CommandSink` exposes `open_session() -> EntityId`, `set_thrust(EntityId, Vector2)`, and `close_session(EntityId)` and nothing else. Overflow drops the oldest thrust for the same entity, never a spawn or despawn. TSan runs are advisory on the Mac and authoritative on `cole-ubuntu-pc` and CI.
+  - Notes: `CommandMailbox` is a bounded, mutex-protected buffer inside `SimulationRuntime`; the worker swaps it out once per tick, hands the tick a contiguous `EntityIdReservation`, builds the `InputBatch` with the mode's accepted kinds, and calls `step`. `CommandSink` exposes `open_session() -> EntityId`, `submit(EntityId, Command)`, and `close_session(EntityId)` and nothing else. Overflow drops the oldest command of the same kind for the same entity, never a spawn or despawn. TSan is native-only.
 
-- [ ] **Step 19: Implement v2 encoding and decoding in `blob_protocol` and regenerate client types**
+- [ ] **Step 23: Create `blob_controllers` with `ControllerHost` and the first bots**
+  - Verify: `./scripts/verify-focused 'unit.controllers|unit.runtime'`
+  - Notes: `Controller` (`kind`, `entity`, `decide(const Observation&)`), `Observation`, and `ControllerHost`, which at presentation cadence reads `const SnapshotPublication&` and submits each controller's decisions to `CommandSink&`, so the simulation cannot tell a bot from a human. First controllers: `wanderer` (seeded random thrust), `chaser` (thrust toward the nearest other controllable entity), and `scripted_replay` (drives a recorded command log for fixtures). `controller_registry.hpp` maps kinds to factories; personalities are constructor configuration. A runtime-level test seats two bots in `sandbox` and asserts both move. `@extension-point controller`.
+
+- [ ] **Step 24: Implement protocol v2 encoding and decoding and regenerate client types**
   - Verify: `./scripts/verify-focused 'unit.protocol' && cd frontend-react && npm run generate:protocol && npm run generate:protocol:check`
-  - Notes: Extend `frontend-react/scripts/generateProtocolV1Types.mjs` to walk `docs/protocol/schema/v2` too, or add a v2 sibling, producing `protocolV2Types.generated.ts` and `protocolV2Schemas.generated.ts`. Golden bytes for every v2 example and rejection cases for extra members, non-finite values, oversized frames, and a thrust outside `[-1, 1]`.
+  - Notes: Component encoders keyed by component kind (one per registered component, registered beside the component), the `match` section, `welcome`, and command decoders per kind with golden bytes for every v2 example and rejection cases for extra members, non-finite values, oversized frames, unknown kinds, and a thrust outside `[-1, 1]`. Extend the generator to `docs/protocol/schema/v2`, producing `protocolV2Types.generated.ts` and `protocolV2Schemas.generated.ts`.
 
-- [ ] **Step 20: Add the `/api/v2/session` route, session class, and trusted-proxy identity**
+- [ ] **Step 25: Wire match configuration, maps, modes, and bots in the application**
+  - Verify: `./scripts/verify-focused 'unit.application|fixtures' && ./scripts/run-linux-toolchain -- ./scripts/assert-native-process-smoke`
+  - Notes: `[match]` section with `mode`, `map`, and `bots` (for example `wanderer:2, chaser:1`); `[simulation] drag_per_second`; `[royale]` per ADR 0005. `MapLoader` reads `maps/<name>/map.cfg` (bounds, metadata), `static_bodies.csv`, and `markers.csv` with the strict INI/CSV loaders; ship `maps/arena-960x640` reproducing today's arena, and make `--scenario` optional (a scenario still seeds extra entities for fixtures). `BlobRoyaleApplication` resolves the mode from `game_mode_registry`, validates the map through the mode, constructs `ControllerHost` from `controller_registry`, and passes `CommandSink&` and `const SnapshotPublication&` to the server. Update every checked-in configuration, the e2e fixture, and the fuzz corpus.
+
+- [ ] **Step 26: Add the `/api/v2/session` route, session class, and trusted-proxy identity**
   - Verify: `./scripts/verify-focused 'unit.server|integration'`
-  - Notes: `GameApiRouter` admits the v2 upgrade under the same host, origin, rate, and connection policies. `SessionWebSocketSession` sends `welcome`, decodes inbound frames, applies the per-session command bucket, forwards stamped commands to `CommandSink`, pushes v2 snapshots at presentation cadence, and calls `close_session` exactly once on any close path. Implement the Step 13 principal and display-name rules for peers in `trusted_proxy_addresses`. Integration test: two sessions join, a thrust from one moves only that entity, a disconnect despawns it, and a forged entity id in a frame is ignored.
+  - Notes: `GameApiRouter` admits the v2 upgrade under the same host, origin, rate, and connection policies. `SessionWebSocketSession` sends `welcome`, decodes command envelopes, applies the per-session command bucket, forwards stamped commands to `CommandSink`, pushes v2 snapshots at presentation cadence, and calls `close_session` exactly once on any close path. Implement the Step 14 principal and display-name rules for peers in `trusted_proxy_addresses`. Integration test: two sessions and one bot join a `royale` match, a thrust from one session moves only that entity, a disconnect despawns it, and a forged entity id in a frame is ignored.
 
-- [ ] **Step 21: Wire the application, then pass the full pull-request profile**
+- [ ] **Step 27: Pass the full pull-request profile and update domain documentation**
   - Verify: `./scripts/verify-linux pr`
-  - Notes: `BlobRoyaleApplication` passes the runtime's `CommandSink&` into `GameServer` alongside `const SnapshotPublication&`. Update `src/*/README.md` extension-point text, the `simulation_input` bullet in `docs/architecture/0002-simulation-architecture.md` (it still says a future batch "may become an argument"), and `docs/operations/linux.md` for the new route. The profile is advisory on the Mac; Step 28 makes it authoritative.
+  - Notes: Update `src/*/README.md` (including the two new domains), the `simulation_input` bullet in ADR 0002 if any residue remains, `docs/operations/linux.md`, and `benchmarks/README.md` for the new construction path. Advisory on the Mac; Step 33 makes it authoritative.
 
-### Phase 5 — Client
+### Phase 6 — Client
 
-- [ ] **Step 22: Speak protocol v2 in `SimulationApi` and the connection hook**
+- [ ] **Step 28: Speak protocol v2 in `SimulationApi` and the connection hook**
   - Verify: `cd frontend-react && npm run typecheck && npm run lint && npm run test:ci`
-  - Notes: Open the v2 session socket instead of v1, handle `welcome`, expose `myEntityId` and `match` in `useSimulationConnection` state, and add a `sendThrust` capability that is a no-op unless connected. Keep the reconnect budget; a reconnect is a new join by contract.
+  - Notes: Open the v2 session socket instead of v1, handle `welcome`, expose `myEntityId`, `match`, and `entities` in `useSimulationConnection` state, and add a `sendCommand` capability that is a no-op unless connected. Keep the reconnect budget; a reconnect is a new join by contract.
 
-- [ ] **Step 23: Add thrust input**
-  - Verify: `cd frontend-react && npm run test:ci -- useThrustInput`
-  - Notes: WASD and arrow keys map to a unit direction; sends only on change and at most every 50 ms; releases send zero thrust. Ignore input while the own entity is absent from the snapshot.
-
-- [ ] **Step 24: Render the game**
+- [ ] **Step 29: Add the renderer registry, game renderers, and thrust input**
   - Verify: `cd frontend-react && npm run test:ci && npm run build`
-  - Notes: Draw the zone circle, highlight the own blob, label blobs with `display_name`, show phase, countdown, alive count, and placement, and show overlays for waiting, eliminated, winner, and draw. Keep components presentational and the debug panel available behind a toggle.
+  - Notes: `entityRendererRegistry` keyed by component kind (`@extension-point entity_renderer`): bodies as discs with `display_name` labels and own-entity highlight, static bodies as obstacles, Royale zone from mode state; HUD for phase, countdown, alive count, placement; overlays for waiting, eliminated, winner, and draw. `useThrustInput` maps WASD and arrows to a unit direction, sends on change at most every 50 ms, sends zero on release, and ignores input while the own entity is absent.
 
-- [ ] **Step 25: Add a two-player Chromium end-to-end flow**
+- [ ] **Step 30: Add a two-player Chromium end-to-end flow with a bot present**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Specialist: `testineer`
-  - Notes: Two browser contexts join, both blobs appear with names, thrust from one moves only that blob, the zone radius decreases, and the existing server-loss recovery spec still passes. Use the e2e config with a header-only scenario.
+  - Notes: Two browser contexts join a `royale` match configured with one `wanderer` bot; all three entities render with names, thrust from one context moves only that entity, the zone radius decreases, and the existing server-loss recovery spec still passes.
 
-### Phase 6 — Ship and play
+### Phase 7 — Ship and play
 
-- [ ] **Step 26: Redeploy to the tailnet with an empty starting world**
+- [ ] **Step 31: Redeploy to the tailnet as a Royale match with bots**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet' && curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v1/health/ready | rg -q '"status":"ready"'`
-  - Notes: Switch `deploy/ubuntu-pc/scenario.csv` to header-only and set `trusted_proxy_addresses=127.0.0.1` so tailnet identity headers are honored. The release profile inside the script is authoritative on this host.
+  - Notes: `deploy/ubuntu-pc/blob-royale.cfg` gains `[match] mode=royale map=arena-960x640 bots=wanderer:2`, `[simulation] drag_per_second=2.0`, `[royale]`, and `trusted_proxy_addresses=127.0.0.1`; drop the seeded scenario. The release profile inside the script is authoritative on this host.
 
-- [ ] **Step 27: Playtest with at least two tailnet devices**
-  - Verify: human review — `docs/playtests/2026-MM-DD.md` records participants, device types, a completed match with a winner, latency feel, and every defect found.
+- [ ] **Step 32: Playtest with at least two tailnet devices and the bots**
+  - Verify: human review — `docs/playtests/2026-MM-DD.md` records participants, device types, a completed match with a winner, how the bots read, latency feel, and every defect found.
   - Notes: Do not fix balance or feel inside this plan; file follow-ups.
 
-- [ ] **Step 28: Certify the shipped commit**
+- [ ] **Step 33: Certify the shipped commit**
   - Verify: `gh run list --workflow quality.yml --branch main --limit 1 --json conclusion --jq '.[0].conclusion' | rg -q success && ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && grep -q "^verification_authority=authoritative$" out/release/current/publication.env'`
   - Specialist: `proofreader`
   - Notes: The deployed commit, `origin/main`, and the authoritative publication record must agree. Tick the nine remaining steps of the 2026-08-04 plan with a pointer to this evidence.
@@ -168,9 +222,13 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 - ADR 0001 records the real host; ADR 0004 and protocol v2 are `Accepted`; ADR 0003 is amended; all existing fixtures still pass with zero drag.
 - `blob_simulation` still depends only on the standard library, only the runtime worker mutates the simulation, and the server holds only `CommandSink&` and `const SnapshotPublication&`.
 - No gate was skipped or weakened, Funnel is off, and the deployment is reproducible by rerunning `scripts/deploy-tailnet` at the certified commit.
+- `sandbox` and `royale` both exist as `GameMode` implementations, at least two bot controllers play through the same `CommandSink` as browsers, and every ADR 0004 seam is tagged `@extension-point` with two implementations or a data example.
+- Adding a mode, map, component, contact rule, command kind, or controller touches only new files plus its registry line; the kernel, other modes, and the server are unchanged by the additions made in this plan after Step 19.
 
 **Amended 2026-09-06:** Swapped Steps 3 and 4 so the Colima resize precedes the first sanitizer verify; the original order asked a TSan lane to pass under the 2 GiB QEMU VM that the resize replaces.
 
 **Amended 2026-09-06:** Steps 4 and 18 no longer run ThreadSanitizer on the Mac. Rosetta rejects the `personality(ADDR_NO_RANDOMIZE)` call TSan needs (`tsan_platform_linux.cpp:282` CHECK failure), so the local loop covers GCC and ASan/UBSan and the TSan lane runs natively on `cole-ubuntu-pc` and in CI.
 
 **Amended 2026-09-06:** Host-side verifies in Steps 5, 7, and 28 use `grep` instead of `rg` because `cole-ubuntu-pc` has no ripgrep installed.
+
+**Amended 2026-09-06:** Re-planned Phases 2 to 6 as Phases 2 to 7 on the ADR 0004 gameplay framework at the owner's request (extensible modes, maps, entity kinds, mechanics, and bots that act as users). The superseded steps remain struck through above; Steps 1 to 10 and their execution notes are unchanged.

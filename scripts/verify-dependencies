@@ -170,10 +170,42 @@ case "${IMAGE_ARCHIVE}" in
 esac
 [[ -s "${IMAGE_ARCHIVE}" ]] ||
   fail "DEPENDENCY_EVIDENCE.ARCHIVE_EMPTY" "runtime image archive is missing or empty"
-tar --list --file "${IMAGE_ARCHIVE}" |
-  grep -Fx "${IMAGE_CONTENT_ID#sha256:}.json" >/dev/null ||
+# Docker's graph-driver store saves an image with its config at `<content-id>.json`, while the
+# containerd image store saves an OCI layout whose index names the image by manifest digest. Both
+# layouts must present the exact recorded content ID; the OCI blob must also hash to its own name.
+readonly IMAGE_CONTENT_HEX="${IMAGE_CONTENT_ID#sha256:}"
+archive_inspection_directory=""
+trap '[[ -z "${archive_inspection_directory}" ]] || rm -rf -- "${archive_inspection_directory}"' EXIT
+archive_members="$(tar --list --file "${IMAGE_ARCHIVE}")"
+readonly archive_members
+if grep -Fx "${IMAGE_CONTENT_HEX}.json" <<<"${archive_members}" >/dev/null; then
+  readonly IMAGE_ARCHIVE_LAYOUT="docker-graphdriver"
+elif grep -Fx "index.json" <<<"${archive_members}" >/dev/null &&
+  grep -Fx "blobs/sha256/${IMAGE_CONTENT_HEX}" <<<"${archive_members}" >/dev/null; then
+  readonly IMAGE_ARCHIVE_LAYOUT="oci"
+  archive_inspection_directory="$(mktemp -d "${TMPDIR:-/tmp}/blob-royale-image-archive.XXXXXX")"
+  tar --extract --file "${IMAGE_ARCHIVE}" --directory "${archive_inspection_directory}" \
+    index.json "blobs/sha256/${IMAGE_CONTENT_HEX}" ||
+    fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+      "runtime image archive OCI members could not be extracted for inspection"
+  node -e '
+    const fs = require("node:fs");
+    const [indexPath, digest] = process.argv.slice(1);
+    const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+    const manifests = Array.isArray(index.manifests) ? index.manifests : [];
+    const matches = manifests.filter((entry) => entry && entry.digest === digest);
+    process.exit(index.schemaVersion === 2 && matches.length === 1 ? 0 : 1);
+  ' "${archive_inspection_directory}/index.json" "${IMAGE_CONTENT_ID}" ||
+    fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+      "runtime image archive index does not name the recorded image content ID exactly once"
+  [[ "$(sha256_file "${archive_inspection_directory}/blobs/sha256/${IMAGE_CONTENT_HEX}")" == \
+    "${IMAGE_CONTENT_HEX}" ]] ||
+    fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
+      "runtime image archive manifest blob does not hash to the recorded image content ID"
+else
   fail "DEPENDENCY_EVIDENCE.ARCHIVE_IMAGE_ID_MISMATCH" \
     "runtime image archive does not contain the recorded image content ID"
+fi
 
 "${SCRIPT_DIRECTORY}/linux-verification-evidence" verify "${PROFILE}"
 
@@ -423,6 +455,7 @@ printf '%s\n' \
   "dependency_security.evidence_id=${EVIDENCE_ID}" \
   "dependency_security.directory=${FINAL_EVIDENCE_DIRECTORY}" \
   "dependency_security.runtime_image_content_id=${IMAGE_CONTENT_ID}" \
+  "dependency_security.runtime_image_archive_layout=${IMAGE_ARCHIVE_LAYOUT}" \
   "dependency_security.verification_authority=${VERIFICATION_AUTHORITY}" \
   "dependency_security.runtime_sbom=${FINAL_EVIDENCE_DIRECTORY}/blob-royale-runtime.cdx.json" \
   "dependency_security.web_sbom=${FINAL_EVIDENCE_DIRECTORY}/blob-royale-web.cdx.json" \

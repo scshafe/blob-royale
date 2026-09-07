@@ -41,6 +41,8 @@ catch_discover_tests(blob_simulation_unit_tests
 add_executable(blob_application_unit_tests
   application/application_config_loader_tests.cpp
   application/blob_royale_application_tests.cpp
+  application/map_loader_tests.cpp
+  application/match_startup_validation_tests.cpp
   application/scenario_loader_tests.cpp
 )
 

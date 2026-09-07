@@ -1,5 +1,6 @@
 #include "sandbox/sandbox_mode.hpp"
 
+#include "game_mode_configuration.hpp"
 #include "gameplay_validation_error.hpp"
 #include "shared/thrust_steering_system.hpp"
 
@@ -9,6 +10,10 @@
 #include <vector>
 
 namespace blob_royale::gameplay {
+
+std::unique_ptr<const simulation::GameMode> SandboxMode::create(const GameModeConfiguration&) {
+  return create();
+}
 
 std::unique_ptr<const simulation::GameMode> SandboxMode::create() {
   return create(kDefaultThrustMaximumWorldUnitsPerSecondSquared);

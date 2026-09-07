@@ -81,6 +81,10 @@ run_campaign \
   "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/http" \
   32768
 run_campaign \
+  "blob_protocol_command_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/protocol" \
+  4096
+run_campaign \
   "blob_protocol_request_id_fuzzer" \
   "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/protocol" \
   4096

@@ -398,6 +398,31 @@ TEST_CASE("GameWorld seats a map's static bodies with the world's own id policy"
   CHECK(world.random().draw_count() == 0);
 }
 
+TEST_CASE("GameWorld seats a map's static bodies with the configured player radius",
+          "[unit][simulation][game_world][map_definition][physics_body]") {
+  // A map declares no size -- no accepted phase reads `PhysicsBody::radius()` and every one of them
+  // measures with `SimulationConfig::player_radius()` -- so seating fills in the radius the kernel
+  // actually measures with. `physics-body-component.schema.json` requires a positive radius, and a
+  // seated `PhysicsBody::kUndeclaredRadius` made every live match unencodable.
+  std::vector<simulation::PhysicsBody> static_bodies;
+  static_bodies.push_back(
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(10.0, 20.0)));
+  const simulation::MapDefinition map = simulation::MapDefinition::create(
+      "radius_map", simulation::ArenaBounds::create(100.0, 100.0), std::move(static_bodies), {},
+      simulation::MapMetadata::none());
+  REQUIRE(map.static_bodies()[0].radius() == simulation::PhysicsBody::kUndeclaredRadius);
+
+  const simulation::GameWorld world = simulation::GameWorld::create(configuration(), map, 0);
+
+  REQUIRE(world.store<simulation::PhysicsBody>().size() == 1);
+  CHECK(world.store<simulation::PhysicsBody>().entries()[0].value.radius() ==
+        configuration().player_radius());
+  // Nothing else about the declared body changes.
+  CHECK(world.store<simulation::PhysicsBody>().entries()[0].value.is_static());
+  CHECK(world.store<simulation::PhysicsBody>().entries()[0].value.position() ==
+        simulation::Vector2::create(10.0, 20.0));
+}
+
 TEST_CASE("GameWorld rejects a map whose spawn point cannot seat the configured disc",
           "[unit][simulation][game_world][map_definition][validation]") {
   // A spawn point is content and a radius is configuration. Checking them together at construction

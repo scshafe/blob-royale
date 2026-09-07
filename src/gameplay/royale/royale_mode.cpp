@@ -1,5 +1,7 @@
 #include "royale/royale_mode.hpp"
 
+#include "game_mode_configuration.hpp"
+
 #include "gameplay_validation_error.hpp"
 #include "royale/placement_recorder_system.hpp"
 #include "royale/zone_elimination_system.hpp"
@@ -12,6 +14,11 @@
 #include <vector>
 
 namespace blob_royale::gameplay {
+
+std::unique_ptr<const simulation::GameMode>
+RoyaleMode::create(const GameModeConfiguration& configuration) {
+  return create(configuration.royale);
+}
 
 std::unique_ptr<const simulation::GameMode> RoyaleMode::create() {
   return create(RoyaleConfiguration::defaults());

@@ -25,6 +25,8 @@ struct CapturedStructuredLogEvent final {
   std::optional<std::string> lifecycle_state;
   std::optional<std::string> request_id;
   std::optional<std::string> connection_id;
+  std::optional<std::string> error_code;
+  std::optional<std::string> detail;
   std::optional<std::uint64_t> close_code;
 };
 
@@ -59,6 +61,8 @@ public:
                         .lifecycle_state = optional_string(object, "lifecycle_state"),
                         .request_id = optional_string(object, "request_id"),
                         .connection_id = optional_string(object, "connection_id"),
+                        .error_code = optional_string(object, "error_code"),
+                        .detail = optional_string(object, "detail"),
                         .close_code = optional_unsigned(object, "close_code")});
     }
     return result;
@@ -69,6 +73,18 @@ public:
     return std::ranges::any_of(captured, [event](const CapturedStructuredLogEvent& record) {
       return record.event == event;
     });
+  }
+
+  // The first record with this event name, so a test can assert the fields it carries rather than
+  // only that it happened.
+  [[nodiscard]] std::optional<CapturedStructuredLogEvent>
+  find_event(const std::string_view event) const {
+    for (const CapturedStructuredLogEvent& record : events()) {
+      if (record.event == event) {
+        return record;
+      }
+    }
+    return std::nullopt;
   }
 
   [[nodiscard]] std::vector<std::pair<std::string, std::string>> lifecycle_sequence() const {

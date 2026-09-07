@@ -94,6 +94,10 @@ TEST_CASE("one tick's eliminations share one placement computed after they leave
   CHECK(ranking[1].placement == 3);
   CHECK(ranking[0].elimination_tick.value() == kRecordedTick);
   CHECK(ranking[1].elimination_tick.value() == kRecordedTick);
+  // The controller the entity was driving is recorded at the instant it is eliminated, because
+  // this same step destroys the entity and no later reader can recover the link.
+  CHECK(ranking[0].controller == simulation::ControllerId::create(2));
+  CHECK(ranking[1].controller == simulation::ControllerId::create(4));
 
   // The entities are destroyed here rather than at the commit, so the engine's lifecycle system
   // observes the alive count after this tick's eliminations have left the roster. A DespawnEvent is
@@ -136,7 +140,8 @@ TEST_CASE("the placement list is cleared on the first running tick and never bef
     INFO("phase " << simulation::match_phase_name(phase));
     simulation::GameWorld world = world_with_players(2, phase, simulation::MatchPhase::kEnded);
     world.mutable_match().mode_state = simulation::RoyalePlacementsModeState{
-        {simulation::RoyalePlacement{simulation::EntityId::create(7), 2,
+        {simulation::RoyalePlacement{simulation::EntityId::create(7),
+                                     simulation::ControllerId::create(7), 2,
                                      simulation::TickSequence::create(9)}},
         phase == simulation::MatchPhase::kLobby ? simulation::MatchPhase::kCountdown
                                                 : simulation::MatchPhase::kRunning};
@@ -148,7 +153,8 @@ TEST_CASE("the placement list is cleared on the first running tick and never bef
   simulation::GameWorld starting =
       world_with_players(2, simulation::MatchPhase::kRunning, simulation::MatchPhase::kCountdown);
   starting.mutable_match().mode_state = simulation::RoyalePlacementsModeState{
-      {simulation::RoyalePlacement{simulation::EntityId::create(7), 2,
+      {simulation::RoyalePlacement{simulation::EntityId::create(7),
+                                   simulation::ControllerId::create(7), 2,
                                    simulation::TickSequence::create(9)}},
       simulation::MatchPhase::kCountdown};
   recorder->apply(starting, harness.context());
@@ -167,7 +173,8 @@ TEST_CASE("the previous match's ranking is cleared before this match's first pla
   simulation::GameWorld world =
       world_with_players(3, simulation::MatchPhase::kRunning, simulation::MatchPhase::kCountdown);
   world.mutable_match().mode_state = simulation::RoyalePlacementsModeState{
-      {simulation::RoyalePlacement{simulation::EntityId::create(7), 2,
+      {simulation::RoyalePlacement{simulation::EntityId::create(7),
+                                   simulation::ControllerId::create(7), 2,
                                    simulation::TickSequence::create(9)}},
       simulation::MatchPhase::kCountdown};
 

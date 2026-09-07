@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_GAMEPLAY_GAME_MODE_REGISTRY_HPP
 
 #include "game_mode.hpp"
+#include "game_mode_configuration.hpp"
 #include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
 
@@ -38,11 +39,10 @@ namespace blob_royale::gameplay {
 // compile rather than resolving to whichever row was written first, the same way a kind registry's
 // duplicate enumerator does (`kind_registry.hpp`; engine review finding 7).
 //
-// A factory takes no argument today because every balance number a registered mode owns has a
-// declared default. Plan Step 25 adds the validated `[<mode>]` configuration section a factory is
-// handed; that is a change to this row shape, made once here, and not a change to any mode. Both
-// registered modes already accept their configuration through a second `create` overload, so that
-// change is this table and nothing else.
+// A factory is handed the validated `[<mode>]` configuration sections as one
+// `GameModeConfiguration` and reads only its own member (`game_mode_configuration.hpp`). One
+// signature rather than one per configured mode is what keeps this the only file that knows which
+// games exist: a caller that had to choose a factory shape per mode would be a second such file.
 //
 // Two implementations of this seam, both registered below: `sandbox` and `royale`.
 // related: sandbox/sandbox_mode.hpp -- the first registered mode.
@@ -50,10 +50,11 @@ namespace blob_royale::gameplay {
 // related: game_mode.hpp -- the seven declarations a registered factory produces.
 class GameModeRegistry final {
 public:
-  // A mode factory produces one fully declared mode with its default configuration. It is a plain
-  // function pointer rather than a `std::function` so the table is a compile-time constant and a
-  // row cannot capture mutable state.
-  using Factory = std::unique_ptr<const simulation::GameMode> (*)();
+  // A mode factory produces one fully declared mode from the validated configuration sections. It
+  // is a plain function pointer rather than a `std::function` so the table is a compile-time
+  // constant and a row cannot capture mutable state.
+  using Factory =
+      std::unique_ptr<const simulation::GameMode> (*)(const GameModeConfiguration& configuration);
 
   struct Registration final {
     std::string_view name;
@@ -69,10 +70,15 @@ public:
   // Whether this name resolves. Total: an unknown name is `false`, not a failure.
   [[nodiscard]] static bool contains(std::string_view mode_name) noexcept;
 
-  // The mode this name resolves to. Throws GameplayValidationError with
-  // `GAMEPLAY.GAME_MODE_NAME_UNKNOWN` for a name no row declares, listing the names that do: a
-  // silently defaulted mode would start the wrong game, and returning nullptr would let the caller
-  // ignore the answer.
+  // The mode this name resolves to, built from the validated configuration sections. Throws
+  // GameplayValidationError with `GAMEPLAY.GAME_MODE_NAME_UNKNOWN` for a name no row declares,
+  // listing the names that do: a silently defaulted mode would start the wrong game, and returning
+  // nullptr would let the caller ignore the answer.
+  [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
+  create(std::string_view mode_name, const GameModeConfiguration& configuration);
+
+  // The same resolution against every mode's declared defaults, for a test or a diagnostic that
+  // cares which game a name names rather than how it is balanced.
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
   create(std::string_view mode_name);
 

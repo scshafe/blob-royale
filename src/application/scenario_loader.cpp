@@ -3,6 +3,7 @@
 #include "application_input_error.hpp"
 #include "application_text_file_reader.hpp"
 #include "entity_id.hpp"
+#include "map_definition.hpp"
 #include "physics_body.hpp"
 #include "simulation_limits.hpp"
 #include "vector2.hpp"
@@ -218,6 +219,16 @@ void parse_player_row(const std::string_view row, const std::filesystem::path& s
 
 simulation::GameWorld ScenarioLoader::load(const std::filesystem::path& scenario_path,
                                            const simulation::SimulationConfig& simulation_config) {
+  return load(scenario_path, simulation_config,
+              simulation::MapDefinition::bare_arena(simulation::ArenaBounds::create(
+                  simulation_config.world_width(), simulation_config.world_height())),
+              0);
+}
+
+simulation::GameWorld ScenarioLoader::load(const std::filesystem::path& scenario_path,
+                                           const simulation::SimulationConfig& simulation_config,
+                                           const simulation::MapDefinition& map,
+                                           const std::uint64_t match_seed) {
   const std::string contents = read_application_text_file(
       scenario_path, ApplicationTextFileKind::kScenario, kMaximumScenarioFileBytes);
 
@@ -254,7 +265,7 @@ simulation::GameWorld ScenarioLoader::load(const std::filesystem::path& scenario
     ++line_number;
   }
 
-  return simulation::GameWorld::create(std::move(seeds));
+  return simulation::GameWorld::create(simulation_config, map, match_seed, std::move(seeds));
 }
 
 std::string_view ScenarioLoader::expected_header() noexcept { return kExpectedScenarioHeader; }

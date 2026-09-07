@@ -112,6 +112,11 @@ export const protocolV2Schemas = {
       tick_sequence: {
         $ref: '#/$defs/positive_safe_integer',
       },
+      phase_start_tick: {
+        $ref: '#/$defs/safe_integer',
+        $comment:
+          "A tick sequence that also admits 0. Zero is the truthful value for 'no phase transition has been committed yet': a match begins in lobby at load, before tick 1 exists, and MatchState holds TickSequence::zero() for that whole lobby. Every other tick-valued member is a tick_sequence, whose minimum is 1.",
+      },
       message_sequence: {
         $ref: '#/$defs/positive_safe_integer',
       },
@@ -442,7 +447,7 @@ export const protocolV2Schemas = {
         $ref: 'common.schema.json#/$defs/match_phase',
       },
       phase_started_tick: {
-        $ref: 'common.schema.json#/$defs/tick_sequence',
+        $ref: 'common.schema.json#/$defs/phase_start_tick',
       },
       outcome: {
         $ref: '#/$defs/outcome',

@@ -1,9 +1,13 @@
 #include "application_config.hpp"
+#include "application_input_error.hpp"
 #include "application_lifecycle_error.hpp"
 #include "blob_royale_application.hpp"
 #include "entity_id.hpp"
+#include "game_mode_configuration.hpp"
 #include "game_server_error.hpp"
 #include "game_world.hpp"
+#include "map_definition.hpp"
+#include "match_configuration.hpp"
 #include "physics_body.hpp"
 #include "server_config.hpp"
 #include "simulation_config.hpp"
@@ -21,6 +25,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <semaphore>
 #include <string>
 #include <string_view>
@@ -41,6 +46,8 @@ constexpr std::uint64_t kSnapshotsPerSecond = 30;
 constexpr std::uint64_t kGridColumns = 10;
 constexpr std::uint64_t kGridRows = 8;
 constexpr std::uint16_t kUnboundConstructionPort = 8'000;
+constexpr std::string_view kMapName = "fixture-arena";
+constexpr std::uint64_t kMatchSeed = 7;
 constexpr auto kTestDeadline = 5s;
 
 using LogCapture = test_support::StructuredLogCapture;
@@ -80,12 +87,38 @@ private:
                                       {});
 }
 
-[[nodiscard]] ApplicationConfig application_config_fixture(const std::uint16_t port) {
-  return ApplicationConfig::create(server_config_fixture(port), simulation_config_fixture());
+// The `[match]` section every fixture runs: `sandbox` on a bare arena of the fixture's own bounds,
+// with the roster the individual test wants. Sandbox rather than royale because these tests are
+// about process lifecycle and a shrinking zone would change the world under them.
+[[nodiscard]] MatchConfiguration
+match_configuration_fixture(std::vector<MatchConfiguration::BotRosterEntry> bot_roster = {}) {
+  return MatchConfiguration::create("sandbox", std::string{kMapName}, "maps", kMatchSeed,
+                                    std::move(bot_roster));
+}
+
+// A map that satisfies sandbox's `validate_map` -- at least one spawn point -- on exactly the
+// arena the fixture's world scalars publish, so `require_map_matches_published_world` passes.
+[[nodiscard]] simulation::MapDefinition map_fixture() {
+  std::vector<simulation::MapDefinition::Marker> markers;
+  markers.push_back(
+      simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(30.0, 40.0)));
+  markers.push_back(
+      simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(70.0, 40.0)));
+  return simulation::MapDefinition::create(
+      std::string{kMapName}, simulation::ArenaBounds::create(kWorldWidth, kWorldHeight), {},
+      std::move(markers), simulation::MapMetadata::none());
+}
+
+[[nodiscard]] ApplicationConfig
+application_config_fixture(const std::uint16_t port,
+                           std::vector<MatchConfiguration::BotRosterEntry> bot_roster = {}) {
+  return ApplicationConfig::create(server_config_fixture(port), simulation_config_fixture(),
+                                   match_configuration_fixture(std::move(bot_roster)),
+                                   gameplay::GameModeConfiguration::defaults());
 }
 
 [[nodiscard]] simulation::GameWorld empty_world_fixture() {
-  return simulation::GameWorld::create({});
+  return simulation::GameWorld::create(simulation_config_fixture(), map_fixture(), kMatchSeed);
 }
 
 void require_bind_failure(BlobRoyaleApplication& application) {
@@ -111,7 +144,7 @@ TEST_CASE("BlobRoyaleApplication is a non-transferable RAII composition root",
   LogCapture log_capture;
   BlobRoyaleApplication application =
       BlobRoyaleApplication::create(application_config_fixture(kUnboundConstructionPort),
-                                    empty_world_fixture(), log_capture.logger);
+                                    map_fixture(), empty_world_fixture(), log_capture.logger);
   static_cast<void>(application);
 }
 
@@ -128,7 +161,7 @@ TEST_CASE("BlobRoyaleApplication factory builds and validates the owned GameSimu
   try {
     static_cast<void>(
         BlobRoyaleApplication::create(application_config_fixture(kUnboundConstructionPort),
-                                      std::move(invalid_world), log_capture.logger));
+                                      map_fixture(), std::move(invalid_world), log_capture.logger));
   } catch (const simulation::SimulationValidationError& error) {
     REQUIRE(error.validation_code() ==
             simulation::SimulationValidationCode::kSpatialGridPlayerCenterOutOfBounds);
@@ -137,12 +170,63 @@ TEST_CASE("BlobRoyaleApplication factory builds and validates the owned GameSimu
   FAIL("expected BlobRoyaleApplication construction to validate its initial world");
 }
 
+TEST_CASE("BlobRoyaleApplication seats one hosted controller per configured bot",
+          "[unit][application][lifecycle][controllers]") {
+  // A bot opens a session through the same `CommandSink` a browser will, so the roster is seated as
+  // part of construction rather than as a step a caller could forget.
+  LogCapture log_capture;
+  BlobRoyaleApplication application = BlobRoyaleApplication::create(
+      application_config_fixture(kUnboundConstructionPort,
+                                 {MatchConfiguration::BotRosterEntry{"wanderer", 2},
+                                  MatchConfiguration::BotRosterEntry{"chaser", 1}}),
+      map_fixture(), empty_world_fixture(), log_capture.logger);
+  static_cast<void>(application);
+
+  const std::optional<test_support::CapturedStructuredLogEvent> seated =
+      log_capture.find_event("controllers.roster_seated");
+  REQUIRE(seated.has_value());
+  REQUIRE(seated->detail.has_value());
+  CHECK(seated->detail->find("hosted_controller_count=3") != std::string::npos);
+  CHECK(seated->detail->find("match_seed=" + std::to_string(kMatchSeed)) != std::string::npos);
+}
+
+TEST_CASE("BlobRoyaleApplication seats nothing and logs nothing for an empty roster",
+          "[unit][application][lifecycle][controllers]") {
+  LogCapture log_capture;
+  BlobRoyaleApplication application =
+      BlobRoyaleApplication::create(application_config_fixture(kUnboundConstructionPort),
+                                    map_fixture(), empty_world_fixture(), log_capture.logger);
+  static_cast<void>(application);
+
+  CHECK_FALSE(log_capture.contains_event("controllers.roster_seated"));
+}
+
+TEST_CASE("BlobRoyaleApplication rejects a map whose arena disagrees with the published world",
+          "[unit][application][lifecycle][match][validation]") {
+  LogCapture log_capture;
+  const simulation::MapDefinition narrower = simulation::MapDefinition::create(
+      std::string{kMapName}, simulation::ArenaBounds::create(kWorldWidth - 1.0, kWorldHeight), {},
+      {simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(30.0, 40.0))},
+      simulation::MapMetadata::none());
+
+  try {
+    static_cast<void>(
+        BlobRoyaleApplication::create(application_config_fixture(kUnboundConstructionPort),
+                                      narrower, empty_world_fixture(), log_capture.logger));
+  } catch (const ApplicationInputError& error) {
+    CHECK(error.error_code() == ApplicationInputErrorCode::kMatchMapBoundsMismatch);
+    return;
+  }
+  FAIL("expected the composition root to reject a map that disagrees with [world]");
+}
+
 TEST_CASE("BlobRoyaleApplication propagates an immediate retained server bind failure",
           "[unit][application][lifecycle][failure]") {
   OccupiedLoopbackPort occupied_port;
   LogCapture log_capture;
-  BlobRoyaleApplication application = BlobRoyaleApplication::create(
-      application_config_fixture(occupied_port.port()), empty_world_fixture(), log_capture.logger);
+  BlobRoyaleApplication application =
+      BlobRoyaleApplication::create(application_config_fixture(occupied_port.port()), map_fixture(),
+                                    empty_world_fixture(), log_capture.logger);
 
   require_bind_failure(application);
 
@@ -160,8 +244,9 @@ TEST_CASE("BlobRoyaleApplication rejects a second run with one typed lifecycle e
           "[unit][application][lifecycle][failure]") {
   OccupiedLoopbackPort occupied_port;
   LogCapture log_capture;
-  BlobRoyaleApplication application = BlobRoyaleApplication::create(
-      application_config_fixture(occupied_port.port()), empty_world_fixture(), log_capture.logger);
+  BlobRoyaleApplication application =
+      BlobRoyaleApplication::create(application_config_fixture(occupied_port.port()), map_fixture(),
+                                    empty_world_fixture(), log_capture.logger);
   require_bind_failure(application);
 
   try {
@@ -184,7 +269,7 @@ TEST_CASE("BlobRoyaleApplication destruction joins its ready runtime worker",
       {
         BlobRoyaleApplication application =
             BlobRoyaleApplication::create(application_config_fixture(kUnboundConstructionPort),
-                                          empty_world_fixture(), log_capture.logger);
+                                          map_fixture(), empty_world_fixture(), log_capture.logger);
         static_cast<void>(application);
       }
       construction_completed.store(true, std::memory_order_release);
@@ -209,7 +294,7 @@ TEST_CASE("BlobRoyaleApplication leaves no server thread after a run failure",
       LogCapture log_capture;
       BlobRoyaleApplication application =
           BlobRoyaleApplication::create(application_config_fixture(occupied_port.port()),
-                                        empty_world_fixture(), log_capture.logger);
+                                        map_fixture(), empty_world_fixture(), log_capture.logger);
       application.run();
     } catch (const server::GameServerError& error) {
       retained_bind_failure_observed.store(error.error_code() ==

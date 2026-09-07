@@ -5,6 +5,7 @@
 #include "command_registry.hpp"
 #include "contact_rule_table.hpp"
 #include "game_mode.hpp"
+#include "game_mode_configuration.hpp"
 #include "map_definition.hpp"
 #include "match_objective.hpp"
 #include "sandbox/free_play_objective.hpp"
@@ -51,6 +52,12 @@ public:
   // The proposed balance value of `docs/architecture/0005-royale-mode.md` § "Mode configuration",
   // shared so free play and royale accelerate identically until a playtest says otherwise.
   static constexpr double kDefaultThrustMaximumWorldUnitsPerSecondSquared = 400.0;
+
+  // The registry's factory shape. Sandbox declares no `[<mode>]` configuration section, so it reads
+  // nothing from the value and uses its declared default; a `[sandbox]` section would be one member
+  // on `GameModeConfiguration` and one read here (`game_mode_configuration.hpp`).
+  [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
+  create(const GameModeConfiguration& configuration);
 
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode> create();
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode>

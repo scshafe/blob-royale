@@ -100,10 +100,17 @@ std::size_t SpawnSystem::seat_pending_entities(GameWorld& world, const TickConte
     }
 
     // At rest: zero velocity and zero stored acceleration, so a seated entity moves only once its
-    // controller asks it to.
+    // controller asks it to, and carrying the **configured** radius rather than
+    // `PhysicsBody::kUndeclaredRadius`. Every accepted phase measures with
+    // `SimulationConfig::player_radius()` (`physics_body.hpp`), so that is the only radius a seated
+    // body can truthfully publish, and `physics-body-component.schema.json` requires it to be
+    // positive: a seated placeholder made every live match unencodable. `ScenarioLoader` already
+    // seeds this way, so seating and seeding now agree.
     world.mutable_store<PhysicsBody>().insert_or_assign(
         entity, PhysicsBody::create(spawn_points[*chosen].position, Vector2::create(0.0, 0.0),
-                                    Vector2::create(0.0, 0.0)));
+                                    Vector2::create(0.0, 0.0), player_radius,
+                                    PhysicsBody::kDefaultMass, PhysicsBody::kDefaultCollisionLayer,
+                                    PhysicsBody::kDefaultCollisionMask, false));
     point_is_free[*chosen] = false;
     // One past the index just used, so the next entity a forward-probing policy offers starts at
     // the following point rather than re-probing this one.

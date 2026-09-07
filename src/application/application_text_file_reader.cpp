@@ -27,6 +27,12 @@ file_error_codes(const ApplicationTextFileKind file_kind) noexcept {
             ApplicationInputErrorCode::kConfigurationFileTooLarge,
             ApplicationInputErrorCode::kConfigurationFileReadFailed};
   }
+  if (file_kind == ApplicationTextFileKind::kMap) {
+    return {ApplicationInputErrorCode::kMapFileMissing,
+            ApplicationInputErrorCode::kMapPathNotRegularFile,
+            ApplicationInputErrorCode::kMapFileTooLarge,
+            ApplicationInputErrorCode::kMapFileReadFailed};
+  }
   return {ApplicationInputErrorCode::kScenarioFileMissing,
           ApplicationInputErrorCode::kScenarioPathNotRegularFile,
           ApplicationInputErrorCode::kScenarioFileTooLarge,

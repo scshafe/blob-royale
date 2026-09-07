@@ -4,6 +4,7 @@
 #include "component_encoding.hpp"
 #include "protocol_v2_constants.hpp"
 
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "match_phase.hpp"
 #include "mode_match_state_registry.hpp"
@@ -28,6 +29,10 @@ namespace blob_royale::protocol {
 // this one shape and the encoder writes one array.
 struct ModeStatePlacement final {
   simulation::EntityId entity;
+  // Carried by the mode-state arm itself. The tick that records a placement destroys the entity in
+  // the same tick, so nothing outside the recorded value can recover the link
+  // (`src/simulation/mode_states/royale_placements_mode_state.hpp`).
+  simulation::ControllerId controller;
   std::uint64_t placement{};
   simulation::TickSequence eliminated_tick;
 
@@ -85,8 +90,8 @@ template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> 
                                 std::vector<ModeStatePlacement>& placements) {
     placements.reserve(placements.size() + mode_state.placements.size());
     for (const simulation::RoyalePlacement& placement : mode_state.placements) {
-      placements.push_back(
-          ModeStatePlacement{placement.entity, placement.placement, placement.elimination_tick});
+      placements.push_back(ModeStatePlacement{placement.entity, placement.controller,
+                                              placement.placement, placement.elimination_tick});
     }
   }
 };

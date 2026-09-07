@@ -2,7 +2,12 @@
 #include "application_input_error.hpp"
 #include "application_lifecycle_error.hpp"
 #include "blob_royale_application.hpp"
+#include "controllers_validation_error.hpp"
 #include "game_server_error.hpp"
+#include "game_world.hpp"
+#include "gameplay_validation_error.hpp"
+#include "map_definition.hpp"
+#include "map_loader.hpp"
 #include "protocol_encoding_error.hpp"
 #include "scenario_loader.hpp"
 #include "server_config.hpp"
@@ -51,10 +56,21 @@ int main(const int argument_count, const char* const arguments[]) {
 
     const auto& run_request =
         std::get<application::ApplicationConfigLoader::RunRequest>(startup_request);
-    blob_royale::simulation::GameWorld initial_world = application::ScenarioLoader::load(
-        run_request.scenario_path(), run_request.application_config().simulation_config());
+    const auto& application_config = run_request.application_config();
+    const blob_royale::simulation::MapDefinition map =
+        application::MapLoader::load(application_config.match_configuration().map_directory());
+    // A scenario seeds extra entities on top of the map; a match without one is the map's static
+    // content plus whatever spawns into it.
+    blob_royale::simulation::GameWorld initial_world =
+        run_request.scenario_path().has_value()
+            ? application::ScenarioLoader::load(*run_request.scenario_path(),
+                                                application_config.simulation_config(), map,
+                                                application_config.match_configuration().seed())
+            : blob_royale::simulation::GameWorld::create(
+                  application_config.simulation_config(), map,
+                  application_config.match_configuration().seed());
     application::BlobRoyaleApplication blob_royale = application::BlobRoyaleApplication::create(
-        run_request.application_config(), std::move(initial_world), logger);
+        application_config, map, std::move(initial_world), logger);
     blob_royale.run();
     return 0;
   } catch (const application::ApplicationInputError& error) {
@@ -66,6 +82,12 @@ int main(const int argument_count, const char* const arguments[]) {
     report_process_failure(logger, error.code(), error.context(), error.detail());
     return kConfigurationExitCode;
   } catch (const blob_royale::simulation::SimulationValidationError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+    return kConfigurationExitCode;
+  } catch (const blob_royale::gameplay::GameplayValidationError& error) {
+    report_process_failure(logger, error.code(), error.context(), error.detail());
+    return kConfigurationExitCode;
+  } catch (const blob_royale::controllers::ControllersValidationError& error) {
     report_process_failure(logger, error.code(), error.context(), error.detail());
     return kConfigurationExitCode;
   } catch (const application::ApplicationLifecycleError& error) {

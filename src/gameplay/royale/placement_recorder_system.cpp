@@ -1,5 +1,7 @@
 #include "royale/placement_recorder_system.hpp"
 
+#include "components/controllable_component.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "events/despawn_event.hpp"
 #include "events/elimination_event.hpp"
@@ -49,6 +51,34 @@ eliminated_entities_of(const simulation::GameWorld& world) {
   return eliminated;
 }
 
+// The controller driving one entity about to be destroyed.
+//
+// This is read **before** step 2 destroys the entity, because it is the last instant the link
+// exists: `destroy_entity` erases the `Controllable`, and the placement the entity earns must carry
+// the controller for the whole rest of the match
+// (`mode_states/royale_placements_mode_state.hpp`).
+//
+// An eliminated entity with no `Controllable` is an internal invariant violation and fails hard.
+// "Alive" is defined as owning both a `PhysicsBody` and a `Controllable`
+// (`docs/architecture/0005-royale-mode.md` § "Scope, vocabulary, and evaluation order") and
+// `zone_elimination` only ever names an alive entity, so this can fire only for a future producer
+// that eliminated something that was never playing -- which would produce a placement no wire
+// encoding can represent. That is the fail-hard half of the ADR's rule: fail-soft at the untrusted
+// command boundary, fail-hard on an internal invariant.
+[[nodiscard]] simulation::ControllerId controller_of_eliminated(const simulation::GameWorld& world,
+                                                                const simulation::EntityId entity) {
+  const simulation::Controllable* controllable =
+      world.store<simulation::Controllable>().find(entity);
+  if (controllable == nullptr) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kRoyaleEliminatedEntityWithoutController,
+        "placement_recorder.placements[entity_id=" + std::to_string(entity.value()) + "]",
+        "an eliminated entity must carry a Controllable; a placement without a controller cannot "
+        "be published");
+  }
+  return controllable->controller_id;
+}
+
 } // namespace
 
 std::unique_ptr<const simulation::SimulationSystem> PlacementRecorderSystem::create() {
@@ -70,6 +100,13 @@ void PlacementRecorderSystem::apply(simulation::GameWorld& world,
   // this tick's eliminations have left the roster.
   const std::vector<simulation::EntityId> eliminated = eliminated_entities_of(world);
   if (!eliminated.empty()) {
+    // Resolved before the destruction below, in the same ascending order the placements are
+    // appended in, because destroying the entity is what removes the only record of its controller.
+    std::vector<simulation::ControllerId> eliminated_controllers;
+    eliminated_controllers.reserve(eliminated.size());
+    for (const simulation::EntityId entity : eliminated) {
+      eliminated_controllers.push_back(controller_of_eliminated(world, entity));
+    }
     for (const simulation::EntityId entity : eliminated) {
       world.destroy_entity(entity);
       world.emit(simulation::DespawnEvent{entity});
@@ -83,9 +120,9 @@ void PlacementRecorderSystem::apply(simulation::GameWorld& world,
               " entries, past the accepted limit " +
               std::to_string(simulation::kMaximumPlayerCount));
     }
-    for (const simulation::EntityId entity : eliminated) {
-      mode_state.placements.push_back(
-          simulation::RoyalePlacement{entity, placement, context.tick_sequence()});
+    for (std::size_t index = 0; index < eliminated.size(); ++index) {
+      mode_state.placements.push_back(simulation::RoyalePlacement{
+          eliminated[index], eliminated_controllers[index], placement, context.tick_sequence()});
     }
   }
 

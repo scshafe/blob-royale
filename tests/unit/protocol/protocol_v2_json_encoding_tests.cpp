@@ -350,18 +350,41 @@ TEST_CASE("Snapshot v2 encoder rejects a complete frame above the configured byt
       protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
 }
 
-TEST_CASE("Snapshot v2 encoder rejects a placement whose controller the directory cannot name",
-          "[unit][protocol][v2][encoding][rejection]") {
-  fixture::StubControllerDirectory directory = fixture::golden_directory();
-  directory.forget_placed_controller(fixture::kPlacedEntityId);
+TEST_CASE("Snapshot v2 encoder publishes a phase_started_tick of zero for an untransitioned lobby",
+          "[unit][protocol][v2][encoding]") {
+  // `match-data.schema.json` types this one member as `phase_start_tick`, which admits zero, while
+  // every other tick-valued member is a `tick_sequence` with a minimum of one. Zero is the truthful
+  // value for "no transition has been committed yet": a match begins in `lobby` at load, before
+  // tick 1 exists, and every snapshot of that lobby is a legitimate frame.
+  const fixture::StubControllerDirectory directory = fixture::golden_directory();
+  REQUIRE(fixture::untransitioned_lobby_snapshot().match().phase_started_tick() ==
+          simulation::TickSequence::zero());
 
-  fixture::require_protocol_error_code(
-      [&directory] {
-        return protocol::encode_snapshot_message_v2(
-            fixture::golden_snapshot(), directory, fixture::session_request_id(),
-            fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
-      },
-      protocol::ProtocolEncodingErrorCode::kPlacementControllerUnknown);
+  const std::string encoded = protocol::encode_snapshot_message_v2(
+      fixture::untransitioned_lobby_snapshot(), directory, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+
+  CHECK(encoded.find(R"("phase":"lobby","phase_started_tick":0)") != std::string::npos);
+  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+}
+
+TEST_CASE("Snapshot v2 encoder publishes a placement controller the directory has forgotten",
+          "[unit][protocol][v2][encoding]") {
+  // The placed entity was destroyed on the tick that recorded it and its session has closed, so
+  // `golden_directory()` holds no entry for `kPlacedControllerId`. The encoder still publishes the
+  // link, because `simulation::RoyalePlacement` recorded it at elimination: this is the whole
+  // reason the placement carries a `ControllerId` instead of the encoder asking a directory.
+  const fixture::StubControllerDirectory directory = fixture::golden_directory();
+  REQUIRE_FALSE(
+      directory.find_controller(simulation::ControllerId::create(fixture::kPlacedControllerId))
+          .has_value());
+
+  const std::string encoded = protocol::encode_snapshot_message_v2(
+      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+
+  CHECK(encoded.find(R"("entity_id":5,"controller_id":6,"placement":3)") != std::string::npos);
+  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
 }
 
 TEST_CASE("Snapshot v2 encoder rejects entity ids that are not ascending and distinct",

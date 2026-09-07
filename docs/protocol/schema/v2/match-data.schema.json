@@ -15,7 +15,7 @@
       "$ref": "common.schema.json#/$defs/match_phase"
     },
     "phase_started_tick": {
-      "$ref": "common.schema.json#/$defs/tick_sequence"
+      "$ref": "common.schema.json#/$defs/phase_start_tick"
     },
     "outcome": {
       "$ref": "#/$defs/outcome"

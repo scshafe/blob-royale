@@ -265,8 +265,7 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   return encoded;
 }
 
-[[nodiscard]] json::array encode_placements(const simulation::MatchSnapshot& match,
-                                            const ControllerDirectoryView& directory) {
+[[nodiscard]] json::array encode_placements(const simulation::MatchSnapshot& match) {
   std::vector<ModeStatePlacement> ranking;
   append_mode_state_placements(match.mode_state(), ranking);
   if (ranking.size() > kMatchPlacementLimit) {
@@ -280,22 +279,13 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   json::array encoded;
   encoded.reserve(ranking.size());
   for (const ModeStatePlacement& placement : ranking) {
-    const std::optional<simulation::ControllerId> controller =
-        directory.find_placed_controller(placement.entity);
-    if (!controller.has_value()) {
-      throw ProtocolEncodingError{
-          ProtocolEncodingErrorCode::kPlacementControllerUnknown,
-          "snapshot_message.data.match.placements.controller_id",
-          "no controller is known for placed entity " + std::to_string(placement.entity.value()) +
-              "; match-data.schema.json requires one on every placement entry"};
-    }
     validate_publishable_tick(placement.eliminated_tick,
                               "snapshot_message.data.match.placements.eliminated_tick");
 
     json::object entry;
     entry.reserve(4);
     entry.emplace("entity_id", placement.entity.value());
-    entry.emplace("controller_id", controller->value());
+    entry.emplace("controller_id", placement.controller.value());
     entry.emplace("placement", placement.placement);
     entry.emplace("eliminated_tick", placement.eliminated_tick.value());
     encoded.emplace_back(std::move(entry));
@@ -315,19 +305,17 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   return encoded;
 }
 
-[[nodiscard]] json::object encode_match(const simulation::MatchSnapshot& match,
-                                        const ControllerDirectoryView& directory) {
+[[nodiscard]] json::object encode_match(const simulation::MatchSnapshot& match) {
   if (!is_accepted_kind_name(match.mode_name())) {
     throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMatchModeNameInvalid,
                                 "snapshot_message.data.match.mode",
                                 "mode name must match the accepted lower snake case kind grammar"};
   }
-  // `match-data.schema.json` types this member as `tick_sequence`, whose minimum is 1, while a
-  // match that has not transitioned since load still holds `TickSequence::zero()`. Encoding zero
-  // would emit a document every conforming client must close on, so the encoder fails closed and
-  // the disagreement is reported rather than papered over with a clamp.
-  validate_publishable_tick(match.phase_started_tick(),
-                            "snapshot_message.data.match.phase_started_tick");
+  // `phase_started_tick` is deliberately **not** validated as a publishable tick.
+  // `match-data.schema.json` types it as `phase_start_tick`, which admits zero, because zero is the
+  // truthful value for "no transition has been committed yet": a match loaded into `lobby` holds
+  // `TickSequence::zero()` for the whole lobby, and every snapshot of that lobby is a legitimate
+  // frame (`docs/protocol/v2.md` § "Field dictionary and invariants").
 
   json::object encoded;
   encoded.reserve(6);
@@ -335,7 +323,7 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   encoded.emplace("phase", simulation::match_phase_name(match.phase()));
   encoded.emplace("phase_started_tick", match.phase_started_tick().value());
   encoded.emplace("outcome", encode_outcome(match.outcome()));
-  encoded.emplace("placements", encode_placements(match, directory));
+  encoded.emplace("placements", encode_placements(match));
   encoded.emplace("mode_state", encode_mode_state(match));
   return encoded;
 }
@@ -435,7 +423,7 @@ std::string encode_snapshot_message_v2(const simulation::WorldSnapshot& snapshot
   data.reserve(3);
   data.emplace("tick_sequence", snapshot.tick_sequence().value());
   data.emplace("entities", std::move(encoded_entities));
-  data.emplace("match", encode_match(snapshot.match(), directory));
+  data.emplace("match", encode_match(snapshot.match()));
 
   json::object envelope = encode_envelope_with_data(
       json::value(std::move(data)), encode_message_metadata(kSnapshotMessageV2SchemaId, request_id,

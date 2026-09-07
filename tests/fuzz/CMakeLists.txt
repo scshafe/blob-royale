@@ -40,6 +40,11 @@ blob_royale_add_fuzzer(
   blob_protocol
 )
 blob_royale_add_fuzzer(
+  blob_protocol_command_fuzzer
+  protocol_command_fuzzer.cpp
+  blob_protocol
+)
+blob_royale_add_fuzzer(
   blob_scenario_fuzzer
   scenario_fuzzer.cpp
   blob_application_input
@@ -49,6 +54,7 @@ add_custom_target(blob_royale_fuzzers DEPENDS
   blob_application_config_fuzzer
   blob_application_cli_fuzzer
   blob_http_request_fuzzer
+  blob_protocol_command_fuzzer
   blob_protocol_request_id_fuzzer
   blob_scenario_fuzzer
 )

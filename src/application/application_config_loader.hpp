@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 #include <variant>
 
@@ -19,33 +20,41 @@ public:
 
   class RunRequest final {
   public:
-    RunRequest(ApplicationConfig application_config, std::filesystem::path scenario_path);
+    RunRequest(ApplicationConfig application_config,
+               std::optional<std::filesystem::path> scenario_path);
 
     [[nodiscard]] const ApplicationConfig& application_config() const& noexcept {
       return application_config_;
     }
     [[nodiscard]] const ApplicationConfig& application_config() const&& = delete;
-    [[nodiscard]] const std::filesystem::path& scenario_path() const& noexcept {
+
+    // The scenario to seed extra entities from, or `std::nullopt` when none was named.
+    //
+    // **A match no longer requires one.** `[match]` names the game and the map, and the map's
+    // spawn points seat every entity a spawn command creates, so a live deployment has nothing to
+    // seed. A scenario remains how a fixture places specific bodies at specific ids and velocities,
+    // which no spawn policy can express (`scenario_loader.hpp`).
+    [[nodiscard]] const std::optional<std::filesystem::path>& scenario_path() const& noexcept {
       return scenario_path_;
     }
-    [[nodiscard]] const std::filesystem::path& scenario_path() const&& = delete;
+    [[nodiscard]] const std::optional<std::filesystem::path>& scenario_path() const&& = delete;
 
   private:
     ApplicationConfig application_config_;
-    std::filesystem::path scenario_path_;
+    std::optional<std::filesystem::path> scenario_path_;
   };
 
   using Result = std::variant<HelpRequest, RunRequest>;
 
   static constexpr std::size_t kMaximumConfigurationFileBytes = 65'536;
 
-  // Accepts only `--help` or exactly `--config <path> --scenario <path>`.
+  // Accepts only `--help`, `--config <path>`, or `--config <path> --scenario <path>`.
   // Throws ApplicationInputError or a typed domain validation error on invalid input.
   [[nodiscard]] static Result load(int argument_count, const char* const arguments[]);
 
   [[nodiscard]] static constexpr std::string_view help_text() noexcept {
     return "Usage: blob-royale --help\n"
-           "       blob-royale --config <path> --scenario <path>\n";
+           "       blob-royale --config <path> [--scenario <path>]\n";
   }
 };
 

@@ -38,6 +38,7 @@ enum class GameplayValidationCode {
   kRoyaleZoneEntityUnreserved,
   kRoyaleZoneAbsent,
   kRoyalePlacementLimitExceeded,
+  kRoyaleEliminatedEntityWithoutController,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -67,6 +68,8 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.ROYALE_ZONE_ABSENT";
   case GameplayValidationCode::kRoyalePlacementLimitExceeded:
     return "GAMEPLAY.ROYALE_PLACEMENT_LIMIT_EXCEEDED";
+  case GameplayValidationCode::kRoyaleEliminatedEntityWithoutController:
+    return "GAMEPLAY.ROYALE_ELIMINATED_ENTITY_WITHOUT_CONTROLLER";
   }
   return "GAMEPLAY.VALIDATION_CODE_INVALID";
 }

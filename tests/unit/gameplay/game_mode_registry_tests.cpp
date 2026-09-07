@@ -1,3 +1,4 @@
+#include "game_mode_configuration.hpp"
 #include "game_mode_registry.hpp"
 
 #include "gameplay_test_fixture.hpp"
@@ -84,7 +85,8 @@ TEST_CASE("Every registered factory produces a mode that answers to its register
           "[unit][gameplay][game_mode_registry]") {
   for (const gameplay::GameModeRegistry::Registration& registration :
        gameplay::GameModeRegistry::registrations()) {
-    const std::unique_ptr<const simulation::GameMode> mode = registration.factory();
+    const std::unique_ptr<const simulation::GameMode> mode =
+        registration.factory(gameplay::GameModeConfiguration::defaults());
     REQUIRE(mode != nullptr);
     CHECK(mode->name() == registration.name);
   }

@@ -110,17 +110,8 @@ public:
         PublishedController{std::string{controller_kind}, std::string{display_name}});
   }
 
-  void add_placed_controller(const std::uint64_t placed_entity, const std::uint64_t controller) {
-    placed_controllers_.insert_or_assign(simulation::EntityId::create(placed_entity),
-                                         simulation::ControllerId::create(controller));
-  }
-
   void forget_controller(const std::uint64_t controller) {
     controllers_.erase(simulation::ControllerId::create(controller));
-  }
-
-  void forget_placed_controller(const std::uint64_t placed_entity) {
-    placed_controllers_.erase(simulation::EntityId::create(placed_entity));
   }
 
   [[nodiscard]] std::optional<PublishedController>
@@ -132,18 +123,8 @@ public:
     return match->second;
   }
 
-  [[nodiscard]] std::optional<simulation::ControllerId>
-  find_placed_controller(const simulation::EntityId placed_entity) const override {
-    const auto match = placed_controllers_.find(placed_entity);
-    if (match == placed_controllers_.cend()) {
-      return std::nullopt;
-    }
-    return match->second;
-  }
-
 private:
   std::map<simulation::ControllerId, PublishedController> controllers_;
-  std::map<simulation::EntityId, simulation::ControllerId> placed_controllers_;
 };
 
 // The directory the golden snapshot is encoded against.
@@ -151,7 +132,8 @@ private:
   StubControllerDirectory directory;
   directory.add_controller(kPlayerControllerId, kSessionControllerKind, kPlayerDisplayName);
   directory.add_controller(kBotControllerId, kBotControllerKind, kBotDisplayName);
-  directory.add_placed_controller(kPlacedEntityId, kPlacedControllerId);
+  // `kPlacedControllerId` is deliberately absent: the placed entity's session has closed, and the
+  // encoder reads its controller from the recorded `RoyalePlacement` rather than from here.
   return directory;
 }
 
@@ -212,7 +194,8 @@ public:
     match.running_started_tick = simulation::TickSequence::create(kGoldenPhaseStartedTick);
     match.outcome = simulation::MatchOutcome::undecided();
     match.mode_state = simulation::RoyalePlacementsModeState{
-        {simulation::RoyalePlacement{simulation::EntityId::create(kPlacedEntityId), 3,
+        {simulation::RoyalePlacement{simulation::EntityId::create(kPlacedEntityId),
+                                     simulation::ControllerId::create(kPlacedControllerId), 3,
                                      simulation::TickSequence::create(kGoldenEliminatedTick)}},
         simulation::MatchPhase::kRunning};
   }
@@ -296,6 +279,25 @@ public:
     for (std::uint64_t tick = 0; tick < kGoldenTickSequence; ++tick) {
       game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
     }
+    return game_simulation.snapshot();
+  }();
+  return snapshot;
+}
+
+// A committed tick of a match that has never transitioned, which is what every lobby looks like
+// before its first phase change: `MatchState::phase_started_tick` is still `TickSequence::zero()`.
+// It runs on the engine's own declarations, so nothing writes a lifecycle field.
+[[nodiscard]] inline const simulation::WorldSnapshot& untransitioned_lobby_snapshot() {
+  static const simulation::WorldSnapshot snapshot = [] {
+    simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
+        simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16),
+        simulation::GameWorld::create({simulation::GameWorld::EntitySeed::create(
+            simulation::EntityId::create(kPlayerEntityId),
+            simulation::PhysicsBody::create(
+                simulation::Vector2::create(480.0, 320.0), simulation::Vector2::create(0.0, 0.0),
+                simulation::Vector2::create(0.0, 0.0), 10.0, 1.0, 1, 1, false),
+            simulation::ControllerId::create(kPlayerControllerId))}));
+    game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
     return game_simulation.snapshot();
   }();
   return snapshot;

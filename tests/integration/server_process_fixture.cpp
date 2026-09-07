@@ -46,6 +46,7 @@ using namespace std::chrono_literals;
 constexpr std::string_view kContractFixtureDirectoryName = "server-process-fixture";
 constexpr std::string_view kBackpressureFixtureDirectoryName = "server-backpressure-fixture";
 constexpr std::string_view kConfigurationFileName = "integration-server.cfg";
+constexpr std::string_view kMapDirectoryName = "integration-arena";
 constexpr std::string_view kScenarioFileName = "integration-scenario.csv";
 constexpr std::string_view kServerLogFileName = "server.log";
 constexpr std::string_view kSupervisorLogFileName = "supervisor.log";
@@ -380,6 +381,40 @@ void write_all(const int descriptor, const std::string_view contents,
   }
 }
 
+// One authored map directory beside the fixture's configuration, on exactly the arena the
+// `[world]` scalars publish so `require_map_matches_published_world` accepts the pair. Two spawn
+// points, because `SandboxMode::validate_map` requires at least one and a second one proves the
+// loader reads more than a single row.
+void write_fixture_map(const std::filesystem::path& fixture_directory) {
+  const std::filesystem::path map_directory = fixture_directory / kMapDirectoryName;
+  std::error_code create_error;
+  std::filesystem::create_directory(map_directory, create_error);
+  if (create_error) {
+    throw IntegrationTestError{IntegrationTestErrorCode::kProcessFailed,
+                               "server_fixture.create_map_directory", create_error.message()};
+  }
+
+  std::string map_configuration;
+  map_configuration.append("[map]\n");
+  map_configuration.append("name=").append(kMapDirectoryName).append("\n");
+  map_configuration.append("display_name=Integration Arena\n\n");
+  map_configuration.append("[bounds]\n");
+  map_configuration.append("width_world_units=100\n");
+  map_configuration.append("height_world_units=80\n");
+  write_fixture_text_file_atomically(map_directory / "map.cfg", map_configuration,
+                                     "server_fixture.write_map_configuration");
+  write_fixture_text_file_atomically(
+      map_directory / "static_bodies.csv",
+      "position_x_world_units,position_y_world_units,collision_layer,collision_mask\n",
+      "server_fixture.write_map_static_bodies");
+  write_fixture_text_file_atomically(
+      map_directory / "markers.csv",
+      "marker_kind,position_x_world_units,position_y_world_units,team_id\n"
+      "spawn,25,40,\n"
+      "spawn,75,40,\n",
+      "server_fixture.write_map_markers");
+}
+
 void write_fixture_inputs(const std::filesystem::path& fixture_directory, const std::uint16_t port,
                           const FixtureWorkload workload) {
   const bool backpressure_workload = workload == FixtureWorkload::kBackpressure;
@@ -394,7 +429,9 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("[presentation]\n");
   configuration.append("snapshots_per_second=").append(backpressure_workload ? "60\n\n" : "20\n\n");
   configuration.append("[simulation]\n");
-  configuration.append("ticks_per_second=400\n\n");
+  configuration.append("ticks_per_second=400\n");
+  // Zero drag keeps this fixture's committed physics identical to the accepted ADR 0003 horizons.
+  configuration.append("drag_per_second=0\n\n");
   configuration.append("[world]\n");
   configuration.append("width_world_units=100\n");
   configuration.append("height_world_units=80\n");
@@ -402,9 +439,29 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
       .append(backpressure_workload ? "1\n\n" : "2\n\n");
   configuration.append("[spatial_grid]\n");
   configuration.append("columns=10\n");
-  configuration.append("rows=8\n");
+  configuration.append("rows=8\n\n");
+  // `sandbox`, not `royale`: these tests assert protocol contracts over a seeded roster, and a
+  // shrinking zone would eliminate that roster mid-assertion. The map is written beside the
+  // configuration so the fixture is self-contained and so the production `MapLoader` is the one
+  // that reads it.
+  configuration.append("[match]\n");
+  configuration.append("mode=sandbox\n");
+  configuration.append("map=").append(kMapDirectoryName).append("\n");
+  configuration.append("maps_directory=").append(fixture_directory.string()).append("\n");
+  configuration.append("seed=1\n");
+  configuration.append("bots=\n\n");
+  configuration.append("[royale]\n");
+  configuration.append("thrust_max_world_units_per_second_squared=400\n");
+  configuration.append("zone_minimum_radius_world_units=10\n");
+  configuration.append("zone_shrink_seconds=90\n");
+  configuration.append("elimination_grace_seconds=3\n");
+  configuration.append("lobby_minimum_players=2\n");
+  configuration.append("countdown_seconds=5\n");
+  configuration.append("restart_delay_seconds=8\n");
   write_fixture_text_file_atomically(fixture_directory / kConfigurationFileName, configuration,
                                      "server_fixture.write_configuration");
+
+  write_fixture_map(fixture_directory);
 
   constexpr std::string_view kScenarioHeader =
       "entity_id,position_x_world_units,position_y_world_units,"

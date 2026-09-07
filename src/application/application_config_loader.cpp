@@ -2,6 +2,9 @@
 
 #include "application_input_error.hpp"
 #include "application_text_file_reader.hpp"
+#include "game_mode_configuration.hpp"
+#include "match_configuration.hpp"
+#include "royale/royale_configuration.hpp"
 
 #include <array>
 #include <charconv>
@@ -26,11 +29,24 @@ enum class ConfigField : std::size_t {
   kServerTrustedProxyAddresses,
   kPresentationSnapshotsPerSecond,
   kSimulationTicksPerSecond,
+  kSimulationDragPerSecond,
   kWorldWidth,
   kWorldHeight,
   kWorldPlayerRadius,
   kSpatialGridColumns,
   kSpatialGridRows,
+  kMatchMode,
+  kMatchMap,
+  kMatchMapsDirectory,
+  kMatchSeed,
+  kMatchBots,
+  kRoyaleThrustMaximum,
+  kRoyaleZoneMinimumRadius,
+  kRoyaleZoneShrinkSeconds,
+  kRoyaleEliminationGraceSeconds,
+  kRoyaleLobbyMinimumPlayers,
+  kRoyaleCountdownSeconds,
+  kRoyaleRestartDelaySeconds,
   kCount,
 };
 
@@ -45,9 +61,14 @@ struct ConfigFieldSpec final {
   ConfigValueSyntax value_syntax = ConfigValueSyntax::kSingleValue;
 };
 
-constexpr std::array<std::string_view, 5> kConfigSections = {"server", "presentation", "simulation",
-                                                             "world", "spatial_grid"};
+constexpr std::array<std::string_view, 7> kConfigSections = {
+    "server", "presentation", "simulation", "world", "spatial_grid", "match", "royale"};
 
+// **`[royale]` is required whatever `[match] mode` names.** A mode's balance section is part of
+// this deployment's accepted schema rather than of the game it happens to be running today, so
+// switching `mode=` is a one-line edit that cannot fail at startup for a section that was never
+// written. The values are read only by the mode that owns them
+// (`src/gameplay/game_mode_configuration.hpp`).
 constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCount)>
     kConfigFieldSpecs = {
         {{"server", "bind_address"},
@@ -57,11 +78,24 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"server", "trusted_proxy_addresses", ConfigValueSyntax::kCommaDelimitedList},
          {"presentation", "snapshots_per_second"},
          {"simulation", "ticks_per_second"},
+         {"simulation", "drag_per_second"},
          {"world", "width_world_units"},
          {"world", "height_world_units"},
          {"world", "player_radius_world_units"},
          {"spatial_grid", "columns"},
-         {"spatial_grid", "rows"}}};
+         {"spatial_grid", "rows"},
+         {"match", "mode"},
+         {"match", "map"},
+         {"match", "maps_directory"},
+         {"match", "seed"},
+         {"match", "bots", ConfigValueSyntax::kCommaDelimitedList},
+         {"royale", "thrust_max_world_units_per_second_squared"},
+         {"royale", "zone_minimum_radius_world_units"},
+         {"royale", "zone_shrink_seconds"},
+         {"royale", "elimination_grace_seconds"},
+         {"royale", "lobby_minimum_players"},
+         {"royale", "countdown_seconds"},
+         {"royale", "restart_delay_seconds"}}};
 
 [[nodiscard]] std::string_view trim_horizontal_whitespace(std::string_view value) noexcept {
   while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
@@ -317,9 +351,9 @@ parse_comma_delimited_config_value(const StrictIniDocument& document, const Conf
 } // namespace
 
 ApplicationConfigLoader::RunRequest::RunRequest(ApplicationConfig application_config,
-                                                std::filesystem::path scenario_path)
+                                                std::optional<std::filesystem::path> scenario_path)
     : application_config_(std::move(application_config)), scenario_path_(std::move(scenario_path)) {
-  if (scenario_path_.empty()) {
+  if (scenario_path_.has_value() && scenario_path_->empty()) {
     throw_invalid_command_line("scenario path must not be empty");
   }
 }
@@ -339,16 +373,28 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
     return HelpRequest{};
   }
 
-  if (argument_count != 5 || std::string_view{arguments[1]} != "--config" ||
-      std::string_view{arguments[3]} != "--scenario") {
-    throw_invalid_command_line("expected only --help or exactly --config <path> --scenario <path>");
+  // `--scenario` is optional: a match is fully described by `[match]` and the map it names, and a
+  // scenario only seeds extra entities on top of that, which is what fixtures need and a live
+  // deployment does not.
+  const bool has_scenario = argument_count == 5;
+  if ((argument_count != 3 && argument_count != 5) ||
+      std::string_view{arguments[1]} != "--config" ||
+      (has_scenario && std::string_view{arguments[3]} != "--scenario")) {
+    throw_invalid_command_line(
+        "expected only --help, --config <path>, or --config <path> --scenario <path>");
   }
-  if (std::string_view{arguments[2]}.empty() || std::string_view{arguments[4]}.empty()) {
-    throw_invalid_command_line("configuration and scenario paths must not be empty");
+  if (std::string_view{arguments[2]}.empty()) {
+    throw_invalid_command_line("configuration path must not be empty");
+  }
+  if (has_scenario && std::string_view{arguments[4]}.empty()) {
+    throw_invalid_command_line("scenario path must not be empty");
   }
 
   const std::filesystem::path configuration_path{arguments[2]};
-  const std::filesystem::path scenario_path{arguments[4]};
+  std::optional<std::filesystem::path> scenario_path;
+  if (has_scenario) {
+    scenario_path.emplace(arguments[4]);
+  }
   const std::string configuration_contents = read_application_text_file(
       configuration_path, ApplicationTextFileKind::kConfiguration, kMaximumConfigurationFileBytes);
   const StrictIniDocument document =
@@ -362,7 +408,8 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       world_width, world_height, player_radius,
       parse_unsigned_config_value(document, ConfigField::kSimulationTicksPerSecond),
       parse_unsigned_config_value(document, ConfigField::kSpatialGridColumns),
-      parse_unsigned_config_value(document, ConfigField::kSpatialGridRows));
+      parse_unsigned_config_value(document, ConfigField::kSpatialGridRows),
+      parse_double_config_value(document, ConfigField::kSimulationDragPerSecond));
 
   server::ServerConfig server_config = server::ServerConfig::create(
       std::string{document.value(ConfigField::kServerBindAddress)},
@@ -373,8 +420,36 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       parse_comma_delimited_config_value(document, ConfigField::kServerAllowedOrigins),
       parse_comma_delimited_config_value(document, ConfigField::kServerTrustedProxyAddresses));
 
-  return RunRequest{ApplicationConfig::create(std::move(server_config), simulation_config),
-                    scenario_path};
+  MatchConfiguration match_configuration = MatchConfiguration::create(
+      std::string{document.value(ConfigField::kMatchMode)},
+      std::string{document.value(ConfigField::kMatchMap)},
+      std::filesystem::path{document.value(ConfigField::kMatchMapsDirectory)},
+      parse_unsigned_config_value(document, ConfigField::kMatchSeed),
+      MatchConfiguration::parse_bot_roster(document.value(ConfigField::kMatchBots)));
+
+  // Validated by the mode that owns the section, so the application never re-derives a balance
+  // rule: the section is authored in seconds and world units and comes back in tick counts.
+  gameplay::GameModeConfiguration game_mode_configuration{
+      gameplay::RoyaleConfiguration::create(gameplay::RoyaleConfiguration::Section{
+          .thrust_max_world_units_per_second_squared =
+              parse_double_config_value(document, ConfigField::kRoyaleThrustMaximum),
+          .zone_minimum_radius_world_units =
+              parse_double_config_value(document, ConfigField::kRoyaleZoneMinimumRadius),
+          .zone_shrink_seconds =
+              parse_double_config_value(document, ConfigField::kRoyaleZoneShrinkSeconds),
+          .elimination_grace_seconds =
+              parse_double_config_value(document, ConfigField::kRoyaleEliminationGraceSeconds),
+          .lobby_minimum_players =
+              parse_unsigned_config_value(document, ConfigField::kRoyaleLobbyMinimumPlayers),
+          .countdown_seconds =
+              parse_double_config_value(document, ConfigField::kRoyaleCountdownSeconds),
+          .restart_delay_seconds =
+              parse_double_config_value(document, ConfigField::kRoyaleRestartDelaySeconds)})};
+
+  return RunRequest{ApplicationConfig::create(std::move(server_config), simulation_config,
+                                              std::move(match_configuration),
+                                              std::move(game_mode_configuration)),
+                    std::move(scenario_path)};
 }
 
 } // namespace blob_royale::application

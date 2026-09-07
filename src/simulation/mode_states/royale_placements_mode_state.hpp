@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_SIMULATION_MODE_STATES_ROYALE_PLACEMENTS_MODE_STATE_HPP
 #define BLOB_ROYALE_SIMULATION_MODE_STATES_ROYALE_PLACEMENTS_MODE_STATE_HPP
 
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "match_phase.hpp"
 #include "tick_sequence.hpp"
@@ -29,6 +30,15 @@ namespace blob_royale::simulation {
 // would need time-of-impact resolution inside the tick.
 struct RoyalePlacement final {
   EntityId entity;
+  // The controller that was driving `entity` when it was eliminated.
+  //
+  // **It is recorded here because nothing else can recover it.** The tick that records a placement
+  // also destroys the entity, so no committed snapshot carries the `Controllable` that held the
+  // link, while `match-data.schema.json` requires `controller_id` on every placement entry so a
+  // client can recognize its own result after its `entity_id` is gone (`docs/protocol/v2.md`
+  // § "snapshot"). The recorder holds the link at the one instant it exists, so it writes it down
+  // rather than leaving the encoder to ask a directory that has no answer for a closed session.
+  ControllerId controller;
   // `alive_after + 1`, computed once over the whole eliminated set. The winner receives no entry
   // and holds placement 1 implicitly through the committed `MatchOutcome`; a mutual finish gives
   // every final entity the shared placement 1.

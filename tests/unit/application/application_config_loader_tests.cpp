@@ -1,6 +1,9 @@
 #include "application_config.hpp"
 #include "application_config_loader.hpp"
 #include "application_input_error.hpp"
+#include "game_mode_configuration.hpp"
+#include "match_configuration.hpp"
+#include "royale/royale_configuration.hpp"
 #include "server_config.hpp"
 #include "simulation_config.hpp"
 #include "simulation_validation_error.hpp"
@@ -59,7 +62,7 @@ TEST_CASE("application config loader exposes one stable usage string",
           "[unit][application][config]") {
   CHECK(ApplicationConfigLoader::help_text() ==
         "Usage: blob-royale --help\n"
-        "       blob-royale --config <path> --scenario <path>\n");
+        "       blob-royale --config <path> [--scenario <path>]\n");
 }
 
 TEST_CASE("application config loader creates the complete typed run request",
@@ -75,7 +78,8 @@ TEST_CASE("application config loader creates the complete typed run request",
   REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
   const ApplicationConfigLoader::RunRequest& run_request =
       std::get<ApplicationConfigLoader::RunRequest>(result);
-  CHECK(run_request.scenario_path() == scenario_path);
+  REQUIRE(run_request.scenario_path().has_value());
+  CHECK(*run_request.scenario_path() == scenario_path);
   CHECK(run_request.application_config().server_config().bind_address() == "127.0.0.1");
   CHECK(run_request.application_config().server_config().port() == 8000);
   CHECK(run_request.application_config().server_config().snapshots_per_second() == 30);
@@ -102,6 +106,81 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(run_request.application_config().simulation_config().spatial_grid_columns() == 16);
   CHECK(run_request.application_config().simulation_config().spatial_grid_rows() == 16);
   CHECK(run_request.application_config().simulation_config().spatial_grid_cell_count() == 256);
+  CHECK(run_request.application_config().simulation_config().drag_per_second() == 0.0);
+
+  const MatchConfiguration& match = run_request.application_config().match_configuration();
+  CHECK(match.mode_name() == "royale");
+  CHECK(match.map_name() == "arena-960x640");
+  CHECK(match.maps_directory() == std::filesystem::path{"maps"});
+  CHECK(match.map_directory() == std::filesystem::path{"maps"} / "arena-960x640");
+  CHECK(match.seed() == 1);
+  REQUIRE(match.bot_roster().size() == 2);
+  CHECK(match.bot_roster()[0] == MatchConfiguration::BotRosterEntry{"wanderer", 2});
+  CHECK(match.bot_roster()[1] == MatchConfiguration::BotRosterEntry{"chaser", 1});
+  CHECK(match.total_bot_count() == 3);
+
+  // The `[royale]` section arrives already converted into the tick counts the mode's systems read;
+  // no system ever sees a value in seconds (ADR 0005 section "Mode configuration").
+  const gameplay::RoyaleConfiguration& royale =
+      run_request.application_config().game_mode_configuration().royale;
+  CHECK(royale.thrust_maximum() == 400.0);
+  CHECK(royale.zone_minimum_radius() == 60.0);
+  CHECK(royale.zone_shrink_ticks() == 36'000);
+  CHECK(royale.elimination_grace_ticks() == 1'200);
+  CHECK(royale.lobby_minimum_players() == 2);
+  CHECK(royale.countdown_ticks() == 2'000);
+  CHECK(royale.restart_delay_ticks() == 3'200);
+}
+
+TEST_CASE("application config loader accepts a run request with no scenario",
+          "[unit][application][config][match]") {
+  // A match is fully described by `[match]` and the map it names; a scenario only seeds extra
+  // entities, which is what fixtures need and a live deployment does not.
+  TemporaryApplicationInputWorkspace workspace;
+  const std::filesystem::path config_path =
+      workspace.write_file("valid.cfg", test_fixture::kValidConfiguration);
+
+  const ApplicationConfigLoader::Result result = test_fixture::load_application_config(config_path);
+
+  REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
+  CHECK_FALSE(std::get<ApplicationConfigLoader::RunRequest>(result).scenario_path().has_value());
+}
+
+TEST_CASE("application config loader rejects an unknown mode, map name, and bot kind",
+          "[unit][application][config][match][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+
+  std::size_t rejection_ordinal = 0;
+  const auto reject = [&workspace, &rejection_ordinal](
+                          const std::string_view target, const std::string_view replacement,
+                          const ApplicationInputErrorCode expected_code) {
+    INFO("configuration replacement " << replacement);
+    const std::string configuration = test_fixture::replace_once(
+        std::string{test_fixture::kValidConfiguration}, target, replacement);
+    const std::filesystem::path config_path = workspace.write_file(
+        "match-" + std::to_string(rejection_ordinal++) + ".cfg", configuration);
+    test_fixture::require_application_input_error_code(
+        [&] { static_cast<void>(test_fixture::load_application_config(config_path)); },
+        expected_code);
+  };
+
+  // A name the v2 grammar would reject, before the registry is even consulted.
+  reject("mode=royale", "mode=Royale", ApplicationInputErrorCode::kMatchModeNameInvalid);
+  // A well-formed name no row declares.
+  reject("mode=royale", "mode=capture_the_flag", ApplicationInputErrorCode::kMatchModeUnknown);
+  // A map name outside `common.schema.json#/$defs/map_name`, which is also what keeps `map=` a
+  // name rather than a path.
+  reject("map=arena-960x640", "map=../etc", ApplicationInputErrorCode::kMatchMapNameInvalid);
+  // A registered-looking roster naming a kind no row declares.
+  reject("bots=wanderer:2, chaser:1", "bots=stalker:1",
+         ApplicationInputErrorCode::kMatchBotKindUnknown);
+  // Malformed roster terms.
+  reject("bots=wanderer:2, chaser:1", "bots=wanderer",
+         ApplicationInputErrorCode::kMatchBotRosterInvalid);
+  reject("bots=wanderer:2, chaser:1", "bots=wanderer:0",
+         ApplicationInputErrorCode::kMatchBotRosterInvalid);
+  reject("bots=wanderer:2, chaser:1", "bots=wanderer:1, wanderer:1",
+         ApplicationInputErrorCode::kMatchBotRosterInvalid);
 }
 
 TEST_CASE("application config loader trims comma-delimited server policy entries",

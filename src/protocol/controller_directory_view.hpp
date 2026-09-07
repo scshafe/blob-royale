@@ -2,7 +2,6 @@
 #define BLOB_ROYALE_PROTOCOL_CONTROLLER_DIRECTORY_VIEW_HPP
 
 #include "controller_id.hpp"
-#include "entity_id.hpp"
 
 #include <optional>
 #include <string>
@@ -24,6 +23,12 @@ struct PublishedController final {
 
 // canonical: controller_directory_view -- the port through which the v2 encoder reads presentation.
 //
+// **One lookup, because a placement now carries its own controller.** This port briefly also
+// answered "which controller held this already destroyed entity", for `match.placements`; that
+// bridge is gone. `simulation::RoyalePlacement` records the `ControllerId` at the instant the mode
+// eliminates the entity, so the encoder reads the link from the snapshot it is already encoding
+// instead of asking a directory that has legitimately forgotten a closed session.
+//
 // **Why a port and not the directory itself.** Protocol v2 publishes `controller_kind` and
 // `display_name` inside the wire `controllable` object, joined at the encoding boundary rather
 // than stored in the `Controllable` component, so no proxy-supplied string ever enters the
@@ -36,7 +41,7 @@ struct PublishedController final {
 // adapter over the runtime directory. The encoder therefore reads presentation without any
 // `blob_protocol` translation unit ever seeing a runtime type.
 //
-// **Both lookups are total.** `std::nullopt` is an ordinary answer, not a failure: a snapshot a
+// **The lookup is total.** `std::nullopt` is an ordinary answer, not a failure: a snapshot a
 // reader still holds can outlive the session of a controller it names, and the directory erases an
 // entry when its session closes. The encoder answers an absent presentation with the documented
 // fallback (`protocol_v2_constants.hpp`) rather than failing a frame that every other peer is also
@@ -55,22 +60,6 @@ public:
   // What a client should be told about this controller, or nullopt when the id names no open one.
   [[nodiscard]] virtual std::optional<PublishedController>
   find_controller(simulation::ControllerId controller) const = 0;
-
-  // The controller that held one **already destroyed** entity, for `match.placements`.
-  //
-  // A placement names a body the tick that recorded it also destroyed, so no committed snapshot
-  // can answer this and `simulation::RoyalePlacement` carries only `(entity, placement,
-  // elimination_tick)`. `match-data.schema.json` nevertheless requires `controller_id` on every
-  // placement entry, so that a client can recognize its own result after its `entity_id` is gone
-  // (`docs/protocol/v2.md` § "snapshot"). The specification governs the wire, so the encoder asks
-  // for the link here and fails closed when it is absent rather than inventing an id in an
-  // identity space it does not own.
-  //
-  // **This method is a bridge and is meant to be deleted.** The mode knows the controller at the
-  // moment it records a placement; once `RoyalePlacement` carries the `ControllerId`, the encoder
-  // reads it from the snapshot and this lookup disappears.
-  [[nodiscard]] virtual std::optional<simulation::ControllerId>
-  find_placed_controller(simulation::EntityId placed_entity) const = 0;
 };
 
 } // namespace blob_royale::protocol

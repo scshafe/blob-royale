@@ -29,7 +29,8 @@ bool GameModeRegistry::contains(const std::string_view mode_name) noexcept {
 }
 
 std::unique_ptr<const simulation::GameMode>
-GameModeRegistry::create(const std::string_view mode_name) {
+GameModeRegistry::create(const std::string_view mode_name,
+                         const GameModeConfiguration& configuration) {
   const Registration* registration = find_registration(mode_name);
   if (registration == nullptr) {
     throw GameplayValidationError(
@@ -37,7 +38,12 @@ GameModeRegistry::create(const std::string_view mode_name) {
         "mode " + std::string(mode_name) + " is registered by no row; the registered modes are " +
             registered_names());
   }
-  return registration->factory();
+  return registration->factory(configuration);
+}
+
+std::unique_ptr<const simulation::GameMode>
+GameModeRegistry::create(const std::string_view mode_name) {
+  return create(mode_name, GameModeConfiguration::defaults());
 }
 
 std::string GameModeRegistry::registered_names() {

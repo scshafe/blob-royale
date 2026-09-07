@@ -52,8 +52,9 @@ TEST_CASE("deployment scenario for cole-ubuntu-pc loads a populated world",
   const ApplicationConfigLoader::RunRequest& run_request =
       std::get<ApplicationConfigLoader::RunRequest>(result);
 
+  REQUIRE(run_request.scenario_path().has_value());
   const blob_royale::simulation::GameWorld world = blob_royale::application::ScenarioLoader::load(
-      run_request.scenario_path(), run_request.application_config().simulation_config());
+      *run_request.scenario_path(), run_request.application_config().simulation_config());
 
   CHECK(world.entities().size() == 4);
 }

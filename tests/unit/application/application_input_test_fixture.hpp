@@ -36,6 +36,7 @@ inline constexpr std::string_view kValidConfiguration = "[server]\n"
                                                         "\n"
                                                         "[simulation]\n"
                                                         "ticks_per_second=400\n"
+                                                        "drag_per_second=0\n"
                                                         "\n"
                                                         "[world]\n"
                                                         "width_world_units=960\n"
@@ -44,7 +45,24 @@ inline constexpr std::string_view kValidConfiguration = "[server]\n"
                                                         "\n"
                                                         "[spatial_grid]\n"
                                                         "columns=16\n"
-                                                        "rows=16\n";
+                                                        "rows=16\n"
+                                                        "\n"
+                                                        "[match]\n"
+                                                        "mode=royale\n"
+                                                        "map=arena-960x640\n"
+                                                        "maps_directory=maps\n"
+                                                        "seed=1\n"
+                                                        "bots=wanderer:2, chaser:1\n"
+                                                        "\n"
+                                                        "[royale]\n"
+                                                        "thrust_max_world_units_per_second_squared"
+                                                        "=400\n"
+                                                        "zone_minimum_radius_world_units=60\n"
+                                                        "zone_shrink_seconds=90\n"
+                                                        "elimination_grace_seconds=3\n"
+                                                        "lobby_minimum_players=2\n"
+                                                        "countdown_seconds=5\n"
+                                                        "restart_delay_seconds=8\n";
 
 inline constexpr std::string_view kValidScenarioRows = "20,500,400,2.5,1.8,0,0\n"
                                                        "3,15,70,-1,3.2,-0,-0\n";
@@ -131,6 +149,15 @@ load_application_config(const std::filesystem::path& configuration_path,
   const std::string scenario_text = scenario_path.string();
   const std::array<const char*, 5> arguments = {
       "blob-royale", "--config", configuration_text.c_str(), "--scenario", scenario_text.c_str()};
+  return ApplicationConfigLoader::load(static_cast<int>(arguments.size()), arguments.data());
+}
+
+// The same load with no `--scenario`, which is the shape a live match uses.
+[[nodiscard]] inline ApplicationConfigLoader::Result
+load_application_config(const std::filesystem::path& configuration_path) {
+  const std::string configuration_text = configuration_path.string();
+  const std::array<const char*, 3> arguments = {"blob-royale", "--config",
+                                                configuration_text.c_str()};
   return ApplicationConfigLoader::load(static_cast<int>(arguments.size()), arguments.data());
 }
 

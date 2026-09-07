@@ -7,7 +7,7 @@
 
 namespace blob_royale::application {
 
-enum class ApplicationTextFileKind { kConfiguration, kScenario };
+enum class ApplicationTextFileKind { kConfiguration, kScenario, kMap };
 
 // canonical: application_text_file_read -- bounded, exact reads for startup text inputs.
 // Throws ApplicationInputError with a kind-specific code for every filesystem failure.

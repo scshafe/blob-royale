@@ -36,6 +36,24 @@ enum class ApplicationInputErrorCode {
   kScenarioEntityIdDuplicate,
   kScenarioPlayerLimitExceeded,
   kScenarioPositionOutOfBounds,
+  kMatchModeNameInvalid,
+  kMatchModeUnknown,
+  kMatchMapNameInvalid,
+  kMatchBotRosterInvalid,
+  kMatchBotKindUnknown,
+  kMatchBotRosterTooLarge,
+  kMatchMapBoundsMismatch,
+  kMatchEntityBudgetExceeded,
+  kMapFileMissing,
+  kMapPathNotRegularFile,
+  kMapFileTooLarge,
+  kMapFileReadFailed,
+  kMapHeaderInvalid,
+  kMapRowEmpty,
+  kMapRowTooLong,
+  kMapColumnCountInvalid,
+  kMapValueInvalid,
+  kMapNameMismatch,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -97,6 +115,42 @@ application_input_error_code_name(const ApplicationInputErrorCode code) noexcept
     return "APPLICATION.SCENARIO.PLAYER_LIMIT_EXCEEDED";
   case ApplicationInputErrorCode::kScenarioPositionOutOfBounds:
     return "APPLICATION.SCENARIO.POSITION_OUT_OF_BOUNDS";
+  case ApplicationInputErrorCode::kMatchModeNameInvalid:
+    return "APPLICATION.MATCH.MODE_NAME_INVALID";
+  case ApplicationInputErrorCode::kMatchModeUnknown:
+    return "APPLICATION.MATCH.MODE_UNKNOWN";
+  case ApplicationInputErrorCode::kMatchMapNameInvalid:
+    return "APPLICATION.MATCH.MAP_NAME_INVALID";
+  case ApplicationInputErrorCode::kMatchBotRosterInvalid:
+    return "APPLICATION.MATCH.BOT_ROSTER_INVALID";
+  case ApplicationInputErrorCode::kMatchBotKindUnknown:
+    return "APPLICATION.MATCH.BOT_KIND_UNKNOWN";
+  case ApplicationInputErrorCode::kMatchBotRosterTooLarge:
+    return "APPLICATION.MATCH.BOT_ROSTER_TOO_LARGE";
+  case ApplicationInputErrorCode::kMatchMapBoundsMismatch:
+    return "APPLICATION.MATCH.MAP_BOUNDS_MISMATCH";
+  case ApplicationInputErrorCode::kMatchEntityBudgetExceeded:
+    return "APPLICATION.MATCH.ENTITY_BUDGET_EXCEEDED";
+  case ApplicationInputErrorCode::kMapFileMissing:
+    return "APPLICATION.MAP.FILE_MISSING";
+  case ApplicationInputErrorCode::kMapPathNotRegularFile:
+    return "APPLICATION.MAP.PATH_NOT_REGULAR_FILE";
+  case ApplicationInputErrorCode::kMapFileTooLarge:
+    return "APPLICATION.MAP.FILE_TOO_LARGE";
+  case ApplicationInputErrorCode::kMapFileReadFailed:
+    return "APPLICATION.MAP.FILE_READ_FAILED";
+  case ApplicationInputErrorCode::kMapHeaderInvalid:
+    return "APPLICATION.MAP.HEADER_INVALID";
+  case ApplicationInputErrorCode::kMapRowEmpty:
+    return "APPLICATION.MAP.ROW_EMPTY";
+  case ApplicationInputErrorCode::kMapRowTooLong:
+    return "APPLICATION.MAP.ROW_TOO_LONG";
+  case ApplicationInputErrorCode::kMapColumnCountInvalid:
+    return "APPLICATION.MAP.COLUMN_COUNT_INVALID";
+  case ApplicationInputErrorCode::kMapValueInvalid:
+    return "APPLICATION.MAP.VALUE_INVALID";
+  case ApplicationInputErrorCode::kMapNameMismatch:
+    return "APPLICATION.MAP.NAME_MISMATCH";
   }
   return "APPLICATION.INPUT.ERROR_CODE_INVALID";
 }

@@ -5,6 +5,7 @@
 #include "command_registry.hpp"
 #include "contact_rule_table.hpp"
 #include "game_mode.hpp"
+#include "game_mode_configuration.hpp"
 #include "map_definition.hpp"
 #include "match_objective.hpp"
 #include "royale/rotating_ring_spawn_policy.hpp"
@@ -65,9 +66,12 @@ class RoyaleMode final : public simulation::GameMode {
 public:
   static constexpr std::string_view kModeName = "royale";
 
-  // The registry's factory shape today: the mode's own proposed balance values. Plan Step 25 hands
-  // a parsed `[royale]` section to the two-argument form instead, which changes this registry row
-  // and no rule in this file.
+  // The registry's factory shape: royale reads `configuration.royale`, which the application
+  // parsed from the `[royale]` INI section, and reads nothing else from it.
+  [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
+  create(const GameModeConfiguration& configuration);
+
+  // The mode's own proposed balance values, for a test or a diagnostic that does not configure it.
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode> create();
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
   create(RoyaleConfiguration configuration);

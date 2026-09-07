@@ -103,8 +103,16 @@ public:
   // The configuration is read to reject a map whose spawn points cannot seat a disc of the
   // configured radius, which is the one place a spawn point meets a radius and turns a
   // mid-match bounds failure into a startup rejection with a named cause.
+  //
+  // `seeded_entities` is the scenario loader's extra content, placed on top of the map's block. It
+  // is a parameter here rather than a second construction path because the id policy is owned here:
+  // a caller that built the map's bodies and the scenario's rows separately could choose an id
+  // inside the map's block, and a scenario entity silently overwriting a wall is exactly the
+  // failure this function is the one place to reject. An id that lands inside the map's block, a
+  // duplicate id, and a total past `kMaximumEntityCount` are all rejections.
   [[nodiscard]] static GameWorld create(const SimulationConfig& configuration,
-                                        const MapDefinition& map, std::uint64_t seed);
+                                        const MapDefinition& map, std::uint64_t seed,
+                                        std::vector<EntitySeed> seeded_entities = {});
 
   GameWorld(const GameWorld&) = default;
   GameWorld(GameWorld&&) noexcept = default;

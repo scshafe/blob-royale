@@ -156,6 +156,22 @@ TEST_CASE("the spawn system seats consecutive joiners at consecutive points",
   CHECK(body_of(snapshot, 101)->position().x() == Catch::Approx(100.0));
 }
 
+TEST_CASE(
+    "a seated body carries the configured player radius rather than the undeclared placeholder",
+    "[unit][simulation][spawn_system][physics_body]") {
+  // Every accepted phase measures with `SimulationConfig::player_radius()`, so that is the only
+  // radius a seated body can truthfully publish, and `physics-body-component.schema.json` requires
+  // a positive one: seating `PhysicsBody::kUndeclaredRadius` made every live match unencodable.
+  simulation::GameSimulation game =
+      seating_game(testing::spawn_point_map(3), testing::TestGameMode::Declaration{});
+
+  game.step(simulation::FixedDelta::canonical(), reserved_batch({spawn_command(7)}, 100, 2));
+
+  const simulation::WorldSnapshot snapshot = game.snapshot();
+  REQUIRE(body_of(snapshot, 100) != nullptr);
+  CHECK(body_of(snapshot, 100)->radius() == Catch::Approx(configuration().player_radius()));
+}
+
 TEST_CASE("the spawn rotation counter survives the tick that advanced it",
           "[unit][simulation][spawn_system][match_state]") {
   simulation::GameSimulation game =

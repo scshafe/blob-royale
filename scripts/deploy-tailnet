@@ -18,6 +18,11 @@ readonly DEPLOYABLE_DIRECTORY="${REPOSITORY_DIRECTORY}/out/release/current/deplo
 readonly EXPECTED_HOSTNAME="cole-ubuntu-pc"
 readonly DEPLOYMENT_ROOT="/srv/blob-royale"
 readonly CONFIGURATION_DIRECTORY="${DEPLOYMENT_ROOT}/config"
+# The container mounts the configuration directory at /run/blob-royale, and the deployed
+# configuration names `[match] maps_directory=/run/blob-royale/maps`, so map content ships inside
+# that same read-only mount rather than as a second volume.
+readonly MAPS_DIRECTORY="${DEPLOYMENT_ROOT}/config/maps"
+readonly MAPS_SOURCE_DIRECTORY="${REPOSITORY_DIRECTORY}/maps"
 readonly WEB_DIRECTORY="${DEPLOYMENT_ROOT}/web"
 readonly CONTAINER_NAME="blob-royale"
 readonly CONTAINER_INPUT_DIRECTORY="/run/blob-royale"
@@ -74,6 +79,14 @@ sudo -n true 2>/dev/null ||
 [[ -f "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" &&
   -f "${DEPLOYMENT_SOURCE_DIRECTORY}/scenario.csv" ]] ||
   fail "DEPLOY.INPUTS_MISSING" "deploy/ubuntu-pc must contain blob-royale.cfg and scenario.csv"
+# A match names its map by directory, and the process fails closed if that content is absent, so
+# the map named by the deployed configuration is a deployment input like the configuration itself.
+DEPLOYED_MAP_NAME="$(sed -n 's/^map=//p' "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg")"
+readonly DEPLOYED_MAP_NAME
+[[ -n "${DEPLOYED_MAP_NAME}" ]] ||
+  fail "DEPLOY.MAP_UNNAMED" "the deployed configuration names no [match] map"
+[[ -d "${MAPS_SOURCE_DIRECTORY}/${DEPLOYED_MAP_NAME}" ]] ||
+  fail "DEPLOY.MAP_MISSING" "maps/${DEPLOYED_MAP_NAME} is missing for the configured [match] map"
 
 cd "${REPOSITORY_DIRECTORY}"
 [[ -z "$(git status --porcelain)" ]] ||
@@ -110,6 +123,9 @@ sudo install -m 0444 "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" \
   "${CONFIGURATION_DIRECTORY}/blob-royale.cfg"
 sudo install -m 0444 "${DEPLOYMENT_SOURCE_DIRECTORY}/scenario.csv" \
   "${CONFIGURATION_DIRECTORY}/scenario.csv"
+sudo install -d -m 0755 "${MAPS_DIRECTORY}"
+sudo rsync --archive --delete --chmod=D0755,F0444 \
+  "${MAPS_SOURCE_DIRECTORY}/" "${MAPS_DIRECTORY}/"
 sudo rsync --archive --delete --chmod=D0755,F0444 \
   "${DEPLOYABLE_DIRECTORY}/web/" "${WEB_DIRECTORY}/"
 printf 'deploy_tailnet.step=install-files status=passed\n'

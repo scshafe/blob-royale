@@ -131,7 +131,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 
 - [ ] **Step 15: Introduce components, stores, and the registry**
   - Verify: `./scripts/verify-focused 'unit.simulation|fixtures'`
-  - Notes: `ComponentStore<C>` (ascending `EntityId` entries), `ComponentRegistry` as the type list `PhysicsBody, Controllable, Lifetime, Score, Team`, and `GameWorld` becomes ascending entity ids plus one store per registered component, `MatchState`, the bounded `WorldEvent` list, and `DeterministicRandom` (SplitMix64 as specified). `Player` disappears: a player is an entity with `PhysicsBody` and `Controllable`. `WorldSnapshot` is generated from the registry. Existing physics tests and fixtures pass unchanged because the seeded CSV entities carry exactly `PhysicsBody`. `@extension-point entity_component` documented in `src/simulation/README.md`.
+  - Notes: `ComponentStore<C>` (ascending `EntityId` entries), `ComponentRegistry` as the type list `PhysicsBody, Controllable, Lifetime, Score, Team`, and `GameWorld` becomes ascending entity ids plus one store per registered component. `MatchState` and the bounded `WorldEvent` list move to Step 19 and Step 17 respectively, and `DeterministicRandom` to Step 19, because each is first consumed there; adding them here would be untested structure. `Player` disappears: a player is an entity with `PhysicsBody` and `Controllable`. `WorldSnapshot` is generated from the registry. Existing physics tests and fixtures pass unchanged because the seeded CSV entities carry exactly `PhysicsBody`. `@extension-point entity_component` documented in `src/simulation/README.md`.
 
 - [ ] **Step 16: Add commands and the canonical `InputBatch`**
   - Verify: `./scripts/verify-focused 'unit.simulation'`

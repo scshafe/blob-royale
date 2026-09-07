@@ -60,6 +60,30 @@ The release profile rebuilds and re-verifies everything, so a deployment takes t
 this host. Fresh Grype databases and npm advisories can fail the dependency-evidence step for a
 commit that passed yesterday; fix the pin in a separate commit and redeploy, never bypass the gate.
 
+## Change balance without redeploying
+
+Bot roster, lobby minimum, drag, zone shrink, and every other match number live in
+`deploy/ubuntu-pc/blob-royale.cfg`, not in code. Editing one and running the full deploy would
+re-verify the entire tree, which is right for a code change and far too slow for a number. Use:
+
+```sh
+ssh ubuntu-tailscale
+cd ~/Projects/blob-royale
+git pull --ff-only          # or edit deploy/ubuntu-pc/blob-royale.cfg in place to try a value
+./scripts/reconfigure-tailnet
+```
+
+It reuses the image the current publication already certified, refuses to run if none is published,
+and cannot change code. The process validates every value at startup and fails closed, so a bad
+number stops the container with a diagnostic naming the key rather than serving a broken match.
+Restart takes seconds. Commit whatever value you settle on, so the running arena and the repository
+agree.
+
+The two numbers that decide who a match waits for are `[match] bots` and
+`[royale] lobby_minimum_players`. The minimum counts every seated blob, bots included, so a minimum
+above the bot count makes the arena wait for people rather than playing against itself. The shipped
+values are one bot and a minimum of three, so the lobby holds until two people have joined.
+
 ## Verify
 
 ```sh

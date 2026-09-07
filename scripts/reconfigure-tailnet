@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+
+# Applies changed configuration and map content to the already-published tailnet deployment.
+# Inputs: none; run from a checkout on cole-ubuntu-pc as a docker-group user with sudo.
+# Side effects: replaces /srv/blob-royale/config and restarts the blob-royale container on the
+# image the current publication already certified. It changes no code and builds nothing.
+# Idempotent: yes.
+#
+# Why this exists separately from scripts/deploy-tailnet: balance is configuration, so trying a
+# different bot roster, lobby minimum, drag, or zone shrink should cost seconds. `deploy-tailnet`
+# re-runs the whole release profile, which is right when code changes and far too heavy when a
+# number changes. This script deliberately cannot change code: it reuses the published image and
+# refuses to run if none is published, so what it restarts is exactly what was certified.
+#
+# What still protects the deployment: the process validates every configuration value at startup
+# and fails closed, so a bad value stops the container rather than serving a broken match, and the
+# previous container is only removed after the new configuration has been staged.
+
+set -euo pipefail
+
+SCRIPT_DIRECTORY="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIRECTORY
+REPOSITORY_DIRECTORY="$(cd "${SCRIPT_DIRECTORY}/.." && pwd)"
+readonly REPOSITORY_DIRECTORY
+readonly DEPLOYMENT_SOURCE_DIRECTORY="${REPOSITORY_DIRECTORY}/deploy/ubuntu-pc"
+readonly MAPS_SOURCE_DIRECTORY="${REPOSITORY_DIRECTORY}/maps"
+readonly PUBLICATION_RECORD="${REPOSITORY_DIRECTORY}/out/release/current/publication.env"
+readonly EXPECTED_HOSTNAME="cole-ubuntu-pc"
+readonly DEPLOYMENT_ROOT="/srv/blob-royale"
+readonly CONFIGURATION_DIRECTORY="${DEPLOYMENT_ROOT}/config"
+readonly MAPS_DIRECTORY="${DEPLOYMENT_ROOT}/config/maps"
+readonly CONTAINER_NAME="blob-royale"
+readonly CONTAINER_INPUT_DIRECTORY="/run/blob-royale"
+readonly APPLICATION_ADDRESS="127.0.0.1"
+readonly APPLICATION_PORT="8000"
+readonly READINESS_DEADLINE_SECONDS=10
+
+usage() {
+  printf 'Usage: %s\n' "$0"
+}
+
+fail() {
+  local error_code="$1"
+  local error_message="$2"
+
+  printf 'reconfigure_tailnet.status=failed\n' >&2
+  printf 'reconfigure_tailnet.error_code=%s\n' "${error_code}" >&2
+  printf 'reconfigure_tailnet.error_message=%s\n' "${error_message}" >&2
+  exit 1
+}
+
+read_record_value() {
+  local record_file="$1"
+  local record_key="$2"
+  local record_value
+
+  record_value="$(sed -n "s/^${record_key}=//p" "${record_file}")"
+  [[ -n "${record_value}" && "$(grep -c "^${record_key}=" "${record_file}")" -eq 1 ]] ||
+    fail "RECONFIGURE.RECORD_INVALID" "${record_file} must contain exactly one ${record_key} value"
+  printf '%s' "${record_value}"
+}
+
+if [[ "$#" -eq 1 && ( "$1" == "--help" || "$1" == "-h" ) ]]; then
+  usage
+  exit 0
+fi
+if [[ "$#" -ne 0 ]]; then
+  usage >&2
+  exit 64
+fi
+
+[[ "$(uname -s)" == "Linux" && "$(uname -m)" == "x86_64" ]] ||
+  fail "RECONFIGURE.HOST_UNSUPPORTED" "this deployment runs on native Linux x86_64"
+[[ "$(hostname -s)" == "${EXPECTED_HOSTNAME}" ]] ||
+  fail "RECONFIGURE.HOST_UNEXPECTED" "this deployment is configured for ${EXPECTED_HOSTNAME}"
+for required_command in curl docker hostname install rsync sed sudo; do
+  command -v "${required_command}" >/dev/null 2>&1 ||
+    fail "RECONFIGURE.COMMAND_MISSING" "required command is missing: ${required_command}"
+done
+sudo -n true 2>/dev/null ||
+  fail "RECONFIGURE.SUDO_REQUIRED" "non-interactive sudo is required to write ${DEPLOYMENT_ROOT}"
+
+# The image must already be published and present. This is what keeps "reconfigure" from becoming
+# an undocumented way to run unverified code.
+[[ -f "${PUBLICATION_RECORD}" ]] ||
+  fail "RECONFIGURE.NO_PUBLICATION" \
+    "no release is published; run ./scripts/deploy-tailnet before reconfiguring"
+VERIFICATION_AUTHORITY="$(read_record_value "${PUBLICATION_RECORD}" verification_authority)"
+readonly VERIFICATION_AUTHORITY
+[[ "${VERIFICATION_AUTHORITY}" == "authoritative" ]] ||
+  fail "RECONFIGURE.AUTHORITY_INVALID" "publication is ${VERIFICATION_AUTHORITY}, not authoritative"
+RUNTIME_IMAGE="$(read_record_value "${PUBLICATION_RECORD}" runtime_image_reference)"
+readonly RUNTIME_IMAGE
+RELEASE_ID="$(read_record_value "${PUBLICATION_RECORD}" release_id)"
+readonly RELEASE_ID
+docker image inspect "${RUNTIME_IMAGE}" >/dev/null 2>&1 ||
+  fail "RECONFIGURE.IMAGE_MISSING" "published runtime image is absent locally: ${RUNTIME_IMAGE}"
+
+[[ -f "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" ]] ||
+  fail "RECONFIGURE.CONFIG_MISSING" "deploy/ubuntu-pc/blob-royale.cfg is missing"
+DEPLOYED_MAP_NAME="$(sed -n 's/^map=//p' "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg")"
+readonly DEPLOYED_MAP_NAME
+[[ -n "${DEPLOYED_MAP_NAME}" && -d "${MAPS_SOURCE_DIRECTORY}/${DEPLOYED_MAP_NAME}" ]] ||
+  fail "RECONFIGURE.MAP_MISSING" "maps/${DEPLOYED_MAP_NAME} is missing for the configured map"
+
+printf 'reconfigure_tailnet.step=install-files status=running\n'
+sudo install -d -m 0755 "${DEPLOYMENT_ROOT}" "${CONFIGURATION_DIRECTORY}" "${MAPS_DIRECTORY}"
+sudo install -m 0444 "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" \
+  "${CONFIGURATION_DIRECTORY}/blob-royale.cfg"
+sudo rsync --archive --delete --chmod=D0755,F0444 \
+  "${MAPS_SOURCE_DIRECTORY}/" "${MAPS_DIRECTORY}/"
+printf 'reconfigure_tailnet.step=install-files status=passed\n'
+
+printf 'reconfigure_tailnet.step=container status=running\n'
+if docker container inspect "${CONTAINER_NAME}" >/dev/null 2>&1; then
+  docker rm --force "${CONTAINER_NAME}" >/dev/null
+fi
+docker run \
+  --detach \
+  --name "${CONTAINER_NAME}" \
+  --restart unless-stopped \
+  --network host \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --memory 1g \
+  --cpus 2 \
+  --log-driver json-file \
+  --log-opt max-size=50m \
+  --log-opt max-file=5 \
+  --label "org.opencontainers.image.version=${RELEASE_ID}" \
+  --volume "${CONFIGURATION_DIRECTORY}:${CONTAINER_INPUT_DIRECTORY}:ro" \
+  "${RUNTIME_IMAGE}" \
+  --config "${CONTAINER_INPUT_DIRECTORY}/blob-royale.cfg" \
+  >/dev/null
+
+server_ready=false
+readiness_deadline=$((SECONDS + READINESS_DEADLINE_SECONDS))
+while ((SECONDS < readiness_deadline)); do
+  if curl --fail --silent --show-error --max-time 1 \
+    "http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api/v1/health/ready" 2>/dev/null |
+    grep -q '"status":"ready"'; then
+    server_ready=true
+    break
+  fi
+  sleep 0.5
+done
+if [[ "${server_ready}" != "true" ]]; then
+  # A rejected configuration value stops the process here rather than serving a broken match, and
+  # its one-line diagnostic names the key.
+  docker logs --tail 20 "${CONTAINER_NAME}" >&2 || true
+  fail "RECONFIGURE.NOT_READY" \
+    "the server did not report readiness within ${READINESS_DEADLINE_SECONDS}s"
+fi
+printf 'reconfigure_tailnet.step=container status=passed\n'
+
+printf '%s\n' \
+  "reconfigure_tailnet.release_id=${RELEASE_ID}" \
+  "reconfigure_tailnet.runtime_image=${RUNTIME_IMAGE}" \
+  "reconfigure_tailnet.map=${DEPLOYED_MAP_NAME}" \
+  "reconfigure_tailnet.status=passed"

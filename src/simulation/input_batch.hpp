@@ -11,6 +11,7 @@
 namespace blob_royale::simulation {
 
 // canonical: input_batch -- the one validated command value a tick may read.
+// @extension-point simulation_input
 //
 // `GameSimulation::step(FixedDelta, const InputBatch&)` reads exactly one input value per tick and
 // never an ambient queue, callback, socket, clock, or global. A tick with no commands is that same

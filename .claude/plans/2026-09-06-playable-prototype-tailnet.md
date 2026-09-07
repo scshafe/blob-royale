@@ -200,13 +200,14 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 
 - [ ] **Step 27: Pass the full pull-request profile and update domain documentation**
   - Verify: `./scripts/verify-linux pr`
+  - Execution note (2026-09-07): The profile builds both compilers clean and passes 769 tests under GCC and under Clang ASan/UBSan. It fails locally on exactly one lane, ThreadSanitizer, which cannot execute under Rosetta and which halts the run before six later lanes; each of those was run standalone and unmodified, and process smoke, the web pipeline, the Chromium flow, and fuzz regressions all pass. The verification stamp and dependency evidence are gated on a passing profile and are therefore owed on a native runner, which is where this step's verify actually completes. No code fix was needed: the client speaking v1 against a server that also speaks v2 works unchanged, and the end-to-end fixture was already correct. Sixteen documentation claims had drifted from the code and were corrected against it, including a component registry missing the Royale kinds, a retired-keys claim that never happened, a wrong map filename in three files, and `--scenario` still documented as required. All seventeen engine-review findings are closed and were re-verified against code. Benchmarks run and hash-check, and support no performance claim from this emulated host.
   - Notes: Re-baseline the benchmarks on the native runner before claiming any performance profile. Step 21's same-machine A/B isolated its own two component kinds at 6 to 8 percent of snapshot creation, but Step 19's match section and derived roster and Step 20's two-store join in the published projection carry a larger cost on that path, and the 2026-08-05 baseline ran on a different host so no cross-run number is honest. Also update `src/*/README.md` (including the two new domains), the `simulation_input` bullet in ADR 0002 if any residue remains, `docs/operations/linux.md`, and `benchmarks/README.md` for the new construction path. Advisory on the Mac; Step 33 makes it authoritative.
 
 ### Phase 6 — Client
 
 - [ ] **Step 28: Speak protocol v2 in `SimulationApi` and the connection hook**
   - Verify: `cd frontend-react && npm run typecheck && npm run lint && npm run test:ci`
-  - Notes: A joiner arriving mid-match receives no `welcome` and therefore no frames until the next lobby, because the spawn policy defers a joiner while a match is running and the welcome carries the entity id. Render "waiting for the next match" on an open socket with no frames rather than treating it as a stalled connection. Open the v2 session socket instead of v1, handle `welcome`, expose `myEntityId`, `match`, and `entities` in `useSimulationConnection` state, and add a `sendCommand` capability that is a no-op unless connected. Keep the reconnect budget; a reconnect is a new join by contract.
+  - Notes: `frontend-react/README.md` still calls this a read-only browser interface whose only wire truth is the v1 schemas, which is false since Step 24; this step owns that file. A joiner arriving mid-match receives no `welcome` and therefore no frames until the next lobby, because the spawn policy defers a joiner while a match is running and the welcome carries the entity id. Render "waiting for the next match" on an open socket with no frames rather than treating it as a stalled connection. Open the v2 session socket instead of v1, handle `welcome`, expose `myEntityId`, `match`, and `entities` in `useSimulationConnection` state, and add a `sendCommand` capability that is a no-op unless connected. Keep the reconnect budget; a reconnect is a new join by contract.
 
 - [ ] **Step 29: Add the renderer registry, game renderers, and thrust input**
   - Verify: `cd frontend-react && npm run test:ci && npm run build`
@@ -215,13 +216,13 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 - [ ] **Step 30: Add a two-player Chromium end-to-end flow with a bot present**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Specialist: `testineer`
-  - Notes: Two browser contexts join a `royale` match configured with one `wanderer` bot; all three entities render with names, thrust from one context moves only that entity, the zone radius decreases, and the existing server-loss recovery spec still passes.
+  - Notes: `scripts/verify-browser-e2e` hard-codes a single expected test, so adding a second spec means deliberately editing those assertions rather than only adding the spec. Two browser contexts join a `royale` match configured with one `wanderer` bot; all three entities render with names, thrust from one context moves only that entity, the zone radius decreases, and the existing server-loss recovery spec still passes.
 
 ### Phase 7 — Ship and play
 
 - [ ] **Step 31: Redeploy to the tailnet as a Royale match with bots**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet' && curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v1/health/ready | rg -q '"status":"ready"'`
-  - Notes: `deploy/ubuntu-pc/blob-royale.cfg` already carries `[match]`, `[royale]`, and `drag_per_second=2.0` from Step 25, and `scripts/deploy-tailnet` already installs the map content; this step sets `trusted_proxy_addresses=127.0.0.1` and drops the seeded scenario. The release profile inside the script is authoritative on this host.
+  - Notes: Drop the stale comment in `deploy/ubuntu-pc/blob-royale.cfg` claiming map installation is this step's change; Step 25 already did it. `deploy/ubuntu-pc/blob-royale.cfg` already carries `[match]`, `[royale]`, and `drag_per_second=2.0` from Step 25, and `scripts/deploy-tailnet` already installs the map content; this step sets `trusted_proxy_addresses=127.0.0.1` and drops the seeded scenario. The release profile inside the script is authoritative on this host.
 
 - [ ] **Step 32: Playtest with at least two tailnet devices and the bots**
   - Verify: human review — `docs/playtests/2026-MM-DD.md` records participants, device types, a completed match with a winner, how the bots read, latency feel, and every defect found.

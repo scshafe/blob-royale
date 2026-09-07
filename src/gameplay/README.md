@@ -17,6 +17,7 @@ simulation boundary.
 ```
 src/gameplay/
   game_mode_registry.hpp/.cpp   the closed map from one mode name to its factory
+  game_mode_configuration.hpp   every configured mode's validated `[<mode>]` section, as one value
   gameplay_validation_error.hpp the one exception vocabulary of this library
   shared/                       systems more than one mode declares
     thrust_steering_system.*    a validated thrust direction becomes stored acceleration
@@ -48,17 +49,23 @@ declare it, it moves to `shared/` and takes its scale as a constructor argument.
 new  src/gameplay/<mode>/<mode>_mode.{hpp,cpp}  the mode class, its systems, rules, policies
 new  src/gameplay/<mode>/*_system.{hpp,cpp}     any mechanic only that mode declares
 edit src/gameplay/game_mode_registry.hpp        one include and one row in kGameModeRegistrations
+edit src/gameplay/CMakeLists.txt                the new .cpp files; the list is explicit, not a glob
 edit match configuration                        `[match] mode=`
+only if it is configured                        a `<mode>_configuration.{hpp,cpp}`, one member on
+                                                GameModeConfiguration, and the `[<mode>]` fields in
+                                                src/application/application_config_loader.cpp
 do not touch                                    blob_simulation, blob_runtime, blob_server,
                                                 blob_protocol, or any other mode
 ```
 
 `@extension-point game_mode` — `game_mode_registry.hpp`. The table is `constexpr`, so two rows
 claiming one name fail to compile rather than resolving to whichever was written first. A factory
-takes no argument today because every balance number a registered mode owns has a declared default;
-plan Step 25 hands a factory its validated `[<mode>]` section, which changes this row shape once and
-changes no mode. Both registered modes already accept their configuration through a second `create`
-overload, so that change is the table and nothing else.
+takes one argument, the validated `GameModeConfiguration` carrying every configured mode's own
+`[<mode>]` section, and reads only its own member. **One factory signature rather than one per
+configured mode** is what keeps this the only file that knows which games exist: a caller that had
+to choose a factory shape per mode would be a second such file. A mode whose balance is entirely
+defaulted ignores the argument, which is what `GameModeRegistry::create(mode_name)` — the
+defaults-only overload a test or a diagnostic uses — is for.
 
 Two implementations of the seam, both registered: `sandbox` and `royale`.
 
@@ -70,11 +77,13 @@ point in every phase; uses the engine's two built-in contact rows unchanged; dec
 start and is never decided. It contributes no component kind, no contact rule, no world event, no
 mode-state block, and no `kPostKernel` or `kLifecycle` system.
 
-`SandboxMode` is **77 lines** — a 46-line class declaration plus 31 lines of definitions — of which
-**53 are code** once comments and blank lines are removed. That is the measurement ADR 0004's claim
-that "a mode is a declaration, not machinery" is answerable to, and every one of those lines is a
-declaration: the longest function body in the mode is `validate_map`'s five-line rejection. Its two
-sub-declarations are 44 and 53 lines including their comment blocks, and 13 and 19 lines of code.
+`SandboxMode` is **89 lines** — a 52-line class block plus 37 lines of definitions — of which **58
+are code** once blank and `//` lines are removed. The measurement is the `class SandboxMode final`
+block in the header and everything between the namespace braces in the `.cpp`, so anyone can rerun
+it. That is what ADR 0004's claim that "a mode is a declaration, not machinery" is answerable to,
+and every one of those lines is a declaration: the longest function body in the mode is
+`validate_map`'s five-line rejection. Its two sub-declarations are 44- and 57-line files whose class
+blocks are 14 and 18 lines, 11 and 17 of them code.
 
 `validate_map` rejects a map with no `spawn` marker at startup, naming the map: free play with
 nowhere to seat a joiner would silently defer every spawn command forever.
@@ -88,12 +97,13 @@ collision equation; declares `thrust_steering` at `kPreKernel`, `zone_shrink` th
 at `kPostKernel`, and `placement_recorder` at `kLifecycle`; seats joiners on a rotating ring and only
 between matches; and ends when one blob or none is alive.
 
-`RoyaleMode` is **91 lines** — a 49-line class declaration plus 42 lines of definitions — of which
-**67 are code**, against `SandboxMode`'s 77 and 53 measured the same way. The two class declarations
-are the same size, 28 code lines each, because every one of the seven declarations is still one line
-in both; the whole difference is in the definitions, which are `systems()`'s four rows instead of one
-and `validate_map`'s two rejections instead of one. That is the seam holding: a second, far richer
-game cost the mode class fourteen lines of code, and everything else it needed went into new files.
+`RoyaleMode` is **101 lines** — a 52-line class block plus 49 lines of definitions — of which **73
+are code**, against `SandboxMode`'s 89 and 58 measured the same way. The two class blocks are
+exactly the same size, 52 lines and 30 of them code, because every one of the seven declarations is
+still one line in both; the whole difference is in the definitions, which are `systems()`'s four
+rows instead of one and `validate_map`'s two rejections instead of one. That is the seam holding: a
+second, far richer game cost the mode class nothing and its definitions fifteen lines of code, and
+everything else it needed went into new files.
 
 What it contributed outside its own directory is two component headers plus one line in
 `component_registry.hpp`, one mode-state header plus one type and one schema id in

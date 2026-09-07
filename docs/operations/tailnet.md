@@ -19,7 +19,7 @@ records the accepted host facts.
 | Runtime | Versioned release image under Docker with host networking, read-only root, all capabilities dropped, `no-new-privileges`, 1 GiB memory, 2 CPUs, `--restart unless-stopped` |
 | Listener | `127.0.0.1:8000` in the host network namespace; never published beyond loopback |
 | Proxy | `tailscale serve` on HTTPS port 8444, tailnet only; Funnel is never enabled |
-| Inputs | `/srv/blob-royale/config/{blob-royale.cfg,scenario.csv}` (mode 0444) from `deploy/ubuntu-pc/`, mounted read-only at `/run/blob-royale` |
+| Inputs | `/srv/blob-royale/config/{blob-royale.cfg,scenario.csv}` (mode 0444) from `deploy/ubuntu-pc/` plus `/srv/blob-royale/config/maps/` rsynced from the repository's `maps/`, all mounted read-only at `/run/blob-royale`; the deployed configuration names `[match] maps_directory=/run/blob-royale/maps` |
 | Web | `/srv/blob-royale/web/`, the staged `web/` deployable, served by `tailscale serve` at `/` |
 | Sanitizer prerequisite | `/etc/sysctl.d/60-blob-royale-sanitizers.conf` sets `vm.mmap_rnd_bits = 28` so the TSan lane runs inside the pinned container |
 
@@ -42,8 +42,9 @@ git pull --ff-only
    `rsync`/`tailscale`;
 2. runs `./scripts/verify-linux release`, which must publish an `authoritative` record at
    `out/release/current/publication.env`;
-3. installs the configuration and scenario under `/srv/blob-royale/config` and syncs the staged
-   web deployable to `/srv/blob-royale/web`;
+3. installs the configuration and scenario under `/srv/blob-royale/config`, rsyncs the repository's
+   `maps/` to `/srv/blob-royale/config/maps` after checking that the directory named by
+   `[match] map=` exists, and syncs the staged web deployable to `/srv/blob-royale/web`;
 4. replaces the `blob-royale` container with the published `runtime_image_reference` and waits up
    to ten seconds for `GET http://127.0.0.1:8000/api/v1/health/ready`;
 5. applies the two `tailscale serve` handlers (`/api` to `http://127.0.0.1:8000/api`, `/` to the

@@ -6,6 +6,30 @@ the canonical public `GameSimulation::step()`, `SpatialGrid::rebuilt()`,
 does not provide another engine, scheduler, simulation clock, delivery queue, or benchmark
 framework.
 
+## What is under measurement, and what is not
+
+`GameSimulation::create` takes three arguments -- the configuration, the initial world, and a
+`GameSimulationSetup` that carries every declaration a mode makes. The benchmark passes **no
+setup**, so it runs on `GameSimulationSetup::engine_defaults()`: the reserved mode name `idle`, the
+two built-in contact rows, no declared system at any stage, a spawn policy that never seats, an
+objective that never starts a match, and an arena synthesized as `MapDefinition::bare_arena` from
+`SimulationConfig`'s world scalars. Each world is `GameWorld::create(std::vector<EntitySeed>)`, the
+scenario-seeded path, rather than the production `GameWorld::create(configuration, map, seed)` that
+seats a map's static bodies. `step` is called with `InputBatch::empty()`, the no-input tick. No map
+directory, no `GameMode`, no `blob_gameplay` target, and no command participate.
+
+**This is the kernel's floor, not a live match's cost, and the two must not be compared.** A running
+`royale` match additionally pays for its four declared systems, its rotating-ring spawn policy, its
+per-tick zone entity, and its mode-state block, none of which exist here. What the baseline *does*
+now include, because the component registry is closed and its behaviors are generated from it, is
+publication of all seven registered component kinds -- royale's `Zone` and `ZoneExposure` among
+them, empty -- plus the `MatchSnapshot` section and the derived entity roster on every
+`GameSimulation::snapshot()`. Snapshot creation is therefore not comparable across the framework
+cutover even at identical player counts.
+
+The protocol case measures **v1** `encode_snapshot_message`. Protocol v2 snapshot encoding, command
+decoding, and the `SessionWebSocketSession` path are not measured by this suite.
+
 ## Measurement contract
 
 - Run `./scripts/run-benchmarks-linux`. Host invocations re-enter through the pinned Linux/amd64
@@ -49,6 +73,14 @@ Comparisons from shared or virtualized runners are advisory. A future regression
 named dedicated native-Linux runner with fixed CPU allocation and power policy, then establish its
 threshold from repeated baseline runs. This benchmark intentionally does not infer dedicated-runner
 status from CI environment variables.
+
+**No pre-framework baseline is a valid comparison, and none is kept in the tree.** Every run writes
+`out/benchmarks/blob-simulation-benchmark.json` and replaces the previous one; the file is not
+committed and carries the host it ran on in its `platform` block. Read that block before comparing
+two runs at all. The `cole-ubuntu-pc` native runner
+(`docs/operations/tailnet.md`) is the only host on which a number here is more than advisory, and
+the tree has no baseline from it yet: a re-baseline there is owed before any regression claim about
+the gameplay-framework work.
 
 ## Root CMake registration
 

@@ -93,15 +93,26 @@ Start exactly one foreground process with explicit paths:
 
 ```sh
 out/build/linux-gcc-release/blob-royale \
-  --config /run/blob-royale/blob-royale.cfg \
-  --scenario /run/blob-royale/scenario.csv
+  --config /run/blob-royale/blob-royale.cfg
 ```
 
-Mount both files read-only. Invalid or missing input fails before listeners or worker threads start.
+The only accepted command lines are `--help`, `--config <path>`, and
+`--config <path> --scenario <path>`. **`--scenario` is optional.** A match is fully described by the
+`[match]` section and the map it names; a scenario only seeds extra entities on top of the map's
+static content, which is what fixtures need and a live deployment does not.
+
+**The map directory is a process input, not part of the executable.** `[match] map=` names a
+directory under `[match] maps_directory=`, resolved against the process working directory when it is
+relative, and the process fails closed at startup if that content is absent. A deployment must
+therefore mount three things read-only -- the configuration, the maps directory, and the scenario
+file when one is used -- and set `maps_directory` to an absolute path, because a deployed process
+does not run from the repository root. Invalid or missing input fails before listeners or worker
+threads start.
+
 The supervisor owns restart policy, CPU/memory limits, stdout/stderr collection, and signal delivery.
 Send `SIGTERM` for graceful shutdown and allow the bounded server/session deadline to finish before
 using `SIGKILL`. `SIGINT` is equivalent for interactive operation. `SIGHUP` reload is unsupported;
-replace the process to change configuration or scenario.
+replace the process to change configuration, map content, or scenario.
 
 Use a restart policy that distinguishes configuration failures from transient host failures. A
 repeatable nonzero startup exit is operator action, not a crash loop to retry indefinitely.
@@ -123,8 +134,19 @@ A deployment-managed reverse proxy must:
 - apply external-client-aware request, connection, header, and upgrade limits; and
 - use idle timeouts longer than the server's WebSocket keepalive interval.
 
-Protocol v1 is read-only and unauthenticated. It is appropriate only for public simulation state;
-accounts, secrets, private matches, or commands require a threat-model and protocol amendment.
+Protocol v1 is read-only. Protocol v2, on `GET /api/v2/session`, accepts client commands and is
+what makes this a playable deployment rather than a viewer. **Neither version has in-application
+authentication**, and both are appropriate only for public simulation state; accounts, secrets, or
+private matches still require a threat model and a protocol amendment.
+
+Command authority is the socket, not a credential: a v2 session may command only the entity the
+server stamped onto its own connection, and a forged entity id in a frame is ignored. Ownership and
+the published display name are derived from the peer, so `trusted_proxy_addresses` is the one
+setting that turns `X-Forwarded-For` and `Tailscale-User-Name` from ignored input into the
+accounting principal and the published name. Naming a loopback proxy there lets any local process
+forge both, which is why that configuration is supported only on a single-operator host
+(`docs/protocol/v2.md` § "Abuse cases and controls"; `src/server/README.md` § "Trust and deployment
+boundary").
 
 ## Health and shutdown
 
@@ -145,7 +167,9 @@ fields apply. Do not log request bodies, headers, full targets, configuration co
 rows. Protocol request IDs are correlation values, not authenticated identities.
 
 For an incident, retain the process exit code, final structured events, image/toolchain identity,
-configuration hash, scenario hash, and supervisor reason. Reproduce with the exact files and image;
+configuration hash, map-directory hash, scenario hash, and supervisor reason. A match is reproducible
+from its map, its mode configuration, its `[match] seed`, and its command log, so the map content is
+as much a part of the reproduction as the configuration file. Reproduce with the exact files and image;
 do not repair a Linux failure by adding a macOS-specific branch.
 
 ## Resource and performance policy

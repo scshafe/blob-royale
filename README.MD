@@ -94,7 +94,13 @@ dedicated native Linux runner is suitable for accepting future regression budget
 
 ## Run the server
 
-The process runs in the foreground and requires explicit configuration and scenario paths:
+The process runs in the foreground and requires an explicit configuration path:
+
+```sh
+out/build/linux-gcc-debug/blob-royale --config config/blob-royale.cfg
+```
+
+`--scenario` is optional and seeds extra entities on top of the map:
 
 ```sh
 out/build/linux-gcc-debug/blob-royale \
@@ -102,8 +108,11 @@ out/build/linux-gcc-debug/blob-royale \
   --scenario tests/fixtures/player-on-wall-collision-test.csv
 ```
 
-Use `--help` for the exact invocation. The checked-in development configuration listens on
-`127.0.0.1:8000`. Send `SIGINT` or `SIGTERM` for bounded graceful shutdown; normal signal-driven
+The configuration's `[match]` section names the game, the map, and the bots, and the map directory
+it names must exist relative to the process working directory -- which for the command above is the
+repository root, where `maps/` lives. Use `--help` for the exact invocation. The checked-in
+development configuration listens on `127.0.0.1:8000` and plays `royale` on `maps/arena-960x640`
+with no bots. Send `SIGINT` or `SIGTERM` for bounded graceful shutdown; normal signal-driven
 shutdown exits zero. Startup and runtime failures produce one-line structured JSON diagnostics and
 exit nonzero.
 
@@ -134,22 +143,26 @@ external origin the same way. The production bundle is produced with `npm run bu
 
 ## Repository map
 
-- `src/simulation` — validated values, world ownership, deterministic grid/physics/tick, snapshots
+- `src/simulation` — validated values, world ownership, the deterministic tick kernel, snapshots
+- `src/gameplay` — the games: each mode's declared systems, contact rules, policies, and objective
+- `src/controllers` — the in-process agents that decide, through the same command sink as a browser
 - `src/observability` — injected, bounded, atomic structured JSON-lines events
-- `src/runtime` — single-writer clock lifecycle and immutable snapshot publication
-- `src/protocol` — the only Boost.JSON boundary and protocol-v1 encoders
+- `src/runtime` — single-writer clock lifecycle, the command path, and snapshot publication
+- `src/protocol` — the only Boost.JSON boundary; protocol v1 and v2 encoders and the command decoder
 - `src/server` — bounded Beast HTTP/WebSocket transport and trust-boundary enforcement
 - `src/application` — strict CLI/INI/CSV input and the composition root
+- `maps` — arenas as data: `map.cfg`, `static_bodies.csv`, and `markers.csv` per directory
 - `frontend-react` — strict TypeScript transport boundary and presentational UI
-- `tests` — unit, real-process integration, fixtures, and browser specifications
+- `tests` — unit, real-process integration, replay fixtures, and browser specifications
 - `benchmarks` — deterministic Linux simulation and delivery measurements
 - `docs/operations/linux.md` — deployment, shutdown, diagnostics, and incident guidance
 - `docs/operations/tailnet.md` — deploying and operating the tailnet game host `cole-ubuntu-pc`
 - `deploy/ubuntu-pc` — committed configuration and starting scenario for that host
 
-The first gameplay-command feature should begin by specifying a new authenticated, authorized,
-versioned protocol extension. It must not grant network code mutable access to `GameSimulation` or
-reuse the read-only snapshot channel for commands.
+Commands arrive over protocol v2 (`docs/protocol/v2.md`) on its own versioned route, `GET
+/api/v2/session`, and never over v1's read-only snapshot stream. Network code still holds only
+`CommandSink&` and `const SnapshotPublication&`; a further command protocol must do the same again
+on a new versioned route rather than widening either capability.
 
 ## Legal status
 

@@ -28,16 +28,18 @@ order and every binary search depend on; `insert_or_assign` and `erase` remain t
 that change which ids a store holds. The tick has only ever needed the values.
 
 `component_registry.hpp` is the closed, ordered list of kinds:
-`ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team>`. Because it is a type list, three
-behaviors are **generated rather than maintained** — structural world equality, `destroy_entity`
-erasing from every store, and snapshot publication of every kind — so a new kind cannot forget to
-participate in any of them.
+`ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure>`, where the last
+two are royale's. Because it is a type list, three behaviors are **generated rather than
+maintained** — structural world equality, `destroy_entity` erasing from every store, and snapshot
+publication of every kind — so a new kind cannot forget to participate in any of them.
 
 The world's seat count is `kMaximumEntityCount`, and it says entities because it bounds entities: a
 wall, a projectile, a pickup, and a zone each take a seat and none of them is a player.
 `kMaximumPlayerCount` remains beside it as the protocol v1 snapshot *player* limit, which
-`src/protocol/protocol_constants.hpp` pins with a `static_assert` and which nothing but a publication
-reads.
+`src/protocol/protocol_json_encoding.cpp` pins to `kSnapshotPlayerLimit` with a `static_assert` and
+which nothing but a publication reads. Protocol v2 bounds a snapshot's *entities* at 1,024, which is
+below both; `src/application/match_startup_validation.hpp` is what refuses a configuration whose
+worst-case published population could cross it, because the kernel's seat count alone would not.
 
 A **player** is not a type: it is an entity carrying both a `PhysicsBody` and a `Controllable`.
 `PhysicsBody` is the one body value in the game and carries position, velocity, stored acceleration,
@@ -174,10 +176,12 @@ construction because every mode needs it.
 **The map is the arena source.** Phase 4's fold, the commit-time bounds validation, and `SpatialGrid`
 all read `MapDefinition::bounds()`. `SimulationConfig` keeps `world_width` and `world_height`
 because protocol v1's `/api/v1/config` publishes them through `PublicConfiguration` and
-`ScenarioLoader` validates seeded centres against them; no kernel phase reads them any more, and the
-`[simulation]` INI keys retire into the map file when Step 25's loader arrives. The overloads that
-take no map synthesize `MapDefinition::bare_arena` from those same scalars, which is why no accepted
-fixture had to change to gain a map.
+`ScenarioLoader` validates seeded centres against them; no kernel phase reads them any more. The
+`[world]` INI keys therefore stay in every configuration beside `[match] map=`, and
+`match_startup_validation.hpp` is what keeps the two agreeing: it rejects a map whose arena is not
+the `[world]` rectangle protocol v1 publishes, so the duplication cannot silently diverge. The
+overloads that take no map synthesize `MapDefinition::bare_arena` from those same scalars, which is
+why no accepted fixture had to change to gain a map.
 
 A **static body** takes part in the broad phase and in contact resolution and is never integrated,
 accelerated, or dragged: phases 1, 4, and 5 skip it. Its centre obeys the closed arena rectangle
@@ -263,6 +267,17 @@ edit src/simulation/command_registry.hpp         one type in the Command variant
                                                  application rank, one addressed_identity_of arm
 edit src/simulation/input_batch.cpp              the kind's value validation, if it has any
 new  src/gameplay/...                            the consuming system
+edit src/protocol/command_wire_kind.hpp          one specialization saying whether a client may
+                                                 send it, and under what wire name
+```
+
+A **client-sendable** kind costs three more edits outside this domain, and a server-issued one
+costs none of them, because `CommandWireKind` answering `std::nullopt` is what makes it unreachable
+from the decoder:
+
+```
+edit src/protocol/protocol_v2_constants.hpp      its wire name in kV2ClientCommandKindNames
+edit src/protocol/command_decoding.cpp           its payload decoder and one arm of decode_payload
 new  docs/protocol/schema/v2/...                 its wire schema, a protocol minor version
 ```
 
@@ -311,12 +326,14 @@ transition per tick. A mode's own match-wide state that is genuinely not entity-
 `validate_map` throws its own library's typed, coded validation error: `SimulationValidationError`
 inside this domain, `GameplayValidationError` for a mode in `blob_gameplay`.
 
-Two implementations: the engine's own `idle` declarations (`idle_spawn_policy.hpp`,
-`idle_match_objective.hpp`), which never seat and never start a match, and `sandbox` in
-`src/gameplay/sandbox/`; `royale` follows in `blob_gameplay` at plan Step 21.
+Three implementations: the engine's own `idle` declarations (`idle_spawn_policy.hpp`,
+`idle_match_objective.hpp`), which never seat and never start a match; `sandbox` in
+`src/gameplay/sandbox/`, which declares one `kPreKernel` system and nothing else; and `royale` in
+`src/gameplay/royale/`, the first to declare a system at every stage and the first to contribute a
+component kind and a mode-state arm.
 
 `@extension-point map_definition` — `map_definition.hpp`. A map is a data directory and one line of
-match configuration: `map.ini` for name, bounds, and metadata, `static_bodies.csv` for obstacles,
+match configuration: `map.cfg` for name, bounds, and metadata, `static_bodies.csv` for obstacles,
 `markers.csv` for spawn points and mode props. No C++ file changes at all. Two implementations: the
 960x640 arena, and an obstacle course whose walls are `static_bodies.csv` rows resolved by the
 built-in `reflect_static` row. A mode reads the marker kinds it understands and ignores the rest,

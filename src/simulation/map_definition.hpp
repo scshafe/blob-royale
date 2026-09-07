@@ -125,8 +125,11 @@ private:
 // The map is the arena source for the kernel: phase 4's fold, the commit-time bounds validation,
 // and the spatial index all read `bounds()`. SimulationConfig keeps `world_width` and
 // `world_height` because protocol v1's `/api/v1/config` publishes them through
-// `PublicConfiguration`; the `[simulation]` INI keys retire into the map file in Step 25, when the
-// loader that reads a map directory arrives.
+// `PublicConfiguration`, so the `[world]` INI keys stay beside `[match] map=` rather than retiring
+// into the map file. The two cannot silently disagree:
+// `src/application/match_startup_validation.hpp` rejects a map whose arena is not the rectangle
+// `[world]` publishes, because the kernel folds against the map and every client draws the
+// published scalars.
 //
 // **`static_bodies()` is declared content, not seated entities.** Seating them is
 // `GameWorld::create(configuration, map, seed)`, which owns the id policy for map content and
@@ -135,7 +138,7 @@ private:
 //
 // Adding a map is adding a data directory and naming it in configuration -- no code at all:
 //
-//   new  maps/<name>/map.ini            name, bounds, metadata
+//   new  maps/<name>/map.cfg            name, bounds, metadata
 //   new  maps/<name>/static_bodies.csv  obstacles
 //   new  maps/<name>/markers.csv        spawn points and mode props
 //   edit match configuration            `[match] map=`

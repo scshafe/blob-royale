@@ -18,13 +18,20 @@ namespace blob_royale::simulation {
 // phase only when `(a.collision_mask & b.collision_layer)` and `(b.collision_mask &
 // a.collision_layer)` are both nonzero, which is a pure integer predicate that adds no ordering.
 //
-// **`radius_` is not read by any accepted phase, and the constant that fills it says so.** Every
-// phase takes the one common radius from `SimulationConfig::player_radius()`: the pair contact
-// predicate uses `2r`, the wall fold uses `[r, extent - r]`, the spatial index sizes its cells from
-// it, and the spawn occupancy test measures against it. The field is therefore an *undeclared*
-// radius on every body this codebase builds today, which is why the constant is named
-// `kUndeclaredRadius` rather than `kDefaultRadius`: `0.0` is not a body one wu across, it is a body
-// that declares no size and defers to the configuration (engine review finding 10).
+// **`radius_` is not read by any accepted phase.** Every phase takes the one common radius from
+// `SimulationConfig::player_radius()`: the pair contact predicate uses `2r`, the wall fold uses
+// `[r, extent - r]`, the spatial index sizes its cells from it, and the spawn occupancy test
+// measures against it. So the constant that fills the field is named `kUndeclaredRadius` rather
+// than `kDefaultRadius`: `0.0` is not a body one wu across, it is a body that declares no size and
+// defers to the configuration (engine review finding 10).
+//
+// **A body that reaches a world nevertheless carries the configured radius, not the placeholder.**
+// `GameWorld::create(configuration, map, seed)`, `SpawnSystem`, and `ScenarioLoader` each fill it
+// in at seating time, because `physics-body-component.schema.json` requires a positive radius and a
+// published placeholder made every live match unencodable. The placeholder therefore survives only
+// between construction and seating -- in the motion-only `create` and `create_static` overloads a
+// map loader, a test, or a benchmark uses -- and what a snapshot publishes is always the radius the
+// kernel actually measured with.
 //
 // It stays a field rather than being deleted because making it authoritative is the growing-blob
 // change, and that is a **versioned physics change on ADR 0003's amendment path**, not a cleanup:

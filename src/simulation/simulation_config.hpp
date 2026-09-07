@@ -16,10 +16,11 @@ namespace blob_royale::simulation {
 // (`docs/architecture/0004-gameplay-architecture.md` § "Maps as data"). `world_width` and
 // `world_height` are retained because two accepted consumers outside the kernel still read them:
 // protocol v1's `/api/v1/config` publishes them through `PublicConfiguration`, and
-// `ScenarioLoader` validates a seeded centre against `contains_player_center`. They are the
-// published and authoring view of the arena until Step 25's map loader moves authoring into the map
-// directory and the `[simulation]` INI keys retire; the overloads that take no map synthesize the
-// map's bounds from exactly these scalars, so the two views cannot disagree.
+// `ScenarioLoader` validates a seeded centre against `contains_player_center`. Authoring moved
+// into the map directory with `src/application/map_loader.hpp`, so these are now the *published*
+// view of an arena the map declares, and `src/application/match_startup_validation.hpp` rejects a
+// configuration whose map and `[world]` scalars disagree. The overloads that take no map synthesize
+// the map's bounds from exactly these scalars, so the two views cannot disagree there either.
 class SimulationConfig final {
 public:
   static constexpr std::uint64_t kRequiredTicksPerSecond = kSimulationTicksPerSecond;
@@ -39,7 +40,7 @@ public:
   // on every caller: it is a kernel parameter whose accepted value is zero, every fixture, test,
   // and benchmark runs at zero, and only the deployment configuration sets a nonzero value, so
   // defaulting keeps the one meaningful call site -- the configuration loader -- the only place
-  // that has to name it. The `[simulation] drag_per_second` loader key arrives in Step 25.
+  // that has to name it. The loader key is `[simulation] drag_per_second`.
   [[nodiscard]] static SimulationConfig create(double world_width, double world_height,
                                                double player_radius, std::uint64_t ticks_per_second,
                                                std::uint64_t spatial_grid_columns,

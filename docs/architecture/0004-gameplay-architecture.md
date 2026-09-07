@@ -684,7 +684,7 @@ which is what lets any mode play any map; a mode that *requires* a kind rejects 
 
 Maps are loaded by the application layer's existing strict loader family — `ApplicationConfigLoader`
 for INI and `ScenarioLoader` for CSV (`src/application/README.md`). **No new JSON boundary is
-created outside `blob_protocol`.** A map is a data directory: `map.ini` for name, bounds, and
+created outside `blob_protocol`.** A map is a data directory: `map.cfg` for name, bounds, and
 metadata; `static_bodies.csv` for obstacles; `markers.csv` for spawn points and mode props. Adding a
 map is adding a directory and naming it in configuration; no code changes at all.
 

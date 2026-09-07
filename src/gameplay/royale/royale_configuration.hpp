@@ -26,7 +26,7 @@ namespace blob_royale::gameplay {
 // canonical: royale_configuration -- the validated `[royale]` section, in the units systems read.
 //
 // One strict configuration section carries every balance number this mode owns. The application
-// parses it and hands the validated value to the mode factory (plan Step 25); the mode holds it and
+// parses it and hands the validated value to the mode factory; the mode holds it and
 // hands it to the systems it builds, which is the only way configuration reaches a tick: a system's
 // members are immutable configuration and `TickContext` is mode-agnostic
 // (`docs/architecture/0004-gameplay-architecture.md` § "The tick: one fixed kernel, three named
@@ -47,8 +47,9 @@ namespace blob_royale::gameplay {
 class RoyaleConfiguration final {
 public:
   // The proposed values of `docs/architecture/0005-royale-mode.md` § "Mode configuration". They are
-  // the mode's shipped balance until a playtest says otherwise, and they are what the registry's
-  // no-argument factory builds until Step 25 hands a parsed section in.
+  // the mode's shipped balance until a playtest says otherwise, and they are what
+  // `GameModeRegistry::create(mode_name)` -- the defaults-only overload a test or a diagnostic uses
+  // -- builds. A configured process reaches this mode through the `[royale]` section instead.
   static constexpr double kDefaultThrustMaximumWorldUnitsPerSecondSquared = 400.0;
   static constexpr double kDefaultZoneMinimumRadiusWorldUnits = 60.0;
   static constexpr double kDefaultZoneShrinkSeconds = 90.0;

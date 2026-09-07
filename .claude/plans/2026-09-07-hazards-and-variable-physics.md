@@ -66,11 +66,66 @@ A reconnaissance pass proved three things the plan had assumed away. All three a
 
 **On what `tests/fixtures/` means.** The earlier instruction that its diff must stay empty was a proxy for "do not regenerate accepted horizons", and it is too broad. The accepted baseline is the recorded data — `tests/fixtures/replays/**`, the `.csv` scenarios, and the oracle values. `replay_fixture.{hpp,cpp}` is the loader, and editing it is allowed when the recorded data and the observed behavior both stay put.
 
-- [ ] **Step 4: Add the hazard components and contact rule**
+- [x] **Step 4: Add the hazard components and contact rule**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay'`
   - Notes: `LethalOnContact` as a marker component in `blob_simulation` (a value the wire can publish so the client can draw a hazard as dangerous), and a `lethal_hazard` contact rule in `blob_gameplay` that emits `EliminationEvent` for the player and leaves the hazard travelling. Declare it **above** the impulse rows so lethality wins over bouncing. Decide whether a lethal hazard eliminates on contact even during the zone grace period — it should, since it is a different rule — and test that a hazard cannot eliminate another hazard.
   - Placement decided 2026-09-07: hazards go in `src/gameplay/shared/`, beside `thrust_steering_system`, not under `royale/`. Objects that shoot across the arena are a mode-agnostic mechanic, and the owner's stated goal is that new games are cheap to build on this engine, so binding it to the first mode that uses it is the wrong seam. Royale declares the rows and the system in its own `contact_rules()` and `systems()`; sandbox stays free play and declares neither, which is also the test that the mechanic is genuinely optional.
   - `RoyaleMode::contact_rules()` returns `ContactRuleTable::built_in()` verbatim today, and `royale_mode.hpp` carries a comment explaining that royale changes no collision equation. That stops being true here, so rewrite the comment rather than leaving it: royale declares `lethal_hazard`, then `variable_impulse`, then the two built-in rows, and the reason for that order belongs beside the list.
+  - Execution note (2026-09-07), Steps 4, 4b and 5b together. Verified at **830 unit tests on
+    `linux-gcc-debug`** across the full filter and again on `linux-clang-asan-ubsan`. The recorded
+    baseline did not move: `git diff --stat -- tests/fixtures/replays/ maps/` is empty, the only
+    `tests/fixtures/` change is the loader's constant reference, and `AcceptedBaselineTick`,
+    `kMigratedPairFixtureHorizon` and `bodies_are_bit_identical` have zero diff hits.
+    - **The wire went to 2.1.** Adding a component kind is a minor version by
+      `docs/protocol/v2.md` § "Versioning and fail-closed decoding", which says in as many words
+      that it "republishes this schema set with the new kind registered and the `protocol_version`
+      const bumped". Shipping eight kinds under a const promising seven would defeat the client's
+      own version-first rule, which is the mechanism that lets a client fail closed on a kind it
+      does not know. The bump moved the const, `common.schema.json`, three published examples, the
+      encoder goldens, two server-router assertions, and the frame-size budget table (911 -> 934
+      bytes for a maximal entity; 1,024 entities still fit at 51% of the ceiling, 2,048 still do
+      not). The one "a minor ahead" rejection case moved from 2.1 to 2.2 so it still tests what its
+      name says. A version-history table now records what each minor added.
+    - **The marker publishes `{}`**, as decided. `entity-snapshot.schema.json` admits it: the
+      `minProperties: 1` there is on the `components` map, not on each component object, so an
+      entity carrying only this kind still has one property.
+    - **`with_rows_above_built_in`** is the "these rows, then the built-in ones" seam, on
+      `ContactRuleTable` itself. It calls `built_in()` rather than reconstructing it, so an
+      inheriting mode cannot end up with a drifted copy of the baseline predicates, and it routes
+      through `create`, so redeclaring `elastic_disc` is a startup rejection rather than a silently
+      shadowed row.
+    - **`lethal_hazard`'s second predicate is `Controllable` presence**, not the absence of the
+      marker. One test rules out three failures: a hazard cannot eliminate another hazard, a wall,
+      or the zone. It also matches what `placement_recorder` already demands, which throws for an
+      eliminated entity with no controller.
+    - **`lifetime_expiry` runs at `kLifecycle`** and emits `DespawnEvent` rather than destroying:
+      phase 10 owns removal and the index-rebuild decision. `kPreKernel` would remove a body before
+      the kernel moved it and a hazard would vanish a tick early; `kPostKernel` would race royale's
+      own `zone_elimination`. A zero counter is treated as already spent, which is the branch that
+      keeps an unsigned countdown from wrapping to 2^64-1.
+    - **`hazard_spawn` runs at `kLifecycle`** as decided, after the zone systems. Three draws per
+      hazard in a fixed order -- entry edge, point along it, point on the opposite edge -- and both
+      budget checks precede every draw, so a tick that seats nothing leaves `draw_count` untouched.
+      The `Lifetime` is `ceil((crossing_length + 2 * clearance) / speed / seconds_per_tick)` with
+      `clearance = 2 * radius`, so no number in it is tuned.
+    - **The headroom now has one definition**, in `simulation/simulation_limits.hpp`. It had
+      **four** live references, not two: `runtime_limits.hpp`, `replay_fixture.hpp`,
+      `gameplay_test_fixture.hpp`, and `application/match_startup_validation.cpp`, which the
+      compiler found and a grep had missed. Neither test target links `blob_runtime`, so
+      `blob_simulation` is the only library all four can reach -- the same resolution the kind-name
+      grammar got.
+    - Divergence worth naming: the spawner **skips** a kind that loses the one-id race rather than
+      deferring it. A true deferral needs per-kind state between ticks and a system may hold only
+      immutable configuration; nothing drifts, because due-ness is a pure function of the tick, so
+      a kind that loses one appearance is back on schedule at its next multiple.
+    - Known gaps, stated rather than hidden: `require_match_fits_snapshot_bound` does not count
+      standing hazards toward `kSnapshotEntityLimit` because the archetype table is not reachable
+      from its signature, so a deployment authoring many or very slow kinds can exceed the bound at
+      run time instead of at startup -- named in a comment where it lives, and Step 8's business.
+      And the lethal rule and the spawner are each tested thoroughly but not *together*: no test
+      drives a spawned hazard into a player, because the crossing geometry is drawn and arranging a
+      collision would be timing-dependent. Step 7's browser flow is where that meets.
+
 
 - [x] **Step 5a: Make a hazard kind a configured archetype**
   - Verify: `./scripts/verify-focused 'unit.gameplay|unit.application'` — done, 787 unit tests pass, commit `641f8be`.
@@ -85,23 +140,34 @@ A reconnaissance pass proved three things the plan had assumed away. All three a
     - Known weaknesses, stated rather than hidden: the kind-name grammar now exists twice in the tree (`match_configuration.cpp` for `[match] mode`, `hazard_archetype.cpp` for a hazard kind) because neither library may depend on the other, and a third publisher of kind names should push it into `blob_simulation`; a family instance carries one value slot per key of *every* family, which is a handful of wasted optionals per instance today and grows with each family added; and `[hazard.*]` sections are accepted whatever `[match] mode` names, so a `sandbox` deployment can declare hazards nothing will read — the same property `[royale]` already has and defensible for the same reason, but worth knowing.
   - Orchestrator note (2026-09-07). Verified independently: `plaid_meteorite` and `velvet_boulder` appear in zero files under `src/`, and the only occurrences of `comet` and `boulder` are illustrative prose in two READMEs, so the acceptance bar genuinely holds. Weakness 2 was fixed rather than deferred, in commit `042c5c6`: the kind-name grammar existed **three** times, not two — `ContactRuleName`, `match_configuration.cpp`, and the new hazard code — all citing the same schema definition and free to drift apart without one test noticing. It now lives in `blob_simulation`, the one library all three callers can reach, with length left out of the predicate so no caller's bound is imposed on the others. Weaknesses 3, 4 and 5 are accepted as stated and not worth their fix today.
 
-- [ ] **Step 4b: Make `Lifetime` mean something**
+- [x] **Step 4b: Make `Lifetime` mean something**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|fixtures'`
   - Notes: A system that decrements `Lifetime::ticks_remaining` and emits `DespawnEvent` at zero. Nothing carries `Lifetime` today, so this changes no existing behavior and no fixture; it is the prerequisite that keeps hazards from accumulating against `kMaximumEntityCount`. Decide which stage owns it and say why. Test that an entity with a lifetime of one tick is gone on the next tick, that a despawn frees its seat, and that an entity with no `Lifetime` is untouched.
 
-- [ ] **Step 5b: Spawn hazards from the archetype table**
+- [x] **Step 5b: Spawn hazards from the archetype table**
   - Verify: `./scripts/verify-focused 'unit.gameplay|unit.simulation'`
   - Notes: A `HazardSpawnSystem` at `kPreKernel` drawing the entry edge, the point along it, and the direction from `GameWorld::random()`, so a replay reproduces every crossing exactly. Each hazard gets a `Lifetime` sized so it despawns after crossing, and the spawner respects the published entity bound. It reads `GameModeConfiguration::hazards`, which Step 5a already validates, so this step adds no configuration and no new failure mode. Live in `src/gameplay/shared/` beside the archetype; royale declares the system, sandbox does not. Two constraints from Step 2 bind here: `resolve_general_pair_collision` requires two **dynamic** bodies, so any row reusing it must have predicates that guarantee that, and a hazard body must declare the crossing bounds behavior or it will fold off the walls instead of leaving.
 
-- [ ] **Step 6: Draw hazards and publish them**
+- [x] **Step 6: Draw hazards and publish them**
   - Verify: `./scripts/verify-focused 'unit.protocol'` and `cd frontend-react && npm run generate:protocol:check && npm run test:ci && npm run build`
   - Notes: Wire encoders for the new component kinds, their schemas, and a renderer registration so a hazard is visibly distinct and a lethal one reads as dangerous before it arrives. A new component kind must still fail the build until it has both an encoder and a renderer.
 
 ### Phase 4 — Ship
 
+  - Execution note (2026-09-07), Step 6 with Step 4 in commit `f3628ba`, because the compiler makes them one commit. Verified at 830 C++ tests on GCC **and** Clang ASan/UBSan, and 134 client tests with typecheck, lint, schema-example validation and the production build.
+  - The wire moved to **2.1**, correctly and per the rule already written in `docs/protocol/v2.md` § "Versioning and fail-closed decoding": registering a component fires three static asserts demanding an encoder and a published name, and shipping eight kinds under a const promising seven would defeat the client's own version-first rule. Every "one minor ahead" rejection case moved 2.1 → 2.2 on both sides, because a test named for a newer minor that names the current one tests nothing.
+  - The lethal marker is the first zero-field component and publishes `{}`. `entity-snapshot.schema.json` admits it: its `minProperties: 1` is on the `components` map, not on each component object. A synthetic `{"lethal": true}` was rejected as a field that can only hold one value.
+  - The hazard ring is **dashed** where the zone-exposure ring is solid, so the two warnings are separable by a player who cannot distinguish red from amber. They never share an entity today but they share a frame constantly. A heavy but non-lethal hazard gets no ring at all, because marking a positional threat and a lethal one identically teaches a player to ignore both. The client's debug-panel test now reads `SUPPORTED_PROTOCOL_VERSION` rather than a literal, so the next minor is not an unrelated test edit.
+
+- [ ] **Step 6b: Decide whether hazards collide with each other**
+  - Verify: human review, then whatever the decision implies
+  - Notes: Two hazards currently deflect each other through `variable_impulse`, because both carry the default collision layer and mask. It is harmless and never lethal, but comets knock each other off course and a hazard can be batted back out of the arena it just entered. **This is a feel question and the playtest is where it should be answered**, so it is deliberately left open rather than guessed. If they should pass through one another the shape is a hazard collision layer that the player mask includes and the hazard mask excludes — one constant and one line in the spawner — and per-kind layers become an obvious later config key. Recommend playing it first: emergent hazard collisions may be better than the tidy answer.
+
 - [ ] **Step 7: Play it locally, then extend the browser flow**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Notes: Add hazards to the royale end-to-end flow: a lethal hazard eliminates a browser's blob, and a heavy one visibly deflects it without eliminating it. Determinism is the same discipline as the existing flow — a seeded generator makes hazard timing reproducible, so assert on the seeded outcome rather than waiting for a random one.
+
+  - **Prerequisite found during Step 5b:** `require_match_fits_snapshot_bound` does not count standing hazards toward `kSnapshotEntityLimit`, because the archetype table is not reachable from its signature — it takes `MatchConfiguration` and `MapDefinition` while archetypes hang off `GameModeConfiguration`. A deployment authoring many kinds, or very slow ones, therefore exceeds 1,024 live entities at run time instead of being refused at startup. Fix before shipping a hazard table to the tailnet: the failure mode is a match that degrades under load rather than a configuration that fails closed, which is the opposite of how everything else here behaves. The ceiling is a product of each kind's interval and its lifetime, both of which the archetype already carries.
 
 - [ ] **Step 8: Deploy and playtest the tuned values**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet'` then a playtest note under `docs/playtests/`

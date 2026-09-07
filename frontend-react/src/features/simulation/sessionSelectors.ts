@@ -101,6 +101,34 @@ export function phaseElapsedSeconds(
   return elapsedTicks / ticksPerSecond;
 }
 
+/**
+ * Seconds one entity's center has been continuously outside the safe zone, or `null` when it is
+ * inside, absent, or unpublished. `zone_exposure.outside_ticks` is a consecutive committed-tick
+ * count that `zone_elimination` resets to zero on re-entry (ADR 0005 § "Elimination and placement"),
+ * so `null` is exactly "there is nothing to warn about this frame" and the caller needs no timer.
+ *
+ * This is elapsed exposure, not remaining grace. `elimination_grace_seconds` is `[royale]`
+ * composition-root configuration; `GET /api/v1/config` publishes only `world`, `simulation`, and
+ * `presentation` and its schema is `additionalProperties: false`, and no v2 frame carries it
+ * either. Counting down would mean inventing the denominator, so this counts up from a tick count
+ * the wire really does carry, converted by the published `ticks_per_second`.
+ */
+export function zoneExposureSeconds(
+  entities: readonly SessionEntitySnapshot[],
+  entityId: number | null,
+  ticksPerSecond: number,
+): number | null {
+  if (ticksPerSecond <= 0) {
+    return null;
+  }
+  const entity = findEntityById(entities, entityId);
+  const outsideTicks = entity?.components.zone_exposure?.outside_ticks ?? 0;
+  if (outsideTicks <= 0) {
+    return null;
+  }
+  return outsideTicks / ticksPerSecond;
+}
+
 export interface MatchOverlayDescription {
   readonly detail: string;
   readonly title: string;

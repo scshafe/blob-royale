@@ -66,6 +66,15 @@
   text-align: left;
 }
 
+/* The one row that appears only when the player is being counted down to elimination. */
+.MatchHud tr.MatchHudDanger th,
+.MatchHud tr.MatchHudDanger td {
+  background: #fee2e2;
+  border-color: #dc2626;
+  color: #991b1b;
+  font-weight: 600;
+}
+
 .SteeringHint {
   color: #475569;
   margin: 0;

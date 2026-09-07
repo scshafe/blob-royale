@@ -8,8 +8,12 @@ import {
   findOwnEntityId,
   findPlacementForController,
   phaseElapsedSeconds,
+  zoneExposureSeconds,
 } from './sessionSelectors';
-import type { SessionMatchSection } from './simulationProtocolTypes';
+import type {
+  SessionEntitySnapshot,
+  SessionMatchSection,
+} from './simulationProtocolTypes';
 
 const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
@@ -49,6 +53,37 @@ describe('sessionSelectors', () => {
       phaseElapsedSeconds(matchWith({ phase_started_tick: 200 }), 400, 400),
     ).toBeCloseTo(0.5, 12);
     expect(phaseElapsedSeconds(snapshot.match, null, 400)).toBeNull();
+  });
+
+  it('reports elapsed zone exposure only while an entity is outside the zone', () => {
+    // The golden snapshot has entity 7 inside (`outside_ticks` 0), entity 8 outside for 214 ticks,
+    // and entity 9 the zone itself, which carries no exposure component at all.
+    expect(zoneExposureSeconds(snapshot.entities, 7, 400)).toBeNull();
+    expect(zoneExposureSeconds(snapshot.entities, 8, 400)).toBeCloseTo(
+      0.535,
+      12,
+    );
+    expect(zoneExposureSeconds(snapshot.entities, 9, 400)).toBeNull();
+    expect(zoneExposureSeconds(snapshot.entities, null, 400)).toBeNull();
+    expect(zoneExposureSeconds(snapshot.entities, 404, 400)).toBeNull();
+    expect(zoneExposureSeconds(snapshot.entities, 8, 0)).toBeNull();
+  });
+
+  it('clears the exposure the tick the server resets the counter on re-entry', () => {
+    const reentered: SessionEntitySnapshot[] = snapshot.entities.map(
+      (entity) =>
+        entity.entity_id === 8
+          ? {
+              entity_id: entity.entity_id,
+              components: {
+                ...entity.components,
+                zone_exposure: { outside_ticks: 0 },
+              },
+            }
+          : entity,
+    );
+
+    expect(zoneExposureSeconds(reentered, 8, 400)).toBeNull();
   });
 
   it('describes the lobby, countdown, elimination, win, and draw overlays', () => {

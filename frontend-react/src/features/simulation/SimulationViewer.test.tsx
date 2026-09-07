@@ -7,6 +7,7 @@ import type {
   SimulationConnection,
   SimulationSessionIdentity,
 } from './useSimulationConnection';
+import type { SessionEntitySnapshot } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import { snapshotDocument } from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
@@ -50,6 +51,23 @@ function createConnection(
     status: 'connected',
     ...overrides,
   });
+}
+
+/** The golden roster with the session's own blob (entity 7) reporting a given exposure counter. */
+function entitiesWithOwnExposure(
+  outsideTicks: number,
+): readonly SessionEntitySnapshot[] {
+  return snapshot.data.entities.map((entity) =>
+    entity.entity_id === 7
+      ? {
+          entity_id: entity.entity_id,
+          components: {
+            ...entity.components,
+            zone_exposure: { outside_ticks: outsideTicks },
+          },
+        }
+      : entity,
+  );
 }
 
 afterEach(() => {
@@ -170,6 +188,64 @@ describe('SimulationViewer', () => {
     expect(
       screen.getByText('You were the last blob in the zone.'),
     ).toBeVisible();
+  });
+
+  it('shows zone exposure in the HUD only while the own blob is outside', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const hudRowHeader = () =>
+      within(screen.getByRole('table', { name: 'Match status' })).queryByRole(
+        'rowheader',
+        { name: 'Zone exposure' },
+      );
+
+    // The golden own blob is inside the zone, so there is nothing to warn about.
+    const view = render(
+      <SimulationViewer connection={createConnection()} thrust={zeroThrust} />,
+    );
+    expect(hudRowHeader()).toBeNull();
+
+    view.rerender(
+      <SimulationViewer
+        connection={createConnection({
+          entities: entitiesWithOwnExposure(1_200),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    expect(hudRowHeader()).toBeVisible();
+    // 1,200 ticks at the published 400 ticks/s. Elapsed, not remaining: the wire carries
+    // `outside_ticks` and no accepted artifact carries `elimination_grace_seconds`.
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).getByRole('row', { name: 'Zone exposure Outside 3.0 s' }),
+    ).toBeVisible();
+
+    view.rerender(
+      <SimulationViewer
+        connection={createConnection({ entities: entitiesWithOwnExposure(0) })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    expect(hudRowHeader()).toBeNull();
+    expect(screen.queryByText(/Outside/)).toBeNull();
+  });
+
+  it('does not warn about a peer that is outside the zone', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    // Entity 8 in the golden snapshot has been outside for 214 ticks; entity 7 is this session.
+    render(
+      <SimulationViewer connection={createConnection()} thrust={zeroThrust} />,
+    );
+
+    expect(
+      within(screen.getByRole('table', { name: 'Match status' })).queryByRole(
+        'rowheader',
+        { name: 'Zone exposure' },
+      ),
+    ).toBeNull();
   });
 
   it('announces a terminal connection failure as an alert', () => {

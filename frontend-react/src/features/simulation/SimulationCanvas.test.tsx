@@ -15,6 +15,10 @@ import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import { snapshotDocument } from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import { validateSimulationConfigurationResponse } from './simulationProtocolValidation';
+import {
+  EXPOSED_OWN_RING_COLOR,
+  EXPOSED_PEER_RING_COLOR,
+} from './rendering/zoneExposureRenderer';
 
 const configuration = validateSimulationConfigurationResponse(
   structuredClone(configurationResponseExample),
@@ -84,6 +88,20 @@ function bodyEntity(entityId: number): SessionEntitySnapshot {
   };
 }
 
+function exposedBodyEntity(
+  entityId: number,
+  outsideTicks: number,
+): SessionEntitySnapshot {
+  const entity = bodyEntity(entityId);
+  return {
+    entity_id: entity.entity_id,
+    components: {
+      ...entity.components,
+      zone_exposure: { outside_ticks: outsideTicks },
+    },
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -139,17 +157,72 @@ describe('SimulationCanvas', () => {
       />,
     );
 
-    // One static obstacle, two player bodies, and the zone circle.
-    expect(arc).toHaveBeenCalledTimes(4);
+    // One static obstacle, two player bodies, the zone circle, and one danger ring: the golden
+    // snapshot's entity 8 carries `zone_exposure.outside_ticks` 214 while the own blob's is 0.
+    expect(arc).toHaveBeenCalledTimes(5);
     expect(fillText.mock.calls.map((call) => call[0])).toEqual([
       'Cole Shaffer',
       'wanderer-1',
     ]);
     expect(assignments.lineWidth).toContain(4);
     expect(assignments.strokeStyle).toContain('#f8fafc');
+    expect(assignments.strokeStyle).toContain(EXPOSED_PEER_RING_COLOR);
+    expect(assignments.strokeStyle).not.toContain(EXPOSED_OWN_RING_COLOR);
     expect(view.getByRole('img')).toHaveAccessibleDescription(
       'Complete tick 12904 with 4 entities and 2 players.',
     );
+  });
+
+  it('rings only blobs the zone is counting, and alarms the own one', () => {
+    const { arc, assignments, context } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    const snapshot: SessionWorldSnapshot = {
+      ...goldenSnapshot,
+      entities: [
+        exposedBodyEntity(21, 0),
+        exposedBodyEntity(22, 7),
+        bodyEntity(23),
+      ],
+    };
+
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={22}
+        snapshot={snapshot}
+      />,
+    );
+
+    // Three body discs plus the two rings the own exposed blob wears; the safe blob and the blob
+    // carrying no exposure component at all are drawn exactly as they were before.
+    expect(arc).toHaveBeenCalledTimes(5);
+    expect(assignments.strokeStyle).toContain(EXPOSED_OWN_RING_COLOR);
+    expect(assignments.strokeStyle).not.toContain(EXPOSED_PEER_RING_COLOR);
+  });
+
+  it('leaves a fully safe frame with no danger colour at all', () => {
+    const { arc, assignments, context } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    const snapshot: SessionWorldSnapshot = {
+      ...goldenSnapshot,
+      entities: [exposedBodyEntity(21, 0), exposedBodyEntity(22, 0)],
+    };
+
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={22}
+        snapshot={snapshot}
+      />,
+    );
+
+    expect(arc).toHaveBeenCalledTimes(2);
+    expect(assignments.strokeStyle).not.toContain(EXPOSED_OWN_RING_COLOR);
+    expect(assignments.strokeStyle).not.toContain(EXPOSED_PEER_RING_COLOR);
   });
 
   it('exposes an accessible waiting description before the first snapshot', () => {

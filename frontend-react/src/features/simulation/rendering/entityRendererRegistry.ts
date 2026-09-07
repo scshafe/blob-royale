@@ -9,6 +9,7 @@ import {
 } from './entityRendering';
 import { drawPhysicsBody } from './physicsBodyRenderer';
 import { drawZone } from './zoneRenderer';
+import { drawZoneExposure } from './zoneExposureRenderer';
 
 /**
  * @extension-point entity_renderer -- the client's registration point for one component kind.
@@ -49,9 +50,10 @@ export const entityRendererRegistry = Object.freeze({
     'No accepted mode fields teams yet; a team renderer without a mode to render is a guess.',
   ),
   zone: entityRenderer('zone', ENTITY_RENDER_LAYERS.zone, drawZone),
-  zone_exposure: nonVisualComponent(
+  zone_exposure: entityRenderer(
     'zone_exposure',
-    'Exposure is a countdown to elimination, surfaced as HUD and debug text rather than pixels.',
+    ENTITY_RENDER_LAYERS.exposure,
+    drawZoneExposure,
   ),
 }) satisfies Readonly<Record<SessionComponentKind, EntityRendererRegistration>>;
 

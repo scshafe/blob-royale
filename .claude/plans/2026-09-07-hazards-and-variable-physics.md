@@ -22,9 +22,14 @@ The zone already publishes everything the client needs. `zone_exposure.outside_t
 
 ### Phase 1 — Make the existing rule visible
 
-- [ ] **Step 1: Show zone exposure in the client**
+- [x] **Step 1: Show zone exposure in the client**
   - Verify: `cd frontend-react && npm run typecheck && npm run lint && npm run test:ci && npm run build`
+  - Execution note (2026-09-07): Verified at 132 client tests, up from 123, with typecheck, lint, and build green. An exposed blob gets an amber ring and the local player's gets a heavier double red one, so "someone is in trouble" and "I am in trouble" differ at a glance; a safe blob draws exactly as before. The registry entry was replaced rather than the canvas special-cased, which is what the seam is for. The HUD row exists only while exposed and disappears on the same tick the server resets the counter, so no client timer can disagree with the server. Ring intensity is deliberately not ramped, because without the grace duration a ramp is a guess at a denominator; Step 1b removes that excuse. Two assertions changed because the frame genuinely paints one more circle, and both were strengthened to pin the count to a named cause.
   - Notes: The data already arrives. Draw the danger state on an exposed blob (own blob especially) and put the remaining grace in the HUD, counting down from `elimination_grace_seconds`. The grace period is a tick count the wire does not carry, so derive the remaining fraction from `outside_ticks` against a value the client learns from `/api/v1/config` or treats as unknown — decide and say which, and do not invent a duration. Replace the registry's non-visual entry rather than special-casing the canvas. Tests: an exposed blob renders differently from a safe one, the countdown appears only while exposed, and it clears on re-entry.
+
+- [ ] **Step 1b: Publish the grace duration so the countdown is real**
+  - Verify: `./scripts/verify-focused 'unit.protocol|unit.gameplay'` and `cd frontend-react && npm run generate:protocol:check && npm run test:ci && npm run build`
+  - Notes: Step 1 established that the client cannot learn `elimination_grace_seconds`: it is a `[royale]` key held by the mode, and no v1 config block, welcome, match section, or mode-state schema carries it, so the HUD honestly shows elapsed exposure rather than a fabricated remainder. That is a worse answer to the owner's actual complaint, which was not knowing why elimination did or did not happen. Add `elimination_grace_ticks` to `royale-mode-state.schema.json`, which exists precisely for non-entity-shaped mode state and is the documented `snapshot_mode_state` extension point, and bump the protocol minor version. Ticks, not seconds, because the mode already stores ticks and nothing else on the wire is in seconds. Then the HUD counts down and the danger ring can ramp with elapsed grace, which Step 1 deliberately refused to do without a denominator. The counter-argument, that publishing it hands clients a balance number, is about churn rather than secrecy and loses to a player who cannot tell how long they have.
 
 ### Phase 2 — Per-body physics
 

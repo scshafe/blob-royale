@@ -9,6 +9,7 @@ import {
   describeMatchOverlay,
   findPlacementForController,
   phaseElapsedSeconds,
+  zoneExposureSeconds,
 } from './sessionSelectors';
 import type { SimulationConnection } from './useSimulationConnection';
 import type { ThrustDirection } from './useThrustInput';
@@ -85,6 +86,11 @@ export function SimulationViewer({
                 connection.configuration.simulation.ticks_per_second,
               )}
               thrust={thrust}
+              zoneExposureSeconds={zoneExposureSeconds(
+                connection.entities,
+                connection.ownEntityId,
+                connection.configuration.simulation.ticks_per_second,
+              )}
             />
             <p className="SteeringHint">
               Steer with WASD or the arrow keys while your blob is in the arena.

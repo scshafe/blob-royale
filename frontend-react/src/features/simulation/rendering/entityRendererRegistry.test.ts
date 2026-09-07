@@ -7,13 +7,25 @@ import {
   visualEntityRenderers,
 } from './entityRendererRegistry';
 import type { EntityRenderFrame } from './entityRendering';
+import {
+  EXPOSED_OWN_RING_COLOR,
+  EXPOSED_PEER_RING_COLOR,
+} from './zoneExposureRenderer';
 
 function createFrame(ownEntityId: number | null = null): {
   readonly arc: ReturnType<typeof vi.fn>;
+  readonly arcRadii: readonly number[];
   readonly fillText: ReturnType<typeof vi.fn>;
   readonly frame: EntityRenderFrame;
 } {
-  const arc = vi.fn();
+  // The radii are captured through a typed implementation rather than read back out of
+  // `arc.mock.calls`, whose recorded arguments are erased to `any` on an untyped spy.
+  const arcRadii: number[] = [];
+  const arc = vi.fn((x: number, y: number, radius: number) => {
+    void x;
+    void y;
+    arcRadii.push(radius);
+  });
   const fillText = vi.fn();
   const surface = {
     arc,
@@ -31,6 +43,7 @@ function createFrame(ownEntityId: number | null = null): {
 
   return {
     arc,
+    arcRadii,
     fillText,
     frame: {
       ownEntityId,
@@ -56,6 +69,33 @@ const bodilessControllerEntity: SessionEntitySnapshot = {
   },
 };
 
+function blobEntity(
+  entityId: number,
+  outsideTicks: number,
+): SessionEntitySnapshot {
+  return {
+    entity_id: entityId,
+    components: {
+      physics_body: {
+        acceleration: { x: 0, y: 0 },
+        collision_layer: 1,
+        collision_mask: 3,
+        is_static: false,
+        mass: 1,
+        position: { x: 120, y: 80 },
+        radius: 10,
+        velocity: { x: 0, y: 0 },
+      },
+      zone_exposure: { outside_ticks: outsideTicks },
+    },
+  };
+}
+
+const bodilessExposureEntity: SessionEntitySnapshot = {
+  entity_id: 12,
+  components: { zone_exposure: { outside_ticks: 400 } },
+};
+
 describe('entityRendererRegistry', () => {
   it('registers every component kind the accepted schema set names, and no other', () => {
     expect(Object.keys(entityRendererRegistry).sort()).toEqual(
@@ -74,9 +114,12 @@ describe('entityRendererRegistry', () => {
   });
 
   it('draws the zone beneath bodies and names above them', () => {
+    // `zone_exposure` joins between the body and the label: a danger ring painted under the disc
+    // would be hidden by it, and one painted over the name would strike the name through.
     expect(visualEntityRenderers().map((renderer) => renderer.kind)).toEqual([
       'zone',
       'physics_body',
+      'zone_exposure',
       'controllable',
     ]);
   });
@@ -101,5 +144,61 @@ describe('entityRendererRegistry', () => {
     );
 
     expect(fillText).not.toHaveBeenCalled();
+  });
+
+  it('leaves a blob inside the zone unmarked and rings one that is outside', () => {
+    const safe = createFrame();
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 0),
+      safe.frame,
+    );
+    expect(safe.arc).not.toHaveBeenCalled();
+
+    const exposed = createFrame();
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 1),
+      exposed.frame,
+    );
+    expect(exposed.arc).toHaveBeenCalledTimes(1);
+    expect(exposed.frame.surface.strokeStyle).toBe(EXPOSED_PEER_RING_COLOR);
+    // Outside the 10 wu body at unit scale, so the blob itself stays legible under the warning.
+    expect(exposed.arcRadii).toEqual([13]);
+  });
+
+  it('marks the session own exposed blob differently from an exposed peer', () => {
+    const peer = createFrame(99);
+    const own = createFrame(21);
+
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 240),
+      peer.frame,
+    );
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 240),
+      own.frame,
+    );
+
+    // Two concentric rings in the alarm colour, against one warning ring for a peer.
+    expect(own.arc).toHaveBeenCalledTimes(2);
+    expect(peer.arc).toHaveBeenCalledTimes(1);
+    expect(own.frame.surface.strokeStyle).toBe(EXPOSED_OWN_RING_COLOR);
+    expect(own.frame.surface.strokeStyle).not.toBe(
+      peer.frame.surface.strokeStyle,
+    );
+    expect(new Set(own.arcRadii).size).toBe(2);
+    expect(Math.max(...own.arcRadii)).toBeGreaterThan(
+      Math.max(...peer.arcRadii),
+    );
+  });
+
+  it('does not ring an exposure whose body is absent this frame', () => {
+    const { arc, frame } = createFrame();
+
+    entityRendererRegistry.zone_exposure.drawEntity(
+      bodilessExposureEntity,
+      frame,
+    );
+
+    expect(arc).not.toHaveBeenCalled();
   });
 });

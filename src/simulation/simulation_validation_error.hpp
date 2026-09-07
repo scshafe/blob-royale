@@ -22,6 +22,8 @@ enum class SimulationValidationCode {
   kPhysicalScalarNotFinite,
   kPhysicalScalarOutOfRange,
   kVectorDivisionByZero,
+  kPhysicsBodyMassOutOfRange,
+  kPhysicsBodyRestitutionOutOfRange,
   kEntityIdOutOfRange,
   kControllerIdOutOfRange,
   kTeamIdOutOfRange,
@@ -98,6 +100,10 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.PHYSICAL_SCALAR_OUT_OF_RANGE";
   case SimulationValidationCode::kVectorDivisionByZero:
     return "SIMULATION.VECTOR_DIVISION_BY_ZERO";
+  case SimulationValidationCode::kPhysicsBodyMassOutOfRange:
+    return "SIMULATION.PHYSICS_BODY_MASS_OUT_OF_RANGE";
+  case SimulationValidationCode::kPhysicsBodyRestitutionOutOfRange:
+    return "SIMULATION.PHYSICS_BODY_RESTITUTION_OUT_OF_RANGE";
   case SimulationValidationCode::kEntityIdOutOfRange:
     return "SIMULATION.ENTITY_ID_OUT_OF_RANGE";
   case SimulationValidationCode::kControllerIdOutOfRange:

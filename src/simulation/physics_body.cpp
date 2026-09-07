@@ -1,18 +1,24 @@
 #include "physics_body.hpp"
 
+#include "simulation_limits.hpp"
+#include "simulation_validation_error.hpp"
+
+#include <cmath>
+
 namespace blob_royale::simulation {
 
 PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acceleration) {
-  return PhysicsBody(position, velocity, acceleration, kUndeclaredRadius, kDefaultMass,
-                     kDefaultCollisionLayer, kDefaultCollisionMask, false);
+  return validated(position, velocity, acceleration, kUndeclaredRadius, kDefaultMass,
+                   kDefaultRestitution, kDefaultCollisionLayer, kDefaultCollisionMask, false,
+                   kDefaultBoundsBehavior);
 }
 
 PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acceleration,
                                 const double radius, const double mass,
                                 const CollisionLayer collision_layer,
                                 const CollisionLayer collision_mask, const bool is_static) {
-  return PhysicsBody(position, velocity, acceleration, radius, mass, collision_layer,
-                     collision_mask, is_static);
+  return validated(position, velocity, acceleration, radius, mass, kDefaultRestitution,
+                   collision_layer, collision_mask, is_static, kDefaultBoundsBehavior);
 }
 
 PhysicsBody PhysicsBody::create_static(Vector2 position) {
@@ -21,36 +27,96 @@ PhysicsBody PhysicsBody::create_static(Vector2 position) {
 
 PhysicsBody PhysicsBody::create_static(Vector2 position, const CollisionLayer collision_layer,
                                        const CollisionLayer collision_mask) {
-  return PhysicsBody(position, Vector2::create(0.0, 0.0), Vector2::create(0.0, 0.0),
-                     kUndeclaredRadius, kDefaultMass, collision_layer, collision_mask, true);
+  return validated(position, Vector2::create(0.0, 0.0), Vector2::create(0.0, 0.0),
+                   kUndeclaredRadius, kDefaultMass, kDefaultRestitution, collision_layer,
+                   collision_mask, true, kDefaultBoundsBehavior);
 }
 
 PhysicsBody PhysicsBody::with_position(Vector2 position) const {
-  return create(position, velocity_, acceleration_, radius_, mass_, collision_layer_,
-                collision_mask_, is_static_);
+  return validated(position, velocity_, acceleration_, radius_, mass_, restitution_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_velocity(Vector2 velocity) const {
-  return create(position_, velocity, acceleration_, radius_, mass_, collision_layer_,
-                collision_mask_, is_static_);
+  return validated(position_, velocity, acceleration_, radius_, mass_, restitution_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_acceleration(Vector2 acceleration) const {
-  return create(position_, velocity_, acceleration, radius_, mass_, collision_layer_,
-                collision_mask_, is_static_);
+  return validated(position_, velocity_, acceleration, radius_, mass_, restitution_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_radius(const double radius) const {
-  return create(position_, velocity_, acceleration_, radius, mass_, collision_layer_,
-                collision_mask_, is_static_);
+  return validated(position_, velocity_, acceleration_, radius, mass_, restitution_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+}
+
+PhysicsBody PhysicsBody::with_mass(const double mass) const {
+  return validated(position_, velocity_, acceleration_, radius_, mass, restitution_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+}
+
+PhysicsBody PhysicsBody::with_restitution(const double restitution) const {
+  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+}
+
+PhysicsBody PhysicsBody::with_bounds_behavior(const BoundsBehavior bounds_behavior) const {
+  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior);
+}
+
+PhysicsBody PhysicsBody::validated(Vector2 position, Vector2 velocity, Vector2 acceleration,
+                                   const double radius, const double mass, const double restitution,
+                                   const CollisionLayer collision_layer,
+                                   const CollisionLayer collision_mask, const bool is_static,
+                                   const BoundsBehavior bounds_behavior) {
+  // A **dynamic** body's mass is strictly positive because the general impulse equation divides by
+  // it, and bounded by the same physical component limit every other scalar in this domain obeys.
+  // Zero is not "a body that cannot be pushed" -- that is `is_static` -- it is a division by zero
+  // one phase later.
+  //
+  // A **static** body's mass may be zero, and that is not a loophole. Nothing divides by it:
+  // neither `elastic_disc` nor `reflect_static` reads a mass at all, and the general impulse
+  // requires a dynamic body on both sides, so a wall is never a divisor. Zero there means what a
+  // wall's zero velocity means -- structurally absent rather than incidentally small -- and it is
+  // what the accepted protocol v2 golden example publishes for its wall, against a schema that
+  // types `mass` as `nonnegative_world_scalar`
+  // (`docs/protocol/schema/v2/physics-body-component.schema.json`). Requiring otherwise would
+  // regenerate an accepted artifact to state an invariant nothing needs.
+  if (!std::isfinite(mass)) {
+    throw SimulationValidationError(SimulationValidationCode::kPhysicsBodyMassOutOfRange,
+                                    "physics_body.mass", "mass must be finite");
+  }
+  if (mass < 0.0 || (mass == 0.0 && !is_static) || mass > kMaximumPhysicalComponentMagnitude) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kPhysicsBodyMassOutOfRange, "physics_body.mass",
+        "mass must be within the accepted physical component limit, and greater than zero unless "
+        "the body is static");
+  }
+  // Restitution is a dimensionless fraction of the normal closing speed a contact returns. Above
+  // one it would add energy to the pair on every bounce, which no accepted phase bounds; below zero
+  // it would reverse the sign of the impulse and pull the pair together.
+  if (!std::isfinite(restitution)) {
+    throw SimulationValidationError(SimulationValidationCode::kPhysicsBodyRestitutionOutOfRange,
+                                    "physics_body.restitution", "restitution must be finite");
+  }
+  if (restitution < kMinimumRestitution || restitution > kMaximumRestitution) {
+    throw SimulationValidationError(SimulationValidationCode::kPhysicsBodyRestitutionOutOfRange,
+                                    "physics_body.restitution",
+                                    "restitution must lie in the closed interval from zero to one");
+  }
+  return PhysicsBody(position, velocity, acceleration, radius, mass, restitution, collision_layer,
+                     collision_mask, is_static, bounds_behavior);
 }
 
 PhysicsBody::PhysicsBody(Vector2 position, Vector2 velocity, Vector2 acceleration,
-                         const double radius, const double mass,
+                         const double radius, const double mass, const double restitution,
                          const CollisionLayer collision_layer, const CollisionLayer collision_mask,
-                         const bool is_static) noexcept
+                         const bool is_static, const BoundsBehavior bounds_behavior) noexcept
     : position_(position), velocity_(velocity), acceleration_(acceleration), radius_(radius),
-      mass_(mass), collision_layer_(collision_layer), collision_mask_(collision_mask),
-      is_static_(is_static) {}
+      mass_(mass), restitution_(restitution), collision_layer_(collision_layer),
+      collision_mask_(collision_mask), is_static_(is_static), bounds_behavior_(bounds_behavior) {}
 
 } // namespace blob_royale::simulation

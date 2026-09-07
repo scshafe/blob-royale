@@ -172,7 +172,47 @@ PlayerPairContact detect_player_pair_contact(const PhysicsBody& first_body,
                                              const double player_radius) {
   const double validated_radius =
       require_positive_physical_scalar(player_radius, "physics.player_pair.player_radius");
+  // `2 * r` is exact in binary64 and `require_positive_physical_scalar` has already bounded `r`, so
+  // hoisting the contact distance above the geometry cannot throw and cannot change a value: the
+  // returned contact is bit-identical to the one this function produced before it delegated.
+  const double contact_distance = require_finite_result(
+      2.0 * validated_radius, "physics.detect_player_pair_contact.contact_distance");
+  return detect_pair_contact(first_body, second_body, contact_distance);
+}
 
+double pair_contact_distance(const PhysicsBody& first_body, const PhysicsBody& second_body,
+                             const double configured_radius) {
+  const double validated_configured_radius = require_positive_physical_scalar(
+      configured_radius, "physics.pair_contact_distance.configured_radius");
+  const double first_radius =
+      require_positive_physical_scalar(effective_radius(first_body, validated_configured_radius),
+                                       "physics.pair_contact_distance.first_radius");
+  const double second_radius =
+      require_positive_physical_scalar(effective_radius(second_body, validated_configured_radius),
+                                       "physics.pair_contact_distance.second_radius");
+  return require_finite_result(first_radius + second_radius,
+                               "physics.pair_contact_distance.contact_distance");
+}
+
+PlayerPairContact detect_pair_contact(const PhysicsBody& first_body, const PhysicsBody& second_body,
+                                      const double contact_distance) {
+  // Finite and positive, but deliberately *not* bounded by the physical component limit: the
+  // accepted path reaches here with `2 * player_radius`, which may legitimately be twice that
+  // limit, and rejecting it would narrow a rule this refactor must leave exactly as it was.
+  if (!std::isfinite(contact_distance)) {
+    throw SimulationValidationError{SimulationValidationCode::kPhysicalScalarNotFinite,
+                                    "physics.detect_pair_contact.contact_distance",
+                                    "contact distance must be finite"};
+  }
+  if (contact_distance <= 0.0) {
+    throw SimulationValidationError{SimulationValidationCode::kPhysicalScalarOutOfRange,
+                                    "physics.detect_pair_contact.contact_distance",
+                                    "contact distance must be greater than zero"};
+  }
+
+  // The failure contexts below keep the accepted function's name. This is the one detection and
+  // `detect_player_pair_contact` is still what names it in the contract, so renaming them would
+  // change accepted diagnostics to say nothing new.
   const double delta_x =
       require_finite_result(second_body.position().x() - first_body.position().x(),
                             "physics.detect_player_pair_contact.delta_x");
@@ -212,8 +252,6 @@ PlayerPairContact detect_player_pair_contact(const PhysicsBody& first_body,
       ((second_body.velocity().x() - first_body.velocity().x()) * normal.x()) +
           ((second_body.velocity().y() - first_body.velocity().y()) * normal.y()),
       "physics.detect_player_pair_contact.relative_normal_speed");
-  const double contact_distance = require_finite_result(
-      2.0 * validated_radius, "physics.detect_player_pair_contact.contact_distance");
   const bool is_contact =
       less_than_or_approximately_equal(center_distance, contact_distance, kPositionTolerance);
 
@@ -262,6 +300,91 @@ PlayerPairCollisionResult resolve_player_pair_collision(const PhysicsBody& first
   return PlayerPairCollisionResult{contact, true, first_velocity, second_velocity};
 }
 
+double combined_restitution(const double first_restitution,
+                            const double second_restitution) noexcept {
+  return std::min(first_restitution, second_restitution);
+}
+
+PlayerPairCollisionResult resolve_general_pair_collision(const PhysicsBody& first_body,
+                                                         const PhysicsBody& second_body,
+                                                         const double configured_radius) {
+  // The same detection and the same rejection as the accepted narrow phase, measured at the pair's
+  // own contact distance rather than at twice one common radius. `configured_radius` is the
+  // fallback for a body that declares no size, which is why it is still an argument.
+  const PlayerPairContact contact = detect_pair_contact(
+      first_body, second_body, pair_contact_distance(first_body, second_body, configured_radius));
+  if (!contact.is_contact() || greater_than_or_approximately_equal(contact.relative_normal_speed(),
+                                                                   0.0, kVelocityTolerance)) {
+    return PlayerPairCollisionResult{contact, false, first_body.velocity(), second_body.velocity()};
+  }
+
+  // The written operation order, which
+  // `docs/architecture/0003-deterministic-simulation-contract.md` § "Floating-point contract"
+  // requires be preserved and which no reassociation or contraction may alter:
+  //
+  //   1. inverse_first_mass   = 1 / m_a
+  //   2. inverse_second_mass  = 1 / m_b
+  //   3. inverse_mass_sum     = inverse_first_mass + inverse_second_mass
+  //   4. restitution          = min(e_a, e_b)
+  //   5. impulse_numerator    = -((1 + restitution) * (v_rel . n))
+  //   6. impulse_scalar       = impulse_numerator / inverse_mass_sum
+  //   7. first_normal_delta   = impulse_scalar / m_a
+  //      second_normal_delta  = impulse_scalar / m_b
+  //   8. v_a'.x = v_a.x - (first_normal_delta * n.x), then v_a'.y likewise
+  //      v_b'.x = v_b.x + (second_normal_delta * n.x), then v_b'.y likewise
+  //
+  // `(1 + restitution)` is formed before it multiplies the relative normal speed, and the negation
+  // is applied to that whole product; the two per-body scalings divide the one impulse scalar by
+  // each mass rather than multiplying by an already-rounded reciprocal, which is the equation as
+  // written. `v_rel . n` is the contact's own `relative_normal_speed`, which is `(v_b - v_a) . n`
+  // with `n` directed from a to b: an approaching pair makes it negative, so the impulse scalar is
+  // positive and `b` is pushed along `+n` while `a` is pushed along `-n`.
+  //
+  // **Both masses are strictly positive because both bodies are dynamic, not because every
+  // PhysicsBody has a positive mass.** A static body is deliberately permitted to carry zero, since
+  // nothing reads a wall's mass. What rules a wall out here is the caller: `variable_impulse`
+  // declares `body_is_variable_dynamic` and `body_is_dynamic` as its predicates, so both subjects
+  // are dynamic, and `PhysicsBody` validation rejects a non-positive mass on a dynamic body. The
+  // two reciprocals are therefore defined and their sum is strictly positive; the finiteness checks
+  // still stand because a validly tiny mass can overflow its own reciprocal.
+  const double inverse_first_mass = require_finite_result(
+      1.0 / first_body.mass(), "physics.resolve_general_pair_collision.inverse_first_mass");
+  const double inverse_second_mass = require_finite_result(
+      1.0 / second_body.mass(), "physics.resolve_general_pair_collision.inverse_second_mass");
+  const double inverse_mass_sum =
+      require_finite_result(inverse_first_mass + inverse_second_mass,
+                            "physics.resolve_general_pair_collision.inverse_mass_sum");
+  const double restitution =
+      combined_restitution(first_body.restitution(), second_body.restitution());
+  const double impulse_numerator =
+      require_finite_result(-((1.0 + restitution) * contact.relative_normal_speed()),
+                            "physics.resolve_general_pair_collision.impulse_numerator");
+  const double impulse_scalar =
+      require_finite_result(impulse_numerator / inverse_mass_sum,
+                            "physics.resolve_general_pair_collision.impulse_scalar");
+  const double first_normal_delta =
+      require_finite_result(impulse_scalar / first_body.mass(),
+                            "physics.resolve_general_pair_collision.first_normal_delta");
+  const double second_normal_delta =
+      require_finite_result(impulse_scalar / second_body.mass(),
+                            "physics.resolve_general_pair_collision.second_normal_delta");
+
+  const Vector2 first_velocity = Vector2::create(
+      require_finite_result(first_body.velocity().x() - (first_normal_delta * contact.normal().x()),
+                            "physics.resolve_general_pair_collision.first_velocity.x"),
+      require_finite_result(first_body.velocity().y() - (first_normal_delta * contact.normal().y()),
+                            "physics.resolve_general_pair_collision.first_velocity.y"));
+  const Vector2 second_velocity =
+      Vector2::create(require_finite_result(
+                          second_body.velocity().x() + (second_normal_delta * contact.normal().x()),
+                          "physics.resolve_general_pair_collision.second_velocity.x"),
+                      require_finite_result(
+                          second_body.velocity().y() + (second_normal_delta * contact.normal().y()),
+                          "physics.resolve_general_pair_collision.second_velocity.y"));
+
+  return PlayerPairCollisionResult{contact, true, first_velocity, second_velocity};
+}
+
 WallMotionResult resolve_player_wall_motion(const Vector2& position, const Vector2& velocity,
                                             const double world_width, const double world_height,
                                             const double player_radius,
@@ -290,6 +413,19 @@ WallMotionResult resolve_player_wall_motion(const Vector2& position, const Vecto
 
   return WallMotionResult{Vector2::create(x_motion.displacement, y_motion.displacement),
                           Vector2::create(x_motion.terminal_velocity, y_motion.terminal_velocity)};
+}
+
+WallMotionResult resolve_unbounded_motion(const Vector2& velocity, const FixedDelta fixed_delta) {
+  // No interval, no fold, no reflection: the proposed motion *is* the resolved motion. The written
+  // order is one multiplication per axis, x before y, exactly as the folding path forms its
+  // proposed endpoint.
+  const double delta_seconds = fixed_delta.seconds();
+  const double displacement_x = require_finite_result(
+      velocity.x() * delta_seconds, "physics.resolve_unbounded_motion.displacement_x");
+  const double displacement_y = require_finite_result(
+      velocity.y() * delta_seconds, "physics.resolve_unbounded_motion.displacement_y");
+
+  return WallMotionResult{Vector2::create(displacement_x, displacement_y), velocity};
 }
 
 } // namespace blob_royale::simulation

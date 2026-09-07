@@ -1434,8 +1434,9 @@ TEST_CASE("GameSimulation publishes the map and the contact rules it was built w
       {player(1, 50.0, 50.0)}, arena_map(100.0, 100.0), configuration(100.0, 100.0, 5.0, 4, 4));
 
   CHECK(simulation_game.map() == arena_map(100.0, 100.0));
-  REQUIRE(simulation_game.contact_rules().size() == 2);
-  CHECK(simulation_game.contact_rules().rows()[0].name() ==
+  CHECK(simulation_game.contact_rules() == simulation::ContactRuleTable::built_in());
+  REQUIRE(simulation_game.contact_rules().size() == 3);
+  CHECK(simulation_game.contact_rules().rows()[1].name() ==
         simulation::kElasticDiscContactRuleName);
 }
 
@@ -1664,7 +1665,7 @@ TEST_CASE("GameSimulation reads every mode declaration once and publishes the na
 
   CHECK(simulation_game.mode_name() == "arena_brawl");
   CHECK(simulation_game.accepted_command_kinds() == simulation::CommandKindMask::all());
-  CHECK(simulation_game.contact_rules().size() == 2);
+  CHECK(simulation_game.contact_rules() == simulation::ContactRuleTable::built_in());
   const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
   CHECK(snapshot.match().mode_name() == "arena_brawl");
 }
@@ -1735,4 +1736,197 @@ TEST_CASE("a map whose spawn point cannot seat the configured disc is rejected a
   CHECK_THROWS_AS(mode_game({}, std::move(edge_map), testing::TestGameMode::Declaration{},
                             configuration(100.0, 100.0, 10.0, 4, 4)),
                   simulation::SimulationValidationError);
+}
+
+namespace {
+
+// A dynamic body that declares it crosses the arena instead of folding off its walls. Nothing else
+// about it differs from an ordinary blob -- same mass, same restitution -- so it still takes the
+// accepted equal-unit-mass equation whenever it meets one, and the only thing under test is the
+// three places `BoundsBehavior::kCross` reaches.
+[[nodiscard]] simulation::GameWorld::EntitySeed
+crossing_player(const simulation::EntityId::Value id, const double x, const double y,
+                const double velocity_x = 0.0, const double velocity_y = 0.0) {
+  return simulation::GameWorld::EntitySeed::create(
+      simulation::EntityId::create(id),
+      simulation::PhysicsBody::create(at(x, y), at(velocity_x, velocity_y), at(0.0, 0.0))
+          .with_bounds_behavior(simulation::BoundsBehavior::kCross));
+}
+
+// Writes one entity's committed position to a point outside the arena, which is the only way a
+// body reaches phase 10's bounds validation without phase 4 having already folded it.
+class PushOutsideSystem final : public simulation::SimulationSystem {
+public:
+  [[nodiscard]] std::string_view name() const noexcept override { return "push_outside"; }
+  void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+    const simulation::EntityId entity = simulation::EntityId::create(1);
+    const simulation::PhysicsBody* body = world.store<simulation::PhysicsBody>().find(entity);
+    if (body == nullptr) {
+      return;
+    }
+    world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+        entity, body->with_position(at(600.0, 250.0)));
+  }
+};
+
+} // namespace
+
+TEST_CASE("phase 4 folds a bounded body and passes an unbounded one straight through",
+          "[unit][simulation][game_simulation][phases][bounds_behavior]") {
+  // Same start, same velocity, same arena: the only difference is the declared bounds behaviour.
+  // The bounded body reaches the wall on tick 1 and walks back inward; the crossing body keeps its
+  // velocity and its heading and is well outside the arena rectangle four ticks later.
+  simulation::GameSimulation simulation_game =
+      game({player(1, 480.0, 100.0, 4000.0, 0.0), crossing_player(2, 480.0, 300.0, 4000.0, 0.0)});
+
+  advance(simulation_game, 4);
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+
+  check_vector(snapshot_body(snapshot, 1).position(), 460.0, 100.0);
+  check_vector(snapshot_body(snapshot, 1).velocity(), -4000.0, 0.0);
+  check_vector(snapshot_body(snapshot, 2).position(), 520.0, 300.0);
+  check_vector(snapshot_body(snapshot, 2).velocity(), 4000.0, 0.0);
+  // Not merely past the disc-centre interval: past the arena rectangle itself.
+  CHECK_FALSE(simulation::ArenaBounds::create(500.0, 500.0)
+                  .contains(snapshot_body(snapshot, 2).position()));
+  CHECK(simulation_game.tick_sequence().value() == 4);
+}
+
+TEST_CASE("phase 10 accepts an unbounded body outside the arena and still rejects a bounded one",
+          "[unit][simulation][game_simulation][bounds_behavior][validation]") {
+  // The same system writes the same impossible-for-a-blob position in both worlds. A bounded body
+  // fails the tick and commits nothing, exactly as it always has; a crossing body commits there,
+  // because the interval is one it declared it is not held to.
+  std::vector<simulation::SystemPipeline::StagedSystem> bounded_declared;
+  bounded_declared.push_back(testing::staged(simulation::SystemStage::kPostKernel,
+                                             std::make_unique<const PushOutsideSystem>()));
+  simulation::GameSimulation bounded_game =
+      staged_game({player(1, 250.0, 250.0)}, std::move(bounded_declared));
+  const simulation::WorldSnapshot before = bounded_game.snapshot();
+
+  CHECK_THROWS_AS(
+      bounded_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()),
+      simulation::SimulationValidationError);
+  CHECK(bounded_game.snapshot() == before);
+
+  std::vector<simulation::SystemPipeline::StagedSystem> crossing_declared;
+  crossing_declared.push_back(testing::staged(simulation::SystemStage::kPostKernel,
+                                              std::make_unique<const PushOutsideSystem>()));
+  simulation::GameSimulation crossing_game =
+      staged_game({crossing_player(1, 250.0, 250.0)}, std::move(crossing_declared));
+
+  CHECK_NOTHROW(
+      crossing_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()));
+  const simulation::WorldSnapshot crossing_snapshot = crossing_game.snapshot();
+  check_vector(snapshot_body(crossing_snapshot, 1).position(), 600.0, 250.0);
+  CHECK(crossing_game.tick_sequence().value() == 1);
+}
+
+TEST_CASE("a bounded body commits the identical bodies whether or not a crossing body shares the "
+          "world",
+          "[unit][simulation][game_simulation][bounds_behavior][determinism]") {
+  // The addition must be invisible to everything that existed before it. This is exact equality on
+  // the committed PhysicsBody, not a tolerance: the bounded body's forty ticks of acceleration,
+  // wall folding, and integration must be bit-for-bit what they are with no hazard in the world.
+  simulation::GameSimulation alone = game({player(1, 480.0, 100.0, 4000.0, 0.0)});
+  simulation::GameSimulation shared =
+      game({player(1, 480.0, 100.0, 4000.0, 0.0), crossing_player(2, 480.0, 300.0, 4000.0, 0.0)});
+
+  advance(alone, 40);
+  advance(shared, 40);
+  const simulation::WorldSnapshot alone_snapshot = alone.snapshot();
+  const simulation::WorldSnapshot shared_snapshot = shared.snapshot();
+
+  CHECK(snapshot_body(shared_snapshot, 1) == snapshot_body(alone_snapshot, 1));
+  CHECK(shared_snapshot.entities().size() == 2);
+}
+
+TEST_CASE("a crossing body outside the wall still resolves a contact with the blob inside it",
+          "[unit][simulation][game_simulation][bounds_behavior][spatial_grid]") {
+  // The payoff of clamping the crossing body into the edge cells rather than leaving it out of the
+  // index while it is outside. The two centres are fifteen apart with a radius of ten, so the discs
+  // overlap and the pair is approaching; an unindexed body would have made this a missed contact
+  // rather than a deferred one. Both bodies are baseline, so the equation applied is still the
+  // accepted equal-unit-mass exchange.
+  simulation::GameSimulation simulation_game =
+      game({player(1, 485.0, 250.0, 0.0, 0.0), crossing_player(2, 500.0, 250.0, -400.0, 0.0)});
+  simulation::GameSimulation without_hazard = game({player(1, 485.0, 250.0, 0.0, 0.0)});
+
+  advance(simulation_game, 1);
+  advance(without_hazard, 1);
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  const simulation::WorldSnapshot without_hazard_snapshot = without_hazard.snapshot();
+
+  // The normal is exactly (1, 0), so the exchange hands the resting blob the hazard's speed.
+  check_vector(snapshot_body(snapshot, 1).velocity(), -400.0, 0.0);
+  check_vector(snapshot_body(snapshot, 2).velocity(), 0.0, 0.0);
+  // The counterfactual: with no hazard in the world the blob does not move at all, so the velocity
+  // above is the contact and nothing else.
+  check_vector(snapshot_body(without_hazard_snapshot, 1).velocity(), 0.0, 0.0);
+}
+
+TEST_CASE("a variable body deflects a blob through the kernel while baseline pairs do not reach "
+          "the general rule",
+          "[unit][simulation][game_simulation][contact_rule_table][variable_impulse]") {
+  // The row is reachable from a whole tick, not only from a direct call, and it is reachable only
+  // by the pair it is predicated on. A fifty-to-one hazard barely slows while the blob is thrown;
+  // the same arrangement with two baseline bodies exchanges velocities exactly as it always has.
+  simulation::GameSimulation heavy_game =
+      game({simulation::GameWorld::EntitySeed::create(
+                simulation::EntityId::create(1),
+                simulation::PhysicsBody::create(at(470.0, 250.0), at(400.0, 0.0), at(0.0, 0.0))
+                    .with_mass(50.0)),
+            player(2, 485.0, 250.0, 0.0, 0.0)});
+  simulation::GameSimulation baseline_game =
+      game({player(1, 470.0, 250.0, 400.0, 0.0), player(2, 485.0, 250.0, 0.0, 0.0)});
+
+  advance(heavy_game, 1);
+  advance(baseline_game, 1);
+  const simulation::WorldSnapshot heavy_snapshot = heavy_game.snapshot();
+  const simulation::WorldSnapshot baseline_snapshot = baseline_game.snapshot();
+
+  // j = -(1 + 1) * (-400) / (1/50 + 1) = 800/1.02, so the heavy body sheds 800/51 of its 400.
+  check_vector(snapshot_body(heavy_snapshot, 1).velocity(), 400.0 - (800.0 / 51.0), 0.0,
+               simulation::kVelocityTolerance);
+  check_vector(snapshot_body(heavy_snapshot, 2).velocity(), 40'000.0 / 51.0, 0.0,
+               simulation::kVelocityTolerance);
+  // The baseline pair took `elastic_disc`: a plain exchange of normal components, unchanged.
+  check_vector(snapshot_body(baseline_snapshot, 1).velocity(), 0.0, 0.0);
+  check_vector(snapshot_body(baseline_snapshot, 2).velocity(), 400.0, 0.0);
+}
+
+TEST_CASE("a large hazard collides at its own drawn edge through the whole tick",
+          "[unit][simulation][game_simulation][contact_rule_table][variable_impulse][radius]") {
+  // End to end through the three places that had to agree: the broad phase has to offer the pair,
+  // phase 3's gate has to admit it, and the row has to resolve it. The centres are thirty-five
+  // apart, which is outside the configured `2 * 10` and inside the hazard's own `26 + 10`, so every
+  // one of the three had to measure per body for this to happen at all.
+  simulation::GameSimulation hazard_game =
+      game({simulation::GameWorld::EntitySeed::create(
+                simulation::EntityId::create(1),
+                simulation::PhysicsBody::create(at(250.0, 250.0), at(400.0, 0.0), at(0.0, 0.0))
+                    .with_radius(26.0)
+                    .with_mass(40.0)),
+            player(2, 285.0, 250.0, 0.0, 0.0)});
+  // The same arrangement with two configured-size blobs is not a contact and must stay one.
+  simulation::GameSimulation baseline_game =
+      game({player(1, 250.0, 250.0, 400.0, 0.0), player(2, 285.0, 250.0, 0.0, 0.0)});
+
+  advance(hazard_game, 1);
+  advance(baseline_game, 1);
+  const simulation::WorldSnapshot hazard_snapshot = hazard_game.snapshot();
+  const simulation::WorldSnapshot baseline_snapshot = baseline_game.snapshot();
+
+  // j = -(1 + 1) * (-400) / (1/40 + 1) = 32000/41, so the hazard sheds 800/41 and the blob is
+  // thrown at the whole of it.
+  check_vector(snapshot_body(hazard_snapshot, 1).velocity(), 400.0 - (800.0 / 41.0), 0.0,
+               simulation::kVelocityTolerance);
+  check_vector(snapshot_body(hazard_snapshot, 2).velocity(), 32'000.0 / 41.0, 0.0,
+               simulation::kVelocityTolerance);
+  // The hazard keeps its declared radius through the response: a row may change only velocities.
+  CHECK(snapshot_body(hazard_snapshot, 1).radius() == 26.0);
+  // The counterfactual. Two configured-size blobs thirty-five apart never touched and still do not,
+  // which is what "an addition" has to mean at the tick level.
+  check_vector(snapshot_body(baseline_snapshot, 1).velocity(), 400.0, 0.0);
+  check_vector(snapshot_body(baseline_snapshot, 2).velocity(), 0.0, 0.0);
 }

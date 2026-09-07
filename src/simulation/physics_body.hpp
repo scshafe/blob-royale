@@ -9,6 +9,26 @@
 
 namespace blob_royale::simulation {
 
+// canonical: bounds_behavior -- whether the arena's walls exist for this body.
+//
+// `kFold` is the accepted behaviour of
+// `docs/architecture/0003-deterministic-simulation-contract.md` § "Wall policy": phase 4 folds the
+// body's complete proposed motion into the disc-centre interval, phase 10 rejects a committed
+// centre outside that interval, and the broad phase rejects one too. `kCross` is the smallest value
+// that expresses "this body travels *through* the arena rather than bouncing inside it", which is
+// what a hazard crossing the screen needs: phase 4 applies the proposed motion unfolded, phase 10
+// accepts wherever the centre lands, and the broad phase clamps the body's coverage to the edge
+// cells it is nearest instead of rejecting it.
+//
+// `kFold` is the default and every construction that existed before this value carries it, so
+// nothing that already ran changes. This is an addition to the contract's wall policy for a body
+// that opts out of it, not an amendment of the policy itself: a folding body still folds by exactly
+// the accepted equation.
+enum class BoundsBehavior : std::uint8_t {
+  kFold = 0,
+  kCross = 1,
+};
+
 // canonical: physics_body_component -- the one physical body value in the game.
 //
 // This is the component the physics kernel reads and writes. There is no second body type, so
@@ -17,6 +37,14 @@ namespace blob_royale::simulation {
 // `collision_layer` and `collision_mask` are bitmasks: a candidate pair is admitted to the contact
 // phase only when `(a.collision_mask & b.collision_layer)` and `(b.collision_mask &
 // a.collision_layer)` are both nonzero, which is a pure integer predicate that adds no ordering.
+//
+// `mass_` and `restitution_` are the per-body physics the general impulse rule reads. Both default
+// to the accepted baseline -- unit mass and perfectly elastic -- so a body that names neither is
+// exactly the body ADR 0003 § "Player-pair policy" is written for, and `body_has_baseline_physics`
+// below is the predicate that says so. `restitution_` is the fraction of normal closing speed a
+// contact returns: `1.0` is perfectly elastic and `0.0` leaves the pair with a common normal
+// velocity. Neither is written by any phase, which is what makes both legal for a `ContactRule`
+// predicate to read from the committed world.
 //
 // **`radius_` is not read by any accepted phase.** Every phase takes the one common radius from
 // `SimulationConfig::player_radius()`: the pair contact predicate uses `2r`, the wall fold uses
@@ -51,13 +79,24 @@ public:
   // Not a radius: the absence of a declared one. See the note above the class.
   static constexpr double kUndeclaredRadius = 0.0;
   static constexpr double kDefaultMass = 1.0;
+  // Perfectly elastic, which is the restitution the accepted pair equation already assumes.
+  static constexpr double kDefaultRestitution = 1.0;
+  static constexpr double kMinimumRestitution = 0.0;
+  static constexpr double kMaximumRestitution = 1.0;
   static constexpr CollisionLayer kDefaultCollisionLayer = 1;
   static constexpr CollisionLayer kDefaultCollisionMask = 1;
+  static constexpr BoundsBehavior kDefaultBoundsBehavior = BoundsBehavior::kFold;
 
   // The motion-only body: one baseline dynamic disc on the single default collision layer.
   [[nodiscard]] static PhysicsBody create(Vector2 position, Vector2 velocity, Vector2 acceleration);
 
-  // The complete body, including the fields no accepted phase reads yet.
+  // The complete body, including the fields no accepted phase reads yet. Restitution and bounds
+  // behaviour are deliberately absent from this signature: both default here, so every call written
+  // before they existed keeps its exact meaning, and a body that wants either says so with the
+  // named wither rather than by threading two more positional arguments through every call site.
+  //
+  // Throws SimulationValidationError for a mass that is not finite, not within the accepted
+  // physical component limit, or not greater than zero on a dynamic body.
   [[nodiscard]] static PhysicsBody create(Vector2 position, Vector2 velocity, Vector2 acceleration,
                                           double radius, double mass,
                                           CollisionLayer collision_layer,
@@ -84,9 +123,15 @@ public:
   [[nodiscard]] const Vector2& acceleration() const&& = delete;
   [[nodiscard]] double radius() const noexcept { return radius_; }
   [[nodiscard]] double mass() const noexcept { return mass_; }
+  [[nodiscard]] double restitution() const noexcept { return restitution_; }
   [[nodiscard]] CollisionLayer collision_layer() const noexcept { return collision_layer_; }
   [[nodiscard]] CollisionLayer collision_mask() const noexcept { return collision_mask_; }
   [[nodiscard]] bool is_static() const noexcept { return is_static_; }
+  [[nodiscard]] BoundsBehavior bounds_behavior() const noexcept { return bounds_behavior_; }
+  // The one question phase 4, the commit-time bounds validation, and the broad phase each ask.
+  [[nodiscard]] bool crosses_bounds() const noexcept {
+    return bounds_behavior_ == BoundsBehavior::kCross;
+  }
 
   [[nodiscard]] PhysicsBody with_position(Vector2 position) const;
   [[nodiscard]] PhysicsBody with_velocity(Vector2 velocity) const;
@@ -95,23 +140,78 @@ public:
   // value; it is here so the growth change is a system plus a kernel amendment rather than a system
   // plus a missing operation on the one body type.
   [[nodiscard]] PhysicsBody with_radius(double radius) const;
+  // Throws SimulationValidationError for a mass that is not finite, not within the accepted
+  // physical component limit, or not greater than zero on a dynamic body. A static body may carry
+  // zero, which nothing divides by; see the note in the implementation.
+  [[nodiscard]] PhysicsBody with_mass(double mass) const;
+  // Throws SimulationValidationError for a restitution that is not finite or lies outside the
+  // closed interval [0, 1].
+  [[nodiscard]] PhysicsBody with_restitution(double restitution) const;
+  [[nodiscard]] PhysicsBody with_bounds_behavior(BoundsBehavior bounds_behavior) const;
 
   friend bool operator==(const PhysicsBody&, const PhysicsBody&) = default;
 
 private:
+  // The one validating factory. Every public `create` and every wither routes through it, so a
+  // body that exists is a body whose mass and restitution are in range however it was built. The
+  // mass rule depends on `is_static`, which is why it lives here rather than in a scalar helper.
+  [[nodiscard]] static PhysicsBody validated(Vector2 position, Vector2 velocity,
+                                             Vector2 acceleration, double radius, double mass,
+                                             double restitution, CollisionLayer collision_layer,
+                                             CollisionLayer collision_mask, bool is_static,
+                                             BoundsBehavior bounds_behavior);
+
   PhysicsBody(Vector2 position, Vector2 velocity, Vector2 acceleration, double radius, double mass,
-              CollisionLayer collision_layer, CollisionLayer collision_mask,
-              bool is_static) noexcept;
+              double restitution, CollisionLayer collision_layer, CollisionLayer collision_mask,
+              bool is_static, BoundsBehavior bounds_behavior) noexcept;
 
   Vector2 position_;
   Vector2 velocity_;
   Vector2 acceleration_;
   double radius_;
   double mass_;
+  double restitution_;
   CollisionLayer collision_layer_;
   CollisionLayer collision_mask_;
   bool is_static_;
+  BoundsBehavior bounds_behavior_;
 };
+
+// canonical: baseline_physics_predicate -- whether a body is the one the accepted equation
+// describes.
+//
+// The accepted narrow phase of `docs/architecture/0003-deterministic-simulation-contract.md`
+// § "Player-pair policy" is defined for equal-radius, equal-**unit-mass**, perfectly elastic discs.
+// This is the predicate that says a body is one of those, and it is what keeps the general impulse
+// row unreachable for ordinary blobs.
+//
+// **Exact equality on purpose.** This is an identity test against a declared default, not a
+// physical comparison, and ADR 0003 § "Floating-point contract" reserves exact equality for
+// identity while giving tolerances only to physical quantities. A body one ULP away from
+// `kDefaultMass` is a body the equal-unit-mass exchange is not written for, so it must take the
+// general equation: the failure direction is always toward the more general rule and never toward
+// applying the baseline to a body it does not describe.
+[[nodiscard]] inline bool body_has_baseline_physics(const PhysicsBody& body) noexcept {
+  return body.mass() == PhysicsBody::kDefaultMass &&
+         body.restitution() == PhysicsBody::kDefaultRestitution;
+}
+
+// canonical: effective_radius -- the radius a phase measures this body with.
+//
+// `kUndeclaredRadius` is documented above as "a body that declares no size and defers to the
+// configuration", and this is that sentence made executable. It matters because **an undeclared
+// radius genuinely reaches the narrow phase**: `GameWorld::create(std::vector<EntitySeed>)` copies
+// a seed's body verbatim, and only `GameWorld::create(configuration, map, seed, ...)`,
+// `SpawnSystem`, and `ScenarioLoader` fill the field in at seating time. Every fixture and test
+// world built from bare seeds therefore carries `0.0` into phase 3, so a rule that read
+// `body.radius()` raw would turn a documented deferral into a silent contact distance of zero.
+//
+// Exact equality against the placeholder, for the same reason `body_has_baseline_physics` uses it:
+// this is an identity test against a declared sentinel, not a physical comparison.
+[[nodiscard]] inline double effective_radius(const PhysicsBody& body,
+                                             const double configured_radius) noexcept {
+  return body.radius() == PhysicsBody::kUndeclaredRadius ? configured_radius : body.radius();
+}
 
 // canonical: collision_admission -- the one predicate that admits a candidate pair to phase 3.
 //

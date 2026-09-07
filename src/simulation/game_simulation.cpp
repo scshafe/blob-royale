@@ -186,10 +186,28 @@ apply_stored_acceleration_and_drag(const GameWorld& world, const double drag_per
 //
 // A matched swapped row receives its arguments and its contact in row orientation, and the
 // returned bodies are mapped back onto the canonical pair here.
+//
+// **The gate measures each pair at its own contact distance, `r_a + r_b`.** This is an addition and
+// not an amendment, and the proof is arithmetic rather than argument: every body that exists today
+// has an effective radius equal to the configured one -- either it declares that radius or it
+// declares none and `effective_radius` defers to it -- so `pair_contact_distance` returns
+// `configured + configured`, and `x + x` is exactly `2 * x` in binary64 for every finite `x`,
+// with no rounding at any magnitude. The gate therefore admits and rejects exactly the pairs it
+// always did, and the accepted fixtures and the baseline oracle are untouched. What changes is only
+// a body that declares a *different* radius, which nothing did before this.
+//
+// **Why the narrow phase moved and the wall did not.** This gate and the broad phase both answer
+// "can these two discs touch", a question about the pair's own geometry, so both take the pair's
+// own radii. Phase 4's arena fold and phase 10's disc-centre interval answer "where may this body's
+// centre be committed", which is the accepted `[r, extent - r]` interval of
+// `docs/architecture/0003-deterministic-simulation-contract.md` § "Wall policy" -- moving *that* to
+// a per-body radius changes where every existing body may stand, which is the growing-blob change
+// and a versioned physics amendment. The asymmetry is deliberate: contact is per-pair, the arena is
+// per-configuration.
 void resolve_contacts(GameWorld& world, std::vector<BodyEntry>& bodies,
                       const std::span<const CandidatePair> candidate_pairs,
                       const ContactRuleTable& contact_rules, const TickContext& context) {
-  const double player_radius = context.simulation_config().player_radius();
+  const double configured_radius = context.simulation_config().player_radius();
   for (const CandidatePair& pair : candidate_pairs) {
     const std::size_t lower_index = body_index(bodies, pair.lower_id());
     const std::size_t higher_index = body_index(bodies, pair.higher_id());
@@ -200,8 +218,12 @@ void resolve_contacts(GameWorld& world, std::vector<BodyEntry>& bodies,
       continue;
     }
 
+    // One contact distance for both orientations. Addition is commutative in binary64, so
+    // `r_a + r_b` and `r_b + r_a` are the same value, but computing it once says so structurally.
+    const double contact_distance =
+        pair_contact_distance(lower_body, higher_body, configured_radius);
     const PlayerPairContact canonical_contact =
-        detect_player_pair_contact(lower_body, higher_body, player_radius);
+        detect_pair_contact(lower_body, higher_body, contact_distance);
     if (!canonical_contact.is_contact() ||
         greater_than_or_approximately_equal(canonical_contact.relative_normal_speed(), 0.0,
                                             kVelocityTolerance)) {
@@ -223,7 +245,7 @@ void resolve_contacts(GameWorld& world, std::vector<BodyEntry>& bodies,
     // reverses two signs in each relative-velocity product -- so re-detecting in row orientation
     // costs a pure recomputation and never a different number.
     const PlayerPairContact row_contact =
-        swapped ? detect_player_pair_contact(row_first.body, row_second.body, player_radius)
+        swapped ? detect_pair_contact(row_first.body, row_second.body, contact_distance)
                 : canonical_contact;
 
     const ContactRule& row = contact_rules.rows()[match->row_index];
@@ -240,10 +262,20 @@ void resolve_contacts(GameWorld& world, std::vector<BodyEntry>& bodies,
 
 // Phase 4. The arena comes from the map, which is the single authoring home for arena size.
 //
+// The fold measures with `SimulationConfig::player_radius()` and keeps doing so, unlike the narrow
+// phase and the broad phase: see the note on `require_committed_bodies_in_bounds` below for why
+// contact moved to a per-body radius while the arena interval did not.
+//
 // A static body has no wall motion at all: its centre may sit on or past the disc-centre interval
 // the fold is defined over, so folding it would be both meaningless and a validation failure. The
 // absent motion is nullopt rather than a zero displacement, so phase 5 cannot confuse "did not
 // move" with "was not moved".
+//
+// A **crossing** body -- one whose `BoundsBehavior` is `kCross` -- has a motion but no walls: it
+// takes `resolve_unbounded_motion`, which is the proposed `velocity * dt` unfolded and the velocity
+// unchanged. That is the whole of "phase 4 must not fold it", and it is a different answer from the
+// static body's nullopt because a hazard that crossed the screen without moving would not be a
+// hazard. Every body that does not say otherwise still folds by exactly the accepted equation.
 [[nodiscard]] std::vector<std::optional<WallMotionResult>>
 resolve_walls(const std::vector<BodyEntry>& bodies, const ArenaBounds& bounds,
               const SimulationConfig& configuration, const FixedDelta fixed_delta) {
@@ -252,6 +284,10 @@ resolve_walls(const std::vector<BodyEntry>& bodies, const ArenaBounds& bounds,
   for (const BodyEntry& entry : bodies) {
     if (entry.value.is_static()) {
       wall_motions.emplace_back();
+      continue;
+    }
+    if (entry.value.crosses_bounds()) {
+      wall_motions.push_back(resolve_unbounded_motion(entry.value.velocity(), fixed_delta));
       continue;
     }
     wall_motions.push_back(
@@ -294,14 +330,29 @@ void integrate_bodies_into(GameWorld& world, std::vector<BodyEntry> bodies,
 // fold every integrated center into the legal interval, so what remains to reject is a body a
 // kPostKernel or kLifecycle system wrote outside the world after phase 6 already indexed it.
 //
-// The two body kinds obey different rules, which is the subtle part. A **dynamic** centre must
+// The body kinds obey different rules, which is the subtle part. A **dynamic** centre must
 // keep its complete closed disc inside the arena, because that is the interval phase 4 folds into
 // and the interval the broad phase indexes. A **static** centre must lie in the closed arena
 // rectangle and nothing more: a wall legitimately sits on or past the disc-centre interval, and
-// requiring otherwise would make the obvious boundary obstacle unrepresentable.
+// requiring otherwise would make the obvious boundary obstacle unrepresentable. A **crossing**
+// centre is unconstrained: phase 4 applied its proposed motion unfolded, so rejecting it here for
+// being outside would reject exactly the motion the body declares. It is not unchecked -- Vector2
+// makes a non-finite component unconstructible and phase 4 already rejected a non-finite endpoint
+// -- it is simply not held to an interval it opted out of.
+//
+// **This interval stays on the configured radius even though the narrow phase and the broad phase
+// now measure contact per body, and that is deliberate rather than an oversight.** The interval is
+// `[r, extent - r]` from ADR 0003 § "Wall policy", the same one phase 4 folds into; giving it a
+// per-body radius would change where every existing body may stand and would regenerate every
+// accepted wall fixture, which is the growing-blob change and a versioned physics amendment.
+// Contact is a question about a pair's own geometry; the arena is a question about the
+// configuration.
 void require_committed_bodies_in_bounds(const GameWorld& world, const MapDefinition& map,
                                         const SimulationConfig& configuration) {
   for (const BodyEntry& entry : world.store<PhysicsBody>().entries()) {
+    if (entry.value.crosses_bounds()) {
+      continue;
+    }
     if (entry.value.is_static()) {
       if (map.bounds().contains(entry.value.position())) {
         continue;

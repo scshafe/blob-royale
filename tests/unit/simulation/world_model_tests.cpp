@@ -141,9 +141,134 @@ TEST_CASE("PhysicsBody motion-only creation carries the baseline dynamic disc de
 
   CHECK(body.radius() == simulation::PhysicsBody::kUndeclaredRadius);
   CHECK(body.mass() == simulation::PhysicsBody::kDefaultMass);
+  CHECK(body.restitution() == simulation::PhysicsBody::kDefaultRestitution);
   CHECK(body.collision_layer() == simulation::PhysicsBody::kDefaultCollisionLayer);
   CHECK(body.collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);
   CHECK_FALSE(body.is_static());
+  CHECK(body.bounds_behavior() == simulation::PhysicsBody::kDefaultBoundsBehavior);
+  CHECK_FALSE(body.crosses_bounds());
+}
+
+TEST_CASE("every PhysicsBody factory defaults to the baseline physics and to folding",
+          "[unit][simulation][physics_body]") {
+  // The defaults are what keep this an addition: a body built by any route that existed before
+  // restitution and bounds behaviour did is exactly the body ADR 0003's accepted equation
+  // describes, so `body_has_baseline_physics` holds for every one of them.
+  const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
+  const simulation::PhysicsBody complete = simulation::PhysicsBody::create(
+      simulation::Vector2::create(1.0, 2.0), zero, zero, 3.0, 7.0, 0b10U, 0b110U, false);
+  const simulation::PhysicsBody wall =
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(1.0, 2.0));
+
+  CHECK(complete.restitution() == simulation::PhysicsBody::kDefaultRestitution);
+  CHECK_FALSE(complete.crosses_bounds());
+  CHECK(wall.restitution() == simulation::PhysicsBody::kDefaultRestitution);
+  CHECK_FALSE(wall.crosses_bounds());
+  CHECK(simulation::body_has_baseline_physics(stationary_body(1.0, 2.0)));
+  CHECK(simulation::body_has_baseline_physics(wall));
+  // A declared mass of seven is not the baseline, which is exactly what the general impulse row is
+  // predicated on.
+  CHECK_FALSE(simulation::body_has_baseline_physics(complete));
+}
+
+TEST_CASE("PhysicsBody withers preserve restitution and bounds behavior",
+          "[unit][simulation][physics_body]") {
+  // Every wither routes through the one validating factory, so a value set once survives every
+  // later replacement. A wither that dropped one of these would silently return a crossing hazard
+  // to the arena walls on the first tick that changed its velocity.
+  const simulation::PhysicsBody hazard =
+      stationary_body(1.0, 2.0).with_mass(40.0).with_restitution(0.25).with_bounds_behavior(
+          simulation::BoundsBehavior::kCross);
+
+  CHECK(hazard.mass() == 40.0);
+  CHECK(hazard.restitution() == 0.25);
+  CHECK(hazard.crosses_bounds());
+  CHECK_FALSE(simulation::body_has_baseline_physics(hazard));
+
+  const simulation::PhysicsBody moved =
+      hazard.with_velocity(simulation::Vector2::create(5.0, 0.0))
+          .with_position(simulation::Vector2::create(9.0, 9.0))
+          .with_acceleration(simulation::Vector2::create(1.0, 1.0))
+          .with_radius(4.0);
+  CHECK(moved.mass() == 40.0);
+  CHECK(moved.restitution() == 0.25);
+  CHECK(moved.crosses_bounds());
+}
+
+TEST_CASE("PhysicsBody rejects a non-positive mass and an out-of-range restitution",
+          "[unit][simulation][physics_body][validation]") {
+  // Mass is strictly positive because the general impulse divides by it; restitution is a fraction
+  // of the returned closing speed, so above one it manufactures energy and below zero it reverses
+  // the impulse.
+  const simulation::PhysicsBody baseline = stationary_body(1.0, 2.0);
+
+  CHECK_THROWS_AS(baseline.with_mass(0.0), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_mass(-1.0), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_mass(std::numeric_limits<double>::quiet_NaN()),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_mass(std::numeric_limits<double>::infinity()),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_mass(simulation::kMaximumPhysicalComponentMagnitude * 2.0),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_restitution(-0.000'001), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_restitution(1.000'001), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_restitution(std::numeric_limits<double>::quiet_NaN()),
+                  simulation::SimulationValidationError);
+
+  // The closed interval and the positive mass are accepted at their boundaries.
+  CHECK(baseline.with_restitution(simulation::PhysicsBody::kMinimumRestitution).restitution() ==
+        0.0);
+  CHECK(baseline.with_restitution(simulation::PhysicsBody::kMaximumRestitution).restitution() ==
+        1.0);
+  CHECK(baseline.with_mass(simulation::kMaximumPhysicalComponentMagnitude).mass() ==
+        simulation::kMaximumPhysicalComponentMagnitude);
+
+  // The eight-argument factory validates the same way, so no construction route is a back door.
+  const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
+  CHECK_THROWS_AS(simulation::PhysicsBody::create(zero, zero, zero, 1.0, 0.0, 1U, 1U, false),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("a static body may carry zero mass, which nothing divides by",
+          "[unit][simulation][physics_body][validation]") {
+  // The strict-positivity rule is a requirement of the general impulse, and the general impulse
+  // requires a dynamic body on both sides. No equation reads a wall's mass, so zero there is the
+  // same kind of structural absence a wall's zero velocity is -- and it is what the accepted
+  // protocol v2 golden example publishes, against a schema that types mass as a non-negative
+  // scalar. Making it a rejection would regenerate an accepted artifact to state an invariant
+  // nothing needs.
+  const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
+  const simulation::PhysicsBody wall = simulation::PhysicsBody::create(
+      simulation::Vector2::create(480.0, 160.0), zero, zero, 40.0, 0.0, 2U, 1U, true);
+
+  CHECK(wall.mass() == 0.0);
+  CHECK(wall.is_static());
+  // A negative mass is still rejected for either kind, and a static body that becomes dynamic is
+  // rejected at that moment rather than silently carrying an impossible mass into the impulse.
+  CHECK_THROWS_AS(simulation::PhysicsBody::create(zero, zero, zero, 1.0, -1.0, 1U, 1U, true),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("a rejected mass and a rejected restitution each carry their own code",
+          "[unit][simulation][physics_body][validation]") {
+  try {
+    static_cast<void>(stationary_body(1.0, 2.0).with_mass(0.0));
+    FAIL("a zero mass was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kPhysicsBodyMassOutOfRange);
+    CHECK(error.code() == std::string_view{"SIMULATION.PHYSICS_BODY_MASS_OUT_OF_RANGE"});
+    CHECK(error.context() == "physics_body.mass");
+  }
+  try {
+    static_cast<void>(stationary_body(1.0, 2.0).with_restitution(2.0));
+    FAIL("a restitution above one was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kPhysicsBodyRestitutionOutOfRange);
+    CHECK(error.code() == std::string_view{"SIMULATION.PHYSICS_BODY_RESTITUTION_OUT_OF_RANGE"});
+    CHECK(error.context() == "physics_body.restitution");
+  }
 }
 
 TEST_CASE("ControllerId and TeamId accept only the protocol-safe integer range",

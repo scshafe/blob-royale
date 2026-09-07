@@ -4,6 +4,7 @@
 #include "entity_id.hpp"
 #include "game_world.hpp"
 #include "map_definition.hpp"
+#include "physics.hpp"
 #include "physics_body.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
@@ -393,4 +394,138 @@ TEST_CASE("a static body centre outside the arena rectangle is rejected",
                                                   simulation::ArenaBounds::create(100.0, 100.0),
                                                   world),
                   simulation::SimulationValidationError);
+}
+
+namespace {
+
+// A body that declares it crosses the arena rather than folding off its walls. Everything else
+// about it is a baseline blob, so the only question these tests ask is what the index does with a
+// centre the arena has no cell for.
+[[nodiscard]] simulation::GameWorld::EntitySeed
+crossing_player(const simulation::EntityId::Value id, const double x, const double y) {
+  const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
+  return simulation::GameWorld::EntitySeed::create(
+      simulation::EntityId::create(id),
+      simulation::PhysicsBody::create(simulation::Vector2::create(x, y), zero, zero)
+          .with_bounds_behavior(simulation::BoundsBehavior::kCross));
+}
+
+// The exhaustive all-pairs broad phase ADR 0003 § "Spatial-grid policy and partition boundaries"
+// names: every unordered pair whose committed discs can touch, with no partitioning at all. The
+// grid's candidate list must be a superset of this, and the ADR states the obligation as "replacing
+// the grid with an exhaustive all-pairs broad phase must produce the same canonical pair list after
+// narrow-phase filtering".
+//
+// It measures with `pair_contact_distance`, which is the distance the narrow phase itself uses, so
+// this reference is the narrow phase's own question asked without a grid.
+[[nodiscard]] std::vector<PairValues>
+exhaustive_touching_pairs(const simulation::GameWorld& world,
+                          const simulation::SimulationConfig& configuration) {
+  const std::span<const simulation::ComponentStore<simulation::PhysicsBody>::Entry> bodies =
+      world.store<simulation::PhysicsBody>().entries();
+  std::vector<PairValues> touching;
+  for (std::size_t first = 0; first < bodies.size(); ++first) {
+    for (std::size_t second = first + 1; second < bodies.size(); ++second) {
+      const simulation::PlayerPairContact contact = simulation::detect_pair_contact(
+          bodies[first].value, bodies[second].value,
+          simulation::pair_contact_distance(bodies[first].value, bodies[second].value,
+                                            configuration.player_radius()));
+      if (contact.is_contact()) {
+        touching.emplace_back(bodies[first].entity.value(), bodies[second].entity.value());
+      }
+    }
+  }
+  return touching;
+}
+
+} // namespace
+
+TEST_CASE("the index offers every touching pair the exhaustive all-pairs reference finds, at any "
+          "declared radius",
+          "[unit][simulation][spatial_grid][radius]") {
+  // A twenty-unit body and a five-unit body twenty-two apart: they genuinely overlap, because they
+  // touch at twenty-five, and they sit in different columns of a twenty-five unit cell. Covering
+  // the large body as if it carried the configured five would put it in column 1 and its partner in
+  // column 2, so the pair would never be offered and the contact would never happen -- a silent
+  // miss, not a deferral. Sizing the coverage box from the body's own radius restores the superset
+  // ADR 0003 requires, and this asserts it in the shape the ADR states the obligation in.
+  const simulation::SimulationConfig configuration = grid_configuration(100.0, 100.0, 5.0, 4, 4);
+  const simulation::GameWorld world = simulation::GameWorld::create(
+      {simulation::GameWorld::EntitySeed::create(
+           simulation::EntityId::create(1),
+           simulation::PhysicsBody::create(simulation::Vector2::create(40.0, 50.0),
+                                           simulation::Vector2::create(0.0, 0.0),
+                                           simulation::Vector2::create(0.0, 0.0))
+               .with_radius(20.0)
+               .with_mass(30.0)),
+       stationary_player(2, 62.0, 50.0)});
+  const simulation::SpatialGrid grid = simulation::SpatialGrid::create(configuration, world);
+
+  const std::vector<PairValues> exhaustive = exhaustive_touching_pairs(world, configuration);
+  REQUIRE(exhaustive == std::vector<PairValues>{{1, 2}});
+  for (const PairValues& touching : exhaustive) {
+    CHECK(contains_pair(grid.candidate_pairs(), simulation::EntityId::create(touching.first),
+                        simulation::EntityId::create(touching.second)));
+  }
+}
+
+TEST_CASE("a body that declares no radius is covered at the configured one, unchanged",
+          "[unit][simulation][spatial_grid][radius]") {
+  // The addition argument, asserted rather than only reasoned: every body that existed before a
+  // declared radius carries `kUndeclaredRadius` and defers, so its coverage is exactly what it was.
+  // The pair below is the accepted arrangement -- two configured-size discs one cell apart -- and
+  // it is offered exactly as it always was.
+  const simulation::SimulationConfig configuration = grid_configuration(100.0, 100.0, 5.0, 4, 4);
+  const simulation::GameWorld world = simulation::GameWorld::create(
+      {stationary_player(1, 24.0, 50.0), stationary_player(2, 26.0, 50.0)});
+  const simulation::SpatialGrid grid = simulation::SpatialGrid::create(configuration, world);
+
+  CHECK(pair_values(grid.candidate_pairs()) == std::vector<PairValues>{{1, 2}});
+  CHECK(exhaustive_touching_pairs(world, configuration) == std::vector<PairValues>{{1, 2}});
+  // A body two cells away is neither touching nor offered, so the wider box did not manufacture a
+  // pair either.
+  const simulation::GameWorld distant = simulation::GameWorld::create(
+      {stationary_player(1, 10.0, 50.0), stationary_player(2, 90.0, 50.0)});
+  const simulation::SpatialGrid distant_grid =
+      simulation::SpatialGrid::create(configuration, distant);
+  CHECK(distant_grid.candidate_pairs().empty());
+  CHECK(exhaustive_touching_pairs(distant, configuration).empty());
+}
+
+TEST_CASE("a crossing body outside the arena is clamped into the edge cells rather than rejected",
+          "[unit][simulation][spatial_grid][bounds_behavior]") {
+  // The decision recorded in `body_coverage`: a body the arena has no cell for is indexed at the
+  // edge it is nearest, not left out of the index. A bounded body at the same place is still
+  // rejected, so the exemption is the body's declaration and not a weakening of the rule.
+  const simulation::SimulationConfig configuration = grid_configuration(100.0, 100.0, 5.0, 4, 4);
+  const simulation::SpatialGrid grid = simulation::SpatialGrid::create(
+      configuration, simulation::GameWorld::create(
+                         {crossing_player(1, -40.0, 12.0), crossing_player(2, 140.0, 87.0)}));
+
+  // The left-and-above body clamps to column 0; the right-and-below one clamps to column 3.
+  CHECK(member_values(grid.cell_members(simulation::CellCoord::create(0, 0))) ==
+        std::vector<simulation::EntityId::Value>{1});
+  CHECK(member_values(grid.cell_members(simulation::CellCoord::create(3, 3))) ==
+        std::vector<simulation::EntityId::Value>{2});
+  // Far apart in the clamped axis, so no candidate pair is manufactured between them.
+  CHECK(grid.candidate_pairs().empty());
+
+  CHECK_THROWS_AS(
+      simulation::SpatialGrid::create(
+          configuration, simulation::GameWorld::create({stationary_player(1, -40.0, 12.0)})),
+      simulation::SimulationValidationError);
+}
+
+TEST_CASE("a crossing body one step outside the wall is still offered against the blob inside it",
+          "[unit][simulation][spatial_grid][bounds_behavior]") {
+  // This is what clamping buys and why absence was rejected. The two discs overlap -- centres 6
+  // apart with a radius of 5 -- so ADR 0003 § "Spatial-grid policy and partition boundaries"
+  // requires the index to offer the pair. Leaving the outside body unindexed would turn a contact
+  // the narrow phase accepts into one it never sees.
+  const simulation::SpatialGrid grid = simulation::SpatialGrid::create(
+      grid_configuration(100.0, 100.0, 5.0, 4, 4),
+      simulation::GameWorld::create(
+          {stationary_player(1, 94.0, 50.0), crossing_player(2, 100.0, 50.0)}));
+
+  CHECK(pair_values(grid.candidate_pairs()) == std::vector<PairValues>{{1, 2}});
 }

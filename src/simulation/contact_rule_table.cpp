@@ -49,7 +49,15 @@ ContactRuleTable ContactRuleTable::create(std::vector<ContactRule> rows) {
 
 ContactRuleTable ContactRuleTable::built_in() {
   std::vector<ContactRule> rows;
-  rows.reserve(2);
+  rows.reserve(3);
+  // Declared order is precedence. `variable_impulse` is first and is predicated on a body that
+  // actually differs from the baseline, so it is reached only by a pair the accepted
+  // equal-unit-mass equation is not written for; `elastic_disc` below is left holding exactly the
+  // pairs it always held. The two orientations of the row cover both arrangements: `(variable,
+  // baseline)` matches canonically and `(baseline, variable)` matches swapped, because the second
+  // predicate is the plain dynamic test.
+  rows.push_back(ContactRule::create(kVariableImpulseContactRuleName, body_is_variable_dynamic,
+                                     body_is_dynamic, variable_impulse_response));
   rows.push_back(ContactRule::create(kElasticDiscContactRuleName, body_is_dynamic, body_is_dynamic,
                                      elastic_disc_response));
   rows.push_back(ContactRule::create(kReflectStaticContactRuleName, body_is_dynamic, body_is_static,
@@ -87,6 +95,11 @@ bool body_is_static(const GameWorld& world, const EntityId entity) {
   return body != nullptr && body->is_static();
 }
 
+bool body_is_variable_dynamic(const GameWorld& world, const EntityId entity) {
+  const PhysicsBody* body = body_of(world, entity);
+  return body != nullptr && !body->is_static() && !body_has_baseline_physics(*body);
+}
+
 ContactResponse elastic_disc_response(const ContactRule::Subject& first,
                                       const ContactRule::Subject& second,
                                       const PlayerPairContact& contact,
@@ -107,6 +120,41 @@ ContactResponse elastic_disc_response(const ContactRule::Subject& first,
       second.body.with_velocity(collision.second_velocity()),
       {WorldEvent{contact_event_of(first, second, contact,
                                    ContactRuleName::create(kElasticDiscContactRuleName))}});
+}
+
+ContactResponse variable_impulse_response(const ContactRule::Subject& first,
+                                          const ContactRule::Subject& second,
+                                          const PlayerPairContact& contact,
+                                          const TickContext& context) {
+  // As with `elastic_disc`, the equation is selected rather than transcribed: this row's whole
+  // content is "use the general impulse instead of the equal-unit-mass exchange".
+  //
+  // **Unlike `elastic_disc`, this row measures the contact at the two bodies' own radii.**
+  // `resolve_general_pair_collision` takes the configured radius as the *fallback* for a body that
+  // declares no size, and `pair_contact_distance` is `r_a + r_b`. A hazard drawn at its own radius
+  // has to collide at the edge a player can see; measuring a twenty-six unit boulder at twice a
+  // twelve unit blob would let a player sink into the drawn rock before anything happened.
+  //
+  // This stays an addition rather than the versioned unequal-radii amendment ADR 0003
+  // § "Justified extension points and what-if stress" names, and for the same reason per-body mass
+  // does: the general equation is reachable only through this row, and this row is reachable only
+  // when a body differs from the baseline. `elastic_disc` still calls
+  // `resolve_player_pair_collision` with `2 * player_radius` and keeps its exact arithmetic, so no
+  // accepted horizon moves. Making per-body radius the measure for *every* body -- the growing-blob
+  // change -- is still that versioned amendment, because it would move the baseline itself.
+  //
+  // The two phases that remain on the configured radius are the kernel's own: phase 3's
+  // narrow-phase gate and the broad phase's coverage box both still measure every pair at
+  // `2 * player_radius`, so a body larger than the configured radius is admitted and indexed as if
+  // it were configured-sized. That bounds how large a hazard this row can usefully resolve until
+  // those two follow.
+  const PlayerPairCollisionResult collision = resolve_general_pair_collision(
+      first.body, second.body, context.simulation_config().player_radius());
+  return ContactResponse::create(
+      first.body.with_velocity(collision.first_velocity()),
+      second.body.with_velocity(collision.second_velocity()),
+      {WorldEvent{contact_event_of(first, second, contact,
+                                   ContactRuleName::create(kVariableImpulseContactRuleName))}});
 }
 
 ContactResponse reflect_static_response(const ContactRule::Subject& first,

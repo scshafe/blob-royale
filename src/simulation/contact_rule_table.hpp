@@ -66,6 +66,15 @@ public:
   // the accepted baseline, which is a requirement on them rather than a description of them: a
   // table whose built-in rows disagree with ADR 0003 § "Player-pair policy" or § "Wall policy" is
   // a defect in the table, not a new physics policy.
+  //
+  // **`variable_impulse` is declared above both, and that ordering is what makes it an addition
+  // rather than an amendment.** `first_match` takes the first matching row in declared order, and
+  // `variable_impulse` matches only when one of the two bodies differs from the baseline in mass or
+  // restitution. A world of ordinary blobs therefore never reaches it: every pair falls through to
+  // `elastic_disc`, which still calls `resolve_player_pair_collision` unmodified, so every accepted
+  // fixture horizon and the accepted-baseline oracle keep their exact arithmetic. Declaring it
+  // *below* `elastic_disc` would make it unreachable instead, because `elastic_disc` matches every
+  // dynamic pair including a variable one.
   [[nodiscard]] static ContactRuleTable built_in();
 
   // The table of a mode that declares no interaction at all. Every admitted contact then matches
@@ -97,8 +106,9 @@ private:
   std::vector<ContactRule> rows_;
 };
 
-// The declared names of the two built-in rows, so a consuming system matches a ContactEvent's
+// The declared names of the built-in rows, so a consuming system matches a ContactEvent's
 // `rule_name` against one identity rather than a repeated literal.
+inline constexpr std::string_view kVariableImpulseContactRuleName = "variable_impulse";
 inline constexpr std::string_view kElasticDiscContactRuleName = "elastic_disc";
 inline constexpr std::string_view kReflectStaticContactRuleName = "reflect_static";
 
@@ -111,6 +121,18 @@ inline constexpr std::string_view kReflectStaticContactRuleName = "reflect_stati
 [[nodiscard]] bool body_is_dynamic(const GameWorld& world, EntityId entity);
 [[nodiscard]] bool body_is_static(const GameWorld& world, EntityId entity);
 
+// The `variable_impulse` first predicate: a dynamic body that is **not** the baseline body, that
+// is, one whose mass or restitution differs from `PhysicsBody`'s defaults. Paired with
+// `body_is_dynamic` as the second predicate it matches a dynamic pair in which at least one body is
+// variable, in either orientation, and never a pair of ordinary blobs.
+//
+// Mass and restitution are legal for a predicate to read for the same reason the static flag is:
+// no phase writes either within a tick, so the committed value this reads is the value the response
+// will use.
+//
+// Total in the same way as the two above: an entity carrying no PhysicsBody does not satisfy it.
+[[nodiscard]] bool body_is_variable_dynamic(const GameWorld& world, EntityId entity);
+
 // ADR 0003 § "Player-pair policy" applied to two dynamic discs: the equal-mass frictionless
 // exchange of normal velocity components, delegated verbatim to
 // `resolve_player_pair_collision`, plus one ContactEvent. Published so a mode can reuse the
@@ -119,6 +141,15 @@ inline constexpr std::string_view kReflectStaticContactRuleName = "reflect_stati
                                                     const ContactRule::Subject& second,
                                                     const PlayerPairContact& contact,
                                                     const TickContext& context);
+
+// The general impulse of `resolve_general_pair_collision` applied to two dynamic discs, plus one
+// ContactEvent. This is the same shape as `elastic_disc_response` and delegates the equation the
+// same way; what differs is only which pure function it selects. Published so a mode can reuse the
+// general equation under its own row name.
+[[nodiscard]] ContactResponse variable_impulse_response(const ContactRule::Subject& first,
+                                                        const ContactRule::Subject& second,
+                                                        const PlayerPairContact& contact,
+                                                        const TickContext& context);
 
 // ADR 0003 § "Wall policy" applied to a body instead of an arena edge: reflect the dynamic body's
 // normal component about the contact normal, leave its tangential component attached to it, and

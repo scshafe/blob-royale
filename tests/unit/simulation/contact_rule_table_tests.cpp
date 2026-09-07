@@ -57,6 +57,15 @@ moving_body(const double x, const double y, const double velocity_x, const doubl
                                          point(0.0, 0.0));
 }
 
+// A dynamic body that is not the baseline: it declares its own mass and restitution, which is
+// precisely the predicate `variable_impulse` is written against.
+[[nodiscard]] simulation::PhysicsBody variable_body(const double x, const double y,
+                                                    const double velocity_x,
+                                                    const double velocity_y, const double mass,
+                                                    const double restitution) {
+  return moving_body(x, y, velocity_x, velocity_y).with_mass(mass).with_restitution(restitution);
+}
+
 [[nodiscard]] simulation::GameWorld world_of(std::vector<simulation::GameWorld::EntitySeed> seeds) {
   return simulation::GameWorld::create(std::move(seeds));
 }
@@ -135,15 +144,18 @@ only_contact_event(const simulation::ContactResponse& response) {
 
 } // namespace
 
-TEST_CASE("the built-in table declares elastic_disc before reflect_static",
+TEST_CASE("the built-in table declares variable_impulse, then elastic_disc, then reflect_static",
           "[unit][simulation][contact_rule_table]") {
-  // Row order is the declared precedence and ADR 0003 names this order, so it is asserted rather
-  // than assumed.
+  // Row order is the declared precedence and ADR 0003 names the last two, so it is asserted rather
+  // than assumed. `variable_impulse` is above both on purpose: it matches only a pair the accepted
+  // equal-unit-mass equation is not written for, and declaring it below `elastic_disc` would make
+  // it unreachable, because `elastic_disc` matches every dynamic pair including a variable one.
   const simulation::ContactRuleTable table = simulation::ContactRuleTable::built_in();
 
-  REQUIRE(table.size() == 2);
-  CHECK(table.rows()[0].name() == simulation::kElasticDiscContactRuleName);
-  CHECK(table.rows()[1].name() == simulation::kReflectStaticContactRuleName);
+  REQUIRE(table.size() == 3);
+  CHECK(table.rows()[0].name() == simulation::kVariableImpulseContactRuleName);
+  CHECK(table.rows()[1].name() == simulation::kElasticDiscContactRuleName);
+  CHECK(table.rows()[2].name() == simulation::kReflectStaticContactRuleName);
 }
 
 TEST_CASE("the built-in predicates are total over an entity carrying no body",
@@ -169,7 +181,7 @@ TEST_CASE("a dynamic pair matches elastic_disc in the canonical orientation",
       table.first_match(world, entity(1), entity(2));
 
   REQUIRE(match.has_value());
-  CHECK(match->row_index == 0);
+  CHECK(table.rows()[match->row_index].name() == simulation::kElasticDiscContactRuleName);
   CHECK(match->orientation == simulation::ContactOrientation::kCanonical);
 }
 
@@ -182,7 +194,7 @@ TEST_CASE("a dynamic-then-static pair matches reflect_static in the canonical or
       table.first_match(world, entity(1), entity(2));
 
   REQUIRE(match.has_value());
-  CHECK(match->row_index == 1);
+  CHECK(table.rows()[match->row_index].name() == simulation::kReflectStaticContactRuleName);
   CHECK(match->orientation == simulation::ContactOrientation::kCanonical);
 }
 
@@ -197,7 +209,7 @@ TEST_CASE("a static-then-dynamic pair matches reflect_static in the swapped orie
       table.first_match(world, entity(1), entity(2));
 
   REQUIRE(match.has_value());
-  CHECK(match->row_index == 1);
+  CHECK(table.rows()[match->row_index].name() == simulation::kReflectStaticContactRuleName);
   CHECK(match->orientation == simulation::ContactOrientation::kSwapped);
 }
 
@@ -479,4 +491,125 @@ TEST_CASE("a swapped match still publishes the canonical pair and normal",
   // Row orientation was (2 -> 1), so the canonical (1 -> 2) normal is its negation.
   CHECK(event.normal == point(1.0, 0.0));
   CHECK(event.rule_name == simulation::kReflectStaticContactRuleName);
+}
+
+TEST_CASE("body_is_variable_dynamic names exactly the bodies the baseline equation does not cover",
+          "[unit][simulation][contact_rule_table][variable_impulse]") {
+  // Total in the same way as the other two predicates, and false for a static body: a wall meeting
+  // a hazard is still `reflect_static`, whatever mass the hazard declares.
+  simulation::GameWorld world = world_of(
+      {simulation::GameWorld::EntitySeed::create(entity(1), moving_body(90.0, 100.0, 1.0, 0.0)),
+       simulation::GameWorld::EntitySeed::create(entity(2),
+                                                 variable_body(105.0, 100.0, -1.0, 0.0, 40.0, 1.0)),
+       simulation::GameWorld::EntitySeed::create(entity(3),
+                                                 variable_body(200.0, 100.0, 0.0, 0.0, 1.0, 0.0))});
+  testing::seat_static_body(world, entity(4),
+                            simulation::PhysicsBody::create_static(point(300.0, 100.0)));
+
+  CHECK_FALSE(simulation::body_is_variable_dynamic(world, entity(1)));
+  // Mass alone is enough, and so is restitution alone.
+  CHECK(simulation::body_is_variable_dynamic(world, entity(2)));
+  CHECK(simulation::body_is_variable_dynamic(world, entity(3)));
+  CHECK_FALSE(simulation::body_is_variable_dynamic(world, entity(4)));
+  CHECK_FALSE(simulation::body_is_variable_dynamic(world, entity(99)));
+}
+
+TEST_CASE("a pair of baseline blobs falls through variable_impulse to elastic_disc",
+          "[unit][simulation][contact_rule_table][variable_impulse][precedence]") {
+  // This is the assertion the accepted fixtures rest on. Every body in every accepted fixture is a
+  // baseline body, so every accepted pair reaches `elastic_disc` and nothing else, and the general
+  // equation -- which agrees with the baseline but is not bit-identical to it -- is never
+  // evaluated.
+  const simulation::GameWorld world = world_of(
+      {simulation::GameWorld::EntitySeed::create(entity(1), moving_body(90.0, 100.0, 1.0, 0.0)),
+       simulation::GameWorld::EntitySeed::create(entity(2), moving_body(105.0, 100.0, -1.0, 0.0))});
+  const simulation::ContactRuleTable table = simulation::ContactRuleTable::built_in();
+
+  const std::optional<simulation::ContactRuleTable::Match> match =
+      table.first_match(world, entity(1), entity(2));
+
+  REQUIRE(match.has_value());
+  CHECK(table.rows()[match->row_index].name() == simulation::kElasticDiscContactRuleName);
+}
+
+TEST_CASE("a variable body outranks elastic_disc in whichever orientation it appears",
+          "[unit][simulation][contact_rule_table][variable_impulse][orientation]") {
+  // The row is `(variable dynamic, dynamic)`, so `(variable, baseline)` matches canonically and
+  // `(baseline, variable)` matches swapped. One row therefore covers both arrangements without the
+  // caller having to know which body declared the odd mass.
+  const simulation::ContactRuleTable table = simulation::ContactRuleTable::built_in();
+
+  const simulation::GameWorld variable_first = world_of(
+      {simulation::GameWorld::EntitySeed::create(entity(1),
+                                                 variable_body(90.0, 100.0, 1.0, 0.0, 40.0, 1.0)),
+       simulation::GameWorld::EntitySeed::create(entity(2), moving_body(105.0, 100.0, -1.0, 0.0))});
+  const std::optional<simulation::ContactRuleTable::Match> canonical_match =
+      table.first_match(variable_first, entity(1), entity(2));
+  REQUIRE(canonical_match.has_value());
+  CHECK(table.rows()[canonical_match->row_index].name() ==
+        simulation::kVariableImpulseContactRuleName);
+  CHECK(canonical_match->orientation == simulation::ContactOrientation::kCanonical);
+
+  const simulation::GameWorld variable_second = world_of(
+      {simulation::GameWorld::EntitySeed::create(entity(1), moving_body(90.0, 100.0, 1.0, 0.0)),
+       simulation::GameWorld::EntitySeed::create(
+           entity(2), variable_body(105.0, 100.0, -1.0, 0.0, 40.0, 1.0))});
+  const std::optional<simulation::ContactRuleTable::Match> swapped_match =
+      table.first_match(variable_second, entity(1), entity(2));
+  REQUIRE(swapped_match.has_value());
+  CHECK(table.rows()[swapped_match->row_index].name() ==
+        simulation::kVariableImpulseContactRuleName);
+  CHECK(swapped_match->orientation == simulation::ContactOrientation::kSwapped);
+}
+
+TEST_CASE("a variable body meeting a wall still matches reflect_static",
+          "[unit][simulation][contact_rule_table][variable_impulse][orientation]") {
+  // `variable_impulse` requires a dynamic body on both sides, so declaring an odd mass does not
+  // change how a body meets a wall. Precedence is only about which equation two moving bodies use.
+  simulation::GameWorld world = world_of({simulation::GameWorld::EntitySeed::create(
+      entity(1), variable_body(90.0, 100.0, 1.0, 0.0, 40.0, 0.5))});
+  testing::seat_static_body(world, entity(2),
+                            simulation::PhysicsBody::create_static(point(105.0, 100.0)));
+  const simulation::ContactRuleTable table = simulation::ContactRuleTable::built_in();
+
+  const std::optional<simulation::ContactRuleTable::Match> match =
+      table.first_match(world, entity(1), entity(2));
+
+  REQUIRE(match.has_value());
+  CHECK(table.rows()[match->row_index].name() == simulation::kReflectStaticContactRuleName);
+}
+
+TEST_CASE("variable_impulse reproduces resolve_general_pair_collision exactly",
+          "[unit][simulation][contact_rule_table][variable_impulse][physics]") {
+  // As with `elastic_disc`, the row selects the equation rather than transcribing it, so this is
+  // bit-exact equality against the pure function -- and it is a *different* pure function from the
+  // accepted one, which is the whole point of the row.
+  const simulation::PhysicsBody first_body = variable_body(90.0, 100.0, 3.0, 1.0, 40.0, 0.25);
+  const simulation::PhysicsBody second_body = moving_body(105.0, 100.0, -2.0, 0.5);
+  const simulation::GameWorld world =
+      world_of({simulation::GameWorld::EntitySeed::create(entity(1), first_body),
+                simulation::GameWorld::EntitySeed::create(entity(2), second_body)});
+  const ContextFixture fixture(world);
+  const simulation::PlayerPairContact contact =
+      simulation::detect_player_pair_contact(first_body, second_body, kPlayerRadius);
+  const simulation::PlayerPairCollisionResult expected =
+      simulation::resolve_general_pair_collision(first_body, second_body, kPlayerRadius);
+  REQUIRE(expected.impulse_applied());
+
+  const simulation::ContactResponse response = simulation::variable_impulse_response(
+      simulation::ContactRule::Subject{entity(1), first_body},
+      simulation::ContactRule::Subject{entity(2), second_body}, contact, fixture.context());
+
+  REQUIRE(response.replaces_bodies());
+  CHECK(response.first_body().velocity() == expected.first_velocity());
+  CHECK(response.second_body().velocity() == expected.second_velocity());
+  // A response may change only the two bodies' velocities: the declared physics survives the row.
+  CHECK(response.first_body().position() == first_body.position());
+  CHECK(response.first_body().mass() == 40.0);
+  CHECK(response.first_body().restitution() == 0.25);
+  CHECK(response.second_body().position() == second_body.position());
+
+  const simulation::ContactEvent& event = only_contact_event(response);
+  CHECK(event.pair == simulation::CandidatePair::create(entity(1), entity(2)));
+  CHECK(event.rule_name == simulation::kVariableImpulseContactRuleName);
 }

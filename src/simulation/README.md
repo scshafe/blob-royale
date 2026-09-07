@@ -43,9 +43,16 @@ worst-case published population could cross it, because the kernel's seat count 
 
 A **player** is not a type: it is an entity carrying both a `PhysicsBody` and a `Controllable`.
 `PhysicsBody` is the one body value in the game and carries position, velocity, stored acceleration,
-radius, mass, the collision layer and mask pair, and `is_static`; the accepted physics phases still
-read the one common radius from `SimulationConfig`, so radius, mass, the masks, and `is_static` are
-carried but not yet consulted. `ControllerId` is the durable identity of the deciding agent and
+radius, mass, restitution, the collision layer and mask pair, `is_static`, and a `BoundsBehavior`;
+the accepted physics phases still read the one common radius from `SimulationConfig`, so radius is
+carried but not consulted. Mass and restitution *are* consulted, by the `variable_impulse` row and
+nothing else: both default to the accepted baseline — unit mass, perfectly elastic — and
+`body_has_baseline_physics` is the predicate that keeps a pair of ordinary blobs on the accepted
+equal-unit-mass equation. `BoundsBehavior` defaults to `kFold`, which is the accepted wall policy;
+`kCross` is what a body that travels through the arena rather than bouncing inside it declares, and
+it changes exactly three places — phase 4 resolves its motion unfolded, the commit-time bounds check
+does not hold it to the disc-centre interval, and the broad phase clamps its coverage to the edge
+cells rather than rejecting it. `ControllerId` is the durable identity of the deciding agent and
 outlives the entities it drives; `Controllable` is the only place the two identity spaces meet.
 
 ## The command vocabulary
@@ -310,7 +317,11 @@ phase 3 are untouched; the equations stay named pure functions and the table sel
 contains no physics. Row order is the declared precedence, and a mode that wants the defaults writes
 them into its own order, so precedence between mode rows and built-in rows is visible in the mode's
 source. Two implementations beyond `elastic_disc`: `reflect_static` for a dynamic body meeting a
-wall, and a `flag_pickup` pass-through row that changes no body and emits one event.
+wall, and a `flag_pickup` pass-through row that changes no body and emits one event. The built-in
+table declares three rows — `variable_impulse`, then `elastic_disc`, then `reflect_static` — and
+that order is the whole reason per-body mass and restitution are an addition rather than a versioned
+physics change: `variable_impulse` matches only a dynamic pair in which a body differs from the
+baseline, so an ordinary pair falls through to `elastic_disc` and the accepted arithmetic.
 
 `@extension-point game_mode` — `game_mode.hpp`, with the mode-state seam in
 `mode_match_state_registry.hpp`. A `GameMode` is the complete declared ruleset of one playable game

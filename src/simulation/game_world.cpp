@@ -19,6 +19,17 @@ GameWorld::EntitySeed GameWorld::EntitySeed::create(const EntityId entity, Physi
   return EntitySeed{entity, body, controller};
 }
 
+GameWorld::EntitySeed GameWorld::EntitySeed::create_static(const EntityId entity,
+                                                           PhysicsBody body) {
+  if (!body.is_static()) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kMapStaticBodyNotStatic,
+        "game_world.entities[entity_id=" + std::to_string(entity.value()) + "].is_static",
+        "a seed with no controller must carry a static body");
+  }
+  return EntitySeed{entity, body, std::nullopt};
+}
+
 GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
   if (seeds.size() > kMaximumPlayerCount) {
     throw SimulationValidationError(
@@ -48,8 +59,10 @@ GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
   for (const EntitySeed& seed : seeds) {
     entities.push_back(seed.entity);
     bodies.push_back(ComponentStore<PhysicsBody>::Entry{seed.entity, seed.body});
-    controllables.push_back(
-        ComponentStore<Controllable>::Entry{seed.entity, Controllable{seed.controller}});
+    if (seed.controller.has_value()) {
+      controllables.push_back(
+          ComponentStore<Controllable>::Entry{seed.entity, Controllable{*seed.controller}});
+    }
   }
 
   ComponentStores<ComponentRegistry> stores;

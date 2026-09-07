@@ -37,11 +37,11 @@ void validate_unique_names(const std::vector<SystemPipeline::StagedSystem>& decl
       if (declared_systems[earlier].system->name() != name) {
         continue;
       }
-      throw SimulationValidationError(
-          SimulationValidationCode::kSystemPipelineDuplicateSystemName,
-          "system_pipeline.systems.name",
-          "system name " + std::string(name) + " is already declared by system " +
-              std::to_string(earlier) + declared_position(index));
+      throw SimulationValidationError(SimulationValidationCode::kSystemPipelineDuplicateSystemName,
+                                      "system_pipeline.systems.name",
+                                      "system name " + std::string(name) +
+                                          " is already declared by system " +
+                                          std::to_string(earlier) + declared_position(index));
     }
   }
 }

@@ -10,6 +10,16 @@
 namespace blob_royale::simulation {
 
 // canonical: simulation_config -- validated immutable geometry, cadence, and grid shape.
+//
+// **The arena is no longer here.** `MapDefinition::bounds()` is what phase 4 folds against, what
+// the commit-time bounds check validates, and what SpatialGrid partitions
+// (`docs/architecture/0004-gameplay-architecture.md` § "Maps as data"). `world_width` and
+// `world_height` are retained because two accepted consumers outside the kernel still read them:
+// protocol v1's `/api/v1/config` publishes them through `PublicConfiguration`, and
+// `ScenarioLoader` validates a seeded centre against `contains_player_center`. They are the
+// published and authoring view of the arena until Step 25's map loader moves authoring into the map
+// directory and the `[simulation]` INI keys retire; the overloads that take no map synthesize the
+// map's bounds from exactly these scalars, so the two views cannot disagree.
 class SimulationConfig final {
 public:
   static constexpr std::uint64_t kRequiredTicksPerSecond = kSimulationTicksPerSecond;
@@ -42,6 +52,7 @@ public:
   SimulationConfig& operator=(SimulationConfig&&) noexcept = default;
   ~SimulationConfig() = default;
 
+  // The published arena size, not the one the kernel folds against; see the class comment.
   [[nodiscard]] double world_width() const noexcept { return world_width_; }
   [[nodiscard]] double world_height() const noexcept { return world_height_; }
   [[nodiscard]] double player_radius() const noexcept { return player_radius_; }
@@ -57,7 +68,9 @@ public:
     return spatial_grid_cell_count_;
   }
 
-  // Tests whether a validated point is a legal center for the configured common player disc.
+  // Tests whether a validated point is a legal center for the configured common player disc, over
+  // the published world rectangle. The kernel asks `ArenaBounds::contains_disc_center` instead;
+  // this remains the loader's seeding check (`src/application/scenario_loader.cpp`).
   [[nodiscard]] bool contains_player_center(const Vector2& position) const noexcept;
 
   friend bool operator==(const SimulationConfig&, const SimulationConfig&) = default;

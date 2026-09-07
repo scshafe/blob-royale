@@ -3,6 +3,7 @@
 #include "component_store.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
+#include "map_definition.hpp"
 #include "physics_body.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
@@ -314,5 +315,75 @@ TEST_CASE("SpatialGrid rejects unsafe duplicate candidate traversal before pair 
 
   CHECK_THROWS_AS(simulation::SpatialGrid::create(
                       configuration, simulation::GameWorld::create(std::move(players))),
+                  simulation::SimulationValidationError);
+}
+
+namespace {
+
+[[nodiscard]] simulation::GameWorld::EntitySeed static_body(const simulation::EntityId::Value id,
+                                                            const double x, const double y) {
+  return simulation::GameWorld::EntitySeed::create_static(
+      simulation::EntityId::create(id),
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(x, y)));
+}
+
+} // namespace
+
+TEST_CASE("the grid partitions the map's arena rather than the configuration's world size",
+          "[unit][simulation][spatial_grid][map_definition]") {
+  // The configuration keeps publishing 500x500 for protocol v1 while the map declares the arena
+  // the kernel uses, so the cells this grid partitions come from the map.
+  const simulation::GameWorld world =
+      simulation::GameWorld::create({stationary_player(1, 5.0, 5.0)});
+  const simulation::SpatialGrid grid =
+      simulation::SpatialGrid::create(grid_configuration(500.0, 500.0, 1.0, 4, 4),
+                                      simulation::ArenaBounds::create(100.0, 100.0), world);
+
+  CHECK(grid.bounds() == simulation::ArenaBounds::create(100.0, 100.0));
+  CHECK(grid.cell_width() == 25.0);
+  CHECK(grid.cell_height() == 25.0);
+  CHECK(grid.home_cell(simulation::Vector2::create(100.0, 100.0)) ==
+        simulation::CellCoord::create(3, 3));
+  CHECK_THROWS_AS(grid.home_cell(simulation::Vector2::create(120.0, 50.0)),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("the two-argument grid synthesizes its arena from the configuration",
+          "[unit][simulation][spatial_grid][map_definition]") {
+  // Every caller written before maps existed lands here, which is why no accepted fixture had to
+  // change: the synthesized arena is exactly the configured world rectangle.
+  const simulation::GameWorld world =
+      simulation::GameWorld::create({stationary_player(1, 5.0, 5.0)});
+  const simulation::SimulationConfig configuration = grid_configuration(100.0, 80.0, 1.0, 4, 4);
+
+  CHECK(simulation::SpatialGrid::create(configuration, world) ==
+        simulation::SpatialGrid::create(configuration, simulation::ArenaBounds::create(100.0, 80.0),
+                                        world));
+}
+
+TEST_CASE("a static body is indexed and may sit outside the disc-centre interval",
+          "[unit][simulation][spatial_grid][static_body]") {
+  // `reflect_static` can only see a wall the broad phase offered it, so a static body has to be a
+  // member; and a wall on the arena edge is legal content, so it is exempt from the interval a
+  // moving disc is held inside.
+  const simulation::ArenaBounds bounds = simulation::ArenaBounds::create(100.0, 100.0);
+  const simulation::GameWorld world =
+      simulation::GameWorld::create({stationary_player(1, 14.0, 12.0), static_body(2, 2.0, 12.0)});
+
+  const simulation::SpatialGrid grid =
+      simulation::SpatialGrid::create(grid_configuration(100.0, 100.0, 5.0, 4, 4), bounds, world);
+
+  REQUIRE(bounds.contains(simulation::Vector2::create(2.0, 12.0)));
+  REQUIRE_FALSE(bounds.contains_disc_center(simulation::Vector2::create(2.0, 12.0), 5.0));
+  CHECK(pair_values(grid.candidate_pairs()) == std::vector<PairValues>{{1, 2}});
+}
+
+TEST_CASE("a static body centre outside the arena rectangle is rejected",
+          "[unit][simulation][spatial_grid][static_body][validation]") {
+  const simulation::GameWorld world = simulation::GameWorld::create({static_body(1, -1.0, 12.0)});
+
+  CHECK_THROWS_AS(simulation::SpatialGrid::create(grid_configuration(100.0, 100.0, 5.0, 4, 4),
+                                                  simulation::ArenaBounds::create(100.0, 100.0),
+                                                  world),
                   simulation::SimulationValidationError);
 }

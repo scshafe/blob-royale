@@ -98,10 +98,24 @@ void validate_cell_extent(const double world_extent, const std::size_t cell_coun
   return first - 1;
 }
 
-[[nodiscard]] CellCoverage player_coverage(const SimulationConfig& configuration,
-                                           const ComponentStore<PhysicsBody>::Entry& body_entry) {
+// A body's coverage over the map's arena. A dynamic body's centre must keep its complete closed
+// disc inside the arena, which is the interval phase 4 folds into; a static body's centre need only
+// lie inside the closed rectangle, because a wall legitimately sits on the edge. Both are indexed,
+// because `reflect_static` cannot see a wall the broad phase did not offer it.
+[[nodiscard]] CellCoverage body_coverage(const SimulationConfig& configuration,
+                                         const ArenaBounds& bounds,
+                                         const ComponentStore<PhysicsBody>::Entry& body_entry) {
   const Vector2& position = body_entry.value.position();
-  if (!configuration.contains_player_center(position)) {
+  const double radius = configuration.player_radius();
+  if (body_entry.value.is_static()) {
+    if (!bounds.contains(position)) {
+      throw SimulationValidationError(
+          SimulationValidationCode::kSpatialGridStaticBodyOutOfBounds,
+          "spatial_grid.bodies[entity_id=" + std::to_string(body_entry.entity.value()) +
+              "].position",
+          "static body center must lie inside the closed arena rectangle");
+    }
+  } else if (!bounds.contains_disc_center(position, radius)) {
     throw SimulationValidationError(
         SimulationValidationCode::kSpatialGridPlayerCenterOutOfBounds,
         "spatial_grid.players[entity_id=" + std::to_string(body_entry.entity.value()) +
@@ -109,9 +123,8 @@ void validate_cell_extent(const double world_extent, const std::size_t cell_coun
         "player center must keep the complete closed disc inside the world bounds");
   }
 
-  const double radius = configuration.player_radius();
-  const double world_width = configuration.world_width();
-  const double world_height = configuration.world_height();
+  const double world_width = bounds.width();
+  const double world_height = bounds.height();
   // Solve d <= 2r + epsilon + relative*d for the greatest accepted excess beyond 2r. Expanding
   // each AABB by that conservative amount guarantees the grid remains a broad-phase superset of
   // the narrow phase. `nextafter` retains the guarantee when the padding is below a local ULP.
@@ -355,11 +368,12 @@ build_candidate_pairs(const GameWorld& world, const std::vector<std::vector<Enti
 
 } // namespace
 
-SpatialGrid SpatialGrid::create(SimulationConfig configuration, const GameWorld& world) {
+SpatialGrid SpatialGrid::create(SimulationConfig configuration, const ArenaBounds bounds,
+                                const GameWorld& world) {
   const std::size_t cell_count = checked_cell_count(configuration);
-  validate_cell_extent(configuration.world_width(), configuration.spatial_grid_columns(),
+  validate_cell_extent(bounds.width(), configuration.spatial_grid_columns(),
                        "spatial_grid.cell_width");
-  validate_cell_extent(configuration.world_height(), configuration.spatial_grid_rows(),
+  validate_cell_extent(bounds.height(), configuration.spatial_grid_rows(),
                        "spatial_grid.cell_height");
 
   std::vector<CellCoverage> coverages;
@@ -367,7 +381,7 @@ SpatialGrid SpatialGrid::create(SimulationConfig configuration, const GameWorld&
   std::size_t membership_count = 0;
   for (const ComponentStore<PhysicsBody>::Entry& body_entry :
        world.store<PhysicsBody>().entries()) {
-    const CellCoverage coverage = player_coverage(configuration, body_entry);
+    const CellCoverage coverage = body_coverage(configuration, bounds, body_entry);
     const std::size_t player_membership_count = coverage_entry_count(coverage);
     if (player_membership_count > kMaximumSpatialGridMembershipCount - membership_count) {
       throw SimulationValidationError(
@@ -381,21 +395,25 @@ SpatialGrid SpatialGrid::create(SimulationConfig configuration, const GameWorld&
   std::vector<Cell> cells =
       build_cells(world, coverages, configuration.spatial_grid_columns(), cell_count);
   std::vector<CandidatePair> candidate_pairs = build_candidate_pairs(world, cells);
-  return SpatialGrid(configuration, std::move(cells), std::move(candidate_pairs));
+  return SpatialGrid(configuration, bounds, std::move(cells), std::move(candidate_pairs));
+}
+
+SpatialGrid SpatialGrid::create(SimulationConfig configuration, const GameWorld& world) {
+  const ArenaBounds bounds =
+      ArenaBounds::create(configuration.world_width(), configuration.world_height());
+  return create(std::move(configuration), bounds, world);
 }
 
 CellCoord SpatialGrid::home_cell(const Vector2& point) const {
-  if (point.x() < 0.0 || point.x() > configuration_.world_width() || point.y() < 0.0 ||
-      point.y() > configuration_.world_height()) {
+  if (!bounds_.contains(point)) {
     throw SimulationValidationError(SimulationValidationCode::kSpatialGridPointOutOfBounds,
                                     "spatial_grid.home_cell.point",
                                     "point must lie inside the closed world rectangle");
   }
 
-  return CellCoord::create(last_intersected_cell(point.y(), configuration_.world_height(),
-                                                 configuration_.spatial_grid_rows()),
-                           last_intersected_cell(point.x(), configuration_.world_width(),
-                                                 configuration_.spatial_grid_columns()));
+  return CellCoord::create(
+      last_intersected_cell(point.y(), bounds_.height(), configuration_.spatial_grid_rows()),
+      last_intersected_cell(point.x(), bounds_.width(), configuration_.spatial_grid_columns()));
 }
 
 std::span<const EntityId> SpatialGrid::cell_members(const CellCoord coordinate) const& {
@@ -408,12 +426,13 @@ std::span<const EntityId> SpatialGrid::cell_members(const CellCoord coordinate) 
 }
 
 SpatialGrid SpatialGrid::rebuilt(const GameWorld& world) const& {
-  return create(configuration_, world);
+  return create(configuration_, bounds_, world);
 }
 
-SpatialGrid::SpatialGrid(SimulationConfig configuration, std::vector<Cell> cells,
+SpatialGrid::SpatialGrid(SimulationConfig configuration, const ArenaBounds bounds,
+                         std::vector<Cell> cells,
                          std::vector<CandidatePair> candidate_pairs) noexcept
-    : configuration_(configuration), cells_(std::move(cells)),
+    : configuration_(configuration), bounds_(bounds), cells_(std::move(cells)),
       candidate_pairs_(std::move(candidate_pairs)) {}
 
 } // namespace blob_royale::simulation

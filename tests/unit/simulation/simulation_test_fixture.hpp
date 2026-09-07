@@ -6,6 +6,7 @@
 #include "components/lifetime_component.hpp"
 #include "components/score_component.hpp"
 #include "entity_id.hpp"
+#include "events/contact_event.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
 #include "simulation_system.hpp"
@@ -18,6 +19,7 @@
 #include <memory>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace blob_royale::testing {
@@ -81,7 +83,8 @@ private:
 // Emits one declared event per tick, in ascending EntityId order over the entities it names.
 class EventEmittingSystem final : public simulation::SimulationSystem {
 public:
-  EventEmittingSystem(const std::string_view system_name, std::vector<simulation::WorldEvent> events)
+  EventEmittingSystem(const std::string_view system_name,
+                      std::vector<simulation::WorldEvent> events)
       : system_name_(system_name), events_(std::move(events)) {}
 
   [[nodiscard]] std::string_view name() const noexcept override { return system_name_; }
@@ -157,6 +160,79 @@ public:
 
 private:
   std::string_view system_name_;
+};
+
+// Writes 1 into every entity's Score when this tick produced a ContactEvent naming the declared
+// rule and 0 otherwise, which is how a tick-local contact event becomes observable from the
+// committed snapshot after the commit has cleared the list.
+class ContactRuleProbeSystem final : public simulation::SimulationSystem {
+public:
+  ContactRuleProbeSystem(const std::string_view system_name,
+                         const std::string_view probed_rule_name) noexcept
+      : system_name_(system_name), probed_rule_name_(probed_rule_name) {}
+
+  [[nodiscard]] std::string_view name() const noexcept override { return system_name_; }
+
+  void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+    std::int64_t matched = 0;
+    for (const simulation::WorldEvent& event : world.events()) {
+      const auto* contact = std::get_if<simulation::ContactEvent>(&event);
+      if (contact != nullptr && contact->rule_name == probed_rule_name_) {
+        ++matched;
+      }
+    }
+    for (const simulation::EntityId entity : world.entities()) {
+      world.mutable_store<simulation::Score>().insert_or_assign(entity, simulation::Score{matched});
+    }
+  }
+
+private:
+  std::string_view system_name_;
+  std::string_view probed_rule_name_;
+};
+
+// Creates one entity carrying one body, once, at a declared stage. This is the in-contract way a
+// mode brings a projectile, a zone, or a dropped flag into the world, and it is what the spatial
+// index has to notice: the index is a function of the body store, not of the entity roster.
+class BodyCreatingSystem final : public simulation::SimulationSystem {
+public:
+  BodyCreatingSystem(const std::string_view system_name, const simulation::EntityId created,
+                     const simulation::PhysicsBody body) noexcept
+      : system_name_(system_name), created_(created), body_(body) {}
+
+  [[nodiscard]] std::string_view name() const noexcept override { return system_name_; }
+
+  void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+    if (world.contains(created_)) {
+      return;
+    }
+    world.create_entity(created_);
+    world.mutable_store<simulation::PhysicsBody>().insert_or_assign(created_, body_);
+  }
+
+private:
+  std::string_view system_name_;
+  simulation::EntityId created_;
+  simulation::PhysicsBody body_;
+};
+
+// Destroys one entity directly rather than by emitting a DespawnEvent. `destroy_entity` is public
+// and is the obvious call a system author reaches for, so the committed index has to survive it.
+class EntityDestroyingSystem final : public simulation::SimulationSystem {
+public:
+  EntityDestroyingSystem(const std::string_view system_name,
+                         const simulation::EntityId destroyed) noexcept
+      : system_name_(system_name), destroyed_(destroyed) {}
+
+  [[nodiscard]] std::string_view name() const noexcept override { return system_name_; }
+
+  void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+    world.destroy_entity(destroyed_);
+  }
+
+private:
+  std::string_view system_name_;
+  simulation::EntityId destroyed_;
 };
 
 // A system with a name and no effect, for the pipeline's own ordering and rejection tests.

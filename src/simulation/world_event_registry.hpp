@@ -41,7 +41,8 @@ namespace blob_royale::simulation {
 //
 // related: game_world.hpp -- the owner of the tick's event list.
 // related: command_registry.hpp -- the same closed-variant shape for one tick's input.
-using WorldEvent = std::variant<ContactEvent, SpawnEvent, DespawnEvent, EliminationEvent, ScoreEvent>;
+using WorldEvent =
+    std::variant<ContactEvent, SpawnEvent, DespawnEvent, EliminationEvent, ScoreEvent>;
 
 // Every alternative is nothrow-move-constructible, so a WorldEvent is never valueless by
 // exception. That is what makes world_event_kind_of total and honestly noexcept rather than

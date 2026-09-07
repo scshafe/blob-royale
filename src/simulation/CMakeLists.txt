@@ -1,10 +1,12 @@
 add_library(blob_simulation STATIC
   candidate_pair.cpp
+  contact_rule_table.cpp
   controller_id.cpp
   entity_id.cpp
   game_simulation.cpp
   game_world.cpp
   input_batch.cpp
+  map_definition.cpp
   physics.cpp
   physics_body.cpp
   player_snapshot.cpp

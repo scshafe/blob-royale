@@ -8,6 +8,7 @@
 #include "physics_body.hpp"
 #include "world_event_registry.hpp"
 
+#include <optional>
 #include <span>
 #include <tuple>
 #include <utility>
@@ -36,7 +37,9 @@ public:
   struct EntitySeed final {
     EntityId entity;
     PhysicsBody body;
-    ControllerId controller;
+    // Absent for a wall or obstacle. A static body is not driven by anyone, so it carries no
+    // Controllable, which is also what keeps it out of the protocol v1 player projection.
+    std::optional<ControllerId> controller;
 
     // Seeds an entity that decides for itself: the controller id is the entity id, which is the
     // identity link every scenario row uses until sessions issue their own controller ids.
@@ -44,11 +47,20 @@ public:
     [[nodiscard]] static EntitySeed create(EntityId entity, PhysicsBody body,
                                            ControllerId controller);
 
+    // Seeds one of a map's static bodies. Rejects a body that is not static, because a dynamic
+    // body with no controller is an entity nothing can ever drive.
+    //
+    // This is the construction path until Step 19's `GameWorld::create(configuration, map, seed)`
+    // seats `MapDefinition::static_bodies()` itself, which is where the id policy for map content
+    // belongs.
+    [[nodiscard]] static EntitySeed create_static(EntityId entity, PhysicsBody body);
+
     friend bool operator==(const EntitySeed&, const EntitySeed&) = default;
   };
 
-  // Canonicalizes caller order into strict ascending EntityId order. Every seeded entity carries a
-  // PhysicsBody and a Controllable, which is exactly what makes it a player entity.
+  // Canonicalizes caller order into strict ascending EntityId order. A seeded entity carries a
+  // PhysicsBody, and one that named a controller also carries a Controllable, which is exactly
+  // what makes it a player entity rather than a wall.
   [[nodiscard]] static GameWorld create(std::vector<EntitySeed> seeds);
 
   GameWorld(const GameWorld&) = default;

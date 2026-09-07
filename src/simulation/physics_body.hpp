@@ -38,6 +38,13 @@ public:
                                           CollisionLayer collision_layer,
                                           CollisionLayer collision_mask, bool is_static);
 
+  // A wall or obstacle: it takes part in the broad phase and in contact resolution and is never
+  // integrated, accelerated, or dragged. Zero velocity and zero acceleration are structural here
+  // rather than incidental, because no phase would ever consume them.
+  [[nodiscard]] static PhysicsBody create_static(Vector2 position);
+  [[nodiscard]] static PhysicsBody create_static(Vector2 position, CollisionLayer collision_layer,
+                                                 CollisionLayer collision_mask);
+
   PhysicsBody(const PhysicsBody&) = default;
   PhysicsBody(PhysicsBody&&) noexcept = default;
   PhysicsBody& operator=(const PhysicsBody&) = default;
@@ -76,6 +83,20 @@ private:
   CollisionLayer collision_mask_;
   bool is_static_;
 };
+
+// canonical: collision_admission -- the one predicate that admits a candidate pair to phase 3.
+//
+// A canonical pair is admitted only when `(a.collision_mask & b.collision_layer)` and
+// `(b.collision_mask & a.collision_layer)` are both nonzero. It is a pure integer predicate over
+// two values and adds no ordering, which is why it sits before the narrow phase rather than inside
+// a contact rule (`docs/architecture/0004-gameplay-architecture.md`
+// § "Entities, components, and stores"). Every baseline body carries the single default layer and
+// mask, so the accepted fixtures admit exactly the pairs they always did.
+[[nodiscard]] inline bool collision_masks_admit(const PhysicsBody& first,
+                                                const PhysicsBody& second) noexcept {
+  return (first.collision_mask() & second.collision_layer()) != 0U &&
+         (second.collision_mask() & first.collision_layer()) != 0U;
+}
 
 template <> struct ComponentKindName<PhysicsBody> {
   static constexpr std::string_view value = "physics_body";

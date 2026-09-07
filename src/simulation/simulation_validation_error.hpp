@@ -32,6 +32,24 @@ enum class SimulationValidationCode {
   kSystemPipelineSystemNameEmpty,
   kSystemPipelineDuplicateSystemName,
   kSystemPipelineStageUnknown,
+  kContactResponseBodiesAbsent,
+  kContactRuleNameInvalid,
+  kContactRulePredicateMissing,
+  kContactRuleResponseMissing,
+  kContactRuleTableDuplicateRuleName,
+  kArenaBoundsScalarNotFinite,
+  kArenaBoundsScalarOutOfRange,
+  kMapNameInvalid,
+  kMapStaticBodyNotStatic,
+  kMapStaticBodyOutOfBounds,
+  kMapStaticBodyLimitExceeded,
+  kMapMarkerKindInvalid,
+  kMapMarkerOutOfBounds,
+  kMapMarkerLimitExceeded,
+  kMapMetadataKeyInvalid,
+  kMapMetadataValueInvalid,
+  kMapMetadataDuplicateKey,
+  kMapMetadataLimitExceeded,
   kGameSimulationBodyOutOfBounds,
   kTickSequenceOutOfRange,
   kConfigWorldScalarNotFinite,
@@ -48,6 +66,7 @@ enum class SimulationValidationCode {
   kSpatialGridMembershipLimitExceeded,
   kSpatialGridCandidatePairLimitExceeded,
   kSpatialGridPlayerCenterOutOfBounds,
+  kSpatialGridStaticBodyOutOfBounds,
   kSpatialGridPointOutOfBounds,
   kSpatialGridCellCoordinateOutOfBounds,
 };
@@ -101,6 +120,42 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.SYSTEM_PIPELINE_DUPLICATE_SYSTEM_NAME";
   case SimulationValidationCode::kSystemPipelineStageUnknown:
     return "SIMULATION.SYSTEM_PIPELINE_STAGE_UNKNOWN";
+  case SimulationValidationCode::kContactResponseBodiesAbsent:
+    return "SIMULATION.CONTACT_RESPONSE_BODIES_ABSENT";
+  case SimulationValidationCode::kContactRuleNameInvalid:
+    return "SIMULATION.CONTACT_RULE_NAME_INVALID";
+  case SimulationValidationCode::kContactRulePredicateMissing:
+    return "SIMULATION.CONTACT_RULE_PREDICATE_MISSING";
+  case SimulationValidationCode::kContactRuleResponseMissing:
+    return "SIMULATION.CONTACT_RULE_RESPONSE_MISSING";
+  case SimulationValidationCode::kContactRuleTableDuplicateRuleName:
+    return "SIMULATION.CONTACT_RULE_TABLE_DUPLICATE_RULE_NAME";
+  case SimulationValidationCode::kArenaBoundsScalarNotFinite:
+    return "SIMULATION.ARENA_BOUNDS_SCALAR_NOT_FINITE";
+  case SimulationValidationCode::kArenaBoundsScalarOutOfRange:
+    return "SIMULATION.ARENA_BOUNDS_SCALAR_OUT_OF_RANGE";
+  case SimulationValidationCode::kMapNameInvalid:
+    return "SIMULATION.MAP_NAME_INVALID";
+  case SimulationValidationCode::kMapStaticBodyNotStatic:
+    return "SIMULATION.MAP_STATIC_BODY_NOT_STATIC";
+  case SimulationValidationCode::kMapStaticBodyOutOfBounds:
+    return "SIMULATION.MAP_STATIC_BODY_OUT_OF_BOUNDS";
+  case SimulationValidationCode::kMapStaticBodyLimitExceeded:
+    return "SIMULATION.MAP_STATIC_BODY_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kMapMarkerKindInvalid:
+    return "SIMULATION.MAP_MARKER_KIND_INVALID";
+  case SimulationValidationCode::kMapMarkerOutOfBounds:
+    return "SIMULATION.MAP_MARKER_OUT_OF_BOUNDS";
+  case SimulationValidationCode::kMapMarkerLimitExceeded:
+    return "SIMULATION.MAP_MARKER_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kMapMetadataKeyInvalid:
+    return "SIMULATION.MAP_METADATA_KEY_INVALID";
+  case SimulationValidationCode::kMapMetadataValueInvalid:
+    return "SIMULATION.MAP_METADATA_VALUE_INVALID";
+  case SimulationValidationCode::kMapMetadataDuplicateKey:
+    return "SIMULATION.MAP_METADATA_DUPLICATE_KEY";
+  case SimulationValidationCode::kMapMetadataLimitExceeded:
+    return "SIMULATION.MAP_METADATA_LIMIT_EXCEEDED";
   case SimulationValidationCode::kGameSimulationBodyOutOfBounds:
     return "SIMULATION.GAME_SIMULATION_BODY_OUT_OF_BOUNDS";
   case SimulationValidationCode::kTickSequenceOutOfRange:
@@ -133,6 +188,8 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.SPATIAL_GRID_CANDIDATE_PAIR_LIMIT_EXCEEDED";
   case SimulationValidationCode::kSpatialGridPlayerCenterOutOfBounds:
     return "SIMULATION.SPATIAL_GRID_PLAYER_CENTER_OUT_OF_BOUNDS";
+  case SimulationValidationCode::kSpatialGridStaticBodyOutOfBounds:
+    return "SIMULATION.SPATIAL_GRID_STATIC_BODY_OUT_OF_BOUNDS";
   case SimulationValidationCode::kSpatialGridPointOutOfBounds:
     return "SIMULATION.SPATIAL_GRID_POINT_OUT_OF_BOUNDS";
   case SimulationValidationCode::kSpatialGridCellCoordinateOutOfBounds:

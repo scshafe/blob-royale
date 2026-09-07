@@ -5,9 +5,11 @@ add_executable(blob_simulation_unit_tests
   simulation/command_registry_tests.cpp
   simulation/component_registry_tests.cpp
   simulation/component_store_tests.cpp
+  simulation/contact_rule_table_tests.cpp
   simulation/entity_id_reservation_tests.cpp
   simulation/game_simulation_tests.cpp
   simulation/input_batch_tests.cpp
+  simulation/map_definition_tests.cpp
   simulation/physics_tests.cpp
   simulation/simulation_system_tests.cpp
   simulation/snapshot_tests.cpp

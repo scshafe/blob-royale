@@ -1,4 +1,5 @@
 #include "candidate_pair.hpp"
+#include "contact_rule_name.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "vector2.hpp"
@@ -22,14 +23,13 @@ namespace {
 
 [[nodiscard]] simulation::ContactEvent contact_event() {
   return simulation::ContactEvent{simulation::CandidatePair::create(entity(2), entity(7)),
-                                  simulation::Vector2::create(1.0, 0.0), -3.5, "elastic_disc"};
+                                  simulation::Vector2::create(1.0, 0.0), -3.5,
+                                  simulation::ContactRuleName::create("elastic_disc")};
 }
 
 [[nodiscard]] std::vector<simulation::WorldEvent> one_of_each_kind() {
-  return {contact_event(),
-          simulation::SpawnEvent{entity(4), simulation::ControllerId::create(11)},
-          simulation::DespawnEvent{entity(5)},
-          simulation::EliminationEvent{entity(6)},
+  return {contact_event(), simulation::SpawnEvent{entity(4), simulation::ControllerId::create(11)},
+          simulation::DespawnEvent{entity(5)}, simulation::EliminationEvent{entity(6)},
           simulation::ScoreEvent{entity(7), -2}};
 }
 
@@ -84,7 +84,12 @@ TEST_CASE("ContactEvent carries the canonical pair, the normal, the speed, and t
   CHECK(event.pair.higher_id() == entity(7));
   CHECK(event.normal == simulation::Vector2::create(1.0, 0.0));
   CHECK(event.relative_normal_speed == -3.5);
+  // The name is owned rather than borrowed: the event outlives the row that produced it within a
+  // tick, and a mode may build a row from a temporary string.
   CHECK(event.rule_name == std::string_view("elastic_disc"));
+  CHECK(event.rule_name.value() == "elastic_disc");
+  CHECK_FALSE(event.rule_name == simulation::ContactRuleName::create("reflect_static"));
+  CHECK(simulation::ContactRuleName{}.empty());
 }
 
 TEST_CASE("a ScoreEvent is a signed delta against the entity owning the scoreboard cell",

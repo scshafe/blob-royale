@@ -15,6 +15,16 @@ PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acce
                      collision_mask, is_static);
 }
 
+PhysicsBody PhysicsBody::create_static(Vector2 position) {
+  return create_static(position, kDefaultCollisionLayer, kDefaultCollisionMask);
+}
+
+PhysicsBody PhysicsBody::create_static(Vector2 position, const CollisionLayer collision_layer,
+                                       const CollisionLayer collision_mask) {
+  return PhysicsBody(position, Vector2::create(0.0, 0.0), Vector2::create(0.0, 0.0), kDefaultRadius,
+                     kDefaultMass, collision_layer, collision_mask, true);
+}
+
 PhysicsBody PhysicsBody::with_position(Vector2 position) const {
   return create(position, velocity_, acceleration_, radius_, mass_, collision_layer_,
                 collision_mask_, is_static_);

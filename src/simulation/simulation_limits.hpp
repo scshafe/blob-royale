@@ -41,6 +41,18 @@ inline constexpr std::size_t kMaximumWorldEventCount = 16 * kMaximumPlayerCount;
 // A thrust direction component is a unit-interval intent, not a physical quantity: the mode's
 // steering system scales it by its own declared maximum.
 inline constexpr double kMaximumThrustDirectionComponentMagnitude = 1.0;
+// One contact rule row's declared name, which is also what a ContactEvent publishes.
+inline constexpr std::size_t kMaximumContactRuleNameLength = 64;
+// One map's authored content. Static bodies and markers each take a world seat once a mode seats
+// them, so neither may exceed the roster the world can hold; the metadata bounds keep a map file a
+// declaration rather than an unbounded blob.
+inline constexpr std::size_t kMaximumMapNameLength = 64;
+inline constexpr std::size_t kMaximumMapStaticBodyCount = kMaximumPlayerCount;
+inline constexpr std::size_t kMaximumMapMarkerCount = kMaximumPlayerCount;
+inline constexpr std::size_t kMaximumMapMarkerKindLength = 64;
+inline constexpr std::size_t kMaximumMapMetadataEntryCount = 64;
+inline constexpr std::size_t kMaximumMapMetadataKeyLength = 64;
+inline constexpr std::size_t kMaximumMapMetadataValueLength = 256;
 inline constexpr std::uint64_t kSimulationTicksPerSecond = 400;
 inline constexpr std::int64_t kFixedDeltaNanoseconds = 2'500'000;
 inline constexpr double kFixedDeltaSeconds = 1.0 / static_cast<double>(kSimulationTicksPerSecond);

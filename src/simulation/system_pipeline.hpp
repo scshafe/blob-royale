@@ -38,8 +38,7 @@ inline constexpr std::size_t kSystemStageCount = kSystemStages.size();
 // index its per-stage runs by `static_cast<std::size_t>(stage)` without a lookup table.
 static_assert(static_cast<std::size_t>(SystemStage::kPreKernel) == 0 &&
                   static_cast<std::size_t>(SystemStage::kPostKernel) == 1 &&
-                  static_cast<std::size_t>(SystemStage::kLifecycle) == 2 &&
-                  kSystemStageCount == 3,
+                  static_cast<std::size_t>(SystemStage::kLifecycle) == 2 && kSystemStageCount == 3,
               "every SystemStage enumerator must equal its index in kSystemStages");
 
 // The declared name of one stage, for diagnostics and fixtures.

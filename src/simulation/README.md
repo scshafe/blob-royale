@@ -87,7 +87,9 @@ systems:
   phase 0            despawns, then this tick's remaining commands recorded per entity
   ---- kPreKernel -- the mode's systems, declared order
   phase 1            stored acceleration, then drag
-  phases 2-6         canonical pairs, contacts, world bounds, integration, spatial reindex
+  phase 2            canonical candidate pairs
+  phase 3            admission, narrow phase, then the mode's ContactRuleTable
+  phases 4-6         world bounds, integration, spatial reindex
   ---- kPostKernel - the mode's systems, declared order
   ---- kLifecycle -- the mode's systems, declared order
   phase 10           validate, apply DespawnEvent removals, reindex survivors, clear events, publish
@@ -96,8 +98,26 @@ systems:
 A `SimulationSystem` is one interface with `name()` and `apply(GameWorld&, const TickContext&)
 const`. **`apply` is `const` on purpose:** a system holds immutable configuration and nothing else,
 so a tick's result stays a function of the committed world and the tick's `InputBatch` alone.
-`TickContext` carries the sequence this tick commits, the fixed delta, and the configuration -- and
-no clock and no `InputBatch`, so no system can read a wall time or observe a half-applied intake.
+`TickContext` carries the sequence this tick commits, the fixed delta, the configuration, the map,
+and a read-only `spatial_index()` -- and no clock and no `InputBatch`, so no system can read a wall
+time or observe a half-applied intake. `spatial_index()` is a promise about *which world* the index
+describes: during `kPreKernel` it is the index of the bodies phase 0 left at start-of-tick
+positions, and from `kPostKernel` onward it is this tick's phase 6 rebuild. It never reflects the
+reading stage's own writes, so a system that must see those reads the component stores instead.
+
+The kernel has exactly **two policy sockets**, both evaluated at a fixed point against declared
+data: the mode's `SpawnPolicy` in phase 0 (Step 19) and its `ContactRuleTable` in phase 3. There is
+no third. Phase 3 applies three gates in a fixed order -- the pure integer collision-admission
+predicate over the two bodies' layers and masks, the narrow phase that rejects non-contacts and
+separating contacts, then the table walked in declared row order with the canonical orientation
+tried before the swapped one. The first matching (row, orientation) wins and a pair matching no row
+is unchanged, which makes the table total without a default row. A response may write only the two
+bodies; every other consequence leaves as a `WorldEvent`.
+
+The **spatial index is a function of the body store, not of the entity roster**, so every rebuild
+decision compares the ids and positions the index was built from. A stage that creates a body,
+destroys an entity through `destroy_entity`, or moves one is therefore observed, and a debug build
+additionally asserts at commit that the committed index equals a fresh rebuild.
 
 `SystemPipeline` stable-partitions a mode's declared list by `SystemStage` and preserves the
 declared order inside each stage, so precedence is a property of the mode's written list and never
@@ -111,9 +131,33 @@ finite and non-negative and phase 1 scales the accelerated velocity by
 bit-for-bit** -- asserted against a second, in-test implementation of the accepted seven-phase tick
 in `tests/unit/simulation/game_simulation_tests.cpp`.
 
+## Maps and the arena
+
+`MapDefinition` is the static, mode-independent content of one arena: a name, `ArenaBounds`, static
+bodies, markers, and bounded `MapMetadata`. **Markers are the one authoring concept**, and
+`spawn_points()` is the ordered projection of the markers of kind `spawn`, materialized once at
+construction because every mode needs it.
+
+**The map is the arena source.** Phase 4's fold, the commit-time bounds validation, and `SpatialGrid`
+all read `MapDefinition::bounds()`. `SimulationConfig` keeps `world_width` and `world_height`
+because protocol v1's `/api/v1/config` publishes them through `PublicConfiguration` and
+`ScenarioLoader` validates seeded centres against them; no kernel phase reads them any more, and the
+`[simulation]` INI keys retire into the map file when Step 25's loader arrives. The overloads that
+take no map synthesize `MapDefinition::bare_arena` from those same scalars, which is why no accepted
+fixture had to change to gain a map.
+
+A **static body** takes part in the broad phase and in contact resolution and is never integrated,
+accelerated, or dragged: phases 1, 4, and 5 skip it. Its centre obeys the closed arena rectangle
+rather than the disc-centre interval a dynamic body is folded into, because a wall legitimately sits
+on or past the arena edge -- and getting that distinction wrong is what would make the obvious
+boundary obstacle unrepresentable. `MapDefinition::static_bodies()` is declared content; seating it
+as entities needs the id policy `GameWorld::create(configuration, map, seed)` owns, which arrives in
+Step 19, so today a caller seats one through `GameWorld::EntitySeed::create_static`.
+
 ## Ownership and invariants
 
-`GameSimulation` owns one `GameWorld`, one `SpatialGrid`, and one `SystemPipeline`. `GameWorld` owns
+`GameSimulation` owns one `GameWorld`, one `MapDefinition`, one `SpatialGrid`, one `SystemPipeline`,
+and one `ContactRuleTable`. `GameWorld` owns
 one ascending `entities()` roster, one `ComponentStore` per registered component kind reached
 through `store<C>()` and `mutable_store<C>()`, and the tick's `WorldEvent` list. Grid cells contain
 non-owning `EntityId` values and are rebuilt deterministically after a committed tick. A
@@ -156,6 +200,24 @@ systems, and every other mode are untouched. Two implementations beyond the engi
 may see, not when it happens to have been registered: `kPreKernel` sees start-of-tick positions and
 this tick's recorded commands, `kPostKernel` sees committed positions and this tick's events, and
 `kLifecycle` sees the tick's final world.
+
+`@extension-point contact_rule` — `contact_rule.hpp`, ordered by `contact_rule_table.hpp`. An
+interaction is a new row: two `Predicate` free-function pointers and one `Response` free-function
+pointer, plus one line in a mode's `contact_rules()`. Function pointers rather than `std::function`
+are what make purity structural -- a predicate or a response cannot capture state. `physics.hpp` and
+phase 3 are untouched; the equations stay named pure functions and the table selects among them and
+contains no physics. Row order is the declared precedence, and a mode that wants the defaults writes
+them into its own order, so precedence between mode rows and built-in rows is visible in the mode's
+source. Two implementations beyond `elastic_disc`: `reflect_static` for a dynamic body meeting a
+wall, and a `flag_pickup` pass-through row that changes no body and emits one event.
+
+`@extension-point map_definition` — `map_definition.hpp`. A map is a data directory and one line of
+match configuration: `map.ini` for name, bounds, and metadata, `static_bodies.csv` for obstacles,
+`markers.csv` for spawn points and mode props. No C++ file changes at all. Two implementations: the
+960x640 arena, and an obstacle course whose walls are `static_bodies.csv` rows resolved by the
+built-in `reflect_static` row. A mode reads the marker kinds it understands and ignores the rest,
+which is what lets any mode play any map; a mode that *requires* a kind rejects the map at startup
+in `validate_map` rather than discovering the absence mid-match.
 
 Adding an event kind is a new value-struct header under `events/` plus one type, one enumerator, one
 `WorldEventKindName`, one `WorldEventKindOf`, and one `kWorldEventKinds` entry in

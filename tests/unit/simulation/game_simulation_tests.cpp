@@ -8,6 +8,7 @@
 #include "components/controllable_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "components/score_component.hpp"
+#include "contact_rule_table.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "entity_id_reservation.hpp"
@@ -15,6 +16,7 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "map_definition.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
@@ -942,4 +944,317 @@ TEST_CASE("SimulationConfig rejects a drag that is not finite or is negative",
                   simulation::SimulationValidationError);
   CHECK_NOTHROW(dragged_configuration(0.0));
   CHECK(configuration().drag_per_second() == simulation::SimulationConfig::kDefaultDragPerSecond);
+}
+
+namespace {
+
+[[nodiscard]] simulation::Vector2 at(const double x, const double y) {
+  return simulation::Vector2::create(x, y);
+}
+
+// A static body seeded straight into the world. Step 19's `GameWorld::create(configuration, map,
+// seed)` seats `MapDefinition::static_bodies()` itself; until then this is the construction path
+// the kernel tests use, and it is the same value a map declares.
+[[nodiscard]] simulation::GameWorld::EntitySeed
+wall(const simulation::EntityId::Value id, const double x, const double y,
+     const double velocity_x = 0.0, const double velocity_y = 0.0,
+     const double acceleration_x = 0.0, const double acceleration_y = 0.0) {
+  return simulation::GameWorld::EntitySeed::create_static(
+      simulation::EntityId::create(id),
+      simulation::PhysicsBody::create(
+          at(x, y), at(velocity_x, velocity_y), at(acceleration_x, acceleration_y),
+          simulation::PhysicsBody::kDefaultRadius, simulation::PhysicsBody::kDefaultMass,
+          simulation::PhysicsBody::kDefaultCollisionLayer,
+          simulation::PhysicsBody::kDefaultCollisionMask, true));
+}
+
+[[nodiscard]] simulation::GameWorld::EntitySeed
+masked_player(const simulation::EntityId::Value id, const double x, const double y,
+              const double velocity_x, const simulation::PhysicsBody::CollisionLayer layer,
+              const simulation::PhysicsBody::CollisionLayer mask) {
+  return simulation::GameWorld::EntitySeed::create(
+      simulation::EntityId::create(id),
+      simulation::PhysicsBody::create(at(x, y), at(velocity_x, 0.0), at(0.0, 0.0),
+                                      simulation::PhysicsBody::kDefaultRadius,
+                                      simulation::PhysicsBody::kDefaultMass, layer, mask, false));
+}
+
+[[nodiscard]] simulation::MapDefinition arena_map(const double width, const double height) {
+  return simulation::MapDefinition::bare_arena(simulation::ArenaBounds::create(width, height));
+}
+
+[[nodiscard]] simulation::GameSimulation
+mapped_game(std::vector<simulation::GameWorld::EntitySeed> seeds, simulation::MapDefinition map,
+            simulation::SimulationConfig simulation_configuration,
+            std::vector<simulation::SystemPipeline::StagedSystem> declared_systems = {}) {
+  return simulation::GameSimulation::create(
+      std::move(simulation_configuration), std::move(map),
+      simulation::GameWorld::create(std::move(seeds)),
+      simulation::SystemPipeline::create(std::move(declared_systems)));
+}
+
+[[nodiscard]] const simulation::PhysicsBody&
+snapshot_body(const simulation::WorldSnapshot& snapshot,
+              const simulation::EntityId::Value entity_id) {
+  const simulation::EntityId entity = simulation::EntityId::create(entity_id);
+  for (const BodyEntry& entry : snapshot.components<simulation::PhysicsBody>()) {
+    if (entry.entity == entity) {
+      return entry.value;
+    }
+  }
+  FAIL("the committed snapshot carries no PhysicsBody for the probed entity");
+  return snapshot.components<simulation::PhysicsBody>().front().value;
+}
+
+} // namespace
+
+TEST_CASE("the map is the arena the kernel folds against, not the configuration's world size",
+          "[unit][simulation][game_simulation][map_definition]") {
+  // The configuration still publishes 500x500 for protocol v1, and the map declares the arena the
+  // physics uses. A body driven at the map's edge bounces there and not at the configured one.
+  simulation::GameSimulation simulation_game =
+      mapped_game({player(1, 90.0, 50.0, 800.0, 0.0)}, arena_map(100.0, 100.0),
+                  configuration(500.0, 500.0, 5.0, 4, 4));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  // 90 + 800 * 0.0025 = 92, folded about the 95 upper centre wall is 92; one more tick reaches it.
+  check_vector(snapshot_player(simulation_game.snapshot(), 1).position(), 92.0, 50.0);
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  check_vector(snapshot_player(simulation_game.snapshot(), 1).position(), 94.0, 50.0);
+  CHECK(simulation_game.map().bounds() == simulation::ArenaBounds::create(100.0, 100.0));
+  CHECK(simulation_game.configuration().world_width() == 500.0);
+}
+
+TEST_CASE("a static body is never integrated, accelerated, or dragged",
+          "[unit][simulation][game_simulation][static_body][phases]") {
+  // The seeded wall carries a velocity and a stored acceleration no phase may consume, and the
+  // configuration carries a drag that would decay any velocity phase 1 touched. After a hundred
+  // ticks the body is bit-identical to the value the map declared.
+  const simulation::PhysicsBody declared = simulation::PhysicsBody::create(
+      at(50.0, 50.0), at(7.0, -3.0), at(11.0, 13.0), simulation::PhysicsBody::kDefaultRadius,
+      simulation::PhysicsBody::kDefaultMass, simulation::PhysicsBody::kDefaultCollisionLayer,
+      simulation::PhysicsBody::kDefaultCollisionMask, true);
+  simulation::GameSimulation simulation_game =
+      mapped_game({wall(1, 50.0, 50.0, 7.0, -3.0, 11.0, 13.0), player(2, 20.0, 20.0, 1.0, 1.0)},
+                  arena_map(100.0, 100.0), dragged_configuration(2.0, 100.0, 100.0, 5.0, 4, 4));
+
+  advance(simulation_game, 100);
+
+  CHECK(snapshot_body(simulation_game.snapshot(), 1) == declared);
+}
+
+TEST_CASE("a dynamic body reflects off a static one and the static one does not move",
+          "[unit][simulation][game_simulation][static_body][contact_rule]") {
+  // ADR 0003 § "Wall policy" applied to a body: the normal component reverses, the tangential
+  // component stays attached to the moving body, and the wall is untouched.
+  const simulation::PhysicsBody declared_wall =
+      simulation::PhysicsBody::create_static(at(50.0, 50.0));
+  simulation::GameSimulation simulation_game =
+      mapped_game({player(1, 41.0, 50.0, 1.0, 2.0), wall(2, 50.0, 50.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  check_vector(snapshot_body(snapshot, 1).velocity(), -1.0, 2.0);
+  check_vector(snapshot_body(snapshot, 1).position(), 41.0 - 0.0025, 50.0 + 0.005);
+  CHECK(snapshot_body(snapshot, 2) == declared_wall);
+}
+
+TEST_CASE("a static body meeting a dynamic one at the lower id still reflects the dynamic body",
+          "[unit][simulation][game_simulation][static_body][contact_rule][orientation]") {
+  // The canonical pair is (1, 2) with the wall at 1, so `reflect_static` matches in the swapped
+  // orientation and the kernel maps the returned bodies back onto the canonical pair. Getting that
+  // mapping wrong would move the wall and leave the blob alone.
+  const simulation::PhysicsBody declared_wall =
+      simulation::PhysicsBody::create_static(at(50.0, 50.0));
+  simulation::GameSimulation simulation_game =
+      mapped_game({wall(1, 50.0, 50.0), player(2, 59.0, 50.0, -1.0, 0.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  check_vector(snapshot_body(snapshot, 2).velocity(), 1.0, 0.0);
+  CHECK(snapshot_body(snapshot, 1) == declared_wall);
+}
+
+TEST_CASE("a static body on the arena edge is legal content and still reflects",
+          "[unit][simulation][game_simulation][static_body][map_definition]") {
+  // The obvious boundary obstacle: a wall centred exactly on the arena edge, which is outside the
+  // disc-centre interval every dynamic body is held inside. The commit-time bounds check and the
+  // spatial index both have to admit it, and this is the case that would otherwise fail the tick.
+  // The wall centre at x = 2 is inside the closed arena rectangle and outside the [5, 95] centre
+  // interval, which is precisely the case the pre-Step-18 bounds check and index would reject.
+  simulation::GameSimulation simulation_game =
+      mapped_game({player(1, 11.0, 50.0, -1.0, 0.0), wall(2, 2.0, 50.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4));
+  REQUIRE_FALSE(simulation_game.map().bounds().contains_disc_center(at(2.0, 50.0), 5.0));
+
+  CHECK_NOTHROW(
+      simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()));
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  check_vector(snapshot_body(snapshot, 1).velocity(), 1.0, 0.0);
+  CHECK(snapshot_body(snapshot, 2) == simulation::PhysicsBody::create_static(at(2.0, 50.0)));
+}
+
+TEST_CASE("phase 3 emits one contact event naming the row that matched",
+          "[unit][simulation][game_simulation][contact_rule][world_event]") {
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPostKernel,
+      std::make_unique<const testing::ContactRuleProbeSystem>("reflect_probe", "reflect_static")));
+  simulation::GameSimulation simulation_game =
+      mapped_game({player(1, 41.0, 50.0, 1.0, 0.0), wall(2, 50.0, 50.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4), std::move(declared));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  CHECK(score_of(simulation_game.snapshot(), 1) == 1);
+}
+
+TEST_CASE("phase 3 names elastic_disc for a dynamic pair",
+          "[unit][simulation][game_simulation][contact_rule][world_event]") {
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPostKernel,
+      std::make_unique<const testing::ContactRuleProbeSystem>("elastic_probe", "elastic_disc")));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 45.0, 50.0, 1.0, 0.0), player(2, 55.0, 50.0, -1.0, 0.0)},
+                  std::move(declared), configuration(100.0, 100.0, 5.0, 4, 4));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  CHECK(score_of(simulation_game.snapshot(), 1) == 1);
+}
+
+TEST_CASE("a separating pair produces no contact event at all",
+          "[unit][simulation][game_simulation][contact_rule][world_event]") {
+  // The narrow phase rejects separating contacts before the table is consulted, so an overlapping
+  // pair that is already moving apart keeps its velocities and publishes nothing.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPostKernel,
+      std::make_unique<const testing::ContactRuleProbeSystem>("elastic_probe", "elastic_disc")));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 45.0, 50.0, -1.0, 0.0), player(2, 55.0, 50.0, 1.0, 0.0)},
+                  std::move(declared), configuration(100.0, 100.0, 5.0, 4, 4));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  CHECK(score_of(simulation_game.snapshot(), 1) == 0);
+  check_vector(snapshot_player(simulation_game.snapshot(), 1).velocity(), -1.0, 0.0);
+}
+
+TEST_CASE("phase 3 admits a pair only when both collision masks name the other's layer",
+          "[unit][simulation][game_simulation][contact_rule][collision_admission]") {
+  // Two dynamic discs in contact and approaching, on disjoint layers. The admission predicate runs
+  // before the narrow phase, so neither receives an impulse and both integrate through each other.
+  simulation::GameSimulation simulation_game =
+      mapped_game({masked_player(1, 45.0, 50.0, 1.0, 0b01U, 0b01U),
+                   masked_player(2, 55.0, 50.0, -1.0, 0b10U, 0b10U)},
+                  arena_map(100.0, 100.0), configuration(100.0, 100.0, 5.0, 4, 4));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  check_vector(snapshot_body(snapshot, 1).velocity(), 1.0, 0.0);
+  check_vector(snapshot_body(snapshot, 2).velocity(), -1.0, 0.0);
+}
+
+TEST_CASE("a body a kPreKernel system created is paired in the same tick",
+          "[unit][simulation][game_simulation][spatial_grid][stages]") {
+  // The index is a function of the body store, not of the entity roster observed at phase 0. A
+  // stage that brings a body into the world before phase 2 has to be indexed before pairs are
+  // built, or the new body silently produces no candidate pair at all.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPreKernel,
+      std::make_unique<const testing::BodyCreatingSystem>(
+          "body_creator", simulation::EntityId::create(2),
+          simulation::PhysicsBody::create(at(55.0, 50.0), at(-1.0, 0.0), at(0.0, 0.0)))));
+  simulation::GameSimulation simulation_game =
+      mapped_game({player(1, 45.0, 50.0, 1.0, 0.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4), std::move(declared));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  REQUIRE(snapshot.entities().size() == 2);
+  check_vector(snapshot_body(snapshot, 1).velocity(), -1.0, 0.0);
+  check_vector(snapshot_body(snapshot, 2).velocity(), 1.0, 0.0);
+}
+
+TEST_CASE("a body a kPostKernel system created is in the committed index",
+          "[unit][simulation][game_simulation][spatial_grid][stages]") {
+  // The stages run after the phase 6 reindex, so a stage-written body would otherwise commit an
+  // index that is missing a live body and the next tick would build no pair for it.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPostKernel,
+      std::make_unique<const testing::BodyCreatingSystem>(
+          "body_creator", simulation::EntityId::create(2),
+          simulation::PhysicsBody::create(at(55.0, 50.0), at(-1.0, 0.0), at(0.0, 0.0)))));
+  simulation::GameSimulation simulation_game =
+      mapped_game({player(1, 45.0, 50.0, 1.0, 0.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4), std::move(declared));
+
+  advance(simulation_game, 2);
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  REQUIRE(snapshot.entities().size() == 2);
+  check_vector(snapshot_body(snapshot, 1).velocity(), -1.0, 0.0);
+  check_vector(snapshot_body(snapshot, 2).velocity(), 1.0, 0.0);
+}
+
+TEST_CASE("a stage that destroys an entity directly leaves a coherent committed index",
+          "[unit][simulation][game_simulation][spatial_grid][stages]") {
+  // `destroy_entity` is public and is the obvious call a system author reaches for, so it is the
+  // default failure rather than an exotic one: a committed index holding a dead id makes the next
+  // tick's pair walk reference a body that no longer exists.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(simulation::SystemStage::kLifecycle,
+                                     std::make_unique<const testing::EntityDestroyingSystem>(
+                                         "entity_destroyer", simulation::EntityId::create(2))));
+  simulation::GameSimulation simulation_game = mapped_game(
+      {player(1, 45.0, 50.0, 1.0, 0.0), player(2, 55.0, 50.0, -1.0, 0.0)}, arena_map(100.0, 100.0),
+      configuration(100.0, 100.0, 5.0, 4, 4), std::move(declared));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  const simulation::WorldSnapshot after_removal = simulation_game.snapshot();
+  REQUIRE(after_removal.entities().size() == 1);
+
+  CHECK_NOTHROW(
+      simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()));
+  const simulation::WorldSnapshot after_next_tick = simulation_game.snapshot();
+  CHECK(after_next_tick.entities().size() == 1);
+}
+
+TEST_CASE("GameSimulation publishes the map and the contact rules it was built with",
+          "[unit][simulation][game_simulation][map_definition][contact_rule]") {
+  simulation::GameSimulation simulation_game = mapped_game(
+      {player(1, 50.0, 50.0)}, arena_map(100.0, 100.0), configuration(100.0, 100.0, 5.0, 4, 4));
+
+  CHECK(simulation_game.map() == arena_map(100.0, 100.0));
+  REQUIRE(simulation_game.contact_rules().size() == 2);
+  CHECK(simulation_game.contact_rules().rows()[0].name() ==
+        simulation::kElasticDiscContactRuleName);
+}
+
+TEST_CASE("a mode that declares no contact rule leaves every admitted contact unchanged",
+          "[unit][simulation][game_simulation][contact_rule]") {
+  // The table is total without a default row, and the kernel is what has to be total: an empty
+  // table means bodies pass through each other rather than failing the tick.
+  simulation::GameSimulation simulation_game = simulation::GameSimulation::create(
+      configuration(100.0, 100.0, 5.0, 4, 4), arena_map(100.0, 100.0),
+      simulation::GameWorld::create(
+          {player(1, 45.0, 50.0, 1.0, 0.0), player(2, 55.0, 50.0, -1.0, 0.0)}),
+      simulation::SystemPipeline::empty(), simulation::ContactRuleTable::empty());
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  check_vector(snapshot_player(simulation_game.snapshot(), 1).velocity(), 1.0, 0.0);
+  check_vector(snapshot_player(simulation_game.snapshot(), 2).velocity(), -1.0, 0.0);
 }

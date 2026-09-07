@@ -1027,7 +1027,7 @@ tick.
 | An obstacle | a row in a map's `static_bodies.csv` | nothing | any C++ file |
 | A game | `src/gameplay/<mode>/` with its mode class, systems, rules, policies | `game_mode_registry.hpp` (one include and one row in `kGameModeRegistrations`), match configuration | `blob_simulation`, `blob_runtime`, `blob_server`, any other mode |
 | A map | a data directory under `maps/` | match configuration | any C++ file |
-| A command kind | its value-type header, its schema, its consuming system | `command_registry.hpp` (one type, one enumerator, one `CommandKindName`, one `CommandKindOf`, one application rank, one `addressed_identity_of` arm), `InputBatch::create` validation | the kernel's phase order, `kCommandKinds`, `CommandKindMask` |
+| A command kind | its value-type header, its schema, its consuming system | `command_registry.hpp` (one type, one enumerator, one `CommandKindName`, one `CommandKindOf`, one application rank, one `addressed_identity_of` arm), `InputBatch::create` validation, `command_wire_kind.hpp` (whether a client may send it, and under what name) | the kernel's phase order, `kCommandKinds`, `CommandKindMask` |
 | A bot | `src/controllers/<name>_controller.{hpp,cpp}` | `controller_registry.hpp` (one line), match configuration | everything else |
 
 Five of the eight rows are "new files plus one registration line." Two — an obstacle and a map — are
@@ -1195,3 +1195,9 @@ specifies the closing behavior and its close codes. Controller presentation valu
 kind and display name published inside the wire `controllable` component -- are joined at the server
 boundary from a runtime-owned controller directory keyed by `ControllerId`, not stored in the
 `Controllable` component, so the deterministic core carries no proxy-supplied strings.
+
+**Amended 2026-09-07:** The command-kind row omitted `src/protocol/command_wire_kind.hpp`, which
+decides whether a client may send a kind and under what wire name. A kind added without it is
+registered in the simulation and unreachable from the network, so the row now names it. This is the
+third correction to this table's counts, all in the same direction: an addition costs more files
+than the design's first estimate, and the honest number belongs here rather than in a step's notes.

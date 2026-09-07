@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit",
     "generate:protocol": "node ./scripts/generateProtocolV1Types.mjs",
     "generate:protocol:check": "node ./scripts/generateProtocolV1Types.mjs --check",
-    "validate:protocol-examples": "node ./scripts/validateProtocolV1Examples.mjs",
+    "validate:protocol-examples": "node ./scripts/validateProtocolExamples.mjs",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check ."

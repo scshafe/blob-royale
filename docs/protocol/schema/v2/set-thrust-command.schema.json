@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/set-thrust-command.schema.json",
+  "title": "Blob Royale protocol v2 set_thrust command payload",
+  "description": "A steering direction in the arena frame, each component in [-1, 1]. The payload names no entity: the server stamps the sending session's current body, so an entity id is not merely ignored here, it is a closed-schema violation that closes the connection.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["x", "y"],
+  "properties": {
+    "x": {
+      "$ref": "common.schema.json#/$defs/unit_interval_scalar"
+    },
+    "y": {
+      "$ref": "common.schema.json#/$defs/unit_interval_scalar"
+    }
+  },
+  "$comment": "The per-component bound admits (1, 1), whose magnitude is sqrt(2). Magnitude clamping to 1 is a mode rule applied by thrust_steering (ADR 0005), not a wire rule, so a client cannot gain 41 percent acceleration by thrusting diagonally. A decoder MUST reject non-standard JSON number literals such as NaN and Infinity."
+}

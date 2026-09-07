@@ -4,7 +4,6 @@
 #include "game_world.hpp"
 #include "http_error.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "protocol_constants.hpp"
 #include "protocol_encoding_error.hpp"
 #include "protocol_json_encoding.hpp"
@@ -323,7 +322,7 @@ TEST_CASE("Duplicate entity IDs fail before a partial snapshot can be encoded",
 
 TEST_CASE("Player populations above the protocol limit fail before encoding",
           "[unit][protocol][encoding][invariant]") {
-  std::vector<simulation::Player> players;
+  std::vector<simulation::GameWorld::EntitySeed> players;
   players.reserve(simulation::kMaximumPlayerCount + 1);
   for (std::size_t index = 0; index <= simulation::kMaximumPlayerCount; ++index) {
     players.push_back(fixture::zero_player(static_cast<std::uint64_t>(index + 1)));

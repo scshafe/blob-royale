@@ -1,5 +1,6 @@
 #include "game_world.hpp"
 
+#include "components/controllable_component.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 
@@ -9,38 +10,89 @@
 
 namespace blob_royale::simulation {
 
-GameWorld GameWorld::create(std::vector<Player> players) {
-  if (players.size() > kMaximumPlayerCount) {
+GameWorld::EntitySeed GameWorld::EntitySeed::create(const EntityId entity, PhysicsBody body) {
+  return EntitySeed{entity, body, ControllerId::create(entity.value())};
+}
+
+GameWorld::EntitySeed GameWorld::EntitySeed::create(const EntityId entity, PhysicsBody body,
+                                                    const ControllerId controller) {
+  return EntitySeed{entity, body, controller};
+}
+
+GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
+  if (seeds.size() > kMaximumPlayerCount) {
     throw SimulationValidationError(
-        SimulationValidationCode::kGameWorldPlayerLimitExceeded, "game_world.players",
-        "player count " + std::to_string(players.size()) + " exceeds the accepted limit");
+        SimulationValidationCode::kGameWorldPlayerLimitExceeded, "game_world.entities",
+        "entity count " + std::to_string(seeds.size()) + " exceeds the accepted limit");
   }
 
-  std::sort(players.begin(), players.end(),
-            [](const Player& left, const Player& right) { return left.id() < right.id(); });
+  std::sort(seeds.begin(), seeds.end(), [](const EntitySeed& left, const EntitySeed& right) {
+    return left.entity < right.entity;
+  });
 
   const auto duplicate = std::adjacent_find(
-      players.cbegin(), players.cend(),
-      [](const Player& left, const Player& right) { return left.id() == right.id(); });
-  if (duplicate != players.cend()) {
+      seeds.cbegin(), seeds.cend(),
+      [](const EntitySeed& left, const EntitySeed& right) { return left.entity == right.entity; });
+  if (duplicate != seeds.cend()) {
     throw SimulationValidationError(
-        SimulationValidationCode::kGameWorldDuplicateEntityId, "game_world.players.entity_id",
-        "duplicate EntityId " + std::to_string(duplicate->id().value()));
+        SimulationValidationCode::kGameWorldDuplicateEntityId, "game_world.entities.entity_id",
+        "duplicate EntityId " + std::to_string(duplicate->entity.value()));
   }
 
-  return GameWorld(std::move(players));
-}
-
-const Player* GameWorld::find(const EntityId id) const& noexcept {
-  const auto match = std::lower_bound(
-      players_.cbegin(), players_.cend(), id,
-      [](const Player& player, const EntityId searched_id) { return player.id() < searched_id; });
-  if (match == players_.cend() || match->id() != id) {
-    return nullptr;
+  std::vector<EntityId> entities;
+  entities.reserve(seeds.size());
+  std::vector<ComponentStore<PhysicsBody>::Entry> bodies;
+  bodies.reserve(seeds.size());
+  std::vector<ComponentStore<Controllable>::Entry> controllables;
+  controllables.reserve(seeds.size());
+  for (const EntitySeed& seed : seeds) {
+    entities.push_back(seed.entity);
+    bodies.push_back(ComponentStore<PhysicsBody>::Entry{seed.entity, seed.body});
+    controllables.push_back(
+        ComponentStore<Controllable>::Entry{seed.entity, Controllable{seed.controller}});
   }
-  return &*match;
+
+  ComponentStores<ComponentRegistry> stores;
+  std::get<ComponentStore<PhysicsBody>>(stores) =
+      ComponentStore<PhysicsBody>::create(std::move(bodies));
+  std::get<ComponentStore<Controllable>>(stores) =
+      ComponentStore<Controllable>::create(std::move(controllables));
+  return GameWorld(std::move(entities), std::move(stores));
 }
 
-GameWorld::GameWorld(std::vector<Player> players) noexcept : players_(std::move(players)) {}
+bool GameWorld::contains(const EntityId entity) const noexcept {
+  return std::binary_search(entities_.cbegin(), entities_.cend(), entity);
+}
+
+void GameWorld::create_entity(const EntityId entity) {
+  const auto position = std::lower_bound(entities_.cbegin(), entities_.cend(), entity);
+  if (position != entities_.cend() && *position == entity) {
+    throw SimulationValidationError(SimulationValidationCode::kGameWorldDuplicateEntityId,
+                                    "game_world.entities.entity_id",
+                                    "duplicate EntityId " + std::to_string(entity.value()));
+  }
+  if (entities_.size() >= kMaximumPlayerCount) {
+    throw SimulationValidationError(SimulationValidationCode::kGameWorldPlayerLimitExceeded,
+                                    "game_world.entities",
+                                    "entity count exceeds the accepted limit");
+  }
+  entities_.insert(position, entity);
+}
+
+void GameWorld::destroy_entity(const EntityId entity) noexcept {
+  const auto position = std::lower_bound(entities_.cbegin(), entities_.cend(), entity);
+  if (position != entities_.cend() && *position == entity) {
+    entities_.erase(position);
+  }
+
+  // Generated over the registry: a kind added to ComponentRegistry participates here without any
+  // edit to this function.
+  ComponentRegistry::for_each_kind(
+      [this, entity]<typename Component>() { mutable_store<Component>().erase(entity); });
+}
+
+GameWorld::GameWorld(std::vector<EntityId> entities,
+                     ComponentStores<ComponentRegistry> stores) noexcept
+    : entities_(std::move(entities)), stores_(std::move(stores)) {}
 
 } // namespace blob_royale::simulation

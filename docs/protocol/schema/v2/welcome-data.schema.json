@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/welcome-data.schema.json",
+  "title": "Blob Royale protocol v2 welcome data",
+  "description": "Everything a session learns about itself, sent exactly once immediately after the upgrade and before any snapshot. accepted_command_kinds is an advertisement of what the boundary will accept from this client, not a grant: the server enforces the same set independently and InputBatch::create filters it a second time.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "entity_id",
+    "controller_id",
+    "display_name",
+    "mode",
+    "map",
+    "accepted_command_kinds"
+  ],
+  "properties": {
+    "entity_id": {
+      "$ref": "common.schema.json#/$defs/entity_id",
+      "$comment": "The session's FIRST body only. An eliminated or match-reset body is destroyed and the server seats the same controller_id on a new entity_id, so a client that caches this value renders the wrong blob after one match. Resolve the own body by controller_id."
+    },
+    "controller_id": {
+      "$ref": "common.schema.json#/$defs/controller_id",
+      "$comment": "Durable for the whole connection and the only stable self-identifier. A reconnect is a new join and receives a new controller_id."
+    },
+    "display_name": {
+      "$ref": "common.schema.json#/$defs/display_name"
+    },
+    "mode": {
+      "$ref": "common.schema.json#/$defs/mode_name"
+    },
+    "map": {
+      "$ref": "common.schema.json#/$defs/map_name"
+    },
+    "accepted_command_kinds": {
+      "type": "array",
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "common.schema.json#/$defs/command_kind"
+      },
+      "$comment": "maxItems tracks the size of common.schema.json#/$defs/command_kind. The published set is the intersection of the mode's accepted kinds with the client-sendable vocabulary, so it can never name a server-issued kind such as spawn or despawn."
+    }
+  }
+}

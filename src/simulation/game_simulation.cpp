@@ -1,9 +1,9 @@
 #include "game_simulation.hpp"
 
 #include "candidate_pair.hpp"
+#include "component_store.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -16,79 +16,83 @@
 namespace blob_royale::simulation {
 namespace {
 
-[[nodiscard]] std::size_t player_index(const std::vector<Player>& players, const EntityId id) {
-  const auto match = std::lower_bound(
-      players.cbegin(), players.cend(), id,
-      [](const Player& player, const EntityId searched_id) { return player.id() < searched_id; });
-  if (match == players.cend() || match->id() != id) {
+using BodyEntry = ComponentStore<PhysicsBody>::Entry;
+
+[[nodiscard]] std::size_t body_index(const std::vector<BodyEntry>& bodies, const EntityId id) {
+  const auto match = std::lower_bound(bodies.cbegin(), bodies.cend(), id,
+                                      [](const BodyEntry& entry, const EntityId searched_id) {
+                                        return entry.entity < searched_id;
+                                      });
+  if (match == bodies.cend() || match->entity != id) {
     throw std::logic_error("GameSimulation spatial-grid invariant references an unknown EntityId");
   }
-  return static_cast<std::size_t>(std::distance(players.cbegin(), match));
+  return static_cast<std::size_t>(std::distance(bodies.cbegin(), match));
 }
 
-[[nodiscard]] std::vector<Player> apply_stored_acceleration(const GameWorld& world,
-                                                            const FixedDelta fixed_delta) {
-  std::vector<Player> accelerated_players;
-  accelerated_players.reserve(world.players().size());
-  for (const Player& player : world.players()) {
-    const PhysicsBody& body = player.body();
+[[nodiscard]] std::vector<BodyEntry> apply_stored_acceleration(const GameWorld& world,
+                                                               const FixedDelta fixed_delta) {
+  const std::span<const BodyEntry> committed_bodies = world.store<PhysicsBody>().entries();
+  std::vector<BodyEntry> accelerated_bodies;
+  accelerated_bodies.reserve(committed_bodies.size());
+  for (const BodyEntry& entry : committed_bodies) {
+    const PhysicsBody& body = entry.value;
     const Vector2 accelerated_velocity =
         integrate_accelerated_velocity(body.velocity(), body.acceleration(), fixed_delta);
-    accelerated_players.push_back(player.with_body(body.with_velocity(accelerated_velocity)));
+    accelerated_bodies.push_back(BodyEntry{entry.entity, body.with_velocity(accelerated_velocity)});
   }
-  return accelerated_players;
+  return accelerated_bodies;
 }
 
-void resolve_player_pairs(std::vector<Player>& players,
+void resolve_player_pairs(std::vector<BodyEntry>& bodies,
                           const std::span<const CandidatePair> candidate_pairs,
                           const double player_radius) {
   for (const CandidatePair& pair : candidate_pairs) {
-    const std::size_t lower_index = player_index(players, pair.lower_id());
-    const std::size_t higher_index = player_index(players, pair.higher_id());
-    const PhysicsBody& lower_body = players[lower_index].body();
-    const PhysicsBody& higher_body = players[higher_index].body();
+    const std::size_t lower_index = body_index(bodies, pair.lower_id());
+    const std::size_t higher_index = body_index(bodies, pair.higher_id());
+    const PhysicsBody& lower_body = bodies[lower_index].value;
+    const PhysicsBody& higher_body = bodies[higher_index].value;
     const PlayerPairCollisionResult collision =
         resolve_player_pair_collision(lower_body, higher_body, player_radius);
 
-    players[lower_index] =
-        players[lower_index].with_body(lower_body.with_velocity(collision.first_velocity()));
-    players[higher_index] =
-        players[higher_index].with_body(higher_body.with_velocity(collision.second_velocity()));
+    bodies[lower_index].value = lower_body.with_velocity(collision.first_velocity());
+    bodies[higher_index].value = higher_body.with_velocity(collision.second_velocity());
   }
 }
 
-[[nodiscard]] std::vector<WallMotionResult> resolve_walls(const std::vector<Player>& players,
+[[nodiscard]] std::vector<WallMotionResult> resolve_walls(const std::vector<BodyEntry>& bodies,
                                                           const SimulationConfig& configuration,
                                                           const FixedDelta fixed_delta) {
   std::vector<WallMotionResult> wall_motions;
-  wall_motions.reserve(players.size());
-  for (const Player& player : players) {
+  wall_motions.reserve(bodies.size());
+  for (const BodyEntry& entry : bodies) {
     wall_motions.push_back(resolve_player_wall_motion(
-        player.body().position(), player.body().velocity(), configuration.world_width(),
+        entry.value.position(), entry.value.velocity(), configuration.world_width(),
         configuration.world_height(), configuration.player_radius(), fixed_delta));
   }
   return wall_motions;
 }
 
-[[nodiscard]] GameWorld integrate_world(const std::vector<Player>& players,
+// Copies the committed world and replaces only its bodies, so every other registered component
+// survives the tick without this function naming a single component kind beyond PhysicsBody.
+[[nodiscard]] GameWorld integrate_world(const GameWorld& world, std::vector<BodyEntry> bodies,
                                         const std::vector<WallMotionResult>& wall_motions) {
-  if (players.size() != wall_motions.size()) {
+  if (bodies.size() != wall_motions.size()) {
     throw std::logic_error("GameSimulation wall-motion invariant has an incoherent player count");
   }
 
-  std::vector<Player> integrated_players;
-  integrated_players.reserve(players.size());
-  for (std::size_t index = 0; index < players.size(); ++index) {
-    const Player& player = players[index];
-    const PhysicsBody& body = player.body();
+  for (std::size_t index = 0; index < bodies.size(); ++index) {
+    const PhysicsBody& body = bodies[index].value;
     const WallMotionResult& wall_motion = wall_motions[index];
     const Vector2 integrated_position =
         integrate_position(body.position(), wall_motion.displacement());
     const PhysicsBody terminal_body = body.with_velocity(wall_motion.terminal_velocity());
-    integrated_players.push_back(
-        player.with_body(terminal_body.with_position(integrated_position)));
+    bodies[index].value = terminal_body.with_position(integrated_position);
   }
-  return GameWorld::create(std::move(integrated_players));
+
+  GameWorld integrated_world = world;
+  integrated_world.mutable_store<PhysicsBody>() =
+      ComponentStore<PhysicsBody>::create(std::move(bodies));
+  return integrated_world;
 }
 
 } // namespace
@@ -102,12 +106,12 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
 void GameSimulation::step(const FixedDelta fixed_delta) {
   const TickSequence next_tick_sequence = tick_sequence_.next();
 
-  std::vector<Player> next_players = apply_stored_acceleration(world_, fixed_delta);
+  std::vector<BodyEntry> next_bodies = apply_stored_acceleration(world_, fixed_delta);
   const std::span<const CandidatePair> candidate_pairs = grid_.candidate_pairs();
-  resolve_player_pairs(next_players, candidate_pairs, configuration_.player_radius());
+  resolve_player_pairs(next_bodies, candidate_pairs, configuration_.player_radius());
   const std::vector<WallMotionResult> wall_motions =
-      resolve_walls(next_players, configuration_, fixed_delta);
-  GameWorld next_world = integrate_world(next_players, wall_motions);
+      resolve_walls(next_bodies, configuration_, fixed_delta);
+  GameWorld next_world = integrate_world(world_, std::move(next_bodies), wall_motions);
   SpatialGrid next_grid = grid_.rebuilt(next_world);
 
   // All calculations and allocations are complete. These value moves are noexcept, so the three

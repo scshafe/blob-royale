@@ -4,7 +4,6 @@
 #include "application_text_file_reader.hpp"
 #include "entity_id.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "simulation_limits.hpp"
 #include "vector2.hpp"
 
@@ -160,7 +159,7 @@ void parse_player_row(const std::string_view row, const std::filesystem::path& s
                       const std::size_t line_number,
                       const simulation::SimulationConfig& simulation_config,
                       std::set<std::uint64_t>& seen_entity_ids,
-                      std::vector<simulation::Player>& players) {
+                      std::vector<simulation::GameWorld::EntitySeed>& seeds) {
   if (row.empty()) {
     throw ApplicationInputError{ApplicationInputErrorCode::kScenarioRowEmpty,
                                 row_context(scenario_path, line_number),
@@ -171,7 +170,7 @@ void parse_player_row(const std::string_view row, const std::filesystem::path& s
                                 row_context(scenario_path, line_number),
                                 "data row exceeds the 4096-byte limit"};
   }
-  if (players.size() >= simulation::kMaximumPlayerCount) {
+  if (seeds.size() >= simulation::kMaximumPlayerCount) {
     throw ApplicationInputError{ApplicationInputErrorCode::kScenarioPlayerLimitExceeded,
                                 row_context(scenario_path, line_number),
                                 "scenario exceeds the accepted 4096-player limit"};
@@ -202,9 +201,17 @@ void parse_player_row(const std::string_view row, const std::filesystem::path& s
   const simulation::Vector2 velocity = simulation::Vector2::create(velocity_x, velocity_y);
   const simulation::Vector2 acceleration =
       simulation::Vector2::create(acceleration_x, acceleration_y);
-  players.push_back(simulation::Player::create(
+  // Every scenario row is one baseline dynamic player disc: the configured common radius, unit
+  // mass, and the single default collision layer and mask. The row's entity id is reused verbatim
+  // as its ControllerId, so the entity-to-controller link is reproducible from the CSV alone and
+  // needs no eighth column; a scenario entity therefore decides for itself until a session or a
+  // bot claims it.
+  seeds.push_back(simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(entity_id_value),
-      simulation::PhysicsBody::create(position, velocity, acceleration)));
+      simulation::PhysicsBody::create(
+          position, velocity, acceleration, simulation_config.player_radius(),
+          simulation::PhysicsBody::kDefaultMass, simulation::PhysicsBody::kDefaultCollisionLayer,
+          simulation::PhysicsBody::kDefaultCollisionMask, false)));
 }
 
 } // namespace
@@ -227,7 +234,7 @@ simulation::GameWorld ScenarioLoader::load(const std::filesystem::path& scenario
   }
 
   std::set<std::uint64_t> seen_entity_ids;
-  std::vector<simulation::Player> players;
+  std::vector<simulation::GameWorld::EntitySeed> seeds;
   std::size_t line_start = header_end == std::string::npos ? contents.size() : header_end + 1;
   std::size_t line_number = 2;
   while (line_start < contents.size()) {
@@ -238,7 +245,7 @@ simulation::GameWorld ScenarioLoader::load(const std::filesystem::path& scenario
     if (!row.empty() && row.back() == '\r') {
       row.remove_suffix(1);
     }
-    parse_player_row(row, scenario_path, line_number, simulation_config, seen_entity_ids, players);
+    parse_player_row(row, scenario_path, line_number, simulation_config, seen_entity_ids, seeds);
 
     if (line_end == std::string::npos) {
       break;
@@ -247,7 +254,7 @@ simulation::GameWorld ScenarioLoader::load(const std::filesystem::path& scenario
     ++line_number;
   }
 
-  return simulation::GameWorld::create(std::move(players));
+  return simulation::GameWorld::create(std::move(seeds));
 }
 
 std::string_view ScenarioLoader::expected_header() noexcept { return kExpectedScenarioHeader; }

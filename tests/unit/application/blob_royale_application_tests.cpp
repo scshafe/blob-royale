@@ -5,7 +5,6 @@
 #include "game_server_error.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "server_config.hpp"
 #include "simulation_config.hpp"
 #include "simulation_validation_error.hpp"
@@ -119,9 +118,10 @@ TEST_CASE("BlobRoyaleApplication is a non-transferable RAII composition root",
 TEST_CASE("BlobRoyaleApplication factory builds and validates the owned GameSimulation",
           "[unit][application][lifecycle]") {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  const simulation::Player outside_player = simulation::Player::create(
-      simulation::EntityId::create(1),
-      simulation::PhysicsBody::create(simulation::Vector2::create(0.0, 20.0), zero, zero));
+  const simulation::GameWorld::EntitySeed outside_player =
+      simulation::GameWorld::EntitySeed::create(
+          simulation::EntityId::create(1),
+          simulation::PhysicsBody::create(simulation::Vector2::create(0.0, 20.0), zero, zero));
   simulation::GameWorld invalid_world = simulation::GameWorld::create({outside_player});
   LogCapture log_capture;
 

@@ -1,6 +1,8 @@
 add_subdirectory(observability)
 
 add_executable(blob_simulation_unit_tests
+  simulation/component_registry_tests.cpp
+  simulation/component_store_tests.cpp
   simulation/game_simulation_tests.cpp
   simulation/physics_tests.cpp
   simulation/snapshot_tests.cpp

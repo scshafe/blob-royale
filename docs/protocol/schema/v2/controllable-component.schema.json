@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/controllable-component.schema.json",
+  "title": "Blob Royale protocol v2 controllable component",
+  "description": "Links an entity to the controller that decides for it. controller_id is the durable identity of the deciding agent and is how a client recognizes its own body across matches; entity_id is the identity of one body and does not survive elimination or a match restart. controller_kind is 'session' for a network player and the registered bot kind otherwise. display_name is a sanitized label, never a credential and never an authorization input.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["controller_id", "controller_kind", "display_name"],
+  "properties": {
+    "controller_id": {
+      "$ref": "common.schema.json#/$defs/controller_id"
+    },
+    "controller_kind": {
+      "$ref": "common.schema.json#/$defs/controller_kind"
+    },
+    "display_name": {
+      "$ref": "common.schema.json#/$defs/display_name"
+    }
+  },
+  "$comment": "Controllable::commands_this_tick (ADR 0004) is deliberately NOT published. Publishing this tick's commands would disclose every player's live input to every other peer, which is a same-frame reaction advantage and a class of leak no rate limit can undo."
+}

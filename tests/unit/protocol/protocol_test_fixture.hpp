@@ -7,7 +7,6 @@
 #include "game_world.hpp"
 #include "http_error.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "protocol_encoding_error.hpp"
 #include "protocol_json_encoding.hpp"
 #include "public_configuration.hpp"
@@ -68,8 +67,8 @@ inline constexpr PlayerValues kSecondGoldenPlayer{2, 240.0, 320.0, 0.0, 0.0, 0.0
   return PublicConfiguration::create(960.0, 640.0, 10.0, 30);
 }
 
-[[nodiscard]] inline simulation::Player player(const PlayerValues& values) {
-  return simulation::Player::create(
+[[nodiscard]] inline simulation::GameWorld::EntitySeed player(const PlayerValues& values) {
+  return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(values.entity_id),
       simulation::PhysicsBody::create(
           simulation::Vector2::create(values.position_x, values.position_y),
@@ -77,16 +76,16 @@ inline constexpr PlayerValues kSecondGoldenPlayer{2, 240.0, 320.0, 0.0, 0.0, 0.0
           simulation::Vector2::create(values.acceleration_x, values.acceleration_y)));
 }
 
-[[nodiscard]] inline simulation::Player zero_player(const std::uint64_t entity_id) {
+[[nodiscard]] inline simulation::GameWorld::EntitySeed zero_player(const std::uint64_t entity_id) {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  return simulation::Player::create(simulation::EntityId::create(entity_id),
-                                    simulation::PhysicsBody::create(zero, zero, zero));
+  return simulation::GameWorld::EntitySeed::create(
+      simulation::EntityId::create(entity_id), simulation::PhysicsBody::create(zero, zero, zero));
 }
 
-[[nodiscard]] inline simulation::Player
+[[nodiscard]] inline simulation::GameWorld::EntitySeed
 stationary_player(const std::uint64_t entity_id, const double position_x, const double position_y) {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  return simulation::Player::create(
+  return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(entity_id),
       simulation::PhysicsBody::create(simulation::Vector2::create(position_x, position_y), zero,
                                       zero));
@@ -98,7 +97,8 @@ stationary_player(const std::uint64_t entity_id, const double position_x, const 
 
 [[nodiscard]] inline simulation::WorldSnapshot
 snapshot_after_steps(simulation::SimulationConfig configuration,
-                     std::vector<simulation::Player> players, const std::size_t step_count) {
+                     std::vector<simulation::GameWorld::EntitySeed> players,
+                     const std::size_t step_count) {
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
       std::move(configuration), simulation::GameWorld::create(std::move(players)));
   for (std::size_t step = 0; step < step_count; ++step) {
@@ -117,7 +117,7 @@ snapshot_after_steps(simulation::SimulationConfig configuration,
 }
 
 [[nodiscard]] inline simulation::WorldSnapshot maximum_player_snapshot() {
-  std::vector<simulation::Player> players;
+  std::vector<simulation::GameWorld::EntitySeed> players;
   players.reserve(kSnapshotPlayerLimit);
   for (std::size_t index = 0; index < kSnapshotPlayerLimit; ++index) {
     constexpr std::size_t kPlayersPerRow = 64;

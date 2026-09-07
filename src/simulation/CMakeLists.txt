@@ -1,14 +1,15 @@
 add_library(blob_simulation STATIC
   candidate_pair.cpp
+  controller_id.cpp
   entity_id.cpp
   game_simulation.cpp
   game_world.cpp
   physics.cpp
   physics_body.cpp
-  player.cpp
   player_snapshot.cpp
   simulation_config.cpp
   spatial_grid.cpp
+  team_id.cpp
   tick_sequence.cpp
   vector2.cpp
   world_snapshot.cpp

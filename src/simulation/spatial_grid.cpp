@@ -1,5 +1,7 @@
 #include "spatial_grid.hpp"
 
+#include "component_store.hpp"
+#include "physics_body.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_tolerance.hpp"
 #include "simulation_validation_error.hpp"
@@ -97,12 +99,13 @@ void validate_cell_extent(const double world_extent, const std::size_t cell_coun
 }
 
 [[nodiscard]] CellCoverage player_coverage(const SimulationConfig& configuration,
-                                           const Player& player) {
-  const Vector2& position = player.body().position();
+                                           const ComponentStore<PhysicsBody>::Entry& body_entry) {
+  const Vector2& position = body_entry.value.position();
   if (!configuration.contains_player_center(position)) {
     throw SimulationValidationError(
         SimulationValidationCode::kSpatialGridPlayerCenterOutOfBounds,
-        "spatial_grid.players[entity_id=" + std::to_string(player.id().value()) + "].position",
+        "spatial_grid.players[entity_id=" + std::to_string(body_entry.entity.value()) +
+            "].position",
         "player center must keep the complete closed disc inside the world bounds");
   }
 
@@ -192,12 +195,13 @@ build_cells(const GameWorld& world, const std::vector<CellCoverage>& coverages,
     cells[cell_index].reserve(member_counts[cell_index]);
   }
 
-  const std::span<const Player> players = world.players();
-  for (std::size_t player_index = 0; player_index < players.size(); ++player_index) {
-    const CellCoverage& coverage = coverages[player_index];
+  const std::span<const ComponentStore<PhysicsBody>::Entry> bodies =
+      world.store<PhysicsBody>().entries();
+  for (std::size_t body_index = 0; body_index < bodies.size(); ++body_index) {
+    const CellCoverage& coverage = coverages[body_index];
     for (std::size_t row = coverage.first_row; row <= coverage.last_row; ++row) {
       for (std::size_t column = coverage.first_column; column <= coverage.last_column; ++column) {
-        cells[flattened_index(row, column_count, column)].push_back(players[player_index].id());
+        cells[flattened_index(row, column_count, column)].push_back(bodies[body_index].entity);
       }
     }
   }
@@ -226,12 +230,14 @@ build_cells(const GameWorld& world, const std::vector<CellCoverage>& coverages,
   return pair_count;
 }
 
-[[nodiscard]] std::size_t player_index_for_id(const std::span<const Player> players,
-                                              const EntityId id) noexcept {
-  const auto match = std::lower_bound(
-      players.begin(), players.end(), id,
-      [](const Player& player, const EntityId searched_id) { return player.id() < searched_id; });
-  return static_cast<std::size_t>(match - players.begin());
+[[nodiscard]] std::size_t
+body_index_for_id(const std::span<const ComponentStore<PhysicsBody>::Entry> bodies,
+                  const EntityId id) noexcept {
+  const auto match =
+      std::lower_bound(bodies.begin(), bodies.end(), id,
+                       [](const ComponentStore<PhysicsBody>::Entry& body_entry,
+                          const EntityId searched_id) { return body_entry.entity < searched_id; });
+  return static_cast<std::size_t>(match - bodies.begin());
 }
 
 // A packed triangular bitset deduplicates cell observations before any pair value is stored. The
@@ -323,14 +329,15 @@ private:
 
 [[nodiscard]] std::vector<CandidatePair>
 build_candidate_pairs(const GameWorld& world, const std::vector<std::vector<EntityId>>& cells) {
-  const std::span<const Player> players = world.players();
-  CandidatePairAccumulator candidate_pair_accumulator(players.size());
+  const std::span<const ComponentStore<PhysicsBody>::Entry> bodies =
+      world.store<PhysicsBody>().entries();
+  CandidatePairAccumulator candidate_pair_accumulator(bodies.size());
   std::vector<std::size_t> cell_player_indices;
-  cell_player_indices.reserve(players.size());
+  cell_player_indices.reserve(bodies.size());
   for (const std::vector<EntityId>& cell : cells) {
     cell_player_indices.clear();
     for (const EntityId id : cell) {
-      cell_player_indices.push_back(player_index_for_id(players, id));
+      cell_player_indices.push_back(body_index_for_id(bodies, id));
     }
 
     for (std::size_t left_cell_index = 0; left_cell_index < cell_player_indices.size();
@@ -356,10 +363,11 @@ SpatialGrid SpatialGrid::create(SimulationConfig configuration, const GameWorld&
                        "spatial_grid.cell_height");
 
   std::vector<CellCoverage> coverages;
-  coverages.reserve(world.players().size());
+  coverages.reserve(world.store<PhysicsBody>().size());
   std::size_t membership_count = 0;
-  for (const Player& player : world.players()) {
-    const CellCoverage coverage = player_coverage(configuration, player);
+  for (const ComponentStore<PhysicsBody>::Entry& body_entry :
+       world.store<PhysicsBody>().entries()) {
+    const CellCoverage coverage = player_coverage(configuration, body_entry);
     const std::size_t player_membership_count = coverage_entry_count(coverage);
     if (player_membership_count > kMaximumSpatialGridMembershipCount - membership_count) {
       throw SimulationValidationError(

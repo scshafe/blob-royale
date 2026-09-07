@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/score-component.schema.json",
+  "title": "Blob Royale protocol v2 score component",
+  "description": "One integer scoreboard cell carried by a player entity or a team entity.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["points"],
+  "properties": {
+    "points": {
+      "$ref": "common.schema.json#/$defs/signed_safe_integer"
+    }
+  }
+}

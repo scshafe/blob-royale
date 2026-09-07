@@ -3,7 +3,6 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_runtime.hpp"
@@ -68,10 +67,11 @@ struct ConcurrentLifecycleOperationResult final {
                                               kGridColumns, kGridRows);
 }
 
-[[nodiscard]] simulation::Player player_fixture(const simulation::EntityId::Value entity_id,
-                                                const double position_x, const double position_y) {
+[[nodiscard]] simulation::GameWorld::EntitySeed
+player_fixture(const simulation::EntityId::Value entity_id, const double position_x,
+               const double position_y) {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  return simulation::Player::create(
+  return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(entity_id),
       simulation::PhysicsBody::create(simulation::Vector2::create(position_x, position_y), zero,
                                       zero));
@@ -93,7 +93,7 @@ struct ConcurrentLifecycleOperationResult final {
 [[nodiscard]] simulation::GameSimulation failing_simulation_fixture() {
   const double maximum = simulation::kMaximumPhysicalComponentMagnitude;
   const simulation::Vector2 maximum_vector = simulation::Vector2::create(maximum, maximum);
-  const simulation::Player player = simulation::Player::create(
+  const simulation::GameWorld::EntitySeed player = simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(kFirstPlayerId),
       simulation::PhysicsBody::create(
           simulation::Vector2::create(kFirstPlayerPositionX, kFirstPlayerPositionY), maximum_vector,

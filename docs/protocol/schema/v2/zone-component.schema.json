@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/zone-component.schema.json",
+  "title": "Blob Royale protocol v2 zone component",
+  "description": "The safe-zone circle carried by the zone entity, in wu. The zone entity owns no physics_body and no controllable. This component is the only place the zone is published.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["center", "radius"],
+  "properties": {
+    "center": {
+      "$ref": "common.schema.json#/$defs/vector2"
+    },
+    "radius": {
+      "$ref": "common.schema.json#/$defs/nonnegative_world_scalar"
+    }
+  }
+}

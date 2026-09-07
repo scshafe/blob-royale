@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/physics-body-component.schema.json",
+  "title": "Blob Royale protocol v2 physics_body component",
+  "description": "The one physical body value of an entity: everything the physics kernel reads or writes. Units follow ADR 0003: position in wu, velocity in wu/s, acceleration in wu/s^2, radius in wu.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "position",
+    "velocity",
+    "acceleration",
+    "radius",
+    "mass",
+    "collision_layer",
+    "collision_mask",
+    "is_static"
+  ],
+  "properties": {
+    "position": {
+      "$ref": "common.schema.json#/$defs/vector2"
+    },
+    "velocity": {
+      "$ref": "common.schema.json#/$defs/vector2"
+    },
+    "acceleration": {
+      "$ref": "common.schema.json#/$defs/vector2"
+    },
+    "radius": {
+      "$ref": "common.schema.json#/$defs/positive_world_scalar"
+    },
+    "mass": {
+      "$ref": "common.schema.json#/$defs/nonnegative_world_scalar"
+    },
+    "collision_layer": {
+      "$ref": "common.schema.json#/$defs/collision_bitmask"
+    },
+    "collision_mask": {
+      "$ref": "common.schema.json#/$defs/collision_bitmask"
+    },
+    "is_static": {
+      "type": "boolean"
+    }
+  }
+}

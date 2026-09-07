@@ -1,9 +1,9 @@
 #include "candidate_pair.hpp"
 #include "cell_coord.hpp"
+#include "component_store.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
@@ -33,10 +33,10 @@ grid_configuration(const double world_width, const double world_height, const do
                                               column_count, row_count);
 }
 
-[[nodiscard]] simulation::Player stationary_player(const simulation::EntityId::Value id,
-                                                   const double x, const double y) {
+[[nodiscard]] simulation::GameWorld::EntitySeed
+stationary_player(const simulation::EntityId::Value id, const double x, const double y) {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  return simulation::Player::create(
+  return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(id),
       simulation::PhysicsBody::create(simulation::Vector2::create(x, y), zero, zero));
 }
@@ -174,16 +174,17 @@ TEST_CASE("SpatialGrid candidates include every touching neighboring-cell pair",
   CHECK(grid.home_cell(simulation::Vector2::create(25.0, 15.0)) ==
         simulation::CellCoord::create(1, 2));
   std::size_t contact_count = 0;
-  for (std::size_t left_index = 0; left_index < world.players().size(); ++left_index) {
-    for (std::size_t right_index = left_index + 1; right_index < world.players().size();
-         ++right_index) {
-      const simulation::Player& left = world.players()[left_index];
-      const simulation::Player& right = world.players()[right_index];
-      const double x_distance = right.body().position().x() - left.body().position().x();
-      const double y_distance = right.body().position().y() - left.body().position().y();
+  const std::span<const simulation::ComponentStore<simulation::PhysicsBody>::Entry> bodies =
+      world.store<simulation::PhysicsBody>().entries();
+  for (std::size_t left_index = 0; left_index < bodies.size(); ++left_index) {
+    for (std::size_t right_index = left_index + 1; right_index < bodies.size(); ++right_index) {
+      const simulation::ComponentStore<simulation::PhysicsBody>::Entry& left = bodies[left_index];
+      const simulation::ComponentStore<simulation::PhysicsBody>::Entry& right = bodies[right_index];
+      const double x_distance = right.value.position().x() - left.value.position().x();
+      const double y_distance = right.value.position().y() - left.value.position().y();
       if (std::hypot(x_distance, y_distance) <= 2.0 * radius) {
         ++contact_count;
-        CHECK(contains_pair(grid.candidate_pairs(), left.id(), right.id()));
+        CHECK(contains_pair(grid.candidate_pairs(), left.entity, right.entity));
       }
     }
   }
@@ -282,7 +283,7 @@ TEST_CASE("SpatialGrid rejects unsafe total cell membership before cell allocati
           "[unit][simulation][spatial_grid]") {
   const simulation::SimulationConfig configuration =
       grid_configuration(100.0, 100.0, 49.9, 1'000, 1'000);
-  std::vector<simulation::Player> players;
+  std::vector<simulation::GameWorld::EntitySeed> players;
   players.reserve(17);
   for (simulation::EntityId::Value id = 1; id <= 17; ++id) {
     players.push_back(stationary_player(id, 50.0, 50.0));
@@ -304,7 +305,7 @@ TEST_CASE("SimulationConfig rejects a derived cell extent that cannot be represe
 TEST_CASE("SpatialGrid rejects unsafe duplicate candidate traversal before pair allocation",
           "[unit][simulation][spatial_grid]") {
   const simulation::SimulationConfig configuration = grid_configuration(100.0, 100.0, 49.9, 3, 3);
-  std::vector<simulation::Player> players;
+  std::vector<simulation::GameWorld::EntitySeed> players;
   players.reserve(simulation::kMaximumPlayerCount);
   for (std::size_t index = 0; index < simulation::kMaximumPlayerCount; ++index) {
     players.push_back(

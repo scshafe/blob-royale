@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/snapshot-data.schema.json",
+  "title": "Blob Royale protocol v2 world snapshot data",
+  "description": "One complete immutable simulation tick: every published entity in ascending entity_id order with the components it carries, plus the generic match section. Never a delta, never partial.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tick_sequence", "entities", "match"],
+  "properties": {
+    "tick_sequence": {
+      "$ref": "common.schema.json#/$defs/tick_sequence"
+    },
+    "entities": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "$ref": "entity-snapshot.schema.json"
+      },
+      "$comment": "Every published entity counts against this bound, including map static bodies and the zone entity. Ascending unique entity_id is a normative invariant that JSON Schema cannot express; docs/protocol/v2.md owns it and C++ conformance tests assert it."
+    },
+    "match": {
+      "$ref": "match-data.schema.json"
+    }
+  }
+}

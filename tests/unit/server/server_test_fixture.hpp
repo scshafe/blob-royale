@@ -6,7 +6,6 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "server_config.hpp"
 #include "simulation_config.hpp"
 #include "snapshot_publication.hpp"
@@ -51,7 +50,7 @@ loopback_server_config(std::vector<std::string> allowed_hosts = {"127.0.0.1", "l
 
 [[nodiscard]] inline simulation::GameSimulation game_simulation() {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  const simulation::Player player = simulation::Player::create(
+  const simulation::GameWorld::EntitySeed player = simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(1),
       simulation::PhysicsBody::create(simulation::Vector2::create(200.0, 200.0), zero, zero));
   return simulation::GameSimulation::create(simulation_config(),

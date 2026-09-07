@@ -4,7 +4,6 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "player_snapshot.hpp"
 #include "protocol_json_encoding.hpp"
 #include "request_id.hpp"
@@ -57,7 +56,7 @@ using simulation::FixedDelta;
 using simulation::GameSimulation;
 using simulation::GameWorld;
 using simulation::PhysicsBody;
-using simulation::Player;
+using EntitySeed = simulation::GameWorld::EntitySeed;
 using simulation::SimulationConfig;
 using simulation::SpatialGrid;
 using simulation::Vector2;
@@ -328,7 +327,7 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
   const SimulationConfig configuration =
       SimulationConfig::create(64.0, 64.0, 1.0, SimulationConfig::kRequiredTicksPerSecond, 1, 1);
   GameSimulation simulation =
-      GameSimulation::create(configuration, GameWorld::create(std::vector<Player>{}));
+      GameSimulation::create(configuration, GameWorld::create(std::vector<EntitySeed>{}));
 
   std::vector<std::shared_ptr<const WorldSnapshot>> snapshots;
   snapshots.reserve(kBackpressurePresentationSlotCount);
@@ -403,13 +402,13 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
 }
 
 [[nodiscard]] GameWorld make_world(const Scenario& scenario) {
-  std::vector<Player> players;
+  std::vector<EntitySeed> players;
   players.reserve(scenario.player_count);
   for (std::size_t index = 0; index < scenario.player_count; ++index) {
     const PhysicsBody body = PhysicsBody::create(
         player_position(scenario, index), player_velocity(index), player_acceleration(index));
     players.push_back(
-        Player::create(EntityId::create(static_cast<std::uint64_t>(index + 1U)), body));
+        EntitySeed::create(EntityId::create(static_cast<std::uint64_t>(index + 1U)), body));
   }
   return GameWorld::create(std::move(players));
 }

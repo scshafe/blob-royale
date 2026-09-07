@@ -4,7 +4,6 @@
 #include "game_world.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "player_snapshot.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
@@ -34,12 +33,11 @@ configuration(const double width = 500.0, const double height = 500.0, const dou
       width, height, radius, simulation::SimulationConfig::kRequiredTicksPerSecond, columns, rows);
 }
 
-[[nodiscard]] simulation::Player player(const simulation::EntityId::Value id, const double x,
-                                        const double y, const double velocity_x = 0.0,
-                                        const double velocity_y = 0.0,
-                                        const double acceleration_x = 0.0,
-                                        const double acceleration_y = 0.0) {
-  return simulation::Player::create(
+[[nodiscard]] simulation::GameWorld::EntitySeed
+player(const simulation::EntityId::Value id, const double x, const double y,
+       const double velocity_x = 0.0, const double velocity_y = 0.0,
+       const double acceleration_x = 0.0, const double acceleration_y = 0.0) {
+  return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(id),
       simulation::PhysicsBody::create(simulation::Vector2::create(x, y),
                                       simulation::Vector2::create(velocity_x, velocity_y),
@@ -47,7 +45,7 @@ configuration(const double width = 500.0, const double height = 500.0, const dou
 }
 
 [[nodiscard]] simulation::GameSimulation
-game(std::vector<simulation::Player> players,
+game(std::vector<simulation::GameWorld::EntitySeed> players,
      simulation::SimulationConfig simulation_configuration = configuration()) {
   return simulation::GameSimulation::create(std::move(simulation_configuration),
                                             simulation::GameWorld::create(std::move(players)));
@@ -84,8 +82,9 @@ void check_vector(const simulation::Vector2& actual, const double expected_x,
       Catch::Approx(expected_y).margin(absolute_tolerance).epsilon(simulation::kRelativeTolerance));
 }
 
-[[nodiscard]] std::vector<simulation::Player> equal_distance_players(const bool shuffled) {
-  std::vector<simulation::Player> players{
+[[nodiscard]] std::vector<simulation::GameWorld::EntitySeed>
+equal_distance_players(const bool shuffled) {
+  std::vector<simulation::GameWorld::EntitySeed> players{
       player(1, 50.0, 50.0, 0.0, 0.0), player(2, 70.0, 50.0, -1.0, 0.0),
       player(3, 30.0, 50.0, 2.0, 0.0), player(9, 300.0, 300.0, 1.25, -0.75)};
   if (shuffled) {
@@ -254,10 +253,10 @@ TEST_CASE("migrated wall fixture reaches the lower wall inward on tick 2000",
 TEST_CASE("grid-edge contact resolves once exactly like the exhaustive pair reference",
           "[unit][simulation][game_simulation][spatial_grid][reference]") {
   constexpr double radius = 5.0;
-  const simulation::Player first = player(1, 45.0, 50.0, 1.0, 0.0);
-  const simulation::Player second = player(2, 55.0, 50.0, -1.0, 0.0);
+  const simulation::GameWorld::EntitySeed first = player(1, 45.0, 50.0, 1.0, 0.0);
+  const simulation::GameWorld::EntitySeed second = player(2, 55.0, 50.0, -1.0, 0.0);
   const simulation::PlayerPairCollisionResult expected =
-      simulation::resolve_player_pair_collision(first.body(), second.body(), radius);
+      simulation::resolve_player_pair_collision(first.body, second.body, radius);
   simulation::GameSimulation simulation_game =
       game({second, first}, configuration(100.0, 100.0, radius, 2, 2));
 
@@ -278,10 +277,12 @@ TEST_CASE("grid-corner contact resolves once exactly like the exhaustive pair re
           "[unit][simulation][game_simulation][spatial_grid][reference]") {
   constexpr double radius = 5.0;
   const double axis_offset = radius / std::sqrt(2.0);
-  const simulation::Player first = player(1, 50.0 - axis_offset, 50.0 - axis_offset, 1.0, 1.0);
-  const simulation::Player second = player(2, 50.0 + axis_offset, 50.0 + axis_offset, -1.0, -1.0);
+  const simulation::GameWorld::EntitySeed first =
+      player(1, 50.0 - axis_offset, 50.0 - axis_offset, 1.0, 1.0);
+  const simulation::GameWorld::EntitySeed second =
+      player(2, 50.0 + axis_offset, 50.0 + axis_offset, -1.0, -1.0);
   const simulation::PlayerPairCollisionResult expected =
-      simulation::resolve_player_pair_collision(first.body(), second.body(), radius);
+      simulation::resolve_player_pair_collision(first.body, second.body, radius);
   simulation::GameSimulation simulation_game =
       game({second, first}, configuration(100.0, 100.0, radius, 2, 2));
 

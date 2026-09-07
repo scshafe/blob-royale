@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/command-envelope.schema.json",
+  "title": "Blob Royale protocol v2 client command envelope",
+  "description": "Every application data message a client may send. The envelope carries no entity id, no protocol version, no request id, and no client sequence number: identity and version are properties of the connection, and a client-supplied version would be a downgrade lever.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "payload"],
+  "properties": {
+    "kind": {
+      "$ref": "common.schema.json#/$defs/command_kind"
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "set_thrust"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "set-thrust-command.schema.json"
+          }
+        }
+      }
+    }
+  ],
+  "$comment": "@extension-point command_kind -- a new client command adds one enum member in common.schema.json#/$defs/command_kind, one <kind>-command.schema.json file, one if/then row here, and one maxItems bump in welcome-data.schema.json, and is a protocol minor version."
+}

@@ -2,7 +2,6 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "simulation_config.hpp"
 #include "snapshot_publication.hpp"
 #include "vector2.hpp"
@@ -29,7 +28,7 @@ constexpr std::uint64_t kPublishedGridRows = 8;
 
 [[nodiscard]] simulation::WorldSnapshot initial_snapshot_fixture() {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  const simulation::Player player = simulation::Player::create(
+  const simulation::GameWorld::EntitySeed player = simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(kPublishedPlayerId),
       simulation::PhysicsBody::create(
           simulation::Vector2::create(kPublishedPositionX, kPublishedPositionY), zero, zero));

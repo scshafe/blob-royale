@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/common.schema.json",
+  "title": "Blob Royale protocol v2 common definitions",
+  "description": "Canonical scalar, identifier, vector, kind-name, error, and metadata definitions shared by protocol v2 messages. protocol_version is a const rather than a grammar so a 2.0 decoder fails closed on a 2.1 document instead of silently ignoring an unknown kind.",
+  "x-status": "Accepted",
+  "$defs": {
+    "protocol_version": {
+      "type": "string",
+      "const": "2.0",
+      "$comment": "A minor revision (2.1) republishes this schema set with the const bumped. A 2.0 client therefore rejects a 2.1 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "schema_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^blob-royale://protocol/v2/[a-z][a-z0-9-]*$"
+    },
+    "mode_state_schema_id": {
+      "type": "string",
+      "enum": [
+        "blob-royale://protocol/v2/mode-state/none",
+        "blob-royale://protocol/v2/mode-state/royale"
+      ],
+      "$comment": "Closed, not a grammar: an unregistered mode-state schema id is a decode failure, not a value a client may skip."
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 20,
+      "maxLength": 32,
+      "pattern": "Z$"
+    },
+    "safe_integer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "positive_safe_integer": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "signed_safe_integer": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "entity_id": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "controller_id": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "team_id": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "tick_sequence": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "message_sequence": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "snapshot_entity_limit": {
+      "type": "integer",
+      "const": 1024,
+      "$comment": "Protocol constant. Every published entity counts, including map static bodies and the zone entity. Sized so the worst-case encoded frame fits the 2,097,152-byte ceiling with headroom; see docs/protocol/v2.md section 'Limits'."
+    },
+    "placement_rank": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1024
+    },
+    "finite_world_scalar": {
+      "type": "number",
+      "minimum": -1000000000000,
+      "maximum": 1000000000000
+    },
+    "nonnegative_world_scalar": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000000000
+    },
+    "positive_world_scalar": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1000000000000
+    },
+    "unit_interval_scalar": {
+      "type": "number",
+      "minimum": -1,
+      "maximum": 1
+    },
+    "collision_bitmask": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "vector2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/finite_world_scalar"
+        },
+        "y": {
+          "$ref": "#/$defs/finite_world_scalar"
+        }
+      }
+    },
+    "kind_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "mode_name": {
+      "$ref": "#/$defs/kind_name"
+    },
+    "controller_kind": {
+      "$ref": "#/$defs/kind_name"
+    },
+    "map_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 ._'@-]{0,62}[A-Za-z0-9])?$",
+      "$comment": "Printable ASCII only, so maxLength is simultaneously a 64-byte bound; no leading or trailing space; no control byte, so the value cannot inject a log line or a terminal escape. Derived from Tailscale-User-Name by exact match after trimming, never by character substitution."
+    },
+    "component_kind": {
+      "type": "string",
+      "enum": [
+        "controllable",
+        "lifetime",
+        "physics_body",
+        "score",
+        "team",
+        "zone",
+        "zone_exposure"
+      ]
+    },
+    "command_kind": {
+      "type": "string",
+      "enum": ["set_thrust"],
+      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire."
+    },
+    "match_phase": {
+      "type": "string",
+      "enum": ["lobby", "countdown", "running", "ended"]
+    },
+    "outcome_kind": {
+      "type": "string",
+      "enum": ["none", "won_by_entity", "won_by_team", "drawn"]
+    },
+    "error_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_methods": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["GET"]
+          }
+        },
+        "expected_websocket_version": {
+          "type": "string",
+          "const": "13"
+        },
+        "forwarded_client_reason": {
+          "type": "string",
+          "enum": ["absent", "multiple_values", "not_canonical"],
+          "$comment": "A closed enum, not free text, so no byte of an attacker-supplied forwarding header can ever reach a response body or a log line."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "retry_after_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "details"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "PROTOCOL.CONNECTION_LIMIT_REACHED",
+            "PROTOCOL.HEADER_TOO_LARGE",
+            "PROTOCOL.INVALID_FORWARDED_CLIENT",
+            "PROTOCOL.INVALID_REQUEST",
+            "PROTOCOL.INVALID_REQUEST_ID",
+            "PROTOCOL.METHOD_NOT_ALLOWED",
+            "PROTOCOL.ORIGIN_REJECTED",
+            "PROTOCOL.PAYLOAD_TOO_LARGE",
+            "PROTOCOL.RATE_LIMITED",
+            "PROTOCOL.ROUTE_NOT_FOUND",
+            "PROTOCOL.SUBPROTOCOL_REQUIRED",
+            "PROTOCOL.UPGRADE_REQUIRED",
+            "PROTOCOL.WEBSOCKET_VERSION_UNSUPPORTED",
+            "SERVICE.INTERNAL_FAILURE",
+            "SERVICE.NOT_READY"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "$ref": "#/$defs/error_details"
+        }
+      }
+    }
+  }
+}

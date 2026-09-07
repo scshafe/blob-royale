@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/match-data.schema.json",
+  "title": "Blob Royale protocol v2 match section",
+  "description": "The generic match lifecycle header plus one mode-state block identified by a schema id. Entity-shaped mode state is published only as components and never duplicated here; the royale safe zone is the zone component of the zone entity (ADR 0005). Alive count is not a field: it is the number of published entities carrying both physics_body and controllable.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mode", "phase", "phase_started_tick", "outcome", "placements", "mode_state"],
+  "properties": {
+    "mode": {
+      "$ref": "common.schema.json#/$defs/mode_name"
+    },
+    "phase": {
+      "$ref": "common.schema.json#/$defs/match_phase"
+    },
+    "phase_started_tick": {
+      "$ref": "common.schema.json#/$defs/tick_sequence"
+    },
+    "outcome": {
+      "$ref": "#/$defs/outcome"
+    },
+    "placements": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "$ref": "#/$defs/placement"
+      }
+    },
+    "mode_state": {
+      "$ref": "#/$defs/mode_state"
+    }
+  },
+  "$defs": {
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "winner_entity_id", "winner_team_id"],
+      "description": "Two named winner members rather than one polymorphic winner, so a reader can never mistake a team id for an entity id. Both are always present; the member that does not apply is null.",
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/outcome_kind"
+        },
+        "winner_entity_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "winner_team_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/team_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": ["none", "drawn"]
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "winner_entity_id": {
+                "type": "null"
+              },
+              "winner_team_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "won_by_entity"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "winner_entity_id": {
+                "$ref": "common.schema.json#/$defs/entity_id"
+              },
+              "winner_team_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "won_by_team"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "winner_entity_id": {
+                "type": "null"
+              },
+              "winner_team_id": {
+                "$ref": "common.schema.json#/$defs/team_id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_id", "controller_id", "placement", "eliminated_tick"],
+      "description": "One finished rank. controller_id is carried so a client can recognize its own result after its entity_id has been destroyed.",
+      "properties": {
+        "entity_id": {
+          "$ref": "common.schema.json#/$defs/entity_id"
+        },
+        "controller_id": {
+          "$ref": "common.schema.json#/$defs/controller_id"
+        },
+        "placement": {
+          "$ref": "common.schema.json#/$defs/placement_rank"
+        },
+        "eliminated_tick": {
+          "$ref": "common.schema.json#/$defs/tick_sequence"
+        }
+      }
+    },
+    "mode_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_id", "value"],
+      "description": "One shape for every mode. A mode with no non-entity-shaped state publishes the none schema id and an empty value object rather than a null, so a decoder has exactly one code path.",
+      "properties": {
+        "schema_id": {
+          "$ref": "common.schema.json#/$defs/mode_state_schema_id"
+        },
+        "value": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schema_id": {
+                "const": "blob-royale://protocol/v2/mode-state/none"
+              }
+            },
+            "required": ["schema_id"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "schema_id": {
+                "const": "blob-royale://protocol/v2/mode-state/royale"
+              }
+            },
+            "required": ["schema_id"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "$ref": "royale-mode-state.schema.json"
+              }
+            }
+          }
+        }
+      ],
+      "$comment": "@extension-point snapshot_mode_state -- a new mode-state block adds one enum member in common.schema.json#/$defs/mode_state_schema_id, one <mode>-mode-state.schema.json file, and one if/then row here, and is a protocol minor version."
+    }
+  }
+}

@@ -1,6 +1,9 @@
 #include "application_input_error.hpp"
+#include "component_store.hpp"
+#include "components/controllable_component.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
+#include "physics_body.hpp"
 #include "scenario_loader.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
@@ -13,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -49,13 +53,39 @@ TEST_CASE("scenario loader creates a canonical ID-ordered world", "[unit][applic
   const simulation::GameWorld world =
       ScenarioLoader::load(scenario_path, valid_simulation_config());
 
-  REQUIRE(world.players().size() == 2);
-  CHECK(world.players()[0].id().value() == 3);
-  CHECK(world.players()[0].body().position().x() == 15.0);
-  CHECK(world.players()[0].body().position().y() == 70.0);
-  CHECK(world.players()[0].body().velocity().x() == -1.0);
-  CHECK(world.players()[0].body().velocity().y() == 3.2);
-  CHECK(world.players()[1].id().value() == 20);
+  const std::span<const simulation::ComponentStore<simulation::PhysicsBody>::Entry> bodies =
+      world.store<simulation::PhysicsBody>().entries();
+  REQUIRE(bodies.size() == 2);
+  REQUIRE(world.entities().size() == 2);
+  CHECK(bodies[0].entity.value() == 3);
+  CHECK(bodies[0].value.position().x() == 15.0);
+  CHECK(bodies[0].value.position().y() == 70.0);
+  CHECK(bodies[0].value.velocity().x() == -1.0);
+  CHECK(bodies[0].value.velocity().y() == 3.2);
+  CHECK(bodies[1].entity.value() == 20);
+}
+
+TEST_CASE("scenario loader seeds each row as a controllable baseline player disc",
+          "[unit][application][scenario]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const std::filesystem::path scenario_path =
+      workspace.write_file("valid.csv", test_fixture::valid_scenario());
+
+  const simulation::GameWorld world =
+      ScenarioLoader::load(scenario_path, valid_simulation_config());
+
+  const simulation::PhysicsBody* body =
+      world.store<simulation::PhysicsBody>().find(simulation::EntityId::create(3));
+  const simulation::Controllable* controllable =
+      world.store<simulation::Controllable>().find(simulation::EntityId::create(3));
+  REQUIRE(body != nullptr);
+  REQUIRE(controllable != nullptr);
+  CHECK(body->radius() == valid_simulation_config().player_radius());
+  CHECK(body->mass() == simulation::PhysicsBody::kDefaultMass);
+  CHECK(body->collision_layer() == simulation::PhysicsBody::kDefaultCollisionLayer);
+  CHECK(body->collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);
+  CHECK_FALSE(body->is_static());
+  CHECK(controllable->controller_id.value() == 3);
 }
 
 TEST_CASE("scenario loader canonicalizes signed zero components", "[unit][application][scenario]") {
@@ -66,9 +96,11 @@ TEST_CASE("scenario loader canonicalizes signed zero components", "[unit][applic
   const simulation::GameWorld world =
       ScenarioLoader::load(scenario_path, valid_simulation_config());
 
-  REQUIRE(world.players().size() == 2);
-  CHECK_FALSE(std::signbit(world.players()[0].body().acceleration().x()));
-  CHECK_FALSE(std::signbit(world.players()[0].body().acceleration().y()));
+  const std::span<const simulation::ComponentStore<simulation::PhysicsBody>::Entry> bodies =
+      world.store<simulation::PhysicsBody>().entries();
+  REQUIRE(bodies.size() == 2);
+  CHECK_FALSE(std::signbit(bodies[0].value.acceleration().x()));
+  CHECK_FALSE(std::signbit(bodies[0].value.acceleration().y()));
 }
 
 TEST_CASE("scenario loader accepts deterministic CRLF line endings",
@@ -85,8 +117,8 @@ TEST_CASE("scenario loader accepts deterministic CRLF line endings",
   const simulation::GameWorld world =
       ScenarioLoader::load(scenario_path, valid_simulation_config());
 
-  REQUIRE(world.players().size() == 1);
-  CHECK(world.players().front().id().value() == 1);
+  REQUIRE(world.entities().size() == 1);
+  CHECK(world.entities().front().value() == 1);
 }
 
 TEST_CASE("scenario loader accepts an explicitly empty world", "[unit][application][scenario]") {
@@ -97,7 +129,7 @@ TEST_CASE("scenario loader accepts an explicitly empty world", "[unit][applicati
   const simulation::GameWorld world =
       ScenarioLoader::load(scenario_path, valid_simulation_config());
 
-  CHECK(world.players().empty());
+  CHECK(world.entities().empty());
 }
 
 TEST_CASE("scenario loader rejects a missing scenario file", "[unit][application][scenario]") {
@@ -255,7 +287,7 @@ TEST_CASE("scenario loader accepts exact radius-inset world boundaries",
   const simulation::GameWorld world =
       ScenarioLoader::load(scenario_path, valid_simulation_config());
 
-  CHECK(world.players().size() == 2);
+  CHECK(world.entities().size() == 2);
 }
 
 TEST_CASE("scenario loader rejects centers outside radius-inset world boundaries",

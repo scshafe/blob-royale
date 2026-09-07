@@ -13,6 +13,10 @@ enum class SimulationValidationCode {
   kPhysicalScalarOutOfRange,
   kVectorDivisionByZero,
   kEntityIdOutOfRange,
+  kControllerIdOutOfRange,
+  kTeamIdOutOfRange,
+  kComponentStoreDuplicateEntityId,
+  kComponentStoreLimitExceeded,
   kGameWorldPlayerLimitExceeded,
   kGameWorldDuplicateEntityId,
   kTickSequenceOutOfRange,
@@ -43,6 +47,14 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.VECTOR_DIVISION_BY_ZERO";
   case SimulationValidationCode::kEntityIdOutOfRange:
     return "SIMULATION.ENTITY_ID_OUT_OF_RANGE";
+  case SimulationValidationCode::kControllerIdOutOfRange:
+    return "SIMULATION.CONTROLLER_ID_OUT_OF_RANGE";
+  case SimulationValidationCode::kTeamIdOutOfRange:
+    return "SIMULATION.TEAM_ID_OUT_OF_RANGE";
+  case SimulationValidationCode::kComponentStoreDuplicateEntityId:
+    return "SIMULATION.COMPONENT_STORE_DUPLICATE_ENTITY_ID";
+  case SimulationValidationCode::kComponentStoreLimitExceeded:
+    return "SIMULATION.COMPONENT_STORE_LIMIT_EXCEEDED";
   case SimulationValidationCode::kGameWorldPlayerLimitExceeded:
     return "SIMULATION.GAME_WORLD_PLAYER_LIMIT_EXCEEDED";
   case SimulationValidationCode::kGameWorldDuplicateEntityId:

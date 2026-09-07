@@ -1,0 +1,16 @@
+{
+  "data": null,
+  "error": {
+    "code": "PROTOCOL.INVALID_FORWARDED_CLIENT",
+    "message": "A proxy-forwarded connection must present exactly one canonical forwarded client address.",
+    "retryable": false,
+    "details": {
+      "forwarded_client_reason": "multiple_values"
+    }
+  },
+  "meta": {
+    "protocol_version": "2.0",
+    "schema_id": "blob-royale://protocol/v2/error-response",
+    "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"
+  }
+}

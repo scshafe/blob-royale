@@ -15,7 +15,13 @@ static_assert(std::numeric_limits<double>::is_iec559 && std::numeric_limits<doub
 inline constexpr std::uint64_t kMaximumProtocolSafeInteger = 9'007'199'254'740'991ULL;
 inline constexpr std::uint64_t kMinimumEntityId = 1;
 inline constexpr std::uint64_t kMaximumEntityId = kMaximumProtocolSafeInteger;
+inline constexpr std::uint64_t kMinimumControllerId = 1;
+inline constexpr std::uint64_t kMaximumControllerId = kMaximumProtocolSafeInteger;
+inline constexpr std::uint64_t kMinimumTeamId = 1;
+inline constexpr std::uint64_t kMaximumTeamId = kMaximumProtocolSafeInteger;
 inline constexpr double kMaximumPhysicalComponentMagnitude = 1'000'000'000'000.0;
+// One entity is one seat in the world. This bounds the entity roster and every per-kind component
+// store; protocol v1 publishes the same number as the snapshot player limit.
 inline constexpr std::size_t kMaximumPlayerCount = 4'096;
 inline constexpr std::uint64_t kSimulationTicksPerSecond = 400;
 inline constexpr std::int64_t kFixedDeltaNanoseconds = 2'500'000;

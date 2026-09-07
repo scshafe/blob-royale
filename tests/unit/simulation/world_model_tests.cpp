@@ -1,9 +1,16 @@
+#include "component_registry.hpp"
+#include "component_store.hpp"
+#include "components/controllable_component.hpp"
+#include "components/lifetime_component.hpp"
+#include "components/score_component.hpp"
+#include "components/team_component.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "team_id.hpp"
 #include "vector2.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -25,8 +32,10 @@ namespace {
   return simulation::PhysicsBody::create(simulation::Vector2::create(x, y), zero, zero);
 }
 
-[[nodiscard]] simulation::Player player(const simulation::EntityId::Value id, const double x) {
-  return simulation::Player::create(simulation::EntityId::create(id), stationary_body(x, 0.0));
+[[nodiscard]] simulation::GameWorld::EntitySeed seed(const simulation::EntityId::Value id,
+                                                     const double x) {
+  return simulation::GameWorld::EntitySeed::create(simulation::EntityId::create(id),
+                                                   stationary_body(x, 0.0));
 }
 
 } // namespace
@@ -96,47 +105,183 @@ TEST_CASE("Simulation validation errors expose stable machine-readable context",
   }
 }
 
-TEST_CASE("PhysicsBody and Player replacements preserve value semantics",
-          "[unit][simulation][composition]") {
-  const simulation::PhysicsBody original_body = stationary_body(1.0, 2.0);
+TEST_CASE("PhysicsBody replacements preserve value semantics and every unnamed field",
+          "[unit][simulation][physics_body]") {
+  const simulation::PhysicsBody original_body = simulation::PhysicsBody::create(
+      simulation::Vector2::create(1.0, 2.0), simulation::Vector2::create(0.0, 0.0),
+      simulation::Vector2::create(0.0, 0.0), 3.0, 7.0, 0b10U, 0b110U, true);
   const simulation::Vector2 new_velocity = simulation::Vector2::create(3.0, 4.0);
   const simulation::PhysicsBody moving_body = original_body.with_velocity(new_velocity);
-  const simulation::Player original_player =
-      simulation::Player::create(simulation::EntityId::create(7), original_body);
-  const simulation::Player moving_player = original_player.with_body(moving_body);
 
   CHECK(original_body.velocity() == simulation::Vector2::create(0.0, 0.0));
   CHECK(moving_body.velocity() == new_velocity);
-  CHECK(original_player.id() == moving_player.id());
-  CHECK(original_player.body() == original_body);
-  CHECK(moving_player.body() == moving_body);
+  CHECK(moving_body.position() == original_body.position());
+  CHECK(moving_body.radius() == 3.0);
+  CHECK(moving_body.mass() == 7.0);
+  CHECK(moving_body.collision_layer() == 0b10U);
+  CHECK(moving_body.collision_mask() == 0b110U);
+  CHECK(moving_body.is_static());
 }
 
-TEST_CASE("GameWorld canonicalizes players and provides stable lookup",
+TEST_CASE("PhysicsBody motion-only creation carries the baseline dynamic disc defaults",
+          "[unit][simulation][physics_body]") {
+  const simulation::PhysicsBody body = stationary_body(1.0, 2.0);
+
+  CHECK(body.radius() == simulation::PhysicsBody::kDefaultRadius);
+  CHECK(body.mass() == simulation::PhysicsBody::kDefaultMass);
+  CHECK(body.collision_layer() == simulation::PhysicsBody::kDefaultCollisionLayer);
+  CHECK(body.collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);
+  CHECK_FALSE(body.is_static());
+}
+
+TEST_CASE("ControllerId and TeamId accept only the protocol-safe integer range",
+          "[unit][simulation][controller_id][team_id]") {
+  CHECK(simulation::ControllerId::create(simulation::kMinimumControllerId).value() ==
+        simulation::kMinimumControllerId);
+  CHECK(simulation::TeamId::create(simulation::kMaximumTeamId).value() ==
+        simulation::kMaximumTeamId);
+  CHECK(simulation::ControllerId::create(2) < simulation::ControllerId::create(3));
+  CHECK_THROWS_AS(simulation::ControllerId::create(0), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(simulation::ControllerId::create(simulation::kMaximumControllerId + 1),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(simulation::TeamId::create(0), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(simulation::TeamId::create(simulation::kMaximumTeamId + 1),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("GameWorld canonicalizes seeded entities into one ascending roster",
           "[unit][simulation][game_world]") {
   const simulation::GameWorld world =
-      simulation::GameWorld::create({player(9, 9.0), player(2, 2.0), player(5, 5.0)});
+      simulation::GameWorld::create({seed(9, 9.0), seed(2, 2.0), seed(5, 5.0)});
 
-  REQUIRE(world.players().size() == 3);
-  CHECK(world.players()[0].id().value() == 2);
-  CHECK(world.players()[1].id().value() == 5);
-  CHECK(world.players()[2].id().value() == 9);
-  REQUIRE(world.find(simulation::EntityId::create(5)) != nullptr);
-  CHECK(world.find(simulation::EntityId::create(5))->body().position().x() == 5.0);
-  CHECK(world.find(simulation::EntityId::create(6)) == nullptr);
+  REQUIRE(world.entities().size() == 3);
+  CHECK(world.entities()[0].value() == 2);
+  CHECK(world.entities()[1].value() == 5);
+  CHECK(world.entities()[2].value() == 9);
+  CHECK(world.contains(simulation::EntityId::create(5)));
+  CHECK_FALSE(world.contains(simulation::EntityId::create(6)));
 }
 
-TEST_CASE("GameWorld rejects duplicate IDs and unsafe player counts",
+TEST_CASE("GameWorld seeds every entity with a body and a controller link in ascending order",
           "[unit][simulation][game_world]") {
-  CHECK_THROWS_AS(simulation::GameWorld::create({player(1, 0.0), player(1, 1.0)}),
+  const simulation::GameWorld world =
+      simulation::GameWorld::create({seed(9, 9.0), seed(2, 2.0), seed(5, 5.0)});
+
+  REQUIRE(world.store<simulation::PhysicsBody>().size() == 3);
+  REQUIRE(world.store<simulation::Controllable>().size() == 3);
+  CHECK(world.store<simulation::PhysicsBody>().entries()[0].entity ==
+        simulation::EntityId::create(2));
+  CHECK(world.store<simulation::PhysicsBody>().entries()[2].entity ==
+        simulation::EntityId::create(9));
+  REQUIRE(world.store<simulation::PhysicsBody>().find(simulation::EntityId::create(5)) != nullptr);
+  CHECK(world.store<simulation::PhysicsBody>().find(simulation::EntityId::create(5))->position() ==
+        simulation::Vector2::create(5.0, 0.0));
+  CHECK(world.store<simulation::PhysicsBody>().find(simulation::EntityId::create(6)) == nullptr);
+  REQUIRE(world.store<simulation::Controllable>().find(simulation::EntityId::create(5)) != nullptr);
+  CHECK(world.store<simulation::Controllable>()
+            .find(simulation::EntityId::create(5))
+            ->controller_id.value() == 5);
+}
+
+TEST_CASE("GameWorld seeds an explicit ControllerId when one is supplied",
+          "[unit][simulation][game_world]") {
+  const simulation::GameWorld world =
+      simulation::GameWorld::create({simulation::GameWorld::EntitySeed::create(
+          simulation::EntityId::create(4), stationary_body(4.0, 0.0),
+          simulation::ControllerId::create(77))});
+
+  REQUIRE(world.store<simulation::Controllable>().find(simulation::EntityId::create(4)) != nullptr);
+  CHECK(world.store<simulation::Controllable>()
+            .find(simulation::EntityId::create(4))
+            ->controller_id.value() == 77);
+}
+
+TEST_CASE("GameWorld create_entity inserts ascending and rejects a duplicate EntityId",
+          "[unit][simulation][game_world]") {
+  simulation::GameWorld world = simulation::GameWorld::create({seed(5, 5.0)});
+  world.create_entity(simulation::EntityId::create(2));
+  world.create_entity(simulation::EntityId::create(9));
+
+  REQUIRE(world.entities().size() == 3);
+  CHECK(world.entities()[0].value() == 2);
+  CHECK(world.entities()[1].value() == 5);
+  CHECK(world.entities()[2].value() == 9);
+  CHECK(world.store<simulation::PhysicsBody>().size() == 1);
+  CHECK_THROWS_AS(world.create_entity(simulation::EntityId::create(5)),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("GameWorld rejects duplicate IDs and unsafe entity counts",
+          "[unit][simulation][game_world]") {
+  CHECK_THROWS_AS(simulation::GameWorld::create({seed(1, 0.0), seed(1, 1.0)}),
                   simulation::SimulationValidationError);
 
-  std::vector<simulation::Player> too_many_players;
-  too_many_players.reserve(simulation::kMaximumPlayerCount + 1);
+  std::vector<simulation::GameWorld::EntitySeed> too_many_seeds;
+  too_many_seeds.reserve(simulation::kMaximumPlayerCount + 1);
   for (std::size_t index = 0; index <= simulation::kMaximumPlayerCount; ++index) {
-    too_many_players.push_back(player(static_cast<simulation::EntityId::Value>(index + 1), 0.0));
+    too_many_seeds.push_back(seed(static_cast<simulation::EntityId::Value>(index + 1), 0.0));
   }
 
-  CHECK_THROWS_AS(simulation::GameWorld::create(std::move(too_many_players)),
+  CHECK_THROWS_AS(simulation::GameWorld::create(std::move(too_many_seeds)),
                   simulation::SimulationValidationError);
+}
+
+TEST_CASE("GameWorld destroy_entity erases the roster seat and every registered store",
+          "[unit][simulation][game_world][component_registry]") {
+  simulation::GameWorld world =
+      simulation::GameWorld::create({seed(2, 2.0), seed(5, 5.0), seed(9, 9.0)});
+  world.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(5),
+                                                            simulation::Score{11});
+  world.mutable_store<simulation::Team>().insert_or_assign(
+      simulation::EntityId::create(5), simulation::Team{simulation::TeamId::create(3)});
+  world.mutable_store<simulation::Lifetime>().insert_or_assign(simulation::EntityId::create(5),
+                                                               simulation::Lifetime{4});
+
+  world.destroy_entity(simulation::EntityId::create(5));
+
+  CHECK_FALSE(world.contains(simulation::EntityId::create(5)));
+  CHECK(world.entities().size() == 2);
+  CHECK(world.store<simulation::PhysicsBody>().find(simulation::EntityId::create(5)) == nullptr);
+  CHECK(world.store<simulation::Controllable>().find(simulation::EntityId::create(5)) == nullptr);
+  CHECK(world.store<simulation::Score>().find(simulation::EntityId::create(5)) == nullptr);
+  CHECK(world.store<simulation::Team>().find(simulation::EntityId::create(5)) == nullptr);
+  CHECK(world.store<simulation::Lifetime>().find(simulation::EntityId::create(5)) == nullptr);
+  CHECK(world.store<simulation::PhysicsBody>().size() == 2);
+}
+
+TEST_CASE("GameWorld destroy_entity is total for an id no entity holds",
+          "[unit][simulation][game_world]") {
+  simulation::GameWorld world = simulation::GameWorld::create({seed(2, 2.0)});
+  const simulation::GameWorld unchanged = world;
+
+  world.destroy_entity(simulation::EntityId::create(404));
+
+  CHECK(world == unchanged);
+}
+
+TEST_CASE("GameWorld equality is generated over every registered component store",
+          "[unit][simulation][game_world][component_registry]") {
+  const simulation::GameWorld world = simulation::GameWorld::create({seed(2, 2.0), seed(5, 5.0)});
+  simulation::GameWorld scored = world;
+  scored.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(2),
+                                                             simulation::Score{1});
+  simulation::GameWorld teamed = world;
+  teamed.mutable_store<simulation::Team>().insert_or_assign(
+      simulation::EntityId::create(2), simulation::Team{simulation::TeamId::create(1)});
+  simulation::GameWorld expired = world;
+  expired.mutable_store<simulation::Lifetime>().insert_or_assign(simulation::EntityId::create(2),
+                                                                 simulation::Lifetime{9});
+  simulation::GameWorld recontrolled = world;
+  recontrolled.mutable_store<simulation::Controllable>().insert_or_assign(
+      simulation::EntityId::create(2),
+      simulation::Controllable{simulation::ControllerId::create(8)});
+  simulation::GameWorld extra_entity = world;
+  extra_entity.create_entity(simulation::EntityId::create(7));
+
+  CHECK(world == simulation::GameWorld::create({seed(5, 5.0), seed(2, 2.0)}));
+  CHECK(world != scored);
+  CHECK(world != teamed);
+  CHECK(world != expired);
+  CHECK(world != recontrolled);
+  CHECK(world != extra_entity);
 }

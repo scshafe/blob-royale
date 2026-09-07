@@ -6,13 +6,18 @@
 
 namespace blob_royale::simulation {
 
-class Player;
+class PhysicsBody;
 
 // canonical: player_snapshot -- immutable copied presentation state for one player.
+//
+// A player is an entity carrying both a PhysicsBody and a Controllable, and this value is the
+// protocol v1 projection of that pair. Only the body's motion is observable on the wire, so the
+// controller link is not copied here.
 class PlayerSnapshot final {
 public:
-  // Copies all observable simulation state from one validated player value.
-  [[nodiscard]] static PlayerSnapshot from_player(const Player& player) noexcept;
+  // Copies all observable simulation state from one entity's validated body.
+  [[nodiscard]] static PlayerSnapshot from_body(EntityId entity_id,
+                                                const PhysicsBody& body) noexcept;
 
   PlayerSnapshot(const PlayerSnapshot&) = default;
   PlayerSnapshot(PlayerSnapshot&&) noexcept = default;

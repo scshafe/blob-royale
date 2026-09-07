@@ -1,13 +1,20 @@
+#include "component_registry.hpp"
+#include "component_store.hpp"
+#include "components/controllable_component.hpp"
+#include "components/lifetime_component.hpp"
+#include "components/score_component.hpp"
+#include "components/team_component.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "fixed_delta.hpp"
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
-#include "player.hpp"
 #include "player_snapshot.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "team_id.hpp"
 #include "tick_sequence.hpp"
 #include "vector2.hpp"
 #include "world_snapshot.hpp"
@@ -52,8 +59,8 @@ simulation_from_world(simulation::GameWorld world,
   return simulation::GameSimulation::create(configuration, std::move(world));
 }
 
-[[nodiscard]] simulation::Player player_from_fixture(const PlayerFixture& fixture) {
-  return simulation::Player::create(
+[[nodiscard]] simulation::GameWorld::EntitySeed seed_from_fixture(const PlayerFixture& fixture) {
+  return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(fixture.entity_id),
       simulation::PhysicsBody::create(
           simulation::Vector2::create(fixture.position_x, fixture.position_y),
@@ -61,10 +68,10 @@ simulation_from_world(simulation::GameWorld world,
           simulation::Vector2::create(fixture.acceleration_x, fixture.acceleration_y)));
 }
 
-[[nodiscard]] simulation::Player positioned_player(const simulation::EntityId::Value entity_id,
-                                                   const double x, const double y) {
+[[nodiscard]] simulation::GameWorld::EntitySeed
+positioned_seed(const simulation::EntityId::Value entity_id, const double x, const double y) {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
-  return simulation::Player::create(
+  return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(entity_id),
       simulation::PhysicsBody::create(simulation::Vector2::create(x, y), zero, zero));
 }
@@ -90,7 +97,7 @@ TEST_CASE("TickSequence is exact, ordered, and bounded without unsigned wraparou
 TEST_CASE("WorldSnapshot copies complete player data in canonical EntityId order",
           "[unit][simulation][snapshot]") {
   const simulation::GameWorld world = simulation::GameWorld::create(
-      {player_from_fixture(kHigherIdPlayer), player_from_fixture(kLowerIdPlayer)});
+      {seed_from_fixture(kHigherIdPlayer), seed_from_fixture(kLowerIdPlayer)});
   const simulation::WorldSnapshot snapshot = simulation_from_world(world).snapshot();
 
   REQUIRE(snapshot.players().size() == 2);
@@ -117,16 +124,16 @@ TEST_CASE("WorldSnapshot supports empty and maximum-sized validated worlds",
   const simulation::WorldSnapshot empty_snapshot =
       simulation_from_world(simulation::GameWorld::create({})).snapshot();
 
-  std::vector<simulation::Player> maximum_players;
-  maximum_players.reserve(simulation::kMaximumPlayerCount);
+  std::vector<simulation::GameWorld::EntitySeed> maximum_seeds;
+  maximum_seeds.reserve(simulation::kMaximumPlayerCount);
   for (std::size_t index = 0; index < simulation::kMaximumPlayerCount; ++index) {
     const double x = 1.0 + (2.0 * static_cast<double>(index % 64));
     const double y = 1.0 + (2.0 * static_cast<double>(index / 64));
-    maximum_players.push_back(
-        positioned_player(static_cast<simulation::EntityId::Value>(index + 1), x, y));
+    maximum_seeds.push_back(
+        positioned_seed(static_cast<simulation::EntityId::Value>(index + 1), x, y));
   }
   const simulation::WorldSnapshot maximum_snapshot =
-      simulation_from_world(simulation::GameWorld::create(std::move(maximum_players)),
+      simulation_from_world(simulation::GameWorld::create(std::move(maximum_seeds)),
                             snapshot_configuration(130.0, 130.0, 0.25, 64, 64))
           .snapshot();
 
@@ -141,7 +148,7 @@ TEST_CASE("WorldSnapshot supports empty and maximum-sized validated worlds",
 TEST_CASE("WorldSnapshot remains unchanged after the owning simulation commits a later tick",
           "[unit][simulation][snapshot]") {
   simulation::GameSimulation game =
-      simulation_from_world(simulation::GameWorld::create({player_from_fixture(kLowerIdPlayer)}));
+      simulation_from_world(simulation::GameWorld::create({seed_from_fixture(kLowerIdPlayer)}));
   const simulation::WorldSnapshot older_snapshot = game.snapshot();
   game.step(simulation::FixedDelta::canonical());
   const simulation::WorldSnapshot newer_snapshot = game.snapshot();
@@ -159,10 +166,11 @@ TEST_CASE("WorldSnapshot remains unchanged after the owning simulation commits a
 TEST_CASE("PlayerSnapshot retains signed-zero canonicality for copied motion vectors",
           "[unit][simulation][snapshot]") {
   const simulation::Vector2 canonical_zero = simulation::Vector2::create(-0.0, -0.0);
-  const simulation::GameWorld world = simulation::GameWorld::create({simulation::Player::create(
-      simulation::EntityId::create(1),
-      simulation::PhysicsBody::create(simulation::Vector2::create(1.0, 1.0), canonical_zero,
-                                      canonical_zero))});
+  const simulation::GameWorld world =
+      simulation::GameWorld::create({simulation::GameWorld::EntitySeed::create(
+          simulation::EntityId::create(1),
+          simulation::PhysicsBody::create(simulation::Vector2::create(1.0, 1.0), canonical_zero,
+                                          canonical_zero))});
   const simulation::WorldSnapshot snapshot = simulation_from_world(world).snapshot();
 
   REQUIRE(snapshot.players().size() == 1);
@@ -171,4 +179,64 @@ TEST_CASE("PlayerSnapshot retains signed-zero canonicality for copied motion vec
   CHECK_FALSE(std::signbit(snapshot.players()[0].velocity().y()));
   CHECK_FALSE(std::signbit(snapshot.players()[0].acceleration().x()));
   CHECK_FALSE(std::signbit(snapshot.players()[0].acceleration().y()));
+}
+
+TEST_CASE("WorldSnapshot publishes every registered component store in ascending EntityId order",
+          "[unit][simulation][snapshot][component_registry]") {
+  simulation::GameWorld world =
+      simulation::GameWorld::create({positioned_seed(9, 9.0, 9.0), positioned_seed(2, 2.0, 2.0)});
+  world.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(9),
+                                                            simulation::Score{-4});
+  world.mutable_store<simulation::Team>().insert_or_assign(
+      simulation::EntityId::create(2), simulation::Team{simulation::TeamId::create(6)});
+  world.mutable_store<simulation::Lifetime>().insert_or_assign(simulation::EntityId::create(2),
+                                                               simulation::Lifetime{12});
+  const simulation::WorldSnapshot snapshot = simulation_from_world(std::move(world)).snapshot();
+
+  REQUIRE(snapshot.entities().size() == 2);
+  CHECK(snapshot.entities()[0].value() == 2);
+  CHECK(snapshot.entities()[1].value() == 9);
+  REQUIRE(snapshot.components<simulation::PhysicsBody>().size() == 2);
+  CHECK(snapshot.components<simulation::PhysicsBody>()[0].entity.value() == 2);
+  CHECK(snapshot.components<simulation::PhysicsBody>()[1].entity.value() == 9);
+  REQUIRE(snapshot.components<simulation::Controllable>().size() == 2);
+  CHECK(snapshot.components<simulation::Controllable>()[0].value.controller_id.value() == 2);
+  REQUIRE(snapshot.components<simulation::Score>().size() == 1);
+  CHECK(snapshot.components<simulation::Score>()[0].entity.value() == 9);
+  CHECK(snapshot.components<simulation::Score>()[0].value.points == -4);
+  REQUIRE(snapshot.components<simulation::Team>().size() == 1);
+  CHECK(snapshot.components<simulation::Team>()[0].value.team_id.value() == 6);
+  REQUIRE(snapshot.components<simulation::Lifetime>().size() == 1);
+  CHECK(snapshot.components<simulation::Lifetime>()[0].value.ticks_remaining == 12);
+}
+
+TEST_CASE("WorldSnapshot players project only entities carrying a body and a controller link",
+          "[unit][simulation][snapshot]") {
+  simulation::GameWorld world = simulation::GameWorld::create(
+      {positioned_seed(2, 2.0, 2.0), positioned_seed(5, 5.0, 5.0), positioned_seed(9, 9.0, 9.0)});
+  world.mutable_store<simulation::Controllable>().erase(simulation::EntityId::create(5));
+  const simulation::WorldSnapshot snapshot = simulation_from_world(std::move(world)).snapshot();
+
+  REQUIRE(snapshot.components<simulation::PhysicsBody>().size() == 3);
+  REQUIRE(snapshot.players().size() == 2);
+  CHECK(snapshot.players()[0].entity_id().value() == 2);
+  CHECK(snapshot.players()[1].entity_id().value() == 9);
+}
+
+TEST_CASE("WorldSnapshot equality covers the tick, the roster, and every component store",
+          "[unit][simulation][snapshot][component_registry]") {
+  const simulation::WorldSnapshot snapshot =
+      simulation_from_world(simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)}))
+          .snapshot();
+  simulation::GameWorld scored_world =
+      simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)});
+  scored_world.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(2),
+                                                                   simulation::Score{1});
+  const simulation::WorldSnapshot scored_snapshot =
+      simulation_from_world(std::move(scored_world)).snapshot();
+
+  CHECK(snapshot ==
+        simulation_from_world(simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)}))
+            .snapshot());
+  CHECK(snapshot != scored_snapshot);
 }

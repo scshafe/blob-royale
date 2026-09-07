@@ -910,12 +910,19 @@ client side). Adding a component kind is a new renderer module plus one registra
 canvas code does not change.
 
 **Versioning discipline.** Adding a component kind, a command kind, or a mode-state schema is a
-**protocol minor version** — `2.1`, `2.2` — because every addition is backward compatible for a
-conforming client. A client ignores a component kind it has no renderer for and a mode-state schema
-id it does not know, rendering the generic match header instead; it reports each unknown kind once
-per connection at `warn` with the kind name, so an unrendered entity is visible in logs rather than
-silently invisible. Removing a kind, renaming one, or changing what one means is a **major version**
-and a new route and subprotocol, exactly as v1 to v2 is.
+**protocol minor version** — `2.1`, `2.2` — and the `welcome` message states the server's exact
+version. A client **fails closed** on a kind or schema id it does not know: it reports the unknown
+kind once at `warn` with its name and then closes the connection, rather than rendering a world it
+cannot fully represent. Removing a kind, renaming one, or changing what one means is a **major
+version** and a new route and subprotocol, exactly as v1 to v2 is.
+
+Fail-closed is the deliberate choice over ignore-and-continue. An ignored component is an entity the
+player cannot see but can still collide with, and an ignored mode-state schema is an objective the
+player cannot see but is still judged by; both present a false world confidently. A closed
+connection with a named cause is a worse experience and a better failure, and it keeps the rule that
+a client never renders partial state (`0003-deterministic-simulation-contract.md` § "Accepted
+simulation input"). The obligation is symmetric: the server rejects a command kind the running mode
+does not accept rather than dropping it silently.
 
 ### Determinism obligations for framework code
 
@@ -1153,3 +1160,11 @@ plus registration" or names the missing seam honestly.
 * [`../../src/server/README.md`](../../src/server/README.md) — the read-only transport boundary that
   gains a write-only `CommandSink&` and nothing else.
 * [`../../.claude/plans/2026-09-06-playable-prototype-tailnet.md`](../../.claude/plans/2026-09-06-playable-prototype-tailnet.md) — accepted execution constraints, and Steps 14 through 21, which implement this framework.
+
+**Amended 2026-09-06:** Versioning discipline is fail-closed rather than ignore-and-continue. An
+ignored component kind is an entity a player cannot see but can still collide with, and an ignored
+mode-state schema is an objective a player cannot see but is still judged by. `docs/protocol/v2.md`
+specifies the closing behavior and its close codes. Controller presentation values -- the controller
+kind and display name published inside the wire `controllable` component -- are joined at the server
+boundary from a runtime-owned controller directory keyed by `ControllerId`, not stored in the
+`Controllable` component, so the deterministic core carries no proxy-supplied strings.

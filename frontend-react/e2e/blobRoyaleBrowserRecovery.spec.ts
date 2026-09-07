@@ -19,18 +19,21 @@ const RECOVERY_FIXTURE = Object.freeze({
 });
 
 /**
- * Two entities and two players, and no third entity for the browser.
+ * Three entities and three players: the two the scenario seeds, plus the one the browser spawns.
  *
  * A scenario row seeds an entity that decides for itself, with `controller_id == entity_id`
  * (`src/simulation/game_world.hpp` § `EntitySeed::create`), so both seeded discs already carry a
- * controller and both count as players. The controller directory issues session ids from one, so
- * the first session's controller id is the one entity 1 already carries: the session recognises
- * that entity as its own body and never asks to spawn. That is the documented "until sessions
- * issue their own controller ids" hand-off, and it holds identically across the restart because
- * the replacement process issues ids from one again.
+ * controller and both count as players. The browser is the third. It gets its own body because the
+ * runtime opens its controller cursor above every controller id the loaded world already carries
+ * (`src/runtime/simulation_runtime.cpp` § `first_session_controller_id`); without that floor the
+ * first session would be issued the id entity 1 already holds and would adopt that disc instead of
+ * spawning, since the client resolves its own body by controller id on every frame. This assertion
+ * is therefore the observable form of that fix: a session that adopted a seeded body would show two
+ * entities here, not three. It holds identically across the restart, because the replacement
+ * process computes the same floor from the same seeded world.
  */
 const COMPLETE_TICK_PATTERN =
-  /^Complete tick ([1-9][0-9]*) with 2 entities and 2 players\.$/;
+  /^Complete tick ([1-9][0-9]*) with 3 entities and 3 players\.$/;
 
 interface BrowserE2EFixtures {
   readonly blobRoyaleServer: BlobRoyaleServerProcess;
@@ -105,8 +108,9 @@ test('production Chromium reconnects to a restarted exact server', async ({
   await expect(canvas).toBeVisible();
   const completeTickCaption = page.locator('.SimulationCanvas figcaption');
   await assertTwoIncreasingCompleteTicks(completeTickCaption);
-  // One of those two players is this session: without this the caption above would also pass with
-  // the browser connected but holding no body at all.
+  // One of those three players is this session, and it is the one the session spawned rather than a
+  // seeded disc it adopted: without this the caption above would also pass with the browser
+  // connected but holding no body at all.
   await expect(matchHudCell(page, 'Placement')).toHaveText('In play');
 
   // Protocol metadata is a disclosure now, so a player who wants it must ask. Opening it here is

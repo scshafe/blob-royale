@@ -50,40 +50,34 @@ TEST_CASE("the proposed [royale] section converts to the accepted tick counts",
   CHECK(configuration.lobby_minimum_players() == 2);
 }
 
-TEST_CASE("a duration converts to the nearest whole tick",
-          "[unit][gameplay][royale][configuration]") {
-  CHECK(gameplay::duration_ticks(0.0, "zone_shrink_seconds") == 0);
-  CHECK(gameplay::duration_ticks(1.0, "zone_shrink_seconds") == 400);
-  // Below and above the half-tick boundary. An *exact* tie is unreachable through this key at all,
-  // because `(k + 0.5) / 400` is never a binary64 value: 400 is not a power of two, so no authored
-  // decimal lands exactly on a half tick. The rule is still written as ties away from zero because
-  // the conversion is stated over real seconds, not over what a parser can represent.
-  CHECK(gameplay::duration_ticks(0.001, "elimination_grace_seconds") == 0);
-  CHECK(gameplay::duration_ticks(0.002, "elimination_grace_seconds") == 1);
-  CHECK(gameplay::duration_ticks(0.0075, "elimination_grace_seconds") == 3);
-  CHECK(gameplay::duration_ticks(0.03, "elimination_grace_seconds") == 12);
-}
-
-TEST_CASE("a duration that does not fit the tick counter is a rejection naming the key",
+TEST_CASE("a rejected [royale] duration still names the key it was authored under",
           "[unit][gameplay][royale][configuration][validation]") {
+  // The conversion moved to `shared/duration_ticks.hpp` when hazards became its second customer,
+  // and this is the regression that says the move changed nothing an operator reads: the context is
+  // still the `royale.<key>` spelling this section has always reported, because the mode passes the
+  // full context now that the shared helper cannot know whose duration it is holding. Only the code
+  // changed, from `GAMEPLAY.ROYALE_DURATION_TICK_OVERFLOW` to the owner-neutral name, because a
+  // hazard interval failing this same rule must not report a royale code.
   try {
-    static_cast<void>(gameplay::duration_ticks(1.0e16, "zone_shrink_seconds"));
+    static_cast<void>(gameplay::RoyaleConfiguration::create(section_with_zone_shrink(1.0e16)));
     FAIL("an unrepresentable duration was accepted");
   } catch (const gameplay::GameplayValidationError& error) {
-    CHECK(error.validation_code() == gameplay::GameplayValidationCode::kRoyaleDurationTickOverflow);
-    CHECK(error.code() == std::string_view{"GAMEPLAY.ROYALE_DURATION_TICK_OVERFLOW"});
+    CHECK(error.validation_code() == gameplay::GameplayValidationCode::kDurationTickOverflow);
+    CHECK(error.code() == std::string_view{"GAMEPLAY.DURATION_TICK_OVERFLOW"});
     CHECK(error.context() == "royale.zone_shrink_seconds");
   }
 }
 
 TEST_CASE("every [royale] value must be finite and not negative",
           "[unit][gameplay][royale][configuration][validation]") {
+  // The four duration keys are refused by the shared conversion and the rest by this section's own
+  // rule, which is why the codes below differ by key rather than by section.
   CHECK(rejection_code_of(section_with_zone_shrink(std::numeric_limits<double>::quiet_NaN())) ==
-        gameplay::GameplayValidationCode::kRoyaleScalarNotFinite);
+        gameplay::GameplayValidationCode::kDurationNotFinite);
   CHECK(rejection_code_of(section_with_zone_shrink(std::numeric_limits<double>::infinity())) ==
-        gameplay::GameplayValidationCode::kRoyaleScalarNotFinite);
+        gameplay::GameplayValidationCode::kDurationNotFinite);
   CHECK(rejection_code_of(section_with_zone_shrink(-1.0)) ==
-        gameplay::GameplayValidationCode::kRoyaleScalarOutOfRange);
+        gameplay::GameplayValidationCode::kDurationNegative);
 
   gameplay::RoyaleConfiguration::Section negative_radius =
       gameplay::RoyaleConfiguration::default_section();

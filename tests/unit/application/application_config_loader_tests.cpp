@@ -2,9 +2,11 @@
 #include "application_config_loader.hpp"
 #include "application_input_error.hpp"
 #include "game_mode_configuration.hpp"
+#include "gameplay_validation_error.hpp"
 #include "match_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "server_config.hpp"
+#include "shared/hazard_archetype.hpp"
 #include "simulation_config.hpp"
 #include "simulation_validation_error.hpp"
 
@@ -45,6 +47,57 @@ void require_server_config_error(TemporaryApplicationInputWorkspace& workspace,
         static_cast<void>(test_fixture::load_application_config(
             config_path, workspace.absent_path("scenario.csv")));
       },
+      expected_code);
+}
+
+// Two hazard kinds, declared only here. **Neither `plaid_meteorite` nor `velvet_boulder` appears in
+// any C++ file under `src/`**, which is the property the acceptance test below exists to hold: a
+// reader can run `grep -r plaid_meteorite src/` and see no matches rather than take it on trust.
+// They are deliberately absurd names so that nobody adds a builtin that happens to collide.
+//
+// There is no `[hazards]` section and no `kinds=` line, and that is the whole declaration: the set
+// of hazard kinds is exactly the set of `[hazard.*]` sections, so there is no second list to keep
+// in step (`gameplay/shared/hazard_archetype.hpp`).
+constexpr std::string_view kHazardSections = "\n"
+                                             "[hazard.plaid_meteorite]\n"
+                                             "radius_world_units=10\n"
+                                             "mass=1\n"
+                                             "restitution=1\n"
+                                             "speed_world_units_per_second=260\n"
+                                             "spawn_interval_seconds=6\n"
+                                             "lethal_on_contact=true\n"
+                                             "\n"
+                                             "[hazard.velvet_boulder]\n"
+                                             "radius_world_units=26\n"
+                                             "mass=40\n"
+                                             "restitution=0.35\n"
+                                             "speed_world_units_per_second=90\n"
+                                             "spawn_interval_seconds=20\n"
+                                             "lethal_on_contact=false\n";
+
+[[nodiscard]] std::string configuration_with_hazards() {
+  std::string configuration{test_fixture::kValidConfiguration};
+  configuration.append(kHazardSections);
+  return configuration;
+}
+
+[[nodiscard]] gameplay::GameModeConfiguration
+load_game_mode_configuration(TemporaryApplicationInputWorkspace& workspace,
+                             const std::string_view configuration) {
+  const std::filesystem::path config_path = workspace.write_file("hazards.cfg", configuration);
+  const ApplicationConfigLoader::Result result = test_fixture::load_application_config(config_path);
+  return std::get<ApplicationConfigLoader::RunRequest>(result)
+      .application_config()
+      .game_mode_configuration();
+}
+
+void require_configuration_load_error(TemporaryApplicationInputWorkspace& workspace,
+                                      const std::string_view configuration,
+                                      const ApplicationInputErrorCode expected_code) {
+  const std::filesystem::path config_path =
+      workspace.write_file("invalid-configuration.cfg", configuration);
+  test_fixture::require_application_input_error_code(
+      [&] { static_cast<void>(test_fixture::load_application_config(config_path)); },
       expected_code);
 }
 
@@ -637,6 +690,209 @@ TEST_CASE("server config rejects presentation rates above protocol v1",
   CHECK_THROWS_AS(
       test_fixture::load_application_config(config_path, workspace.absent_path("scenario.csv")),
       server::ServerConfigValidationError);
+}
+
+TEST_CASE("a hazard kind the source has never named loads from configuration alone",
+          "[unit][application][config][hazard]") {
+  // **The acceptance test of the whole feature.** Adding a hazard kind must be a configuration
+  // section and no C++ at all, so this configuration declares two kinds whose names appear in no
+  // C++ file under `src/`, and asserts they arrive carrying exactly the radius, mass, restitution,
+  // speed, interval, and lethality the file declared. The claim is checkable rather than asserted:
+  //
+  //     grep -r plaid_meteorite src/    # no matches
+  //     grep -r velvet_boulder src/     # no matches
+  //
+  // The day either name appears under `src/`, the code has learned about a specific kind and this
+  // test is no longer testing what it says it is.
+  TemporaryApplicationInputWorkspace workspace;
+
+  const gameplay::GameModeConfiguration configuration =
+      load_game_mode_configuration(workspace, configuration_with_hazards());
+
+  REQUIRE(configuration.hazards.size() == 2);
+  // The order is the file's, so a seeded spawner's choice among kinds is reproducible from the
+  // configuration alone rather than from whatever order a container happened to yield.
+  const gameplay::HazardArchetype& meteorite = configuration.hazards[0];
+  CHECK(meteorite.kind_name() == "plaid_meteorite");
+  CHECK(meteorite.radius() == 10.0);
+  CHECK(meteorite.mass() == 1.0);
+  CHECK(meteorite.restitution() == 1.0);
+  CHECK(meteorite.speed() == 260.0);
+  CHECK(meteorite.lethal_on_contact());
+  // Authored as 6 s and stored as ticks, converted once at load like every other duration.
+  CHECK(meteorite.spawn_interval_ticks() == 2'400);
+
+  const gameplay::HazardArchetype& boulder = configuration.hazards[1];
+  CHECK(boulder.kind_name() == "velvet_boulder");
+  CHECK(boulder.radius() == 26.0);
+  CHECK(boulder.mass() == 40.0);
+  CHECK(boulder.restitution() == 0.35);
+  CHECK(boulder.speed() == 90.0);
+  CHECK(boulder.spawn_interval_ticks() == 8'000);
+  CHECK_FALSE(boulder.lethal_on_contact());
+
+  // The mode section is untouched by the family: adding hazards changed no `[royale]` value.
+  CHECK(configuration.royale == gameplay::RoyaleConfiguration::defaults());
+}
+
+TEST_CASE("a configuration that declares no hazard section has no hazards",
+          "[unit][application][config][hazard]") {
+  // Zero instances is legal, and it is what every configuration in this tree looked like before
+  // hazards existed. `[hazards]` is not a required section because there is no `[hazards]` section
+  // at all, so `deploy/ubuntu-pc/blob-royale.cfg` and every fixture load exactly as they did.
+  TemporaryApplicationInputWorkspace workspace;
+
+  const gameplay::GameModeConfiguration configuration =
+      load_game_mode_configuration(workspace, test_fixture::kValidConfiguration);
+
+  CHECK(configuration.hazards.empty());
+  CHECK(configuration.royale == gameplay::RoyaleConfiguration::defaults());
+}
+
+TEST_CASE("an unknown key inside a hazard section is rejected like one in a fixed section",
+          "[unit][application][config][hazard][validation]") {
+  // The instance *name* is open; the key schema inside it is not. This is the same
+  // `APPLICATION.CONFIG.KEY_UNKNOWN` a misspelled `[royale]` key gets, by the same lookup.
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string configuration =
+      test_fixture::replace_once(configuration_with_hazards(), "\nmass=1\n", "\nweight=1\n");
+
+  require_configuration_load_error(workspace, configuration,
+                                   ApplicationInputErrorCode::kConfigurationKeyUnknown);
+}
+
+TEST_CASE("a section matching no fixed name and no family prefix is still rejected",
+          "[unit][application][config][hazard][validation]") {
+  // Exactly one thing became open, and these are the near misses that prove nothing else did.
+  constexpr std::array<std::string_view, 6> unknown_sections = {
+      // There is no family-wide settings section, so the plural is not a section name.
+      "[hazards]\n",
+      // A family prefix is not itself a section: an instance name is required.
+      "[hazard]\n",
+      // ...and an empty one is not an instance name.
+      "[hazard.]\n",
+      // The prefix must match a declared family exactly rather than by prefix.
+      "[hazards.comet]\n",
+      // A family that has not been declared yet is still unknown, which is what keeps the second
+      // customer of this seam a deliberate edit rather than an accident.
+      "[bot.wanderer]\n",
+      // And an ordinary typo is unchanged.
+      "[royal]\n"};
+
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view unknown_section : unknown_sections) {
+    CAPTURE(unknown_section);
+    std::string configuration{test_fixture::kValidConfiguration};
+    configuration.append("\n");
+    configuration.append(unknown_section);
+
+    require_configuration_load_error(workspace, configuration,
+                                     ApplicationInputErrorCode::kConfigurationSectionUnknown);
+  }
+}
+
+TEST_CASE("a repeated hazard kind is rejected like a repeated section",
+          "[unit][application][config][hazard][validation]") {
+  // Two sections claiming one kind are two archetypes claiming one name, and the spawner would have
+  // no way to say which the configuration meant.
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string configuration = test_fixture::replace_once(
+      configuration_with_hazards(), "[hazard.velvet_boulder]", "[hazard.plaid_meteorite]");
+
+  require_configuration_load_error(workspace, configuration,
+                                   ApplicationInputErrorCode::kConfigurationSectionDuplicate);
+}
+
+TEST_CASE("a hazard section that omits any one of its keys is rejected",
+          "[unit][application][config][hazard][validation]") {
+  // No key has a silent default, which is the same rule every fixed section already answers to. The
+  // fragments carry their surrounding newlines so removing `radius_world_units` cannot accidentally
+  // strike `[world] player_radius_world_units`.
+  constexpr std::array<std::string_view, 6> required_lines = {
+      "\nradius_world_units=10\n",
+      "\nmass=1\n",
+      "\nrestitution=1\n",
+      "\nspeed_world_units_per_second=260\n",
+      "\nspawn_interval_seconds=6\n",
+      "\nlethal_on_contact=true\n"};
+
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view required_line : required_lines) {
+    CAPTURE(required_line);
+    const std::string configuration =
+        test_fixture::replace_once(configuration_with_hazards(), required_line, "\n");
+
+    require_configuration_load_error(workspace, configuration,
+                                     ApplicationInputErrorCode::kConfigurationKeyMissing);
+  }
+}
+
+TEST_CASE("every fixed section still rejects an unknown key",
+          "[unit][application][config][validation]") {
+  // The regression that says opening instance names opened nothing else: each of the seven fixed
+  // sections refuses a key it does not declare, exactly as it did before families existed.
+  constexpr std::array<std::string_view, 7> section_headers = {
+      "[server]\n",       "[presentation]\n", "[simulation]\n", "[world]\n",
+      "[spatial_grid]\n", "[match]\n",        "[royale]\n"};
+
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view section_header : section_headers) {
+    CAPTURE(section_header);
+    const std::string replacement = std::string{section_header} + "not_a_declared_key=1\n";
+    const std::string configuration = test_fixture::replace_once(
+        std::string{test_fixture::kValidConfiguration}, section_header, replacement);
+
+    require_configuration_load_error(workspace, configuration,
+                                     ApplicationInputErrorCode::kConfigurationKeyUnknown);
+  }
+}
+
+TEST_CASE("lethality is spelled exactly true or false",
+          "[unit][application][config][hazard][validation]") {
+  // One spelling, so two deployments cannot read differently while meaning the same thing.
+  constexpr std::array<std::string_view, 3> refused_spellings = {
+      "lethal_on_contact=1\n", "lethal_on_contact=True\n", "lethal_on_contact=yes\n"};
+
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view refused : refused_spellings) {
+    CAPTURE(refused);
+    const std::string configuration = test_fixture::replace_once(
+        configuration_with_hazards(), "lethal_on_contact=true\n", refused);
+
+    require_configuration_load_error(workspace, configuration,
+                                     ApplicationInputErrorCode::kConfigurationValueInvalid);
+  }
+}
+
+TEST_CASE("a hazard value the mechanic refuses is a startup rejection naming the key",
+          "[unit][application][config][hazard][validation]") {
+  // The loader parses the number and the mechanic that owns the rule refuses it, exactly as
+  // `[royale]` and `[match]` already delegate. The context is the configuration line itself.
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string configuration =
+      test_fixture::replace_once(configuration_with_hazards(), "\nmass=1\n", "\nmass=0\n");
+  const std::filesystem::path config_path =
+      workspace.write_file("refused-hazard.cfg", configuration);
+
+  test_fixture::require_domain_validation_error_code<gameplay::GameplayValidationError>(
+      [&] { static_cast<void>(test_fixture::load_application_config(config_path)); },
+      gameplay::GameplayValidationCode::kHazardScalarOutOfRange);
+}
+
+TEST_CASE("a hazard kind name outside the published grammar is rejected",
+          "[unit][application][config][hazard][validation]") {
+  // The loader leaves the grammar to the value that publishes the name, so this is a
+  // `GAMEPLAY.HAZARD_KIND_NAME_INVALID` rather than an unknown section: the section family resolved
+  // fine, and it is the kind that is unencodable.
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string configuration = test_fixture::replace_once(
+      configuration_with_hazards(), "[hazard.plaid_meteorite]", "[hazard.Plaid_Meteorite]");
+  const std::filesystem::path config_path =
+      workspace.write_file("bad-hazard-name.cfg", configuration);
+
+  test_fixture::require_domain_validation_error_code<gameplay::GameplayValidationError>(
+      [&] { static_cast<void>(test_fixture::load_application_config(config_path)); },
+      gameplay::GameplayValidationCode::kHazardKindNameInvalid);
 }
 
 } // namespace

@@ -1,9 +1,8 @@
 #include "royale/royale_configuration.hpp"
 
 #include "gameplay_validation_error.hpp"
+#include "shared/duration_ticks.hpp"
 #include "shared/thrust_steering_system.hpp"
-#include "simulation_limits.hpp"
-#include "tick_sequence.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -12,8 +11,6 @@
 
 namespace blob_royale::gameplay {
 namespace {
-
-namespace simulation = blob_royale::simulation;
 
 void require_finite_and_not_negative(const double value, const std::string_view configuration_key) {
   if (!std::isfinite(value)) {
@@ -29,22 +26,6 @@ void require_finite_and_not_negative(const double value, const std::string_view 
 }
 
 } // namespace
-
-std::uint64_t duration_ticks(const double seconds, const std::string_view configuration_key) {
-  require_finite_and_not_negative(seconds, configuration_key);
-  // The written form of the ADR: the product, then the nearest integer with ties away from zero,
-  // which is exactly what `std::round` computes. Both operations are exactly specified, so two
-  // conforming toolchains derive the same tick count from the same authored duration.
-  const double rounded =
-      std::round(seconds * static_cast<double>(simulation::kSimulationTicksPerSecond));
-  if (rounded > static_cast<double>(simulation::TickSequence::kMaximumValue)) {
-    throw GameplayValidationError(GameplayValidationCode::kRoyaleDurationTickOverflow,
-                                  "royale." + std::string(configuration_key),
-                                  std::to_string(seconds) + " s is " + std::to_string(rounded) +
-                                      " ticks, which does not fit the tick counter");
-  }
-  return static_cast<std::uint64_t>(rounded);
-}
 
 RoyaleConfiguration RoyaleConfiguration::create(const Section& section) {
   // Validated through the steering system's own named rule rather than a second copy of it here, so
@@ -63,14 +44,18 @@ RoyaleConfiguration RoyaleConfiguration::create(const Section& section) {
   // C++: a section with two bad durations would otherwise name whichever key the compiler happened
   // to reach first, and a rejection that names a different key on a different toolchain is a
   // diagnostic that cannot be reproduced from the message.
+  //
+  // Each call names the full `royale.<key>` context because `duration_ticks` is shared with every
+  // other section that authors a duration and cannot know which one it is converting for
+  // (`shared/duration_ticks.hpp`). The contexts are the ones this section has always reported.
   const std::uint64_t zone_shrink_ticks =
-      duration_ticks(section.zone_shrink_seconds, "zone_shrink_seconds");
+      duration_ticks(section.zone_shrink_seconds, "royale.zone_shrink_seconds");
   const std::uint64_t elimination_grace_ticks =
-      duration_ticks(section.elimination_grace_seconds, "elimination_grace_seconds");
+      duration_ticks(section.elimination_grace_seconds, "royale.elimination_grace_seconds");
   const std::uint64_t countdown_ticks =
-      duration_ticks(section.countdown_seconds, "countdown_seconds");
+      duration_ticks(section.countdown_seconds, "royale.countdown_seconds");
   const std::uint64_t restart_delay_ticks =
-      duration_ticks(section.restart_delay_seconds, "restart_delay_seconds");
+      duration_ticks(section.restart_delay_seconds, "royale.restart_delay_seconds");
   return RoyaleConfiguration(section.thrust_max_world_units_per_second_squared,
                              section.zone_minimum_radius_world_units, zone_shrink_ticks,
                              elimination_grace_ticks, section.lobby_minimum_players,

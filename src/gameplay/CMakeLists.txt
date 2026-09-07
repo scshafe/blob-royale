@@ -6,6 +6,8 @@ add_library(blob_gameplay STATIC
   royale/zone_elimination_system.cpp
   royale/zone_shrink_system.cpp
   sandbox/sandbox_mode.cpp
+  shared/duration_ticks.cpp
+  shared/hazard_archetype.cpp
   shared/thrust_steering_system.cpp
 )
 

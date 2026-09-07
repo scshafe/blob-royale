@@ -16,6 +16,7 @@ enum class ApplicationInputErrorCode {
   kConfigurationSyntaxInvalid,
   kConfigurationSectionUnknown,
   kConfigurationSectionDuplicate,
+  kConfigurationSectionLimitExceeded,
   kConfigurationKeyUnknown,
   kConfigurationKeyDuplicate,
   kConfigurationKeyMissing,
@@ -75,6 +76,8 @@ application_input_error_code_name(const ApplicationInputErrorCode code) noexcept
     return "APPLICATION.CONFIG.SECTION_UNKNOWN";
   case ApplicationInputErrorCode::kConfigurationSectionDuplicate:
     return "APPLICATION.CONFIG.SECTION_DUPLICATE";
+  case ApplicationInputErrorCode::kConfigurationSectionLimitExceeded:
+    return "APPLICATION.CONFIG.SECTION_LIMIT_EXCEEDED";
   case ApplicationInputErrorCode::kConfigurationKeyUnknown:
     return "APPLICATION.CONFIG.KEY_UNKNOWN";
   case ApplicationInputErrorCode::kConfigurationKeyDuplicate:

@@ -22,17 +22,29 @@ namespace blob_royale::gameplay {
 // that only needs "the declaration was rejected" -- `GameSimulation::create` propagating a mode's
 // `validate_map`, or a configuration loader reporting a startup failure -- catches one type across
 // both libraries while a caller that has to distinguish reads `code()`.
+// The list is grouped by owner: the registry, then the mechanics in `shared/` that any mode may
+// declare, then one group per mode. A `GAMEPLAY.DURATION_*` or `GAMEPLAY.HAZARD_*` rejection is
+// deliberately not `GAMEPLAY.ROYALE_*`, because a mode-agnostic mechanic that named one mode in its
+// diagnostics would send a reader to the wrong section of the configuration file.
 // related: game_mode_registry.hpp -- the unknown-mode rejection.
+// related: shared/duration_ticks.hpp -- the `GAMEPLAY.DURATION_*` rejections of any authored
+// duration, whichever section authored it.
+// related: shared/hazard_archetype.hpp -- the `[hazard.<kind>]` rejections.
 // related: sandbox/sandbox_mode.hpp -- the map rejection.
 // related: royale/royale_configuration.hpp -- the `[royale]` balance-number rejections.
 enum class GameplayValidationCode {
   kGameModeNameUnknown,
   kThrustMaximumNotFinite,
   kThrustMaximumOutOfRange,
+  kDurationNotFinite,
+  kDurationNegative,
+  kDurationTickOverflow,
+  kHazardKindNameInvalid,
+  kHazardScalarNotFinite,
+  kHazardScalarOutOfRange,
   kSandboxMapWithoutSpawnPoint,
   kRoyaleScalarNotFinite,
   kRoyaleScalarOutOfRange,
-  kRoyaleDurationTickOverflow,
   kRoyaleMapWithoutEnoughSpawnPoints,
   kRoyaleMapArenaWithinZoneMinimum,
   kRoyaleZoneEntityUnreserved,
@@ -50,14 +62,24 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.THRUST_MAXIMUM_NOT_FINITE";
   case GameplayValidationCode::kThrustMaximumOutOfRange:
     return "GAMEPLAY.THRUST_MAXIMUM_OUT_OF_RANGE";
+  case GameplayValidationCode::kDurationNotFinite:
+    return "GAMEPLAY.DURATION_NOT_FINITE";
+  case GameplayValidationCode::kDurationNegative:
+    return "GAMEPLAY.DURATION_NEGATIVE";
+  case GameplayValidationCode::kDurationTickOverflow:
+    return "GAMEPLAY.DURATION_TICK_OVERFLOW";
+  case GameplayValidationCode::kHazardKindNameInvalid:
+    return "GAMEPLAY.HAZARD_KIND_NAME_INVALID";
+  case GameplayValidationCode::kHazardScalarNotFinite:
+    return "GAMEPLAY.HAZARD_SCALAR_NOT_FINITE";
+  case GameplayValidationCode::kHazardScalarOutOfRange:
+    return "GAMEPLAY.HAZARD_SCALAR_OUT_OF_RANGE";
   case GameplayValidationCode::kSandboxMapWithoutSpawnPoint:
     return "GAMEPLAY.SANDBOX_MAP_WITHOUT_SPAWN_POINT";
   case GameplayValidationCode::kRoyaleScalarNotFinite:
     return "GAMEPLAY.ROYALE_SCALAR_NOT_FINITE";
   case GameplayValidationCode::kRoyaleScalarOutOfRange:
     return "GAMEPLAY.ROYALE_SCALAR_OUT_OF_RANGE";
-  case GameplayValidationCode::kRoyaleDurationTickOverflow:
-    return "GAMEPLAY.ROYALE_DURATION_TICK_OVERFLOW";
   case GameplayValidationCode::kRoyaleMapWithoutEnoughSpawnPoints:
     return "GAMEPLAY.ROYALE_MAP_WITHOUT_ENOUGH_SPAWN_POINTS";
   case GameplayValidationCode::kRoyaleMapArenaWithinZoneMinimum:

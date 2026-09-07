@@ -17,10 +17,12 @@ simulation boundary.
 ```
 src/gameplay/
   game_mode_registry.hpp/.cpp   the closed map from one mode name to its factory
-  game_mode_configuration.hpp   every configured mode's validated `[<mode>]` section, as one value
+  game_mode_configuration.hpp   every configured mode's `[<mode>]` section and the hazard table
   gameplay_validation_error.hpp the one exception vocabulary of this library
-  shared/                       systems more than one mode declares
+  shared/                       mechanics and values more than one mode or section uses
     thrust_steering_system.*    a validated thrust direction becomes stored acceleration
+    duration_ticks.*            the one conversion from an authored duration to tick counts
+    hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations
@@ -37,11 +39,21 @@ src/gameplay/
     royale_mode_state.hpp       the one read of royale's arm of `ModeMatchState`
 ```
 
-**`shared/` is where a system more than one mode declares lives.** ADR 0004 files a mechanic under
+**`shared/` is where a thing more than one mode uses lives.** ADR 0004 files a mechanic under
 `src/gameplay/<mode>/`, which is right for a mechanic one mode owns. `thrust_steering` is declared by
 `sandbox` and, from plan Step 21, by `royale`, and filing it under either would make the other reach
 into its neighbour. The rule is: one mode declares it, it lives in that mode's directory; two modes
 declare it, it moves to `shared/` and takes its scale as a constructor argument.
+
+`duration_ticks` is the rule applied to a value rather than a system. It was written inside
+`royale/royale_configuration.cpp` with a note saying it would move here the day something else
+configured a duration in seconds, and `hazard_archetype` is that second customer — a `shared/` file
+may not include `royale/`, so the move was forced rather than optional. Two things changed with it:
+the parameter is now the full configuration context (`royale.zone_shrink_seconds`,
+`hazard.comet.spawn_interval_seconds`) instead of a bare key it prefixed with `royale.`, and its
+three rejections carry owner-neutral `GAMEPLAY.DURATION_*` codes instead of `GAMEPLAY.ROYALE_*`
+ones. The arithmetic is untouched, so every accepted tick count is the value it always was, and
+`royale_configuration_tests.cpp` pins the contexts to prove it.
 
 ## Adding a game
 
@@ -87,6 +99,35 @@ blocks are 14 and 18 lines, 11 and 17 of them code.
 
 `validate_map` rejects a map with no `spawn` marker at startup, naming the map: free play with
 nowhere to seat a joiner would silently defer every spawn command forever.
+
+## Hazards
+
+**A hazard kind is a configuration section and no C++ at all.** `hazard_archetype.hpp` is the
+validated form of one `[hazard.<kind>]` section — radius, mass, restitution, speed, spawn interval,
+and lethality — and the *kind name is the section's own instance name*, so nothing in `src/` names a
+kind. The table hangs off `GameModeConfiguration` beside `royale`, because hazards are a
+mode-agnostic mechanic: any mode may declare the systems that read the table, and a mode that
+declares none never reads it, which is the same relationship `sandbox` already has with `[royale]`.
+
+The open name reaches the value through the loader's **section family**
+(`src/application/application_config_loader.cpp`): a declared section-name prefix whose instance
+names are open, whose key schema is closed and shared by every instance, and whose instances collect
+into a list. That is the only open name in the configuration schema. Everything else stayed
+fail-closed — an unknown key inside an instance, a section matching no name and no prefix, a
+repeated instance, and an instance missing a key are all the rejections they were.
+
+There is **no `[hazards]` section and no `kinds=` key**. A list of kinds beside the sections that
+declare them is two sources of truth for one list, and its failure mode is silent: a kind declared
+and not listed simply never spawns. Dropping it leaves nothing family-wide but a spawn interval,
+which is better per kind anyway — "a comet every six seconds and a boulder every twenty" is the
+first thing a designer asks for and one cadence cannot say it. So the whole declaration of a kind is
+one section, and a configuration that declares none has no hazards.
+
+The archetype **names no entry edge**. A hazard needs a reproducible entry point *and* direction and
+both must come from the world's seeded generator, so configuring the edge would make one component
+of that geometry authored and the rest drawn. It would also need a closed edge vocabulary in C++,
+and a designer wanting an edge the enumeration does not name would be back to writing code, which is
+the bar the whole mechanic exists to clear.
 
 ## `royale`
 

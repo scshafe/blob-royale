@@ -6,23 +6,6 @@
 
 namespace blob_royale::gameplay {
 
-// canonical: royale_duration_ticks -- the one conversion from a configured duration to tick counts.
-//
-// `ticks(x) = nearest integer to (x * 400), ties away from zero`, which is exactly `std::round` of
-// the product (`docs/architecture/0005-royale-mode.md` § "Mode configuration"). **Durations are
-// converted once, at load.** The mode stores only tick counts, no system sees a value in seconds,
-// and nothing multiplies by the tick rate at runtime, which is what keeps a clock out of the
-// simulation (`docs/architecture/0004-gameplay-architecture.md` § "Determinism obligations for
-// framework code").
-//
-// Throws GameplayValidationError naming `configuration_key` for a non-finite duration, a negative
-// one, and a tick count that does not fit the tick counter.
-//
-// It lives in `royale/` because royale is the only mode that configures a duration in seconds
-// today; the rule of `src/gameplay/README.md` moves it to `shared/` the day a second mode declares
-// one.
-[[nodiscard]] std::uint64_t duration_ticks(double seconds, std::string_view configuration_key);
-
 // canonical: royale_configuration -- the validated `[royale]` section, in the units systems read.
 //
 // One strict configuration section carries every balance number this mode owns. The application
@@ -43,7 +26,10 @@ namespace blob_royale::gameplay {
 // *rule* -- the drag law, the zone shape, the elimination predicate, the objective, or the spawn
 // policy -- does.
 // related: royale_mode.hpp -- the mode that holds one of these.
-// related: gameplay_validation_error.hpp -- the `GAMEPLAY.ROYALE_*` rejections.
+// related: shared/duration_ticks.hpp -- the one conversion the four durations go through, which
+// moved out of this file the day a second customer appeared, exactly as its note said it would.
+// related: gameplay_validation_error.hpp -- the `GAMEPLAY.ROYALE_*` and `GAMEPLAY.DURATION_*`
+// rejections.
 class RoyaleConfiguration final {
 public:
   // The proposed values of `docs/architecture/0005-royale-mode.md` § "Mode configuration". They are

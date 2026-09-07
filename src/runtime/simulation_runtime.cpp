@@ -1,21 +1,47 @@
 #include "simulation_runtime.hpp"
 
+#include "command_registry.hpp"
+#include "entity_id_reservation.hpp"
 #include "fixed_delta.hpp"
 #include "input_batch.hpp"
 #include "simulation_runtime_lifecycle_error.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <mutex>
 #include <stop_token>
 #include <utility>
+#include <vector>
 
 namespace blob_royale::runtime {
+
+namespace {
+
+// The reservation width a tick needs is its spawn count plus the system headroom, so the drained
+// commands are counted before the block is asked for. Counted here rather than tracked by the
+// mailbox because a superseded spawn must not be counted twice and only the drained vector knows
+// what actually survived to this tick.
+[[nodiscard]] std::uint64_t
+spawn_command_count(const std::vector<simulation::Command>& commands) noexcept {
+  std::uint64_t count = 0;
+  for (const simulation::Command& command : commands) {
+    if (simulation::command_kind_of(command) == simulation::CommandKind::kSpawn) {
+      ++count;
+    }
+  }
+  return count;
+}
+
+} // namespace
 
 SimulationRuntime::SimulationRuntime(simulation::GameSimulation game_simulation)
     : game_simulation_(std::move(game_simulation)),
       snapshot_publication_(game_simulation_.snapshot()),
+      entity_id_allocator_(EntityIdAllocator::above_committed_state(game_simulation_)),
+      command_mailbox_(game_simulation_.accepted_command_kinds()),
+      command_sink_(command_mailbox_, controller_directory_, entity_id_allocator_),
       simulation_thread_([this](const std::stop_token stop_token) { run(stop_token); }) {}
 
 SimulationRuntime::~SimulationRuntime() { stop(); }
@@ -148,10 +174,6 @@ void SimulationRuntime::rethrow_if_failed() const {
 
 void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
   const simulation::FixedDelta fixed_delta = simulation::FixedDelta::canonical();
-  // The runtime has no command source yet, so every tick reads the no-input batch. The bounded
-  // mailbox that swaps a real batch in once per tick arrives in Step 22; a tick with no commands
-  // is this same call, not a different code path.
-  const simulation::InputBatch empty_input_batch = simulation::InputBatch::empty();
   const Clock::duration tick_duration = fixed_delta.duration();
   std::unique_lock lock(lifecycle_mutex_);
 
@@ -169,10 +191,23 @@ void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
       lock.unlock();
       std::shared_ptr<const simulation::WorldSnapshot> completed_snapshot;
       try {
-        game_simulation_.step(fixed_delta, empty_input_batch);
+        // Exactly one drain per tick. A second drainer would hand one tick's commands to two ticks,
+        // which is why nothing but this worker may call `drain`.
+        std::vector<simulation::Command> commands = command_mailbox_.drain();
+        const simulation::EntityIdReservation reservation =
+            entity_id_allocator_.reserve_for_tick(spawn_command_count(commands));
+        // Never `InputBatch::empty()`: the reservation is non-empty on every tick, so a system that
+        // must create an entity on its first running tick always has an id to draw.
+        const simulation::InputBatch input_batch = simulation::InputBatch::create(
+            std::move(commands), command_mailbox_.accepted_kinds(), reservation);
+        game_simulation_.step(fixed_delta, input_batch);
         completed_snapshot =
             std::make_shared<const simulation::WorldSnapshot>(game_simulation_.snapshot());
       } catch (...) {
+        // A throw from `InputBatch::create` means the sink and the engine disagree about the
+        // running mode or about what a command may carry, which
+        // `docs/architecture/0003-deterministic-simulation-contract.md` § "Accepted simulation
+        // input" keeps a hard failure rather than a dropped input.
         record_worker_failure(std::current_exception());
         return;
       }

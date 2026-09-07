@@ -332,8 +332,6 @@ void require_committed_bodies_in_bounds(const GameWorld& world, const MapDefinit
 struct IndexedBody final {
   EntityId entity;
   Vector2 position;
-
-  friend bool operator==(const IndexedBody&, const IndexedBody&) = default;
 };
 
 [[nodiscard]] bool same_indexed_body(const IndexedBody& indexed, const BodyEntry& entry) noexcept {

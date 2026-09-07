@@ -1,15 +1,28 @@
+#include "command_mailbox.hpp"
+#include "command_registry.hpp"
+#include "command_sink.hpp"
+#include "command_submission_result.hpp"
+#include "components/controllable_component.hpp"
+#include "controller_directory.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "fixed_delta.hpp"
 #include "game_simulation.hpp"
+#include "game_simulation_setup.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
+#include "runtime_limits.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_runtime.hpp"
 #include "simulation_runtime_lifecycle_error.hpp"
 #include "simulation_runtime_state.hpp"
+#include "simulation_system.hpp"
 #include "simulation_validation_error.hpp"
 #include "snapshot_publication.hpp"
+#include "system_pipeline.hpp"
+#include "tick_context.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 #include "world_snapshot.hpp"
 
@@ -20,10 +33,13 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <latch>
 #include <memory>
 #include <semaphore>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace runtime = blob_royale::runtime;
@@ -422,4 +438,231 @@ TEST_CASE("SimulationRuntime preserves the last complete snapshot and original w
   simulation_runtime.stop();
   CHECK(simulation_runtime.state() == runtime::SimulationRuntimeState::kFailed);
   CHECK_THROWS_AS(simulation_runtime.resume(), simulation::SimulationValidationError);
+}
+
+namespace {
+
+constexpr std::size_t kConcurrentSubmitterCount = 4;
+constexpr std::size_t kSubmissionsPerSubmitter = 128;
+constexpr simulation::TickSequence::Value kCommandPathTickTarget = 8;
+
+// Everything a tick can be asked about from inside itself. Atomic because the runtime worker writes
+// it while the test thread reads it, which is exactly the boundary these tests are about.
+struct TickObservation final {
+  std::atomic<std::uint64_t> observed_tick_count{0};
+  std::atomic<std::uint64_t> empty_reservation_tick_count{0};
+  std::atomic<std::uint64_t> minimum_reservation_count{~std::uint64_t{0}};
+  std::atomic<std::size_t> first_writer_thread_tag{0};
+  std::atomic<std::uint64_t> foreign_writer_thread_tick_count{0};
+  std::atomic<std::uint64_t> recorded_command_count{0};
+};
+
+// A `kPreKernel` system is the only honest observation point for "what did this tick receive?": it
+// runs inside `step`, after phase 0 has recorded commands and before anything has moved, and it is
+// the one place a `GameWorld&` exists at all.
+class TickObserverSystem final : public simulation::SimulationSystem {
+public:
+  explicit TickObserverSystem(TickObservation& observation) noexcept : observation_(&observation) {}
+
+  [[nodiscard]] std::string_view name() const noexcept override { return "tick_observer"; }
+
+  void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+    observation_->observed_tick_count.fetch_add(1, std::memory_order_acq_rel);
+
+    const std::uint64_t reservation_count = world.entity_id_reservation().count();
+    if (reservation_count == 0) {
+      observation_->empty_reservation_tick_count.fetch_add(1, std::memory_order_acq_rel);
+    }
+    std::uint64_t observed_minimum =
+        observation_->minimum_reservation_count.load(std::memory_order_acquire);
+    while (reservation_count < observed_minimum &&
+           !observation_->minimum_reservation_count.compare_exchange_weak(
+               observed_minimum, reservation_count, std::memory_order_acq_rel,
+               std::memory_order_acquire)) {
+    }
+
+    // Zero is the "nothing recorded yet" sentinel, so a hash of zero is folded onto one rather than
+    // being mistaken for an unwritten slot.
+    const std::size_t thread_hash = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    const std::size_t writer_tag = thread_hash == 0 ? 1 : thread_hash;
+    std::size_t recorded_tag = 0;
+    if (!observation_->first_writer_thread_tag.compare_exchange_strong(
+            recorded_tag, writer_tag, std::memory_order_acq_rel, std::memory_order_acquire) &&
+        recorded_tag != writer_tag) {
+      observation_->foreign_writer_thread_tick_count.fetch_add(1, std::memory_order_acq_rel);
+    }
+
+    for (const auto& entry : world.store<simulation::Controllable>().entries()) {
+      observation_->recorded_command_count.fetch_add(
+          static_cast<std::uint64_t>(entry.value.commands_this_tick.size()),
+          std::memory_order_acq_rel);
+    }
+  }
+
+private:
+  TickObservation* observation_;
+};
+
+[[nodiscard]] simulation::GameSimulation observed_simulation_fixture(TickObservation& observation) {
+  std::vector<simulation::SystemPipeline::StagedSystem> declared_systems;
+  declared_systems.push_back(simulation::SystemPipeline::StagedSystem{
+      .stage = simulation::SystemStage::kPreKernel,
+      .system = std::make_unique<const TickObserverSystem>(observation)});
+  return simulation::GameSimulation::create(
+      simulation_config_fixture(),
+      simulation::GameWorld::create(
+          {player_fixture(kSecondPlayerId, kSecondPlayerPositionX, kSecondPlayerPositionY),
+           player_fixture(kFirstPlayerId, kFirstPlayerPositionX, kFirstPlayerPositionY)}),
+      simulation::GameSimulationSetup::engine_defaults().with_systems(
+          simulation::SystemPipeline::create(std::move(declared_systems))));
+}
+
+[[nodiscard]] simulation::Command thrust_fixture(const simulation::EntityId::Value entity_id,
+                                                 const double x, const double y) {
+  return simulation::ThrustCommand{.entity = simulation::EntityId::create(entity_id),
+                                   .direction = simulation::Vector2::create(x, y)};
+}
+
+[[nodiscard]] bool
+wait_for_player_count(const runtime::SnapshotPublication& publication, const std::size_t target,
+                      const std::chrono::steady_clock::duration timeout = kTestDeadline) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (publication.latest()->players().size() == target) {
+      return true;
+    }
+    std::this_thread::yield();
+  }
+  return publication.latest()->players().size() == target;
+}
+
+} // namespace
+
+TEST_CASE("SimulationRuntime opens its entity id cursor above every committed entity",
+          "[unit][runtime][command_path]") {
+  runtime::SimulationRuntime simulation_runtime(stable_simulation_fixture());
+
+  // The seeded roster reaches kSecondPlayerId, so the first id a tick could create must be above it
+  // or a spawn would graft a new entity onto a seeded one.
+  REQUIRE(simulation_runtime.next_entity_id().value() == kSecondPlayerId + 1);
+}
+
+TEST_CASE("SimulationRuntime drains its mailbox exactly once per committed tick",
+          "[unit][runtime][command_path]") {
+  runtime::SimulationRuntime simulation_runtime(stable_simulation_fixture());
+
+  simulation_runtime.start();
+  REQUIRE(wait_for_ready_tick(simulation_runtime.snapshot_publication(), kCommandPathTickTarget));
+  // Pause is synchronous, so no tick can be in flight while the two counters are compared.
+  simulation_runtime.pause();
+
+  const simulation::TickSequence::Value committed_ticks =
+      simulation_runtime.snapshot_publication().latest()->tick_sequence().value();
+  REQUIRE(committed_ticks >= kCommandPathTickTarget);
+  REQUIRE(simulation_runtime.command_mailbox_statistics().drain_count == committed_ticks);
+}
+
+TEST_CASE("SimulationRuntime hands every tick a non-empty entity id reservation",
+          "[unit][runtime][command_path]") {
+  TickObservation observation;
+  runtime::SimulationRuntime simulation_runtime(observed_simulation_fixture(observation));
+
+  simulation_runtime.start();
+  REQUIRE(wait_for_ready_tick(simulation_runtime.snapshot_publication(), kCommandPathTickTarget));
+  simulation_runtime.pause();
+
+  REQUIRE(observation.observed_tick_count.load(std::memory_order_acquire) >=
+          kCommandPathTickTarget);
+  // Never InputBatch::empty(): royale creates its zone entity from the reservation on its first
+  // running tick, so a tick with no ids to draw would be a hard failure there.
+  REQUIRE(observation.empty_reservation_tick_count.load(std::memory_order_acquire) == 0);
+  REQUIRE(observation.minimum_reservation_count.load(std::memory_order_acquire) >=
+          runtime::kSystemCreatedEntityHeadroom);
+}
+
+TEST_CASE("SimulationRuntime mutates the simulation only on its own worker thread",
+          "[unit][runtime][command_path][concurrency]") {
+  TickObservation observation;
+  runtime::SimulationRuntime simulation_runtime(observed_simulation_fixture(observation));
+  const std::size_t test_thread_hash = std::hash<std::thread::id>{}(std::this_thread::get_id());
+
+  simulation_runtime.start();
+  REQUIRE(wait_for_ready_tick(simulation_runtime.snapshot_publication(), kCommandPathTickTarget));
+  simulation_runtime.pause();
+
+  REQUIRE(observation.foreign_writer_thread_tick_count.load(std::memory_order_acquire) == 0);
+  REQUIRE(observation.first_writer_thread_tag.load(std::memory_order_acquire) != 0);
+  REQUIRE(observation.first_writer_thread_tag.load(std::memory_order_acquire) != test_thread_hash);
+}
+
+TEST_CASE("SimulationRuntime applies a command submitted through its write-only sink",
+          "[unit][runtime][command_path]") {
+  runtime::SimulationRuntime simulation_runtime(stable_simulation_fixture());
+  const simulation::ControllerId controller =
+      simulation_runtime.command_sink().open_session("session", "Ada");
+
+  REQUIRE(simulation_runtime.command_sink().submit(
+              controller,
+              simulation::DespawnCommand{.entity = simulation::EntityId::create(kFirstPlayerId)}) ==
+          runtime::CommandSubmissionResult::kAccepted);
+  simulation_runtime.start();
+
+  REQUIRE(wait_for_player_count(simulation_runtime.snapshot_publication(), 1));
+  const auto snapshot = simulation_runtime.snapshot_publication().latest();
+  REQUIRE(snapshot->players().size() == 1);
+  REQUIRE(snapshot->players()[0].entity_id().value() == kSecondPlayerId);
+  REQUIRE(simulation_runtime.command_mailbox_statistics().dropped_command_count == 0);
+}
+
+TEST_CASE("SimulationRuntime accepts concurrent submissions while its worker ticks",
+          "[unit][runtime][command_path][concurrency]") {
+  TickObservation observation;
+  runtime::SimulationRuntime simulation_runtime(observed_simulation_fixture(observation));
+  std::barrier start_line(static_cast<std::ptrdiff_t>(kConcurrentSubmitterCount + 1));
+  std::vector<std::jthread> submitters;
+  submitters.reserve(kConcurrentSubmitterCount);
+
+  simulation_runtime.start();
+  REQUIRE(wait_for_ready_tick(simulation_runtime.snapshot_publication(), 1));
+
+  for (std::size_t submitter_index = 0; submitter_index < kConcurrentSubmitterCount;
+       ++submitter_index) {
+    submitters.emplace_back([&, submitter_index] {
+      const simulation::ControllerId controller =
+          simulation_runtime.command_sink().open_session("session", "Ada");
+      start_line.arrive_and_wait();
+      for (std::size_t submission = 0; submission < kSubmissionsPerSubmitter; ++submission) {
+        const simulation::EntityId::Value entity_id =
+            (submitter_index + submission) % 2 == 0 ? kFirstPlayerId : kSecondPlayerId;
+        static_cast<void>(simulation_runtime.command_sink().submit(
+            controller, thrust_fixture(entity_id, 1.0, 0.0)));
+      }
+      static_cast<void>(simulation_runtime.command_sink().close_session(controller));
+    });
+  }
+
+  start_line.arrive_and_wait();
+  for (std::jthread& submitter : submitters) {
+    submitter.join();
+  }
+  REQUIRE(wait_for_tick(simulation_runtime.snapshot_publication(), kCommandPathTickTarget));
+  simulation_runtime.pause();
+
+  simulation_runtime.rethrow_if_failed();
+  REQUIRE(simulation_runtime.state() == runtime::SimulationRuntimeState::kPaused);
+
+  const runtime::CommandMailbox::Statistics statistics =
+      simulation_runtime.command_mailbox_statistics();
+  // Two live entities and one kind means at most two occupied slots, so nothing can overflow.
+  REQUIRE(statistics.dropped_command_count == 0);
+  REQUIRE(statistics.rejected_unaccepted_kind_count == 0);
+  REQUIRE(statistics.submitted_command_count ==
+          kConcurrentSubmitterCount * kSubmissionsPerSubmitter);
+  REQUIRE(statistics.accepted_command_count == statistics.submitted_command_count);
+  REQUIRE(statistics.drain_count ==
+          simulation_runtime.snapshot_publication().latest()->tick_sequence().value());
+  // The commands genuinely reached ticks rather than merely being accepted by the mailbox.
+  REQUIRE(observation.recorded_command_count.load(std::memory_order_acquire) > 0);
+  REQUIRE(observation.foreign_writer_thread_tick_count.load(std::memory_order_acquire) == 0);
+  REQUIRE(simulation_runtime.controller_directory().size() == 0);
 }

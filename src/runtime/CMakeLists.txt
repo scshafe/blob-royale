@@ -1,4 +1,9 @@
 add_library(blob_runtime STATIC
+  command_mailbox.cpp
+  command_sink.cpp
+  command_sink_error.cpp
+  controller_directory.cpp
+  entity_id_allocator.cpp
   simulation_runtime.cpp
   simulation_runtime_lifecycle_error.cpp
   snapshot_publication.cpp

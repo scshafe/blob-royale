@@ -1,8 +1,10 @@
 #include "blob_royale_application.hpp"
 
 #include "application_lifecycle_error.hpp"
+#include "command_mailbox.hpp"
 #include "game_server_state.hpp"
 #include "simulation_runtime_state.hpp"
+#include "structured_logger.hpp"
 
 #include <boost/asio/error.hpp>
 #include <boost/asio/io_context.hpp>
@@ -12,6 +14,7 @@
 
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <exception>
 #include <optional>
 #include <string>
@@ -34,11 +37,19 @@ enum class ControlWakeReason {
 
 // Registers process signals and runs its event loop on the BlobRoyaleApplication::run caller.
 // The timer observes lifecycle state only; simulation cadence remains owned by SimulationRuntime.
+//
+// It is also where a dropped command becomes visible. `blob_runtime` links no logger by contract
+// (`docs/architecture/0002-simulation-architecture.md` § "Ownership and lifecycle":
+// StructuredLogger "never enters simulation, runtime, or protocol values"), so the runtime counts
+// overflow drops and this composition root -- which already polls runtime state on a fixed interval
+// and already owns the logger -- turns a rising count into a structured line. A drop is therefore
+// never silent even when the submitting session ignored its `CommandSubmissionResult`.
 class ApplicationControlWait final {
 public:
   ApplicationControlWait(const runtime::SimulationRuntime& simulation_runtime,
-                         const server::GameServer& game_server)
-      : simulation_runtime_(simulation_runtime), game_server_(game_server),
+                         const server::GameServer& game_server,
+                         observability::StructuredLogger& logger)
+      : simulation_runtime_(simulation_runtime), game_server_(game_server), logger_(logger),
         process_signals_(control_context_, SIGINT, SIGTERM), status_poll_(control_context_) {}
 
   [[nodiscard]] ControlWakeReason wait() {
@@ -87,7 +98,38 @@ private:
     });
   }
 
+  // Reports every command the mailbox refused since the previous observation. Losing a spawn or a
+  // despawn is reported at error severity because the roster itself lost a change -- a disconnected
+  // player's body stays in the arena, or a connected one never gets a body -- while a lost thrust
+  // is one missed 2.5 ms of steering.
+  void observe_dropped_commands() noexcept {
+    const runtime::CommandMailbox::Statistics statistics =
+        simulation_runtime_.command_mailbox_statistics();
+    if (statistics.dropped_command_count == reported_dropped_command_count_) {
+      return;
+    }
+    const std::uint64_t newly_dropped =
+        statistics.dropped_command_count - reported_dropped_command_count_;
+    const std::uint64_t newly_dropped_lifecycle =
+        statistics.dropped_entity_lifecycle_command_count -
+        reported_dropped_entity_lifecycle_command_count_;
+    reported_dropped_command_count_ = statistics.dropped_command_count;
+    reported_dropped_entity_lifecycle_command_count_ =
+        statistics.dropped_entity_lifecycle_command_count;
+
+    const std::string detail =
+        "dropped_command_count=" + std::to_string(newly_dropped) +
+        " dropped_entity_lifecycle_command_count=" + std::to_string(newly_dropped_lifecycle) +
+        " pending_command_count=" + std::to_string(statistics.pending_command_count);
+    logger_.write({.severity = newly_dropped_lifecycle > 0 ? observability::LogSeverity::kError
+                                                           : observability::LogSeverity::kWarning,
+                   .event = "runtime.command_dropped",
+                   .error_code = "RUNTIME.COMMAND_MAILBOX_OVERFLOW",
+                   .detail = detail});
+  }
+
   void observe_component_state() noexcept {
+    observe_dropped_commands();
     const server::GameServerState server_state = game_server_.state();
     if (server_state == server::GameServerState::kStopped ||
         server_state == server::GameServerState::kFailed) {
@@ -114,6 +156,9 @@ private:
 
   const runtime::SimulationRuntime& simulation_runtime_;
   const server::GameServer& game_server_;
+  observability::StructuredLogger& logger_;
+  std::uint64_t reported_dropped_command_count_{0};
+  std::uint64_t reported_dropped_entity_lifecycle_command_count_{0};
   boost::asio::io_context control_context_{1};
   boost::asio::signal_set process_signals_;
   boost::asio::steady_timer status_poll_;
@@ -153,7 +198,7 @@ void BlobRoyaleApplication::run() {
   ControlWakeReason wake_reason = ControlWakeReason::kControlWaitFailed;
   std::optional<ApplicationControlWait> control_wait;
   try {
-    control_wait.emplace(simulation_runtime_, game_server_);
+    control_wait.emplace(simulation_runtime_, game_server_, logger_);
     simulation_runtime_.start();
     start_server_thread();
     if (!game_server_.wait_for_startup_resolution(kServerStartupDeadline)) {

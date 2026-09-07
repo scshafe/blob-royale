@@ -1,4 +1,8 @@
 add_executable(blob_runtime_unit_tests
+  command_mailbox_tests.cpp
+  command_sink_tests.cpp
+  controller_directory_tests.cpp
+  entity_id_allocator_tests.cpp
   simulation_runtime_tests.cpp
   snapshot_publication_tests.cpp
 )

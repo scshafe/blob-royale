@@ -16,6 +16,13 @@ enum class ProtocolEncodingErrorCode {
   kTimestampInvalid,
   kSnapshotTickOutOfRange,
   kEncodedPayloadTooLarge,
+  kSessionWelcomeInvalid,
+  kSnapshotEntityOrderInvalid,
+  kSnapshotEntityLimitExceeded,
+  kPlacementLimitExceeded,
+  kPlacementControllerUnknown,
+  kMatchModeNameInvalid,
+  kComponentValueOutOfRange,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -37,6 +44,20 @@ protocol_encoding_error_code_name(ProtocolEncodingErrorCode error_code) noexcept
     return "PROTOCOL.ENCODING.SNAPSHOT_TICK_OUT_OF_RANGE";
   case ProtocolEncodingErrorCode::kEncodedPayloadTooLarge:
     return "PROTOCOL.ENCODING.PAYLOAD_TOO_LARGE";
+  case ProtocolEncodingErrorCode::kSessionWelcomeInvalid:
+    return "PROTOCOL.ENCODING.SESSION_WELCOME_INVALID";
+  case ProtocolEncodingErrorCode::kSnapshotEntityOrderInvalid:
+    return "PROTOCOL.ENCODING.SNAPSHOT_ENTITY_ORDER_INVALID";
+  case ProtocolEncodingErrorCode::kSnapshotEntityLimitExceeded:
+    return "PROTOCOL.ENCODING.SNAPSHOT_ENTITY_LIMIT_EXCEEDED";
+  case ProtocolEncodingErrorCode::kPlacementLimitExceeded:
+    return "PROTOCOL.ENCODING.PLACEMENT_LIMIT_EXCEEDED";
+  case ProtocolEncodingErrorCode::kPlacementControllerUnknown:
+    return "PROTOCOL.ENCODING.PLACEMENT_CONTROLLER_UNKNOWN";
+  case ProtocolEncodingErrorCode::kMatchModeNameInvalid:
+    return "PROTOCOL.ENCODING.MATCH_MODE_NAME_INVALID";
+  case ProtocolEncodingErrorCode::kComponentValueOutOfRange:
+    return "PROTOCOL.ENCODING.COMPONENT_VALUE_OUT_OF_RANGE";
   }
   return "PROTOCOL.ENCODING.ERROR_CODE_INVALID";
 }

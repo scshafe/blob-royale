@@ -1,0 +1,127 @@
+#ifndef BLOB_ROYALE_PROTOCOL_MODE_STATE_WIRE_ENCODING_HPP
+#define BLOB_ROYALE_PROTOCOL_MODE_STATE_WIRE_ENCODING_HPP
+
+#include "component_encoding.hpp"
+#include "protocol_v2_constants.hpp"
+
+#include "entity_id.hpp"
+#include "match_phase.hpp"
+#include "mode_match_state_registry.hpp"
+#include "mode_states/no_mode_state.hpp"
+#include "mode_states/royale_placements_mode_state.hpp"
+#include "tick_sequence.hpp"
+
+#include <cstdint>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+namespace blob_royale::protocol {
+
+// One mode's contribution to the generic `match.placements` array, before the encoding boundary
+// resolves the controller each entry also carries on the wire.
+//
+// **Placements are generic on the wire and mode-owned in the world.** They describe entities that
+// no longer exist, so they are not entity-shaped and cannot be components, which is why
+// `docs/protocol/v2.md` § "Alternatives considered" publishes them in `match` while refusing to
+// publish the zone there. This value is the seam: every mode-state arm contributes its ranking in
+// this one shape and the encoder writes one array.
+struct ModeStatePlacement final {
+  simulation::EntityId entity;
+  std::uint64_t placement{};
+  simulation::TickSequence eliminated_tick;
+
+  friend bool operator==(const ModeStatePlacement&, const ModeStatePlacement&) = default;
+};
+
+// canonical: mode_state_wire_encoding -- what one mode-state block publishes on the v2 wire.
+// @extension-point snapshot_mode_state
+//
+// Declared and never defined, exactly like `simulation::ModeMatchStateSchemaId`, so an arm added to
+// `ModeMatchState` without a wire encoding fails to compile at the snapshot encoder rather than
+// publishing an unregistered schema id every client must close on.
+//
+// The wire schema id is **not** the simulation's schema id. The world calls royale's block
+// `royale_placements` because that is what it holds; the wire calls it
+// `blob-royale://protocol/v2/mode-state/royale` because the wire block is the mode's state minus
+// the ranking the generic `match.placements` array already carries. Mapping here rather than
+// renaming either side keeps both names accurate.
+//
+// Adding a mode-state block end to end:
+//
+//   new  src/simulation/mode_states/<schema>_mode_state.hpp     the value struct
+//   edit src/simulation/mode_match_state_registry.hpp           one variant arm, one schema id
+//   edit src/protocol/mode_state_wire_encoding.hpp              this specialization
+//   new  docs/protocol/schema/v2/<mode>-mode-state.schema.json  the closed wire shape
+//   edit docs/protocol/schema/v2/common.schema.json             one mode_state_schema_id member
+//   edit docs/protocol/schema/v2/match-data.schema.json         one if/then row
+//   edit src/protocol/protocol_v2_constants.hpp                 the id constant
+// related: src/simulation/mode_match_state_registry.hpp -- the closed list this mirrors.
+template <typename ModeStateType> struct ModeStateWireEncoding;
+
+// A mode whose state is entirely entity-shaped publishes the `none` id and an **empty object**
+// rather than a null, so a decoder has one code path instead of a nullable branch
+// (`docs/protocol/v2.md` § "snapshot").
+template <> struct ModeStateWireEncoding<simulation::NoModeState> {
+  static constexpr std::string_view kSchemaId = kNoModeStateSchemaId;
+
+  static void encode_value(const simulation::NoModeState&, ComponentObjectSink&) {}
+
+  static void append_placements(const simulation::NoModeState&, std::vector<ModeStatePlacement>&) {}
+};
+
+// Royale's block carries only `previous_phase`: the zone is the `Zone` component of the zone entity
+// and the ordered ranking travels in the generic `match.placements` array
+// (`docs/architecture/0005-royale-mode.md` § "Match section fields").
+template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> {
+  static constexpr std::string_view kSchemaId = kRoyaleModeStateSchemaId;
+
+  static void encode_value(const simulation::RoyalePlacementsModeState& mode_state,
+                           ComponentObjectSink& sink) {
+    sink.set_string("previous_phase", simulation::match_phase_name(mode_state.previous_phase));
+  }
+
+  static void append_placements(const simulation::RoyalePlacementsModeState& mode_state,
+                                std::vector<ModeStatePlacement>& placements) {
+    placements.reserve(placements.size() + mode_state.placements.size());
+    for (const simulation::RoyalePlacement& placement : mode_state.placements) {
+      placements.push_back(
+          ModeStatePlacement{placement.entity, placement.placement, placement.elimination_tick});
+    }
+  }
+};
+
+// The wire schema id of the held block. Total over the closed variant and generated from the
+// specializations, so a new arm cannot silently answer with an existing id.
+[[nodiscard]] inline std::string_view
+mode_state_wire_schema_id_of(const simulation::ModeMatchState& mode_state) noexcept {
+  return std::visit(
+      []<typename ModeStateType>(const ModeStateType&) -> std::string_view {
+        return ModeStateWireEncoding<ModeStateType>::kSchemaId;
+      },
+      mode_state);
+}
+
+// The held block's `value` members, in declared order.
+inline void encode_mode_state_value(const simulation::ModeMatchState& mode_state,
+                                    ComponentObjectSink& sink) {
+  std::visit(
+      [&sink]<typename ModeStateType>(const ModeStateType& held) {
+        ModeStateWireEncoding<ModeStateType>::encode_value(held, sink);
+      },
+      mode_state);
+}
+
+// The held block's contribution to the generic `match.placements` array, in recorded order.
+inline void append_mode_state_placements(const simulation::ModeMatchState& mode_state,
+                                         std::vector<ModeStatePlacement>& placements) {
+  std::visit(
+      [&placements]<typename ModeStateType>(const ModeStateType& held) {
+        ModeStateWireEncoding<ModeStateType>::append_placements(held, placements);
+      },
+      mode_state);
+}
+
+} // namespace blob_royale::protocol
+
+#endif

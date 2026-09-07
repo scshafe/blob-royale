@@ -3,6 +3,7 @@
 #include "application_input_error.hpp"
 #include "controller_registry.hpp"
 #include "game_mode_registry.hpp"
+#include "snake_case_identity.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -17,20 +18,12 @@
 namespace blob_royale::application {
 namespace {
 
-// `common.schema.json#/$defs/kind_name`: the grammar every published mode and controller kind must
-// already satisfy, checked here so an unencodable name is a startup rejection.
-constexpr std::size_t kMaximumKindNameLength = 64;
-
-[[nodiscard]] bool is_wire_kind_name(const std::string_view value) noexcept {
-  if (value.empty() || value.size() > kMaximumKindNameLength || value.front() < 'a' ||
-      value.front() > 'z') {
-    return false;
-  }
-  return std::all_of(value.cbegin(), value.cend(), [](const char character) {
-    return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') ||
-           character == '_';
-  });
-}
+// The grammar every published mode and controller kind must already satisfy is
+// `simulation::is_wire_kind_name`, checked here so an unencodable name is a startup rejection.
+// It is not restated: it was copied into three libraries once and is now owned by the one library
+// all three depend on (`src/simulation/snake_case_identity.hpp`).
+using simulation::is_wire_kind_name;
+using simulation::kMaximumKindNameLength;
 
 // `common.schema.json#/$defs/map_name`. It admits the dash and dot a directory name carries and no
 // path separator at all, which is what keeps `map=` a name rather than a traversal.

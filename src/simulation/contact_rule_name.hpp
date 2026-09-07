@@ -3,6 +3,7 @@
 
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "snake_case_identity.hpp"
 
 #include <algorithm>
 #include <array>
@@ -71,21 +72,6 @@ public:
   friend bool operator==(const ContactRuleName&, const ContactRuleName&) = default;
 
 private:
-  [[nodiscard]] static constexpr bool
-  is_snake_case_identity(const std::string_view value) noexcept {
-    if (value.front() < 'a' || value.front() > 'z') {
-      return false;
-    }
-    for (const char character : value) {
-      const bool accepted = (character >= 'a' && character <= 'z') ||
-                            (character >= '0' && character <= '9') || character == '_';
-      if (!accepted) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   std::array<char, kCapacity> characters_{};
   std::size_t length_{};
 };

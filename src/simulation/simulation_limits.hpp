@@ -52,6 +52,11 @@ inline constexpr std::size_t kMaximumWorldEventCount = 16 * kMaximumEntityCount;
 // steering system scales it by its own declared maximum.
 inline constexpr double kMaximumThrustDirectionComponentMagnitude = 1.0;
 // One contact rule row's declared name, which is also what a ContactEvent publishes.
+// The published kind-name length of `docs/protocol/schema/v2/common.schema.json`
+// § `$defs/kind_name`, shared by every configured kind name: a mode, a controller kind, a hazard
+// kind. Paired with `snake_case_identity.hpp`'s grammar by `is_wire_kind_name`.
+inline constexpr std::size_t kMaximumKindNameLength = 64;
+
 inline constexpr std::size_t kMaximumContactRuleNameLength = 64;
 // One map's authored content. Static bodies and markers each take a world seat once a mode seats
 // them, so neither may exceed the roster the world can hold; the metadata bounds keep a map file a

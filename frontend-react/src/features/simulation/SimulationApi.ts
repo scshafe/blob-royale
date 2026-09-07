@@ -1,23 +1,31 @@
 import { SimulationApiError } from './SimulationApiError';
 import {
+  COMMAND_MESSAGE_MAX_BYTES,
   CONFIGURATION_ENDPOINT_PATH,
   CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS,
   CONFIGURATION_RESPONSE_MAX_BYTES,
-  SNAPSHOT_ENDPOINT_PATH,
-  SNAPSHOT_FRAME_MAX_BYTES,
-  SNAPSHOT_WEBSOCKET_SUBPROTOCOL,
+  SESSION_ENDPOINT_PATH,
+  SESSION_FRAME_MAX_BYTES,
+  SESSION_WEBSOCKET_SUBPROTOCOL,
   WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS,
 } from './simulationConstants';
 import type {
+  SessionCommand,
+  SessionCommandKind,
+  SessionSnapshotMessage,
+  SessionWelcomeMessage,
   SimulationConfiguration,
-  SimulationSnapshotMessage,
 } from './simulationProtocolTypes';
 import {
-  type SnapshotSequenceState,
   validateSimulationConfigurationResponse,
   validateSimulationHttpErrorResponse,
-  validateSimulationSnapshotMessage,
 } from './simulationProtocolValidation';
+import {
+  type SessionSequenceState,
+  validateSessionCommand,
+  validateSessionSnapshotMessage,
+  validateSessionWelcomeMessage,
+} from './sessionProtocolValidation';
 
 const WEBSOCKET_CONNECTING = 0;
 const WEBSOCKET_OPEN = 1;
@@ -30,7 +38,7 @@ export interface SimulationBrowserLocation {
 
 export interface SimulationEndpoints {
   readonly configurationUrl: string;
-  readonly snapshotWebSocketUrl: string;
+  readonly sessionWebSocketUrl: string;
 }
 
 export interface SimulationWebSocket {
@@ -41,6 +49,7 @@ export interface SimulationWebSocket {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
   onopen: ((event: Event) => void) | null;
   close(code?: number, reason?: string): void;
+  send(data: string): void;
 }
 
 export type SimulationWebSocketFactory = (
@@ -56,19 +65,21 @@ export interface SimulationDisconnection {
   readonly wasClean: boolean;
 }
 
-export interface SimulationSnapshotCallbacks {
+export interface SimulationSessionCallbacks {
   readonly onConnected: () => void;
   readonly onDisconnected: (disconnection: SimulationDisconnection) => void;
   readonly onFailure: (error: SimulationApiError) => void;
-  readonly onSnapshot: (snapshot: SimulationSnapshotMessage) => void;
+  readonly onSnapshot: (snapshot: SessionSnapshotMessage) => void;
+  readonly onWelcome: (welcome: SessionWelcomeMessage) => void;
 }
 
 export interface SimulationApiBoundary {
   loadConfiguration(signal: AbortSignal): Promise<SimulationConfiguration>;
-  openSnapshotStream(
+  openSession(
     configuration: SimulationConfiguration,
-    callbacks: SimulationSnapshotCallbacks,
+    callbacks: SimulationSessionCallbacks,
   ): void;
+  sendCommand(command: SessionCommand): boolean;
   dispose(): void;
 }
 
@@ -78,7 +89,11 @@ export interface SimulationApiDependencies {
   readonly webSocketFactory?: SimulationWebSocketFactory;
 }
 
-/** Derives the two exact v1 endpoints from one validated browser authority. */
+/**
+ * Derives the exact configuration and session endpoints from one validated browser authority.
+ * Configuration stays on protocol v1 because v2 deliberately adds no second source for one set of
+ * numbers; the session socket is the only v2 target.
+ */
 export function deriveSimulationEndpoints(
   location: SimulationBrowserLocation,
 ): SimulationEndpoints {
@@ -122,13 +137,13 @@ export function deriveSimulationEndpoints(
   }
 
   const configurationUrl = new URL(CONFIGURATION_ENDPOINT_PATH, pageOrigin);
-  const snapshotWebSocketUrl = new URL(SNAPSHOT_ENDPOINT_PATH, pageOrigin);
-  snapshotWebSocketUrl.protocol =
+  const sessionWebSocketUrl = new URL(SESSION_ENDPOINT_PATH, pageOrigin);
+  sessionWebSocketUrl.protocol =
     location.protocol === 'https:' ? 'wss:' : 'ws:';
 
   return Object.freeze({
     configurationUrl: configurationUrl.href,
-    snapshotWebSocketUrl: snapshotWebSocketUrl.href,
+    sessionWebSocketUrl: sessionWebSocketUrl.href,
   });
 }
 
@@ -302,15 +317,40 @@ async function readBoundedJsonDocument(
   }
 }
 
-/** @canonical simulation_api -- owns all browser transport for protocol v1. */
+interface SessionCloseIntent {
+  readonly code: number;
+  readonly reason: string;
+}
+
+/**
+ * Maps a decode failure to the close the protocol names for it. Failing closed rather than ignoring
+ * the frame is the accepted rule: an unrenderable frame means the client and the server disagree
+ * about what the world is, and a client that keeps rendering is quietly wrong.
+ */
+function sessionCloseIntentFor(error: SimulationApiError): SessionCloseIntent {
+  switch (error.code) {
+    case 'SIMULATION.SESSION_FRAME_TOO_LARGE':
+      return { code: 1009, reason: 'session_frame_too_large' };
+    case 'SIMULATION.SESSION_VERSION_UNSUPPORTED':
+      return { code: 1003, reason: 'client_version_unsupported' };
+    case 'SIMULATION.SESSION_KIND_UNSUPPORTED':
+      return { code: 1003, reason: 'client_kind_unsupported' };
+    default:
+      return { code: 1002, reason: 'protocol_error' };
+  }
+}
+
+/** @canonical simulation_api -- owns all browser transport for protocol v2 sessions. */
 export class SimulationApi implements SimulationApiBoundary {
   private readonly endpoints: SimulationEndpoints;
   private readonly fetchImplementation: typeof fetch;
   private readonly webSocketFactory: SimulationWebSocketFactory;
+  private acceptedCommandKinds: ReadonlySet<SessionCommandKind> | null = null;
   private activeConfigurationAbortController: AbortController | null = null;
   private configuration: SimulationConfiguration | null = null;
   private configurationPromise: Promise<SimulationConfiguration> | null = null;
   private disposed = false;
+  private sequenceState: SessionSequenceState | null = null;
   private socket: SimulationWebSocket | null = null;
   private socketConnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -349,9 +389,13 @@ export class SimulationApi implements SimulationApiBoundary {
     }
   }
 
-  openSnapshotStream(
+  /**
+   * Joins the match. Connecting is joining and closing is leaving, so this method is the whole join
+   * lifecycle; a reconnect is a new join with a new controller id and nothing resumed.
+   */
+  openSession(
     configuration: SimulationConfiguration,
-    callbacks: SimulationSnapshotCallbacks,
+    callbacks: SimulationSessionCallbacks,
   ): void {
     this.assertNotDisposed();
     if (this.socket !== null) {
@@ -363,35 +407,36 @@ export class SimulationApi implements SimulationApiBoundary {
     if (this.configuration === null || configuration !== this.configuration) {
       throw new SimulationApiError(
         'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
-        'Snapshot streaming requires the validated configuration loaded by this SimulationApi.',
+        'Joining a match session requires the validated configuration loaded by this SimulationApi.',
       );
     }
 
     let socket: SimulationWebSocket;
     try {
       socket = this.webSocketFactory(
-        this.endpoints.snapshotWebSocketUrl,
-        SNAPSHOT_WEBSOCKET_SUBPROTOCOL,
+        this.endpoints.sessionWebSocketUrl,
+        SESSION_WEBSOCKET_SUBPROTOCOL,
       );
     } catch (cause) {
       throw new SimulationApiError(
         'SIMULATION.SOCKET_TRANSPORT_FAILED',
-        'Failed to construct the snapshot WebSocket.',
+        'Failed to construct the session WebSocket.',
         { cause, retryable: true },
       );
     }
 
     this.socket = socket;
-    let previousSequence: SnapshotSequenceState | null = null;
+    this.sequenceState = null;
+    this.acceptedCommandKinds = null;
 
     socket.onopen = () => {
       if (this.socket !== socket) {
         return;
       }
-      if (socket.protocol !== SNAPSHOT_WEBSOCKET_SUBPROTOCOL) {
+      if (socket.protocol !== SESSION_WEBSOCKET_SUBPROTOCOL) {
         const error = new SimulationApiError(
           'SIMULATION.SOCKET_SUBPROTOCOL_INVALID',
-          'Snapshot WebSocket did not negotiate the required subprotocol.',
+          'Session WebSocket did not negotiate the required subprotocol.',
           { context: { negotiated_subprotocol: socket.protocol } },
         );
         this.releaseSocket(socket, 1002, 'protocol_error');
@@ -399,6 +444,8 @@ export class SimulationApi implements SimulationApiBoundary {
         return;
       }
       this.clearSocketConnectTimeout();
+      // An open socket with no frames is a joiner the mode has deferred until the next lobby, not a
+      // stalled connection: the welcome cannot exist before the session owns a body.
       callbacks.onConnected();
     };
 
@@ -408,69 +455,18 @@ export class SimulationApi implements SimulationApiBoundary {
       }
 
       try {
-        if (typeof event.data !== 'string') {
-          throw new SimulationApiError(
-            'SIMULATION.SNAPSHOT_FRAME_INVALID',
-            'Snapshot WebSocket frames must be UTF-8 text.',
-          );
-        }
-
-        const frameBytes = new TextEncoder().encode(event.data).byteLength;
-        const maximumFrameBytes = Math.min(
-          configuration.presentation.snapshot_frame_max_bytes,
-          SNAPSHOT_FRAME_MAX_BYTES,
-        );
-        if (frameBytes > maximumFrameBytes) {
-          throw new SimulationApiError(
-            'SIMULATION.SNAPSHOT_FRAME_TOO_LARGE',
-            'Snapshot frame exceeds the protocol byte limit.',
-            {
-              context: {
-                actual_bytes: frameBytes,
-                maximum_bytes: maximumFrameBytes,
-              },
-            },
-          );
-        }
-
-        let untrustedDocument: unknown;
-        try {
-          untrustedDocument = JSON.parse(event.data) as unknown;
-        } catch (cause) {
-          throw new SimulationApiError(
-            'SIMULATION.SNAPSHOT_FRAME_INVALID',
-            'Snapshot frame is not one complete JSON document.',
-            { cause },
-          );
-        }
-
-        const snapshot = validateSimulationSnapshotMessage(
-          untrustedDocument,
-          configuration,
-          previousSequence,
-        );
-        previousSequence = Object.freeze({
-          messageSequence: snapshot.meta.message_sequence,
-          requestId: snapshot.meta.request_id,
-          tickSequence: snapshot.data.tick_sequence,
-        });
-        callbacks.onSnapshot(snapshot);
+        this.handleSessionFrame(event, callbacks);
       } catch (error) {
         const simulationError =
           error instanceof SimulationApiError
             ? error
             : new SimulationApiError(
-                'SIMULATION.SNAPSHOT_FRAME_INVALID',
-                'Snapshot frame validation failed unexpectedly.',
+                'SIMULATION.SESSION_FRAME_INVALID',
+                'Session frame validation failed unexpectedly.',
                 { cause: error },
               );
-        const frameTooLarge =
-          simulationError.code === 'SIMULATION.SNAPSHOT_FRAME_TOO_LARGE';
-        this.releaseSocket(
-          socket,
-          frameTooLarge ? 1009 : 1002,
-          frameTooLarge ? 'snapshot_frame_too_large' : 'protocol_error',
-        );
+        const closeIntent = sessionCloseIntentFor(simulationError);
+        this.releaseSocket(socket, closeIntent.code, closeIntent.reason);
         callbacks.onFailure(simulationError);
       }
     };
@@ -481,7 +477,7 @@ export class SimulationApi implements SimulationApiBoundary {
       }
       const error = new SimulationApiError(
         'SIMULATION.SOCKET_TRANSPORT_FAILED',
-        'Snapshot WebSocket transport failed.',
+        'Session WebSocket transport failed.',
         { retryable: true },
       );
       this.releaseSocket(socket, 4000, 'transport_failure');
@@ -503,6 +499,7 @@ export class SimulationApi implements SimulationApiBoundary {
       this.clearSocketConnectTimeout();
       this.detachSocket(socket);
       this.socket = null;
+      this.acceptedCommandKinds = null;
       callbacks.onDisconnected(
         Object.freeze({
           code: event.code,
@@ -520,7 +517,7 @@ export class SimulationApi implements SimulationApiBoundary {
       }
       const error = new SimulationApiError(
         'SIMULATION.SOCKET_CONNECT_TIMED_OUT',
-        'Snapshot WebSocket did not connect before the timeout.',
+        'Session WebSocket did not connect before the timeout.',
         {
           context: {
             timeout_milliseconds: WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS,
@@ -539,6 +536,123 @@ export class SimulationApi implements SimulationApiBoundary {
         }),
       );
     }, WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS);
+  }
+
+  /**
+   * Sends one command envelope. It is a no-op that reports `false` unless the session is open and
+   * has been welcomed with this kind accepted: a command the server would refuse closes the
+   * connection, so a client that cannot name a kind never puts it on the wire.
+   */
+  sendCommand(command: SessionCommand): boolean {
+    const socket = this.socket;
+    if (
+      this.disposed ||
+      socket === null ||
+      socket.readyState !== WEBSOCKET_OPEN ||
+      this.sequenceState === null ||
+      this.acceptedCommandKinds === null
+    ) {
+      return false;
+    }
+    if (!this.acceptedCommandKinds.has(command.kind)) {
+      return false;
+    }
+
+    let payload: string;
+    try {
+      validateSessionCommand(command);
+      payload = JSON.stringify(command);
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: 'protocol.v2.command_refused',
+          command_kind: command.kind,
+          reason:
+            error instanceof SimulationApiError ? error.code : 'unexpected',
+        }),
+      );
+      return false;
+    }
+
+    if (
+      new TextEncoder().encode(payload).byteLength > COMMAND_MESSAGE_MAX_BYTES
+    ) {
+      console.warn(
+        JSON.stringify({
+          event: 'protocol.v2.command_refused',
+          command_kind: command.kind,
+          reason: 'command_message_too_large',
+        }),
+      );
+      return false;
+    }
+
+    try {
+      socket.send(payload);
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
+  private handleSessionFrame(
+    event: MessageEvent<unknown>,
+    callbacks: SimulationSessionCallbacks,
+  ): void {
+    if (typeof event.data !== 'string') {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_FRAME_INVALID',
+        'Session WebSocket frames must be UTF-8 text.',
+      );
+    }
+
+    const frameBytes = new TextEncoder().encode(event.data).byteLength;
+    if (frameBytes > SESSION_FRAME_MAX_BYTES) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_FRAME_TOO_LARGE',
+        'Session frame exceeds the protocol byte limit.',
+        {
+          context: {
+            actual_bytes: frameBytes,
+            maximum_bytes: SESSION_FRAME_MAX_BYTES,
+          },
+        },
+      );
+    }
+
+    let untrustedDocument: unknown;
+    try {
+      untrustedDocument = JSON.parse(event.data) as unknown;
+    } catch (cause) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_FRAME_INVALID',
+        'Session frame is not one complete JSON document.',
+        { cause },
+      );
+    }
+
+    if (this.sequenceState === null) {
+      const welcome = validateSessionWelcomeMessage(untrustedDocument, null);
+      this.sequenceState = Object.freeze({
+        messageSequence: welcome.meta.message_sequence,
+        requestId: welcome.meta.request_id,
+        tickSequence: null,
+      });
+      this.acceptedCommandKinds = new Set(welcome.data.accepted_command_kinds);
+      callbacks.onWelcome(welcome);
+      return;
+    }
+
+    const snapshot = validateSessionSnapshotMessage(
+      untrustedDocument,
+      this.sequenceState,
+    );
+    this.sequenceState = Object.freeze({
+      messageSequence: snapshot.meta.message_sequence,
+      requestId: snapshot.meta.request_id,
+      tickSequence: snapshot.data.tick_sequence,
+    });
+    callbacks.onSnapshot(snapshot);
   }
 
   dispose(): void {
@@ -711,6 +825,7 @@ export class SimulationApi implements SimulationApiBoundary {
     this.clearSocketConnectTimeout();
     this.detachSocket(socket);
     this.socket = null;
+    this.acceptedCommandKinds = null;
     if (
       socket.readyState === WEBSOCKET_CONNECTING ||
       socket.readyState === WEBSOCKET_OPEN

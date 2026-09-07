@@ -3,31 +3,39 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SimulationApi,
   deriveSimulationEndpoints,
-  type SimulationSnapshotCallbacks,
+  type SimulationSessionCallbacks,
   type SimulationWebSocket,
 } from './SimulationApi';
 import {
   configurationResponseExample,
   errorResponseExample,
-  snapshotMessageExample,
 } from './fixtures/protocolV1Examples';
 import {
+  firstEntity,
+  snapshotDocument,
+  welcomeDocument,
+} from './fixtures/sessionFrames';
+import {
   CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS,
-  SNAPSHOT_FRAME_MAX_BYTES,
+  SESSION_FRAME_MAX_BYTES,
   WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS,
 } from './simulationConstants';
 
 class FakeSimulationWebSocket implements SimulationWebSocket {
-  protocol = 'blob-royale.snapshot.v1';
+  protocol = 'blob-royale.session.v2';
   readyState = 0;
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
   onopen: ((event: Event) => void) | null = null;
+  readonly sentMessages: string[] = [];
   readonly close = vi.fn((code?: number, reason?: string) => {
     void code;
     void reason;
     this.readyState = 3;
+  });
+  readonly send = vi.fn((data: string) => {
+    this.sentMessages.push(data);
   });
 
   open(): void {
@@ -84,12 +92,13 @@ function createFetchMock(response: Response) {
   );
 }
 
-function createCallbacks(): SimulationSnapshotCallbacks {
+function createCallbacks(): SimulationSessionCallbacks {
   return {
     onConnected: vi.fn(),
     onDisconnected: vi.fn(),
     onFailure: vi.fn(),
     onSnapshot: vi.fn(),
+    onWelcome: vi.fn(),
   };
 }
 
@@ -101,7 +110,7 @@ describe('deriveSimulationEndpoints', () => {
   it('derives the exact HTTP and WebSocket paths on one HTTPS authority', () => {
     expect(deriveSimulationEndpoints(secureLocation)).toEqual({
       configurationUrl: 'https://game.example.test:8443/api/v1/config',
-      snapshotWebSocketUrl: 'wss://game.example.test:8443/api/v1/snapshots',
+      sessionWebSocketUrl: 'wss://game.example.test:8443/api/v2/session',
     });
   });
 
@@ -114,7 +123,7 @@ describe('deriveSimulationEndpoints', () => {
       }),
     ).toEqual({
       configurationUrl: 'http://127.0.0.1:5173/api/v1/config',
-      snapshotWebSocketUrl: 'ws://127.0.0.1:5173/api/v1/snapshots',
+      sessionWebSocketUrl: 'ws://127.0.0.1:5173/api/v2/session',
     });
   });
 
@@ -369,8 +378,8 @@ describe('SimulationApi configuration', () => {
   });
 });
 
-describe('SimulationApi snapshot lifecycle', () => {
-  async function createConnectedApi() {
+describe('SimulationApi session lifecycle', () => {
+  async function createJoinedApi() {
     const sockets: FakeSimulationWebSocket[] = [];
     const api = new SimulationApi({
       fetchImplementation: createFetchMock(
@@ -380,8 +389,8 @@ describe('SimulationApi snapshot lifecycle', () => {
       ),
       location: secureLocation,
       webSocketFactory: (url, subprotocol) => {
-        expect(url).toBe('wss://game.example.test:8443/api/v1/snapshots');
-        expect(subprotocol).toBe('blob-royale.snapshot.v1');
+        expect(url).toBe('wss://game.example.test:8443/api/v2/session');
+        expect(subprotocol).toBe('blob-royale.session.v2');
         const socket = new FakeSimulationWebSocket();
         sockets.push(socket);
         return socket;
@@ -393,89 +402,215 @@ describe('SimulationApi snapshot lifecycle', () => {
     return { api, configuration, sockets };
   }
 
-  it('owns one socket and delivers only validated monotonic snapshots', async () => {
-    const { api, configuration, sockets } = await createConnectedApi();
-    const callbacks = createCallbacks();
-    api.openSnapshotStream(configuration, callbacks);
+  function requireSocket(sockets: FakeSimulationWebSocket[]) {
     const socket = sockets[0];
     if (socket === undefined) {
       throw new Error('TEST.SOCKET_NOT_CREATED');
     }
+    return socket;
+  }
 
-    expect(() => api.openSnapshotStream(configuration, callbacks)).toThrow(
+  it('owns one socket and delivers a welcome before validated monotonic snapshots', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+
+    expect(() => api.openSession(configuration, callbacks)).toThrow(
       /only one WebSocket/,
     );
 
     socket.open();
-    const firstSnapshot = structuredClone(snapshotMessageExample);
-    firstSnapshot.meta.message_sequence = 1;
-    socket.receive(JSON.stringify(firstSnapshot));
-
-    const secondSnapshot = structuredClone(firstSnapshot);
-    secondSnapshot.meta.message_sequence = 2;
-    secondSnapshot.data.tick_sequence += 1;
-    socket.receive(JSON.stringify(secondSnapshot));
+    socket.receive(JSON.stringify(welcomeDocument()));
+    socket.receive(JSON.stringify(snapshotDocument(2)));
+    const nextSnapshot = snapshotDocument(3);
+    nextSnapshot.data.tick_sequence += 1;
+    socket.receive(JSON.stringify(nextSnapshot));
 
     expect(callbacks.onConnected).toHaveBeenCalledTimes(1);
+    expect(callbacks.onWelcome).toHaveBeenCalledTimes(1);
     expect(callbacks.onSnapshot).toHaveBeenCalledTimes(2);
     expect(
       Object.isFrozen(
-        vi.mocked(callbacks.onSnapshot).mock.calls[0]?.[0].data.players,
+        vi.mocked(callbacks.onSnapshot).mock.calls[0]?.[0].data.entities,
       ),
     ).toBe(true);
     expect(callbacks.onFailure).not.toHaveBeenCalled();
   });
 
-  it('rejects an oversized frame before parsing or rendering', async () => {
-    const { api, configuration, sockets } = await createConnectedApi();
+  it('stays open and frameless for a joiner the match has deferred', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSnapshotStream(configuration, callbacks);
-    const socket = sockets[0];
-    if (socket === undefined) {
-      throw new Error('TEST.SOCKET_NOT_CREATED');
-    }
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+
     socket.open();
 
-    socket.receive('x'.repeat(SNAPSHOT_FRAME_MAX_BYTES + 1));
+    expect(callbacks.onConnected).toHaveBeenCalledTimes(1);
+    expect(callbacks.onWelcome).not.toHaveBeenCalled();
+    expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).not.toHaveBeenCalled();
+    expect(callbacks.onDisconnected).not.toHaveBeenCalled();
+    expect(socket.close).not.toHaveBeenCalled();
+  });
+
+  it('refuses a snapshot that arrives before the welcome', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+
+    socket.receive(JSON.stringify(snapshotDocument(2)));
 
     expect(callbacks.onSnapshot).not.toHaveBeenCalled();
     expect(callbacks.onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'SIMULATION.SESSION_FRAME_INVALID' }),
+    );
+    expect(socket.close).toHaveBeenCalledWith(1002, 'protocol_error');
+  });
+
+  it('fails closed with client_kind_unsupported on an unknown component kind', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+    socket.receive(JSON.stringify(welcomeDocument()));
+
+    const snapshot = snapshotDocument(2);
+    Reflect.set(firstEntity(snapshot).components, 'gravity_well', {
+      strength: 1,
+    });
+    socket.receive(JSON.stringify(snapshot));
+
+    expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'SIMULATION.SESSION_KIND_UNSUPPORTED' }),
+    );
+    expect(socket.close).toHaveBeenCalledWith(1003, 'client_kind_unsupported');
+  });
+
+  it('fails closed with client_version_unsupported on a newer protocol minor', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+
+    const welcome = welcomeDocument();
+    welcome.meta.protocol_version = '2.1';
+    socket.receive(JSON.stringify(welcome));
+
+    expect(callbacks.onWelcome).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).toHaveBeenCalledWith(
       expect.objectContaining({
-        code: 'SIMULATION.SNAPSHOT_FRAME_TOO_LARGE',
+        code: 'SIMULATION.SESSION_VERSION_UNSUPPORTED',
+      }),
+    );
+    expect(socket.close).toHaveBeenCalledWith(
+      1003,
+      'client_version_unsupported',
+    );
+  });
+
+  it('rejects an oversized frame before parsing or rendering', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+
+    socket.receive('x'.repeat(SESSION_FRAME_MAX_BYTES + 1));
+
+    expect(callbacks.onWelcome).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'SIMULATION.SESSION_FRAME_TOO_LARGE',
       }),
     );
     expect(socket.close).toHaveBeenCalledOnce();
-    expect(socket.close).toHaveBeenCalledWith(1009, 'snapshot_frame_too_large');
+    expect(socket.close).toHaveBeenCalledWith(1009, 'session_frame_too_large');
   });
 
   it('closes malformed protocol payloads with a protocol-error close', async () => {
-    const { api, configuration, sockets } = await createConnectedApi();
+    const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSnapshotStream(configuration, callbacks);
-    const socket = sockets[0];
-    if (socket === undefined) {
-      throw new Error('TEST.SOCKET_NOT_CREATED');
-    }
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
     socket.open();
 
     socket.receive('{');
 
     expect(callbacks.onFailure).toHaveBeenCalledWith(
       expect.objectContaining({
-        code: 'SIMULATION.SNAPSHOT_FRAME_INVALID',
+        code: 'SIMULATION.SESSION_FRAME_INVALID',
       }),
     );
     expect(socket.close).toHaveBeenCalledWith(1002, 'protocol_error');
   });
 
+  it('sends an accepted command only on an open welcomed session', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+
+    const thrust = { kind: 'set_thrust', payload: { x: 1, y: 0 } } as const;
+    expect(api.sendCommand(thrust)).toBe(false);
+
+    socket.open();
+    expect(api.sendCommand(thrust)).toBe(false);
+
+    socket.receive(JSON.stringify(welcomeDocument()));
+    expect(api.sendCommand(thrust)).toBe(true);
+    expect(socket.sentMessages).toEqual([
+      '{"kind":"set_thrust","payload":{"x":1,"y":0}}',
+    ]);
+
+    api.dispose();
+    expect(api.sendCommand(thrust)).toBe(false);
+    expect(socket.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a command whose payload the closed schema would reject', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+    socket.receive(JSON.stringify(welcomeDocument()));
+
+    expect(
+      api.sendCommand({ kind: 'set_thrust', payload: { x: 4, y: 0 } }),
+    ).toBe(false);
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(socket.close).not.toHaveBeenCalled();
+  });
+
+  it('refuses a command kind this match did not accept', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+    const welcome = welcomeDocument();
+    welcome.data.accepted_command_kinds = [];
+    socket.receive(JSON.stringify(welcome));
+
+    expect(
+      api.sendCommand({ kind: 'set_thrust', payload: { x: 0, y: 0 } }),
+    ).toBe(false);
+    expect(socket.send).not.toHaveBeenCalled();
+  });
+
   it('reports retryable server loss after releasing the active socket', async () => {
-    const { api, configuration, sockets } = await createConnectedApi();
+    const { api, configuration, sockets } = await createJoinedApi();
     const firstCallbacks = createCallbacks();
-    api.openSnapshotStream(configuration, firstCallbacks);
-    const firstSocket = sockets[0];
-    if (firstSocket === undefined) {
-      throw new Error('TEST.SOCKET_NOT_CREATED');
-    }
+    api.openSession(configuration, firstCallbacks);
+    const firstSocket = requireSocket(sockets);
     firstSocket.open();
     firstSocket.serverClose(1013, 'slow_consumer', false);
 
@@ -486,14 +621,11 @@ describe('SimulationApi snapshot lifecycle', () => {
   });
 
   it('rejects a socket that did not negotiate the exact subprotocol', async () => {
-    const { api, configuration, sockets } = await createConnectedApi();
+    const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSnapshotStream(configuration, callbacks);
-    const socket = sockets[0];
-    if (socket === undefined) {
-      throw new Error('TEST.SOCKET_NOT_CREATED');
-    }
-    socket.protocol = '';
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
+    socket.protocol = 'blob-royale.snapshot.v1';
     socket.open();
 
     expect(callbacks.onFailure).toHaveBeenCalledWith(
@@ -507,13 +639,10 @@ describe('SimulationApi snapshot lifecycle', () => {
 
   it('closes and reports a retryable timeout when the socket never opens', async () => {
     vi.useFakeTimers();
-    const { api, configuration, sockets } = await createConnectedApi();
+    const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSnapshotStream(configuration, callbacks);
-    const socket = sockets[0];
-    if (socket === undefined) {
-      throw new Error('TEST.SOCKET_NOT_CREATED');
-    }
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
 
     await vi.advanceTimersByTimeAsync(WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS);
 
@@ -533,24 +662,21 @@ describe('SimulationApi snapshot lifecycle', () => {
   });
 
   it('cleans up idempotently and ignores callbacks from the released socket', async () => {
-    const { api, configuration, sockets } = await createConnectedApi();
+    const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSnapshotStream(configuration, callbacks);
-    const socket = sockets[0];
-    if (socket === undefined) {
-      throw new Error('TEST.SOCKET_NOT_CREATED');
-    }
+    api.openSession(configuration, callbacks);
+    const socket = requireSocket(sockets);
     const staleMessageHandler = socket.onmessage;
 
     api.dispose();
     api.dispose();
     staleMessageHandler?.(
       new MessageEvent('message', {
-        data: JSON.stringify(snapshotMessageExample),
+        data: JSON.stringify(welcomeDocument()),
       }),
     );
 
     expect(socket.close).toHaveBeenCalledTimes(1);
-    expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(callbacks.onWelcome).not.toHaveBeenCalled();
   });
 });

@@ -3,16 +3,19 @@ import { useEffect, useId, useRef } from 'react';
 import {
   CANVAS_MAX_HEIGHT_PIXELS,
   CANVAS_MAX_WIDTH_PIXELS,
-  SNAPSHOT_PLAYER_LIMIT,
+  SESSION_ENTITY_LIMIT,
 } from './simulationConstants';
 import type {
   SimulationConfiguration,
-  SimulationWorldSnapshot,
+  SessionWorldSnapshot,
 } from './simulationProtocolTypes';
+import { visualEntityRenderers } from './rendering/entityRendererRegistry';
+import { countAlivePlayers } from './sessionSelectors';
 
 export interface SimulationCanvasProps {
   readonly configuration: SimulationConfiguration;
-  readonly snapshot: SimulationWorldSnapshot | null;
+  readonly ownEntityId: number | null;
+  readonly snapshot: SessionWorldSnapshot | null;
 }
 
 interface CanvasViewport {
@@ -42,13 +45,14 @@ function calculateCanvasViewport(
   });
 }
 
-function playerFillColor(entityId: number): string {
-  return `hsl(${(entityId * 137.508) % 360} 72% 48%)`;
-}
-
-/** Draws only validated immutable values and never owns transport state. */
+/**
+ * Draws only validated immutable values and never owns transport state. It names no component kind:
+ * every pixel comes from `entityRendererRegistry`, so a new kind is a renderer file plus one
+ * registration and this file does not change.
+ */
 export function SimulationCanvas({
   configuration,
+  ownEntityId,
   snapshot,
 }: SimulationCanvasProps) {
   const canvasReference = useRef<HTMLCanvasElement>(null);
@@ -66,55 +70,34 @@ export function SimulationCanvas({
     context.fillStyle = '#f8fafc';
     context.fillRect(0, 0, viewport.width, viewport.height);
     context.strokeStyle = '#334155';
+    context.lineWidth = 1;
     context.strokeRect(0, 0, viewport.width, viewport.height);
 
     if (snapshot === null) {
       return;
     }
 
-    const horizontalScale =
-      viewport.width / configuration.world.width_world_units;
-    const verticalScale =
-      viewport.height / configuration.world.height_world_units;
-    const radiusPixels = Math.max(
-      1,
-      configuration.world.player_radius_world_units *
-        Math.min(horizontalScale, verticalScale),
-    );
-    const renderedPlayerCount = Math.min(
-      snapshot.players.length,
-      configuration.presentation.snapshot_player_limit,
-      SNAPSHOT_PLAYER_LIMIT,
-    );
+    const frame = {
+      ownEntityId,
+      projection: {
+        horizontalScale: viewport.width / configuration.world.width_world_units,
+        verticalScale: viewport.height / configuration.world.height_world_units,
+      },
+      surface: context,
+    };
+    const renderedEntities = snapshot.entities.slice(0, SESSION_ENTITY_LIMIT);
 
-    for (
-      let playerIndex = 0;
-      playerIndex < renderedPlayerCount;
-      playerIndex += 1
-    ) {
-      const player = snapshot.players[playerIndex];
-      if (player === undefined) {
-        break;
+    for (const renderer of visualEntityRenderers()) {
+      for (const entity of renderedEntities) {
+        renderer.drawEntity(entity, frame);
       }
-      context.beginPath();
-      context.arc(
-        player.position.x * horizontalScale,
-        player.position.y * verticalScale,
-        radiusPixels,
-        0,
-        2 * Math.PI,
-      );
-      context.fillStyle = playerFillColor(player.entity_id);
-      context.fill();
-      context.strokeStyle = '#0f172a';
-      context.stroke();
     }
-  }, [configuration, snapshot, viewport.height, viewport.width]);
+  }, [configuration, ownEntityId, snapshot, viewport.height, viewport.width]);
 
   const snapshotDescription =
     snapshot === null
       ? 'Waiting for the first complete world snapshot.'
-      : `Complete tick ${snapshot.tick_sequence} with ${snapshot.players.length} players.`;
+      : `Complete tick ${snapshot.tick_sequence} with ${snapshot.entities.length} entities and ${countAlivePlayers(snapshot.entities)} players.`;
 
   return (
     <figure className="SimulationCanvas">

@@ -1,25 +1,22 @@
-import Ajv2020, {
-  type ErrorObject,
-  type ValidateFunction,
-} from 'ajv/dist/2020.js';
-import addFormats from 'ajv-formats';
+import type { ValidateFunction } from 'ajv/dist/2020.js';
 
 import { SimulationApiError } from './SimulationApiError';
 import { protocolV1Schemas } from './generated/protocolV1Schemas.generated';
+import {
+  createProtocolAjv,
+  deepFreeze,
+  formatValidationErrors,
+} from './protocolValidationSupport';
 import type {
   SimulationConfiguration,
   SimulationConfigurationResponse,
   SimulationHttpErrorResponse,
-  SimulationSnapshotMessage,
-  SimulationVector2,
 } from './simulationProtocolTypes';
 
 const CONFIGURATION_SCHEMA_ID =
   'https://schemas.blob-royale.invalid/protocol/v1/configuration-response.schema.json';
 const ERROR_RESPONSE_SCHEMA_ID =
   'https://schemas.blob-royale.invalid/protocol/v1/error-response.schema.json';
-const SNAPSHOT_MESSAGE_SCHEMA_ID =
-  'https://schemas.blob-royale.invalid/protocol/v1/snapshot-message.schema.json';
 
 const HTTP_ERROR_REGISTRY = Object.freeze({
   'PROTOCOL.CONNECTION_LIMIT_REACHED': { retryable: true, status: 429 },
@@ -44,22 +41,7 @@ const HTTP_ERROR_REGISTRY = Object.freeze({
   { readonly retryable: boolean; readonly status: number }
 >);
 
-export interface SnapshotSequenceState {
-  readonly messageSequence: number;
-  readonly requestId: string;
-  readonly tickSequence: number;
-}
-
-const ajv = new Ajv2020({
-  allErrors: true,
-  coerceTypes: false,
-  removeAdditional: false,
-  strict: true,
-  validateFormats: true,
-});
-addFormats(ajv);
-ajv.addKeyword({ keyword: 'x-status', schemaType: 'string', valid: true });
-
+const ajv = createProtocolAjv();
 for (const schema of Object.values(protocolV1Schemas)) {
   ajv.addSchema(schema);
 }
@@ -81,37 +63,6 @@ const validateConfigurationSchema =
 const validateHttpErrorSchema = requireValidator<SimulationHttpErrorResponse>(
   ERROR_RESPONSE_SCHEMA_ID,
 );
-const validateSnapshotSchema = requireValidator<SimulationSnapshotMessage>(
-  SNAPSHOT_MESSAGE_SCHEMA_ID,
-);
-
-function formatValidationErrors(
-  validationErrors: ErrorObject[] | null | undefined,
-): string {
-  if (validationErrors === null || validationErrors === undefined) {
-    return 'schema validation failed without error details';
-  }
-
-  return validationErrors
-    .map(
-      (validationError) =>
-        `${validationError.instancePath || '/'} ${validationError.message ?? 'is invalid'}`,
-    )
-    .join('; ')
-    .slice(0, 1_024);
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) {
-    return value;
-  }
-
-  for (const nestedValue of Object.values(value)) {
-    deepFreeze(nestedValue);
-  }
-
-  return Object.freeze(value);
-}
 
 function validateConfigurationSemantics(
   configuration: SimulationConfiguration,
@@ -133,20 +84,6 @@ function validateConfigurationSemantics(
           width_world_units,
         },
       },
-    );
-  }
-}
-
-function validateVectorSignedZero(
-  vector: SimulationVector2,
-  fieldName: string,
-  entityId: number,
-): void {
-  if (Object.is(vector.x, -0) || Object.is(vector.y, -0)) {
-    throw new SimulationApiError(
-      'SIMULATION.SNAPSHOT_INVARIANT_VIOLATION',
-      `Snapshot ${fieldName} contains forbidden negative zero.`,
-      { context: { entity_id: entityId, field_name: fieldName } },
     );
   }
 }
@@ -237,122 +174,6 @@ export function validateSimulationHttpErrorResponse(
         },
       },
     );
-  }
-
-  return deepFreeze(document);
-}
-
-/** Validates schema and cross-message/world invariants before rendering. */
-export function validateSimulationSnapshotMessage(
-  document: unknown,
-  configuration: SimulationConfiguration,
-  previousSequence: SnapshotSequenceState | null,
-): SimulationSnapshotMessage {
-  if (!validateSnapshotSchema(document)) {
-    throw new SimulationApiError(
-      'SIMULATION.SNAPSHOT_FRAME_INVALID',
-      'Snapshot frame does not match protocol v1.',
-      {
-        context: {
-          validation_errors: formatValidationErrors(
-            validateSnapshotSchema.errors,
-          ),
-        },
-      },
-    );
-  }
-
-  const expectedMessageSequence =
-    previousSequence === null ? 1 : previousSequence.messageSequence + 1;
-  if (document.meta.message_sequence !== expectedMessageSequence) {
-    throw new SimulationApiError(
-      'SIMULATION.SNAPSHOT_INVARIANT_VIOLATION',
-      'Snapshot message_sequence must start at one and increment exactly once.',
-      {
-        context: {
-          actual_message_sequence: document.meta.message_sequence,
-          expected_message_sequence: expectedMessageSequence,
-        },
-      },
-    );
-  }
-
-  if (
-    previousSequence !== null &&
-    document.meta.request_id !== previousSequence.requestId
-  ) {
-    throw new SimulationApiError(
-      'SIMULATION.SNAPSHOT_INVARIANT_VIOLATION',
-      'Snapshot request_id changed within one WebSocket connection.',
-      {
-        context: {
-          actual_request_id: document.meta.request_id,
-          expected_request_id: previousSequence.requestId,
-        },
-      },
-    );
-  }
-
-  if (
-    previousSequence !== null &&
-    document.data.tick_sequence <= previousSequence.tickSequence
-  ) {
-    throw new SimulationApiError(
-      'SIMULATION.SNAPSHOT_INVARIANT_VIOLATION',
-      'Snapshot tick_sequence must strictly increase.',
-      {
-        context: {
-          actual_tick_sequence: document.data.tick_sequence,
-          previous_tick_sequence: previousSequence.tickSequence,
-        },
-      },
-    );
-  }
-
-  const { height_world_units, player_radius_world_units, width_world_units } =
-    configuration.world;
-  let previousEntityId = 0;
-  for (const player of document.data.players) {
-    if (player.entity_id <= previousEntityId) {
-      throw new SimulationApiError(
-        'SIMULATION.SNAPSHOT_INVARIANT_VIOLATION',
-        'Snapshot player entity_id values must be unique and strictly ascending.',
-        {
-          context: {
-            entity_id: player.entity_id,
-            previous_entity_id: previousEntityId,
-          },
-        },
-      );
-    }
-    previousEntityId = player.entity_id;
-
-    validateVectorSignedZero(player.position, 'position', player.entity_id);
-    validateVectorSignedZero(player.velocity, 'velocity', player.entity_id);
-    validateVectorSignedZero(
-      player.acceleration,
-      'acceleration',
-      player.entity_id,
-    );
-
-    if (
-      player.position.x < player_radius_world_units ||
-      player.position.x > width_world_units - player_radius_world_units ||
-      player.position.y < player_radius_world_units ||
-      player.position.y > height_world_units - player_radius_world_units
-    ) {
-      throw new SimulationApiError(
-        'SIMULATION.SNAPSHOT_INVARIANT_VIOLATION',
-        'Snapshot player position lies outside the configured world bounds.',
-        {
-          context: {
-            entity_id: player.entity_id,
-            position_x: player.position.x,
-            position_y: player.position.y,
-          },
-        },
-      );
-    }
   }
 
   return deepFreeze(document);

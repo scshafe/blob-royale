@@ -5,19 +5,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   SimulationApiBoundary,
   SimulationDisconnection,
-  SimulationSnapshotCallbacks,
+  SimulationSessionCallbacks,
 } from './SimulationApi';
 import type { SimulationApiFactory } from './useSimulationConnection';
 import { useSimulationConnection } from './useSimulationConnection';
-import {
-  configurationResponseExample,
-  snapshotMessageExample,
-} from './fixtures/protocolV1Examples';
+import { configurationResponseExample } from './fixtures/protocolV1Examples';
+import { snapshotDocument, welcomeDocument } from './fixtures/sessionFrames';
 import { RECONNECT_BACKOFF_MILLISECONDS } from './simulationConstants';
+import type { SessionCommand } from './simulationProtocolTypes';
 import {
-  validateSimulationConfigurationResponse,
-  validateSimulationSnapshotMessage,
-} from './simulationProtocolValidation';
+  validateSessionSnapshotMessage,
+  validateSessionWelcomeMessage,
+} from './sessionProtocolValidation';
+import { validateSimulationConfigurationResponse } from './simulationProtocolValidation';
 
 const configuration = validateSimulationConfigurationResponse(
   structuredClone(configurationResponseExample),
@@ -32,22 +32,31 @@ const retryableDisconnection: SimulationDisconnection = Object.freeze({
   wasClean: false,
 });
 
+const thrustCommand: SessionCommand = Object.freeze({
+  kind: 'set_thrust',
+  payload: Object.freeze({ x: 1, y: 0 }),
+});
+
 class FakeSimulationApi implements SimulationApiBoundary {
-  callbacks: SimulationSnapshotCallbacks | null = null;
+  callbacks: SimulationSessionCallbacks | null = null;
   readonly dispose = vi.fn();
   readonly loadConfiguration = vi.fn((signal: AbortSignal) => {
     void signal;
     return Promise.resolve(configuration);
   });
-  readonly openSnapshotStream = vi.fn(
+  readonly openSession = vi.fn(
     (
       receivedConfiguration: typeof configuration,
-      callbacks: SimulationSnapshotCallbacks,
+      callbacks: SimulationSessionCallbacks,
     ) => {
       void receivedConfiguration;
       this.callbacks = callbacks;
     },
   );
+  readonly sendCommand = vi.fn((command: SessionCommand) => {
+    void command;
+    return true;
+  });
 }
 
 function createApiFactory(apis: FakeSimulationApi[]): SimulationApiFactory {
@@ -58,14 +67,17 @@ function createApiFactory(apis: FakeSimulationApi[]): SimulationApiFactory {
   });
 }
 
-function createValidatedSnapshot() {
-  const snapshotDocument = structuredClone(snapshotMessageExample);
-  snapshotDocument.meta.message_sequence = 1;
-  return validateSimulationSnapshotMessage(
-    snapshotDocument,
-    configuration,
-    null,
-  );
+function createValidatedWelcome() {
+  return validateSessionWelcomeMessage(welcomeDocument(), null);
+}
+
+function createValidatedSnapshot(messageSequence = 2) {
+  const document = snapshotDocument(messageSequence);
+  return validateSessionSnapshotMessage(document, {
+    messageSequence: messageSequence - 1,
+    requestId: document.meta.request_id,
+    tickSequence: null,
+  });
 }
 
 function flushPromises(): Promise<void> {
@@ -107,15 +119,70 @@ describe('useSimulationConnection', () => {
 
     expect(apiFactory).toHaveBeenCalledTimes(2);
     expect(apis[0]?.dispose).toHaveBeenCalledOnce();
-    expect(apis[1]?.openSnapshotStream).toHaveBeenCalledOnce();
+    expect(apis[1]?.openSession).toHaveBeenCalledOnce();
 
     act(() => {
       apis[1]?.callbacks?.onConnected();
+    });
+    expect(secondMount.result.current.status).toBe('awaiting_match');
+
+    act(() => {
+      apis[1]?.callbacks?.onWelcome(createValidatedWelcome());
     });
     expect(secondMount.result.current.status).toBe('connected');
 
     secondMount.unmount();
     expect(apis[1]?.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('treats an open socket with no frames as waiting for the next match', async () => {
+    const apis: FakeSimulationApi[] = [];
+    const apiFactory = createApiFactory(apis);
+    const { result } = renderHook(() => useSimulationConnection(apiFactory));
+    await flushPromises();
+
+    act(() => {
+      apis[0]?.callbacks?.onConnected();
+    });
+
+    expect(result.current).toMatchObject({
+      error: null,
+      ownEntityId: null,
+      session: null,
+      snapshot: null,
+      status: 'awaiting_match',
+    });
+    expect(result.current.entities).toHaveLength(0);
+  });
+
+  it('exposes the welcome identity and resolves the own entity by controller id', async () => {
+    const apis: FakeSimulationApi[] = [];
+    const apiFactory = createApiFactory(apis);
+    const { result } = renderHook(() => useSimulationConnection(apiFactory));
+    await flushPromises();
+
+    act(() => {
+      apis[0]?.callbacks?.onConnected();
+      apis[0]?.callbacks?.onWelcome(createValidatedWelcome());
+    });
+
+    expect(result.current.session).toEqual({
+      acceptedCommandKinds: ['set_thrust'],
+      controllerId: 3,
+      displayName: 'Cole Shaffer',
+      firstEntityId: 7,
+      map: 'arena-960x640',
+      mode: 'royale',
+    });
+    expect(result.current.ownEntityId).toBeNull();
+
+    act(() => {
+      apis[0]?.callbacks?.onSnapshot(createValidatedSnapshot());
+    });
+
+    expect(result.current.ownEntityId).toBe(7);
+    expect(result.current.match?.phase).toBe('running');
+    expect(result.current.entities).toHaveLength(4);
   });
 
   it('stores complete validated snapshots through the reducer', async () => {
@@ -126,12 +193,36 @@ describe('useSimulationConnection', () => {
     const snapshot = createValidatedSnapshot();
 
     act(() => {
+      apis[0]?.callbacks?.onWelcome(createValidatedWelcome());
       apis[0]?.callbacks?.onSnapshot(snapshot);
     });
 
     expect(result.current.snapshot).toBe(snapshot);
+    expect(result.current.entities).toBe(snapshot.data.entities);
+    expect(result.current.match).toBe(snapshot.data.match);
     expect(result.current.status).toBe('connected');
     expect(result.current.reconnectAttempt).toBe(0);
+  });
+
+  it('sends commands only while a session is open', async () => {
+    const apis: FakeSimulationApi[] = [];
+    const apiFactory = createApiFactory(apis);
+    const { result } = renderHook(() => useSimulationConnection(apiFactory));
+    await flushPromises();
+
+    expect(result.current.sendCommand(thrustCommand)).toBe(false);
+
+    act(() => {
+      apis[0]?.callbacks?.onConnected();
+    });
+    expect(result.current.sendCommand(thrustCommand)).toBe(true);
+    expect(apis[0]?.sendCommand).toHaveBeenCalledWith(thrustCommand);
+
+    act(() => {
+      apis[0]?.callbacks?.onDisconnected(retryableDisconnection);
+    });
+    expect(result.current.sendCommand(thrustCommand)).toBe(false);
+    expect(apis[0]?.sendCommand).toHaveBeenCalledTimes(1);
   });
 
   it('uses a fresh API, refetches config, and clears stale state on every retry', async () => {
@@ -141,25 +232,29 @@ describe('useSimulationConnection', () => {
     const { result } = renderHook(() => useSimulationConnection(apiFactory));
     await flushPromises();
 
-    const snapshot = createValidatedSnapshot();
     act(() => {
-      apis[0]?.callbacks?.onSnapshot(snapshot);
+      apis[0]?.callbacks?.onWelcome(createValidatedWelcome());
+      apis[0]?.callbacks?.onSnapshot(createValidatedSnapshot());
       apis[0]?.callbacks?.onDisconnected(retryableDisconnection);
     });
 
     expect(result.current).toMatchObject({
       configuration: null,
+      match: null,
+      ownEntityId: null,
       reconnectAttempt: 1,
+      session: null,
       snapshot: null,
       status: 'retrying',
     });
+    expect(result.current.entities).toHaveLength(0);
     expect(apis[0]?.dispose).toHaveBeenCalledOnce();
 
     await advanceRetry(RECONNECT_BACKOFF_MILLISECONDS[0] ?? 0);
 
     expect(apiFactory).toHaveBeenCalledTimes(2);
     expect(apis[1]?.loadConfiguration).toHaveBeenCalledOnce();
-    expect(apis[1]?.openSnapshotStream).toHaveBeenCalledOnce();
+    expect(apis[1]?.openSession).toHaveBeenCalledOnce();
     expect(apis[0]).not.toBe(apis[1]);
   });
 
@@ -190,7 +285,7 @@ describe('useSimulationConnection', () => {
       await advanceRetry(1);
       expect(apiFactory).toHaveBeenCalledTimes(retryIndex + 2);
       expect(apis[retryIndex + 1]?.loadConfiguration).toHaveBeenCalledOnce();
-      expect(apis[retryIndex + 1]?.openSnapshotStream).toHaveBeenCalledOnce();
+      expect(apis[retryIndex + 1]?.openSession).toHaveBeenCalledOnce();
     }
 
     act(() => {
@@ -221,6 +316,7 @@ describe('useSimulationConnection', () => {
 
     act(() => {
       apis[1]?.callbacks?.onConnected();
+      apis[1]?.callbacks?.onWelcome(createValidatedWelcome());
       apis[1]?.callbacks?.onDisconnected(retryableDisconnection);
     });
     expect(result.current.reconnectAttempt).toBe(2);
@@ -230,6 +326,7 @@ describe('useSimulationConnection', () => {
     expect(apiFactory).toHaveBeenCalledTimes(3);
 
     act(() => {
+      apis[2]?.callbacks?.onWelcome(createValidatedWelcome());
       apis[2]?.callbacks?.onSnapshot(createValidatedSnapshot());
     });
     expect(result.current.reconnectAttempt).toBe(0);
@@ -256,11 +353,13 @@ describe('useSimulationConnection', () => {
 
     act(() => {
       firstCallbacks?.onDisconnected(retryableDisconnection);
+      firstCallbacks?.onWelcome(createValidatedWelcome());
       firstCallbacks?.onSnapshot(createValidatedSnapshot());
     });
 
     expect(result.current.status).toBe('retrying');
     expect(result.current.snapshot).toBeNull();
+    expect(result.current.session).toBeNull();
     expect(apis[0]?.dispose).toHaveBeenCalledOnce();
 
     unmount();

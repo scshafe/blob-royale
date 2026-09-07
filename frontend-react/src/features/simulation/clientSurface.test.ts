@@ -7,25 +7,55 @@ const webRoot = process.cwd();
 const simulationSourceRoot = resolve(webRoot, 'src/features/simulation');
 const productionSourceFiles = Object.freeze([
   'SimulationApi.ts',
+  'SimulationCanvas.tsx',
   'SimulationFeature.tsx',
   'SimulationViewer.tsx',
   'useSimulationConnection.ts',
+  'useThrustInput.ts',
 ]);
 
-describe('protocol v1 read-only client surface', () => {
-  it('contains no legacy commands, client writes, or polling loop', async () => {
-    const sourceText = (
-      await Promise.all(
-        productionSourceFiles.map((sourceFile) =>
-          readFile(resolve(simulationSourceRoot, sourceFile), 'utf8'),
-        ),
-      )
-    ).join('\n');
+async function readSimulationSource(sourceFile: string): Promise<string> {
+  return readFile(resolve(simulationSourceRoot, sourceFile), 'utf8');
+}
 
-    expect(sourceText).not.toMatch(
-      /(?:start-sim|pause-sim|game-config|game-state|\.send\s*\(|setInterval\s*\()/,
+describe('protocol v2 session client surface', () => {
+  it('has one transport that sends, no lifecycle control, and no polling loop', async () => {
+    const sourcesByFile = new Map(
+      await Promise.all(
+        productionSourceFiles.map(
+          async (sourceFile): Promise<[string, string]> => [
+            sourceFile,
+            await readSimulationSource(sourceFile),
+          ],
+        ),
+      ),
     );
-    expect(sourceText).not.toMatch(/<(?:button|input|select|textarea)\b/);
+    const sourceText = [...sourcesByFile.values()].join('\n');
+
+    // Protocol v2 adds commands and nothing else: there is still no lifecycle route, no client
+    // poll, and no second place that writes to a socket.
+    expect(sourceText).not.toMatch(
+      /(?:start-sim|pause-sim|game-config|game-state|setInterval\s*\()/,
+    );
+    for (const [sourceFile, source] of sourcesByFile) {
+      const writesToSocket = /\.send\s*\(/.test(source);
+      expect({ sourceFile, writesToSocket }).toEqual({
+        sourceFile,
+        writesToSocket: sourceFile === 'SimulationApi.ts',
+      });
+    }
+  });
+
+  it('opens the v2 session route and no longer opens the v1 snapshot socket', async () => {
+    const constants = await readSimulationSource('simulationConstants.ts');
+    const transport = await readSimulationSource('SimulationApi.ts');
+
+    expect(constants).toContain("SESSION_ENDPOINT_PATH = '/api/v2/session'");
+    expect(constants).toContain(
+      "SESSION_WEBSOCKET_SUBPROTOCOL = 'blob-royale.session.v2'",
+    );
+    expect(constants).not.toContain('/api/v1/snapshots');
+    expect(transport).not.toContain('blob-royale.snapshot.v1');
   });
 
   it('has no Axios runtime or unused user-event dependency', async () => {

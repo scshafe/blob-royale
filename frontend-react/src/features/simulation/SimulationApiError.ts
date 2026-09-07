@@ -1,4 +1,5 @@
 export type SimulationApiErrorCode =
+  | 'SIMULATION.COMMAND_REJECTED'
   | 'SIMULATION.CONFIGURATION_REQUEST_ABORTED'
   | 'SIMULATION.CONFIGURATION_REQUEST_FAILED'
   | 'SIMULATION.CONFIGURATION_REQUEST_TIMED_OUT'
@@ -7,9 +8,11 @@ export type SimulationApiErrorCode =
   | 'SIMULATION.ENDPOINT_INVALID'
   | 'SIMULATION.HTTP_ERROR_RESPONSE_INVALID'
   | 'SIMULATION.RECONNECT_EXHAUSTED'
-  | 'SIMULATION.SNAPSHOT_FRAME_INVALID'
-  | 'SIMULATION.SNAPSHOT_FRAME_TOO_LARGE'
-  | 'SIMULATION.SNAPSHOT_INVARIANT_VIOLATION'
+  | 'SIMULATION.SESSION_FRAME_INVALID'
+  | 'SIMULATION.SESSION_FRAME_TOO_LARGE'
+  | 'SIMULATION.SESSION_INVARIANT_VIOLATION'
+  | 'SIMULATION.SESSION_KIND_UNSUPPORTED'
+  | 'SIMULATION.SESSION_VERSION_UNSUPPORTED'
   | 'SIMULATION.SOCKET_ALREADY_OPEN'
   | 'SIMULATION.SOCKET_CONNECT_TIMED_OUT'
   | 'SIMULATION.SOCKET_DISPOSED'
@@ -22,7 +25,7 @@ export interface SimulationApiErrorOptions {
   readonly retryable?: boolean;
 }
 
-/** A structured failure raised by the read-only simulation client boundary. */
+/** A structured failure raised by the simulation client boundary. */
 export class SimulationApiError extends Error {
   readonly code: SimulationApiErrorCode;
   readonly context: Readonly<Record<string, unknown>>;

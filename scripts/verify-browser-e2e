@@ -179,8 +179,11 @@ if (
   throw new Error('BROWSER_E2E.CONFIGURATION_RESULT_INVALID');
 }
 
+// Every declared spec must pass on its first attempt. The count is read from the report rather
+// than pinned to a literal, so adding a spec strengthens this gate instead of breaking it, while
+// zero specs, a retry, a flake, and a skip all remain rejections.
 if (
-  stats.expected !== 1 ||
+  stats.expected < 1 ||
   stats.unexpected !== 0 ||
   stats.flaky !== 0 ||
   stats.skipped !== 0
@@ -195,11 +198,11 @@ const tests = (report.suites ?? []).flatMap((suite) =>
 );
 const results = tests.flatMap((test) => test.results ?? []);
 if (
-  tests.length !== 1 ||
-  tests[0]?.status !== 'expected' ||
-  results.length !== 1 ||
-  results[0]?.status !== 'passed' ||
-  results[0]?.retry !== 0
+  tests.length < 1 ||
+  tests.length !== stats.expected ||
+  results.length !== tests.length ||
+  !tests.every((test) => test.status === 'expected') ||
+  !results.every((result) => result.status === 'passed' && result.retry === 0)
 ) {
   throw new Error('BROWSER_E2E.EXECUTION_RESULT_INVALID');
 }

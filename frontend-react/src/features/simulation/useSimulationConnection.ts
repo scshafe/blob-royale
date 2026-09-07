@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import {
   SimulationApi,
@@ -8,19 +8,50 @@ import {
 import { SimulationApiError } from './SimulationApiError';
 import { RECONNECT_BACKOFF_MILLISECONDS } from './simulationConstants';
 import type {
+  SessionCommand,
+  SessionCommandKind,
+  SessionEntitySnapshot,
+  SessionMatchSection,
+  SessionSnapshotMessage,
+  SessionWelcomeMessage,
   SimulationConfiguration,
-  SimulationSnapshotMessage,
 } from './simulationProtocolTypes';
+import { findOwnEntityId } from './sessionSelectors';
 
 export type SimulationConnectionStatus =
-  'loading_configuration' | 'connecting' | 'connected' | 'retrying' | 'failed';
+  | 'loading_configuration'
+  | 'connecting'
+  | 'awaiting_match'
+  | 'connected'
+  | 'retrying'
+  | 'failed';
+
+/** What the welcome told this session about itself. Fixed for the life of one connection. */
+export interface SimulationSessionIdentity {
+  readonly acceptedCommandKinds: readonly SessionCommandKind[];
+  readonly controllerId: number;
+  readonly displayName: string;
+  readonly firstEntityId: number;
+  readonly map: string;
+  readonly mode: string;
+}
 
 export interface SimulationConnectionState {
   readonly configuration: SimulationConfiguration | null;
+  readonly entities: readonly SessionEntitySnapshot[];
   readonly error: SimulationApiError | null;
+  readonly match: SessionMatchSection | null;
+  readonly ownEntityId: number | null;
   readonly reconnectAttempt: number;
-  readonly snapshot: SimulationSnapshotMessage | null;
+  readonly session: SimulationSessionIdentity | null;
+  readonly snapshot: SessionSnapshotMessage | null;
   readonly status: SimulationConnectionStatus;
+}
+
+export type SimulationCommandSender = (command: SessionCommand) => boolean;
+
+export interface SimulationConnection extends SimulationConnectionState {
+  readonly sendCommand: SimulationCommandSender;
 }
 
 type SimulationConnectionAction =
@@ -29,10 +60,14 @@ type SimulationConnectionAction =
       readonly type: 'configuration_loaded';
       readonly configuration: SimulationConfiguration;
     }
-  | { readonly type: 'connected' }
+  | { readonly type: 'socket_opened' }
+  | {
+      readonly type: 'welcome_received';
+      readonly welcome: SessionWelcomeMessage;
+    }
   | {
       readonly type: 'snapshot_received';
-      readonly snapshot: SimulationSnapshotMessage;
+      readonly snapshot: SessionSnapshotMessage;
     }
   | {
       readonly type: 'retry_scheduled';
@@ -43,11 +78,17 @@ type SimulationConnectionAction =
 
 export type SimulationApiFactory = () => SimulationApiBoundary;
 
+const NO_ENTITIES: readonly SessionEntitySnapshot[] = Object.freeze([]);
+
 export const initialSimulationConnectionState: SimulationConnectionState =
   Object.freeze({
     configuration: null,
+    entities: NO_ENTITIES,
     error: null,
+    match: null,
+    ownEntityId: null,
     reconnectAttempt: 0,
+    session: null,
     snapshot: null,
     status: 'loading_configuration',
   });
@@ -62,7 +103,11 @@ export function simulationConnectionReducer(
       return Object.freeze({
         ...state,
         configuration: null,
+        entities: NO_ENTITIES,
         error: null,
+        match: null,
+        ownEntityId: null,
+        session: null,
         snapshot: null,
         status: 'loading_configuration',
       });
@@ -73,12 +118,35 @@ export function simulationConnectionReducer(
         error: null,
         status: 'connecting',
       });
-    case 'connected':
-      return Object.freeze({ ...state, error: null, status: 'connected' });
-    case 'snapshot_received':
+    case 'socket_opened':
+      // An open socket carrying no frames is a joiner the mode has deferred to the next lobby, not
+      // a stalled connection: the spawn policy defers a joiner while a match runs, and the welcome
+      // cannot be written before the session owns a body.
+      return Object.freeze({ ...state, error: null, status: 'awaiting_match' });
+    case 'welcome_received':
       return Object.freeze({
         ...state,
         error: null,
+        session: Object.freeze({
+          acceptedCommandKinds: action.welcome.data.accepted_command_kinds,
+          controllerId: action.welcome.data.controller_id,
+          displayName: action.welcome.data.display_name,
+          firstEntityId: action.welcome.data.entity_id,
+          map: action.welcome.data.map,
+          mode: action.welcome.data.mode,
+        }),
+        status: 'connected',
+      });
+    case 'snapshot_received':
+      return Object.freeze({
+        ...state,
+        entities: action.snapshot.data.entities,
+        error: null,
+        match: action.snapshot.data.match,
+        ownEntityId: findOwnEntityId(
+          action.snapshot.data.entities,
+          state.session?.controllerId ?? null,
+        ),
         reconnectAttempt: 0,
         snapshot: action.snapshot,
         status: 'connected',
@@ -87,8 +155,12 @@ export function simulationConnectionReducer(
       return Object.freeze({
         ...state,
         configuration: null,
+        entities: NO_ENTITIES,
         error: action.error,
+        match: null,
+        ownEntityId: null,
         reconnectAttempt: action.attempt,
+        session: null,
         snapshot: null,
         status: 'retrying',
       });
@@ -121,8 +193,8 @@ function errorFromDisconnection(
   return new SimulationApiError(
     'SIMULATION.SOCKET_TRANSPORT_FAILED',
     disconnection.reason === ''
-      ? 'Snapshot WebSocket closed.'
-      : `Snapshot WebSocket closed: ${disconnection.reason}`,
+      ? 'Match session WebSocket closed.'
+      : `Match session WebSocket closed: ${disconnection.reason}`,
     {
       context: {
         close_code: disconnection.code,
@@ -133,14 +205,15 @@ function errorFromDisconnection(
   );
 }
 
-/** @canonical simulation_connection -- owns config, retry, and cleanup policy. */
+/** @canonical simulation_connection -- owns config, join, retry, and cleanup policy. */
 export function useSimulationConnection(
   apiFactory: SimulationApiFactory = createDefaultSimulationApi,
-): SimulationConnectionState {
+): SimulationConnection {
   const [state, dispatch] = useReducer(
     simulationConnectionReducer,
     initialSimulationConnectionState,
   );
+  const sendingApi = useRef<SimulationApiBoundary | null>(null);
 
   useEffect(() => {
     let activeAbortController: AbortController | null = null;
@@ -154,6 +227,9 @@ export function useSimulationConnection(
     const disposeActiveAttempt = (): void => {
       activeAbortController?.abort();
       activeAbortController = null;
+      if (sendingApi.current === activeApi) {
+        sendingApi.current = null;
+      }
       activeApi?.dispose();
       activeApi = null;
     };
@@ -246,10 +322,13 @@ export function useSimulationConnection(
         }
         dispatch({ configuration, type: 'configuration_loaded' });
 
-        apiForAttempt.openSnapshotStream(configuration, {
+        // A reconnect is a new join by contract: new request id, new controller id, new entity id,
+        // and message_sequence restarting at one. Nothing is resumed.
+        apiForAttempt.openSession(configuration, {
           onConnected: () => {
             if (isCurrentAttempt(apiForAttempt, attemptId)) {
-              dispatch({ type: 'connected' });
+              sendingApi.current = apiForAttempt;
+              dispatch({ type: 'socket_opened' });
             }
           },
           onDisconnected: (disconnection) => {
@@ -268,6 +347,11 @@ export function useSimulationConnection(
             if (isCurrentAttempt(apiForAttempt, attemptId)) {
               reconnectAttempts = 0;
               dispatch({ snapshot, type: 'snapshot_received' });
+            }
+          },
+          onWelcome: (welcome) => {
+            if (isCurrentAttempt(apiForAttempt, attemptId)) {
+              dispatch({ type: 'welcome_received', welcome });
             }
           },
         });
@@ -292,5 +376,17 @@ export function useSimulationConnection(
     };
   }, [apiFactory]);
 
-  return state;
+  /**
+   * Stable for the life of the hook and a no-op unless a session is open and welcomed: the boundary
+   * refuses a command whose kind this match does not accept, so an input handler can call it every
+   * time it wants to without knowing the connection state.
+   */
+  const sendCommand = useCallback<SimulationCommandSender>(
+    (command) => sendingApi.current?.sendCommand(command) ?? false,
+    [],
+  );
+
+  // Not frozen here: `sendCommand` reads a ref, and handing it to a function during render is
+  // exactly what the React lint forbids. Every value inside `state` is already deeply frozen.
+  return useMemo(() => ({ ...state, sendCommand }), [sendCommand, state]);
 }

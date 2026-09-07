@@ -4,19 +4,11 @@ import { SimulationApiError } from './SimulationApiError';
 import {
   configurationResponseExample,
   errorResponseExample,
-  snapshotMessageExample,
 } from './fixtures/protocolV1Examples';
 import {
   validateSimulationConfigurationResponse,
   validateSimulationHttpErrorResponse,
-  validateSimulationSnapshotMessage,
 } from './simulationProtocolValidation';
-
-function validSnapshotDocument() {
-  const snapshotDocument = structuredClone(snapshotMessageExample);
-  snapshotDocument.meta.message_sequence = 1;
-  return snapshotDocument;
-}
 
 describe('validateSimulationConfigurationResponse', () => {
   it('returns a deeply frozen value derived from the canonical schema example', () => {
@@ -90,99 +82,5 @@ describe('validateSimulationHttpErrorResponse', () => {
     expect(() =>
       validateSimulationHttpErrorResponse(errorResponse, 405, null),
     ).toThrow(/X-Request-ID must exactly match/);
-  });
-});
-
-describe('validateSimulationSnapshotMessage', () => {
-  const configuration = validateSimulationConfigurationResponse(
-    structuredClone(configurationResponseExample),
-    configurationResponseExample.meta.request_id,
-  ).data;
-
-  it('accepts the first complete ordered snapshot and freezes it deeply', () => {
-    const snapshot = validateSimulationSnapshotMessage(
-      validSnapshotDocument(),
-      configuration,
-      null,
-    );
-
-    expect(Object.isFrozen(snapshot.data.players)).toBe(true);
-    expect(Object.isFrozen(snapshot.data.players[0]?.position)).toBe(true);
-  });
-
-  it('rejects player identifiers that are not strictly ascending', () => {
-    const snapshotDocument = validSnapshotDocument();
-    snapshotDocument.data.players.reverse();
-
-    expect(() =>
-      validateSimulationSnapshotMessage(snapshotDocument, configuration, null),
-    ).toThrow(/strictly ascending/);
-  });
-
-  it('rejects positions outside the configured radius-adjusted world', () => {
-    const snapshotDocument = validSnapshotDocument();
-    const firstPlayer = snapshotDocument.data.players[0];
-    if (firstPlayer === undefined) {
-      throw new Error('TEST.SNAPSHOT_FIXTURE_EMPTY');
-    }
-    firstPlayer.position.x = 5;
-
-    expect(() =>
-      validateSimulationSnapshotMessage(snapshotDocument, configuration, null),
-    ).toThrow(/outside the configured world bounds/);
-  });
-
-  it('rejects negative zero that JSON Schema cannot distinguish', () => {
-    const snapshotDocument = validSnapshotDocument();
-    const firstPlayer = snapshotDocument.data.players[0];
-    if (firstPlayer === undefined) {
-      throw new Error('TEST.SNAPSHOT_FIXTURE_EMPTY');
-    }
-    firstPlayer.velocity.x = -0;
-
-    expect(() =>
-      validateSimulationSnapshotMessage(snapshotDocument, configuration, null),
-    ).toThrow(/negative zero/);
-  });
-
-  it('rejects a non-monotonic tick on the same connection', () => {
-    const snapshotDocument = validSnapshotDocument();
-    snapshotDocument.meta.message_sequence = 2;
-
-    expect(() =>
-      validateSimulationSnapshotMessage(snapshotDocument, configuration, {
-        messageSequence: 1,
-        requestId: snapshotDocument.meta.request_id,
-        tickSequence: snapshotDocument.data.tick_sequence,
-      }),
-    ).toThrow(/strictly increase/);
-  });
-
-  it('rejects a skipped transport message sequence', () => {
-    const snapshotDocument = validSnapshotDocument();
-    snapshotDocument.meta.message_sequence = 3;
-    snapshotDocument.data.tick_sequence += 1;
-
-    expect(() =>
-      validateSimulationSnapshotMessage(snapshotDocument, configuration, {
-        messageSequence: 1,
-        requestId: snapshotDocument.meta.request_id,
-        tickSequence: snapshotDocument.data.tick_sequence - 1,
-      }),
-    ).toThrow(/increment exactly once/);
-  });
-
-  it('rejects a request identifier change within one connection', () => {
-    const snapshotDocument = validSnapshotDocument();
-    snapshotDocument.meta.message_sequence = 2;
-    snapshotDocument.data.tick_sequence += 1;
-
-    expect(() =>
-      validateSimulationSnapshotMessage(snapshotDocument, configuration, {
-        messageSequence: 1,
-        requestId: 'different-request-id',
-        tickSequence: snapshotDocument.data.tick_sequence - 1,
-      }),
-    ).toThrow(/request_id changed/);
   });
 });

@@ -2,11 +2,13 @@
 #define BLOB_ROYALE_APPLICATION_BLOB_ROYALE_APPLICATION_HPP
 
 #include "application_config.hpp"
+#include "command_kind_mask.hpp"
 #include "controller_host.hpp"
 #include "game_server.hpp"
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "map_definition.hpp"
+#include "match_session_context.hpp"
 #include "simulation_runtime.hpp"
 #include "structured_logger.hpp"
 
@@ -52,8 +54,12 @@ public:
   void run();
 
 private:
+  // `accepted_command_kinds` is the running mode's own declaration, read in `create` before the
+  // engine destroys the mode, and handed to the server so a `welcome` advertises exactly the set
+  // the boundary enforces.
   BlobRoyaleApplication(ApplicationConfig application_config,
                         simulation::GameSimulation game_simulation,
+                        simulation::CommandKindMask accepted_command_kinds,
                         observability::StructuredLogger& logger);
 
   // Opens one `CommandSink` session per configured bot and files the constructed controller with

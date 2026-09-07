@@ -31,9 +31,13 @@ add_library(blob_server STATIC
   game_server.cpp
   game_server_error.cpp
   http_session.cpp
+  match_session_context.cpp
+  peer_identity.cpp
   peer_traffic_policy.cpp
   request_id_generator.cpp
+  runtime_controller_directory_view.cpp
   server_execution_context.cpp
+  session_websocket_session.cpp
   snapshot_delivery_state.cpp
   snapshot_egress_budget.cpp
   snapshot_websocket_session.cpp

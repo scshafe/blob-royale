@@ -2,9 +2,11 @@ add_executable(blob_server_unit_tests
   game_api_router_tests.cpp
   game_server_tests.cpp
   http_header_preflight_tests.cpp
+  peer_identity_tests.cpp
   peer_traffic_policy_tests.cpp
   server_config_tests.cpp
   server_execution_context_tests.cpp
+  session_websocket_session_tests.cpp
   snapshot_delivery_state_tests.cpp
   snapshot_egress_budget_tests.cpp
   snapshot_websocket_session_tests.cpp

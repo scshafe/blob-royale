@@ -1,6 +1,7 @@
 #include "http_session.hpp"
 
 #include "game_server_error.hpp"
+#include "session_websocket_session.hpp"
 #include "snapshot_websocket_session.hpp"
 
 #include <boost/asio/error.hpp>
@@ -156,10 +157,13 @@ void HttpSession::route_request() {
   case GameApiRouteDisposition::kWebSocketUpgrade:
     if (response_queue_.empty() && !write_active_) {
       begin_websocket_upgrade(std::move(request), result.request_id(),
-                              result.take_websocket_lease());
+                              result.take_websocket_lease(), result.upgrade_route(),
+                              result.peer_identity());
     } else {
       pending_upgrade_request_ = std::move(request);
       pending_upgrade_request_id_ = result.request_id();
+      pending_upgrade_route_ = result.upgrade_route();
+      pending_peer_identity_ = result.peer_identity();
       pending_websocket_lease_ = result.take_websocket_lease();
     }
     return;
@@ -238,10 +242,15 @@ void HttpSession::response_written(const std::shared_ptr<GameApiHttpResponse>& r
     GameApiHttpRequest request = std::move(*pending_upgrade_request_);
     protocol::RequestId request_id = std::move(*pending_upgrade_request_id_);
     WebSocketAdmissionLease websocket_lease = std::move(*pending_websocket_lease_);
+    const GameApiUpgradeRoute upgrade_route = *pending_upgrade_route_;
+    PeerIdentity peer_identity = std::move(*pending_peer_identity_);
     pending_upgrade_request_.reset();
     pending_upgrade_request_id_.reset();
     pending_websocket_lease_.reset();
-    begin_websocket_upgrade(std::move(request), std::move(request_id), std::move(websocket_lease));
+    pending_upgrade_route_.reset();
+    pending_peer_identity_.reset();
+    begin_websocket_upgrade(std::move(request), std::move(request_id), std::move(websocket_lease),
+                            upgrade_route, std::move(peer_identity));
     return;
   }
   read_next_request();
@@ -249,8 +258,25 @@ void HttpSession::response_written(const std::shared_ptr<GameApiHttpResponse>& r
 
 void HttpSession::begin_websocket_upgrade(GameApiHttpRequest request,
                                           protocol::RequestId request_id,
-                                          WebSocketAdmissionLease websocket_lease) {
+                                          WebSocketAdmissionLease websocket_lease,
+                                          const GameApiUpgradeRoute upgrade_route,
+                                          PeerIdentity peer_identity) {
   try {
+    // Two session classes, chosen by route and never by offered subprotocol: v1's stream accepts no
+    // client data and v2's accepts commands, so the route is what decides which semantics run.
+    if (upgrade_route == GameApiUpgradeRoute::kSessionV2) {
+      auto session = std::make_shared<SessionWebSocketSession>(
+          stream_.release_socket(), server_context_, peer_address_, std::move(request_id),
+          std::move(peer_identity), std::move(websocket_lease), std::move(tcp_lease_));
+      if (session_id_.has_value()) {
+        server_context_->unregister_session(*session_id_);
+        session_id_.reset();
+      }
+      finished_ = true;
+      session->run(std::move(request));
+      return;
+    }
+
     auto websocket_session = std::make_shared<SnapshotWebSocketSession>(
         stream_.release_socket(), server_context_, peer_address_, std::move(request_id),
         std::move(websocket_lease), std::move(tcp_lease_));

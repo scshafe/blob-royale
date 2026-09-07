@@ -5,6 +5,7 @@ add_library(blob_server_integration_support STATIC
   protocol_contract_validation.cpp
   server_exit_result.cpp
   server_fixture_state.cpp
+  session_websocket_client.cpp
   snapshot_websocket_client.cpp
   structured_server_log_observer.cpp
 )
@@ -40,6 +41,16 @@ target_link_libraries(blob_server_protocol_integration PRIVATE
   blob_server_integration_support
 )
 
+add_executable(blob_server_session_integration
+  server_session_contract_tests.cpp
+)
+
+blob_royale_configure_first_party_target(blob_server_session_integration)
+
+target_link_libraries(blob_server_session_integration PRIVATE
+  blob_server_integration_support
+)
+
 add_executable(blob_server_abuse_soak
   server_abuse_soak_tests.cpp
 )
@@ -52,6 +63,7 @@ target_link_libraries(blob_server_abuse_soak PRIVATE
 
 add_dependencies(blob_server_process_fixture blob-royale)
 add_dependencies(blob_server_protocol_integration blob-royale)
+add_dependencies(blob_server_session_integration blob-royale)
 add_dependencies(blob_server_abuse_soak blob-royale)
 
 set(blob_server_fixture_directory
@@ -147,6 +159,55 @@ add_test(
 set_tests_properties(integration.server_backpressure_fixture.cleanup PROPERTIES
   FIXTURES_CLEANUP blob_royale_server_backpressure_process
   LABELS "abuse;backpressure;integration;server;soak"
+  RESOURCE_LOCK blob_royale_server_process_fixture
+  TIMEOUT 20
+)
+
+set(blob_server_session_fixture_directory
+    "${CMAKE_CURRENT_BINARY_DIR}/server-session-fixture")
+
+add_test(
+  NAME integration.server_session_fixture.setup
+  COMMAND
+    "$<TARGET_FILE:blob_server_process_fixture>"
+    setup
+    --server-executable "$<TARGET_FILE:blob-royale>"
+    --fixture-directory "${blob_server_session_fixture_directory}"
+    --workload session
+)
+
+set_tests_properties(integration.server_session_fixture.setup PROPERTIES
+  FIXTURES_SETUP blob_royale_server_session_process
+  LABELS "integration;server;process;session;v2"
+  RESOURCE_LOCK blob_royale_server_process_fixture
+  TIMEOUT 25
+)
+
+add_test(
+  NAME integration.server_session_contracts
+  COMMAND
+    "$<TARGET_FILE:blob_server_session_integration>"
+    --fixture-directory "${blob_server_session_fixture_directory}"
+)
+
+set_tests_properties(integration.server_session_contracts PROPERTIES
+  FIXTURES_REQUIRED blob_royale_server_session_process
+  LABELS "integration;server;session;v2;websocket;protocol"
+  RESOURCE_LOCK blob_royale_server_process_fixture
+  TIMEOUT 60
+)
+
+add_test(
+  NAME integration.server_session_fixture.cleanup
+  COMMAND
+    "$<TARGET_FILE:blob_server_process_fixture>"
+    cleanup
+    --fixture-directory "${blob_server_session_fixture_directory}"
+)
+
+set_tests_properties(integration.server_session_fixture.cleanup PROPERTIES
+  FIXTURES_CLEANUP blob_royale_server_session_process
+  LABELS "integration;server;process;session;v2"
   RESOURCE_LOCK blob_royale_server_process_fixture
   TIMEOUT 20
 )

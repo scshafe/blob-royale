@@ -45,6 +45,7 @@ using namespace std::chrono_literals;
 
 constexpr std::string_view kContractFixtureDirectoryName = "server-process-fixture";
 constexpr std::string_view kBackpressureFixtureDirectoryName = "server-backpressure-fixture";
+constexpr std::string_view kSessionFixtureDirectoryName = "server-session-fixture";
 constexpr std::string_view kConfigurationFileName = "integration-server.cfg";
 constexpr std::string_view kMapDirectoryName = "integration-arena";
 constexpr std::string_view kScenarioFileName = "integration-scenario.csv";
@@ -66,6 +67,9 @@ enum class FixtureOperation {
 enum class FixtureWorkload {
   kContract,
   kBackpressure,
+  // A `royale` match with one bot, for the protocol v2 session contracts. It is the only workload
+  // that seats a bot, because the human/bot symmetry is only observable when both are present.
+  kSession,
 };
 
 class FixtureArguments final {
@@ -113,6 +117,8 @@ public:
       } else if (option == "--workload" && !requested_workload.has_value() &&
                  value == "backpressure") {
         requested_workload = FixtureWorkload::kBackpressure;
+      } else if (option == "--workload" && !requested_workload.has_value() && value == "session") {
+        requested_workload = FixtureWorkload::kSession;
       } else {
         throw IntegrationTestError{IntegrationTestErrorCode::kArgumentInvalid,
                                    "server_fixture.parse_arguments",
@@ -129,13 +135,22 @@ public:
           "setup requires an executable; cleanup accepts only the fixture directory"};
     }
     const FixtureWorkload workload = requested_workload.value_or(FixtureWorkload::kContract);
-    const std::string_view required_directory_name = workload == FixtureWorkload::kBackpressure
-                                                         ? kBackpressureFixtureDirectoryName
-                                                         : kContractFixtureDirectoryName;
+    const std::string_view required_directory_name = [workload] {
+      switch (workload) {
+      case FixtureWorkload::kBackpressure:
+        return kBackpressureFixtureDirectoryName;
+      case FixtureWorkload::kSession:
+        return kSessionFixtureDirectoryName;
+      case FixtureWorkload::kContract:
+        break;
+      }
+      return kContractFixtureDirectoryName;
+    }();
     const bool cleanup_directory_is_supported =
         operation == FixtureOperation::kCleanup &&
         (fixture_directory->filename() == kContractFixtureDirectoryName ||
-         fixture_directory->filename() == kBackpressureFixtureDirectoryName);
+         fixture_directory->filename() == kBackpressureFixtureDirectoryName ||
+         fixture_directory->filename() == kSessionFixtureDirectoryName);
     if (!fixture_directory->is_absolute() ||
         (fixture_directory->filename() != required_directory_name &&
          !cleanup_directory_is_supported) ||
@@ -150,10 +165,15 @@ public:
                                  "server_fixture.parse_arguments",
                                  "server executable must be an absolute path"};
     }
-    const FixtureWorkload resolved_workload =
-        fixture_directory->filename() == kBackpressureFixtureDirectoryName
-            ? FixtureWorkload::kBackpressure
-            : workload;
+    const FixtureWorkload resolved_workload = [&] {
+      if (fixture_directory->filename() == kBackpressureFixtureDirectoryName) {
+        return FixtureWorkload::kBackpressure;
+      }
+      if (fixture_directory->filename() == kSessionFixtureDirectoryName) {
+        return FixtureWorkload::kSession;
+      }
+      return workload;
+    }();
     return FixtureArguments{operation, resolved_workload, std::move(*fixture_directory),
                             std::move(server_executable)};
   }
@@ -385,7 +405,8 @@ void write_all(const int descriptor, const std::string_view contents,
 // `[world]` scalars publish so `require_map_matches_published_world` accepts the pair. Two spawn
 // points, because `SandboxMode::validate_map` requires at least one and a second one proves the
 // loader reads more than a single row.
-void write_fixture_map(const std::filesystem::path& fixture_directory) {
+void write_fixture_map(const std::filesystem::path& fixture_directory,
+                       const FixtureWorkload workload) {
   const std::filesystem::path map_directory = fixture_directory / kMapDirectoryName;
   std::error_code create_error;
   std::filesystem::create_directory(map_directory, create_error);
@@ -407,17 +428,29 @@ void write_fixture_map(const std::filesystem::path& fixture_directory) {
       map_directory / "static_bodies.csv",
       "position_x_world_units,position_y_world_units,collision_layer,collision_mask\n",
       "server_fixture.write_map_static_bodies");
-  write_fixture_text_file_atomically(
-      map_directory / "markers.csv",
-      "marker_kind,position_x_world_units,position_y_world_units,team_id\n"
-      "spawn,25,40,\n"
-      "spawn,75,40,\n",
-      "server_fixture.write_map_markers");
+  // The session workload needs at least `lobby_minimum_players` spawn markers for
+  // `RoyaleMode::validate_map`, and needs enough of them that two sessions and one bot are all
+  // seated at once and never in contact with each other.
+  const std::string markers =
+      workload == FixtureWorkload::kSession
+          ? std::string{"marker_kind,position_x_world_units,position_y_world_units,team_id\n"
+                        "spawn,15,20,\n"
+                        "spawn,50,20,\n"
+                        "spawn,85,20,\n"
+                        "spawn,15,60,\n"
+                        "spawn,50,60,\n"
+                        "spawn,85,60,\n"}
+          : std::string{"marker_kind,position_x_world_units,position_y_world_units,team_id\n"
+                        "spawn,25,40,\n"
+                        "spawn,75,40,\n"};
+  write_fixture_text_file_atomically(map_directory / "markers.csv", markers,
+                                     "server_fixture.write_map_markers");
 }
 
 void write_fixture_inputs(const std::filesystem::path& fixture_directory, const std::uint16_t port,
                           const FixtureWorkload workload) {
   const bool backpressure_workload = workload == FixtureWorkload::kBackpressure;
+  const bool session_workload = workload == FixtureWorkload::kSession;
   const std::string authority = std::string{"127.0.0.1:"}.append(std::to_string(port));
   std::string configuration;
   configuration.append("[server]\n");
@@ -445,23 +478,30 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   // configuration so the fixture is self-contained and so the production `MapLoader` is the one
   // that reads it.
   configuration.append("[match]\n");
-  configuration.append("mode=sandbox\n");
+  configuration.append(session_workload ? "mode=royale\n" : "mode=sandbox\n");
   configuration.append("map=").append(kMapDirectoryName).append("\n");
   configuration.append("maps_directory=").append(fixture_directory.string()).append("\n");
   configuration.append("seed=1\n");
-  configuration.append("bots=\n\n");
+  // One bot, so the session contracts can assert that a command from one session moves that
+  // session's entity and nothing else -- including an entity nobody on the network drives.
+  configuration.append(session_workload ? "bots=wanderer:1\n\n" : "bots=\n\n");
   configuration.append("[royale]\n");
   configuration.append("thrust_max_world_units_per_second_squared=400\n");
   configuration.append("zone_minimum_radius_world_units=10\n");
   configuration.append("zone_shrink_seconds=90\n");
   configuration.append("elimination_grace_seconds=3\n");
-  configuration.append("lobby_minimum_players=2\n");
+  // The session workload holds the match in `lobby` forever: two sessions plus one bot are three
+  // controllers, and six is unreachable. A running royale match would shrink a zone and eliminate
+  // the very entities these contracts assert about, and the mode's systems, spawn policy, and
+  // command mask are the same in every phase.
+  configuration.append(session_workload ? "lobby_minimum_players=6\n"
+                                        : "lobby_minimum_players=2\n");
   configuration.append("countdown_seconds=5\n");
   configuration.append("restart_delay_seconds=8\n");
   write_fixture_text_file_atomically(fixture_directory / kConfigurationFileName, configuration,
                                      "server_fixture.write_configuration");
 
-  write_fixture_map(fixture_directory);
+  write_fixture_map(fixture_directory, workload);
 
   constexpr std::string_view kScenarioHeader =
       "entity_id,position_x_world_units,position_y_world_units,"
@@ -469,7 +509,10 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
       "acceleration_x_world_units_per_second_squared,"
       "acceleration_y_world_units_per_second_squared\n";
   std::string scenario{kScenarioHeader};
-  if (!backpressure_workload) {
+  if (session_workload) {
+    // No seeded entities: every entity in this workload is one a session or a bot asked for, which
+    // is what makes "this entity moved" attributable to exactly one command source.
+  } else if (!backpressure_workload) {
     scenario.append("1,20,20,1,0,0,0\n").append("2,80,60,-1,0,0,0\n");
   } else {
     scenario.reserve(kScenarioHeader.size() + (kBackpressureFixturePlayerCount * 24));

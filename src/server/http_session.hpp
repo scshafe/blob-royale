@@ -46,8 +46,12 @@ private:
   void write_next_response();
   void response_written(const std::shared_ptr<GameApiHttpResponse>& response, bool keep_alive,
                         const boost::system::error_code& error, std::size_t transferred_byte_count);
+  // Constructs the session class the admitted route selected. The route is the router's decision
+  // and is carried here rather than re-derived, so the target, the selected subprotocol, and the
+  // semantics the connection then runs under cannot disagree.
   void begin_websocket_upgrade(GameApiHttpRequest request, protocol::RequestId request_id,
-                               WebSocketAdmissionLease websocket_lease);
+                               WebSocketAdmissionLease websocket_lease,
+                               GameApiUpgradeRoute upgrade_route, PeerIdentity peer_identity);
   void request_stop(SessionStopMode mode) noexcept;
   void finish() noexcept;
   void close_socket() noexcept;
@@ -64,6 +68,8 @@ private:
   std::optional<GameApiHttpRequest> pending_upgrade_request_;
   std::optional<protocol::RequestId> pending_upgrade_request_id_;
   std::optional<WebSocketAdmissionLease> pending_websocket_lease_;
+  std::optional<GameApiUpgradeRoute> pending_upgrade_route_;
+  std::optional<PeerIdentity> pending_peer_identity_;
   std::size_t parsed_request_count_{0};
   bool read_active_{false};
   bool write_active_{false};

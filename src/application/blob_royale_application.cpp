@@ -277,23 +277,40 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
       gameplay::GameModeRegistry::create(application_config.match_configuration().mode_name(),
                                          application_config.game_mode_configuration());
 
+  // The accepted command mask is copied out **before** the mode is moved into the engine, which
+  // destroys it once it has read its seven declarations. It is the set a protocol v2 `welcome`
+  // advertises and the set the session boundary enforces, and copying the mode's own declaration
+  // is what keeps the advertised set and the enforced set from being two answers.
+  const simulation::CommandKindMask accepted_command_kinds = mode->accepted_command_kinds();
+
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
       application_config.simulation_config(), std::move(initial_world),
       simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));
 
   // A prvalue, because the composition root is deliberately neither copyable nor movable: the
   // controller host and the server hold references into the runtime this object owns.
-  return BlobRoyaleApplication{std::move(application_config), std::move(game_simulation), logger};
+  return BlobRoyaleApplication{std::move(application_config), std::move(game_simulation),
+                               accepted_command_kinds, logger};
 }
 
-BlobRoyaleApplication::BlobRoyaleApplication(ApplicationConfig application_config,
-                                             simulation::GameSimulation game_simulation,
-                                             observability::StructuredLogger& logger)
+BlobRoyaleApplication::BlobRoyaleApplication(
+    ApplicationConfig application_config, simulation::GameSimulation game_simulation,
+    const simulation::CommandKindMask accepted_command_kinds,
+    observability::StructuredLogger& logger)
     : logger_(logger), application_config_(std::move(application_config)),
       simulation_runtime_(std::move(game_simulation)),
       controller_host_(simulation_runtime_.snapshot_publication(),
                        simulation_runtime_.command_sink()),
+      // The only new capability the network boundary receives, and it is named in full here: a
+      // write-only command sink, a read-only presentation directory, and the map and accepted-kind
+      // identities a `welcome` announces. The server still receives no simulation, no runtime, and
+      // no lifecycle transition.
       game_server_(application_config_.server_config(), simulation_runtime_.snapshot_publication(),
+                   server::MatchSessionContext::create(
+                       simulation_runtime_.command_sink(),
+                       simulation_runtime_.controller_directory(),
+                       std::string{application_config_.match_configuration().map_name()},
+                       accepted_command_kinds),
                    logger_) {
   // Seated in the constructor rather than in `create`, because this class is non-movable and a
   // factory that configured a local could not return it. Every bot therefore exists before any

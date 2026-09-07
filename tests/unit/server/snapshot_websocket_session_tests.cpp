@@ -41,7 +41,7 @@ public:
         acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
         server_context_(std::make_shared<server::ServerExecutionContext>(
             server_io_context_, server_config(acceptor_.local_endpoint().port()), publication_,
-            log_capture_.logger)),
+            match_session_.context(), log_capture_.logger)),
         client_socket_(client_io_context_), server_socket_(server_io_context_) {
     client_socket_.connect(acceptor_.local_endpoint());
     acceptor_.accept(server_socket_);
@@ -100,6 +100,7 @@ private:
   boost::asio::io_context server_io_context_{1};
   boost::asio::io_context client_io_context_{1};
   runtime::SnapshotPublication publication_;
+  fixture::MatchSessionFixture match_session_;
   fixture::LogCapture log_capture_;
   Tcp::acceptor acceptor_;
   std::shared_ptr<server::ServerExecutionContext> server_context_;

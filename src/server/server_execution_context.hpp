@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SERVER_SERVER_EXECUTION_CONTEXT_HPP
 
 #include "game_api_router.hpp"
+#include "match_session_context.hpp"
 #include "peer_traffic_policy.hpp"
 #include "request_id_generator.hpp"
 #include "server_config.hpp"
@@ -37,6 +38,7 @@ public:
 
   ServerExecutionContext(boost::asio::io_context& io_context, ServerConfig server_config,
                          const runtime::SnapshotPublication& snapshot_publication,
+                         MatchSessionContext match_session_context,
                          observability::StructuredLogger& logger);
 
   ServerExecutionContext(const ServerExecutionContext&) = delete;
@@ -51,6 +53,14 @@ public:
     return snapshot_publication_;
   }
   [[nodiscard]] const runtime::SnapshotPublication& publication() const&& = delete;
+  // The capability an admitted `/api/v2/session` runs on. It is required rather than optional
+  // because the server serves both protocol versions unconditionally: an optional capability would
+  // create a state in which a v2 upgrade is admitted and has no command sink, which is a remotely
+  // reachable invariant failure that no configuration should be able to produce.
+  [[nodiscard]] const MatchSessionContext& match_session() const& noexcept {
+    return match_session_context_;
+  }
+  [[nodiscard]] const MatchSessionContext& match_session() const&& = delete;
   [[nodiscard]] PeerTrafficPolicy& traffic_policy() & noexcept { return peer_traffic_policy_; }
   [[nodiscard]] PeerTrafficPolicy& traffic_policy() && = delete;
   [[nodiscard]] GameApiRouter& router() & noexcept { return game_api_router_; }
@@ -85,6 +95,7 @@ private:
   boost::asio::io_context& io_context_;
   ServerConfig server_config_;
   const runtime::SnapshotPublication& snapshot_publication_;
+  MatchSessionContext match_session_context_;
   observability::StructuredLogger& logger_;
   PeerTrafficPolicy peer_traffic_policy_;
   SnapshotEgressBudget snapshot_egress_budget_;

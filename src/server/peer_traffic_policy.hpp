@@ -172,6 +172,32 @@ private:
   std::size_t active_websocket_count_{0};
 };
 
+// canonical: session_token_bucket -- the one session-local token bucket in this server.
+//
+// A session holds two independent ledgers, and both are this shape: a control-frame budget and, on
+// a protocol v2 session, a client command budget. One implementation with the two constants as
+// construction parameters means "the session's bucket" names exactly one thing, and a change to
+// how a bucket refills cannot apply to one ledger and not the other. It uses `steady_clock`, never
+// goes negative, is created at admission, and is destroyed with the session.
+class SessionTokenBucket final {
+public:
+  using Clock = std::chrono::steady_clock;
+
+  SessionTokenBucket(double capacity, double refill_per_second,
+                     Clock::time_point opened_at) noexcept;
+
+  // Returns true for at most the configured burst/refill cadence and never goes negative.
+  [[nodiscard]] bool consume(Clock::time_point now) noexcept;
+
+  [[nodiscard]] double available_tokens() const noexcept { return available_tokens_; }
+
+private:
+  double capacity_;
+  double refill_per_second_;
+  double available_tokens_;
+  Clock::time_point last_refill_;
+};
+
 // One session-local limiter for ping, pong, and other permitted control traffic.
 class ControlFrameRatePolicy final {
 public:
@@ -180,11 +206,28 @@ public:
   explicit ControlFrameRatePolicy(Clock::time_point opened_at) noexcept;
 
   // Returns true for at most the accepted burst/refill cadence and never goes negative.
-  [[nodiscard]] bool consume(Clock::time_point now) noexcept;
+  [[nodiscard]] bool consume(Clock::time_point now) noexcept { return bucket_.consume(now); }
 
 private:
-  double available_tokens_;
-  Clock::time_point last_refill_;
+  SessionTokenBucket bucket_;
+};
+
+// One protocol v2 session's client command limiter: burst 30, refill 20 per second.
+//
+// **Its position in the admission order is the control, not its size.** One token is charged after
+// the frame-size and transport checks and *before* any JSON parsing, so a peer cannot buy unbounded
+// parser work with one token; an empty bucket closes the connection with `1008
+// command_rate_exceeded` (`docs/protocol/v2.md` § "Admission order" step 3).
+class CommandRatePolicy final {
+public:
+  using Clock = std::chrono::steady_clock;
+
+  explicit CommandRatePolicy(Clock::time_point opened_at) noexcept;
+
+  [[nodiscard]] bool consume(Clock::time_point now) noexcept { return bucket_.consume(now); }
+
+private:
+  SessionTokenBucket bucket_;
 };
 
 } // namespace blob_royale::server

@@ -21,9 +21,11 @@ struct ContextFixture final {
   fixture::LogCapture log_capture;
   boost::asio::io_context io_context;
   runtime::SnapshotPublication publication{fixture::game_simulation().snapshot()};
+  fixture::MatchSessionFixture match_session;
   std::shared_ptr<server::ServerExecutionContext> context =
       std::make_shared<server::ServerExecutionContext>(
-          io_context, fixture::loopback_server_config(), publication, log_capture.logger);
+          io_context, fixture::loopback_server_config(), publication, match_session.context(),
+          log_capture.logger);
 };
 
 } // namespace

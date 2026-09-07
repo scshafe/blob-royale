@@ -17,9 +17,10 @@ namespace blob_royale::server {
 ServerExecutionContext::ServerExecutionContext(
     boost::asio::io_context& io_context, ServerConfig server_config,
     const runtime::SnapshotPublication& snapshot_publication,
-    observability::StructuredLogger& logger)
+    MatchSessionContext match_session_context, observability::StructuredLogger& logger)
     : io_context_(io_context), server_config_(std::move(server_config)),
-      snapshot_publication_(snapshot_publication), logger_(logger),
+      snapshot_publication_(snapshot_publication),
+      match_session_context_(std::move(match_session_context)), logger_(logger),
       game_api_router_(server_config_, snapshot_publication_, peer_traffic_policy_,
                        request_id_generator_),
       shutdown_timer_(io_context_) {}

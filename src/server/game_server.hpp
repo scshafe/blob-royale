@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SERVER_GAME_SERVER_HPP
 
 #include "game_server_state.hpp"
+#include "match_session_context.hpp"
 #include "server_config.hpp"
 #include "server_execution_context.hpp"
 #include "snapshot_publication.hpp"
@@ -18,13 +19,18 @@
 
 namespace blob_royale::server {
 
-// canonical: game_server -- bounded foreground ownership of the protocol-v1 network event loop.
-// Its only state source is const SnapshotPublication; no simulation or runtime lifecycle capability
-// can cross this constructor boundary.
+// canonical: game_server -- bounded foreground ownership of the network event loop.
+//
+// Its only world-state source is `const SnapshotPublication&`; no simulation or runtime lifecycle
+// capability can cross this constructor boundary. Protocol v2 adds one write capability and it is
+// named explicitly: `MatchSessionContext` carries a write-only `runtime::CommandSink&`, a read-only
+// presentation directory, and the match identities a `welcome` announces, and nothing else. The
+// server still cannot start, pause, stop, step, or reset the simulation, and it cannot read world
+// state through the write path.
 class GameServer final {
 public:
   GameServer(ServerConfig server_config, const runtime::SnapshotPublication& snapshot_publication,
-             observability::StructuredLogger& logger);
+             MatchSessionContext match_session_context, observability::StructuredLogger& logger);
 
   GameServer(const GameServer&) = delete;
   GameServer(GameServer&&) = delete;

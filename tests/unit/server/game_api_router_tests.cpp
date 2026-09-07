@@ -13,7 +13,10 @@
 #include <chrono>
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace server = blob_royale::server;
 namespace fixture = blob_royale::server::test_fixture;
@@ -45,14 +48,98 @@ route_response(RouterFixture& fixture_state, const server::GameApiHttpRequest& r
   return result.take_response();
 }
 
-[[nodiscard]] server::GameApiHttpRequest websocket_request() {
-  server::GameApiHttpRequest request = fixture::request(http::verb::get, "/api/v1/snapshots");
+[[nodiscard]] server::GameApiHttpRequest upgrade_request(const std::string_view target) {
+  server::GameApiHttpRequest request = fixture::request(http::verb::get, target);
   request.set(http::field::connection, "keep-alive, Upgrade");
   request.set(http::field::upgrade, "websocket");
   request.set(http::field::sec_websocket_version, "13");
   request.set(http::field::sec_websocket_key, "dGhlIHNhbXBsZSBub25jZQ==");
+  return request;
+}
+
+[[nodiscard]] server::GameApiHttpRequest websocket_request() {
+  server::GameApiHttpRequest request = upgrade_request("/api/v1/snapshots");
   request.set(http::field::sec_websocket_protocol, "blob-royale.snapshot.v1");
   return request;
+}
+
+[[nodiscard]] server::GameApiHttpRequest session_websocket_request() {
+  server::GameApiHttpRequest request = upgrade_request("/api/v2/session");
+  request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+  request.set(http::field::origin, "https://game.example.test");
+  return request;
+}
+
+constexpr std::string_view kTrustedProxyAddress = "127.0.0.1";
+
+// One runtime whose publication has committed a tick, because every upgrade passes v1's readiness
+// gate before capacity is reserved.
+class ReadyRouterFixture final {
+public:
+  ReadyRouterFixture()
+      : simulation_runtime(fixture::game_simulation()),
+        router(config, simulation_runtime.snapshot_publication(), traffic_policy,
+               request_id_generator) {
+    simulation_runtime.start();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    while (!simulation_runtime.snapshot_publication().is_ready() &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::yield();
+    }
+    REQUIRE(simulation_runtime.snapshot_publication().is_ready());
+  }
+
+  ReadyRouterFixture(const ReadyRouterFixture&) = delete;
+  ReadyRouterFixture(ReadyRouterFixture&&) = delete;
+  ReadyRouterFixture& operator=(const ReadyRouterFixture&) = delete;
+  ReadyRouterFixture& operator=(ReadyRouterFixture&&) = delete;
+  ~ReadyRouterFixture() { simulation_runtime.stop(); }
+
+  server::ServerConfig config = fixture::loopback_server_config();
+  runtime::SimulationRuntime simulation_runtime;
+  server::PeerTrafficPolicy traffic_policy;
+  server::RequestIdGenerator request_id_generator;
+  server::GameApiRouter router;
+};
+
+// The deployed shape: the trusted proxy is the host's own loopback address, so there is no direct
+// loopback peer at all.
+class ProxyRouterFixture final {
+public:
+  ProxyRouterFixture()
+      : simulation_runtime(fixture::game_simulation()),
+        router(config, simulation_runtime.snapshot_publication(), traffic_policy,
+               request_id_generator) {
+    simulation_runtime.start();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    while (!simulation_runtime.snapshot_publication().is_ready() &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::yield();
+    }
+    REQUIRE(simulation_runtime.snapshot_publication().is_ready());
+  }
+
+  ProxyRouterFixture(const ProxyRouterFixture&) = delete;
+  ProxyRouterFixture(ProxyRouterFixture&&) = delete;
+  ProxyRouterFixture& operator=(const ProxyRouterFixture&) = delete;
+  ProxyRouterFixture& operator=(ProxyRouterFixture&&) = delete;
+  ~ProxyRouterFixture() { simulation_runtime.stop(); }
+
+  server::ServerConfig config = fixture::loopback_server_config(
+      {"127.0.0.1", "localhost", "[::1]"}, {"https://game.example.test"},
+      {std::string{kTrustedProxyAddress}});
+  runtime::SimulationRuntime simulation_runtime;
+  server::PeerTrafficPolicy traffic_policy;
+  server::RequestIdGenerator request_id_generator;
+  server::GameApiRouter router;
+};
+
+[[nodiscard]] server::GameApiHttpResponse
+proxy_route_response(ProxyRouterFixture& proxy, const server::GameApiHttpRequest& request) {
+  server::GameApiRouteResult result =
+      proxy.router.route(request, kTrustedProxyAddress, server::PeerTrafficPolicy::Clock::now());
+  REQUIRE(result.disposition() == server::GameApiRouteDisposition::kHttpResponse);
+  return result.take_response();
 }
 
 } // namespace
@@ -308,4 +395,217 @@ TEST_CASE("GameApiRouter transfers and releases a successful WebSocket admission
   }
   CHECK(traffic_policy.active_websocket_count() == 0);
   simulation_runtime.stop();
+}
+
+TEST_CASE("GameApiRouter returns 426 in the v2 envelope for an ordinary session request",
+          "[unit][server][router][v2]") {
+  RouterFixture state;
+  const server::GameApiHttpResponse response =
+      route_response(state, fixture::request(http::verb::get, "/api/v2/session"));
+  CHECK(response.result() == http::status::upgrade_required);
+  CHECK(response.at(http::field::upgrade) == "websocket");
+  CHECK(fixture::response_contains(response, "PROTOCOL.UPGRADE_REQUIRED"));
+  // A `/api/v2/` target's failure must name v2, so the envelope is selected by the target's
+  // version prefix and not by the route that answered it.
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.0\""));
+  CHECK(fixture::response_contains(response, "blob-royale://protocol/v2/error-response"));
+}
+
+TEST_CASE("GameApiRouter answers an unrouted v2 target in the v2 envelope",
+          "[unit][server][router][v2]") {
+  RouterFixture state;
+  const server::GameApiHttpResponse response =
+      route_response(state, fixture::request(http::verb::get, "/api/v2/nonsense"));
+  CHECK(response.result() == http::status::not_found);
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.0\""));
+}
+
+TEST_CASE("GameApiRouter answers an unrouted v3 target in the v1 envelope",
+          "[unit][server][router][v2]") {
+  RouterFixture state;
+  for (const std::string_view target : {"/api/v3/session", "/nonsense", "/api/v2"}) {
+    const server::GameApiHttpResponse response =
+        route_response(state, fixture::request(http::verb::get, target));
+    INFO("target " << target);
+    CHECK(response.result() == http::status::not_found);
+    CHECK(fixture::response_contains(response, "\"protocol_version\":\"1.0\""));
+  }
+}
+
+TEST_CASE("GameApiRouter rejects the v1 subprotocol offered on the v2 session route",
+          "[unit][server][router][v2][websocket][trust-boundary]") {
+  RouterFixture state;
+  server::GameApiHttpRequest request = session_websocket_request();
+  request.set(http::field::sec_websocket_protocol, "blob-royale.snapshot.v1");
+  const server::GameApiHttpResponse response = route_response(state, request);
+  // A token was offered; it belongs to the other route's version, and selecting by
+  // first-acceptable-offer would let the client choose which version's semantics this route runs.
+  CHECK(response.result() == http::status::bad_request);
+  CHECK(fixture::response_contains(response, "PROTOCOL.SUBPROTOCOL_REQUIRED"));
+  CHECK(fixture::response_contains(response, "session_subprotocol_required"));
+}
+
+TEST_CASE("GameApiRouter rejects the v2 subprotocol offered on the v1 snapshots route",
+          "[unit][server][router][v2][websocket][trust-boundary]") {
+  RouterFixture state;
+  server::GameApiHttpRequest request = websocket_request();
+  request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+  const server::GameApiHttpResponse response = route_response(state, request);
+  CHECK(response.result() == http::status::bad_request);
+  CHECK(fixture::response_contains(response, "PROTOCOL.SUBPROTOCOL_REQUIRED"));
+  CHECK(fixture::response_contains(response, "snapshot_subprotocol_required"));
+}
+
+TEST_CASE("GameApiRouter selects only the requested route's token from an offer list naming both",
+          "[unit][server][router][v2][websocket]") {
+  ReadyRouterFixture ready;
+  for (const auto& [target, expected_route] :
+       std::vector<std::pair<std::string_view, server::GameApiUpgradeRoute>>{
+           {"/api/v1/snapshots", server::GameApiUpgradeRoute::kSnapshotsV1},
+           {"/api/v2/session", server::GameApiUpgradeRoute::kSessionV2}}) {
+    server::GameApiHttpRequest request = upgrade_request(target);
+    request.set(http::field::sec_websocket_protocol,
+                "blob-royale.snapshot.v1, blob-royale.session.v2");
+    server::GameApiRouteResult result =
+        ready.router.route(request, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
+    INFO("target " << target);
+    REQUIRE(result.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+    CHECK(result.upgrade_route() == expected_route);
+  }
+}
+
+TEST_CASE("GameApiRouter admits a v2 session upgrade under v1's host, origin, and rate policy",
+          "[unit][server][router][v2][websocket]") {
+  ReadyRouterFixture ready;
+  server::GameApiRouteResult admitted = ready.router.route(session_websocket_request(), "127.0.0.1",
+                                                           server::PeerTrafficPolicy::Clock::now());
+  REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+  CHECK(admitted.upgrade_route() == server::GameApiUpgradeRoute::kSessionV2);
+  CHECK(admitted.peer_identity().is_direct_peer());
+
+  server::GameApiHttpRequest wrong_host = session_websocket_request();
+  wrong_host.set(http::field::host, "elsewhere.example.test");
+  server::GameApiRouteResult host_rejected =
+      ready.router.route(wrong_host, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
+  REQUIRE(host_rejected.disposition() == server::GameApiRouteDisposition::kHttpResponse);
+  CHECK(host_rejected.take_response().result() == http::status::bad_request);
+
+  server::GameApiHttpRequest wrong_origin = session_websocket_request();
+  wrong_origin.set(http::field::origin, "https://evil.example.test");
+  server::GameApiRouteResult origin_rejected =
+      ready.router.route(wrong_origin, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
+  REQUIRE(origin_rejected.disposition() == server::GameApiRouteDisposition::kHttpResponse);
+  CHECK(origin_rejected.take_response().result() == http::status::forbidden);
+}
+
+TEST_CASE("GameApiRouter rejects methods other than GET on the v2 session route",
+          "[unit][server][router][v2]") {
+  RouterFixture state;
+  for (const http::verb method : {http::verb::head, http::verb::post, http::verb::options}) {
+    const server::GameApiHttpResponse response =
+        route_response(state, fixture::request(method, "/api/v2/session"));
+    CHECK(response.result() == http::status::method_not_allowed);
+    CHECK(response.at(http::field::allow) == "GET");
+  }
+}
+
+TEST_CASE("GameApiRouter gives the v2 session route no query or trailing-slash aliases",
+          "[unit][server][router][v2]") {
+  RouterFixture state;
+  for (const std::string_view target :
+       {"/api/v2/session/", "/api/v2/session?x=1", "/api/v2//session"}) {
+    const server::GameApiHttpResponse response =
+        route_response(state, fixture::request(http::verb::get, target));
+    INFO("target " << target);
+    CHECK(response.result() == http::status::not_found);
+  }
+}
+
+TEST_CASE("GameApiRouter refuses a proxy-forwarded connection without a canonical forwarded client",
+          "[unit][server][router][v2][trust-boundary]") {
+  ProxyRouterFixture proxy;
+  server::GameApiHttpRequest absent = session_websocket_request();
+  const server::GameApiHttpResponse absent_response = proxy_route_response(proxy, absent);
+  CHECK(absent_response.result() == http::status::bad_request);
+  CHECK(fixture::response_contains(absent_response, "PROTOCOL.INVALID_FORWARDED_CLIENT"));
+  CHECK(fixture::response_contains(absent_response, "\"forwarded_client_reason\":\"absent\""));
+
+  server::GameApiHttpRequest listed = session_websocket_request();
+  listed.set("X-Forwarded-For", "100.101.102.103, 10.0.0.1");
+  const server::GameApiHttpResponse listed_response = proxy_route_response(proxy, listed);
+  CHECK(listed_response.result() == http::status::bad_request);
+  CHECK(fixture::response_contains(listed_response,
+                                   "\"forwarded_client_reason\":\"multiple_values\""));
+
+  server::GameApiHttpRequest bracketed = session_websocket_request();
+  bracketed.set("X-Forwarded-For", "[2001:db8::1]");
+  const server::GameApiHttpResponse bracketed_response = proxy_route_response(proxy, bracketed);
+  CHECK(bracketed_response.result() == http::status::bad_request);
+  CHECK(fixture::response_contains(bracketed_response,
+                                   "\"forwarded_client_reason\":\"not_canonical\""));
+  // No byte of the received forwarding header may reach a response body.
+  CHECK_FALSE(fixture::response_contains(bracketed_response, "2001:db8"));
+}
+
+TEST_CASE("GameApiRouter reports a forwarded-client refusal on a v1 target in the v1 envelope",
+          "[unit][server][router][v2][trust-boundary]") {
+  ProxyRouterFixture proxy;
+  const server::GameApiHttpResponse response =
+      proxy_route_response(proxy, fixture::request(http::verb::get, "/api/v1/config"));
+  CHECK(response.result() == http::status::bad_request);
+  // v2 may not widen the closed code registry a v1 client must accept, so a v1 target names
+  // PROTOCOL.INVALID_REQUEST and carries the same closed reason as its detail.
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"1.0\""));
+  CHECK(fixture::response_contains(response, "PROTOCOL.INVALID_REQUEST"));
+  CHECK(fixture::response_contains(response, "forwarded_client_absent"));
+  CHECK_FALSE(fixture::response_contains(response, "PROTOCOL.INVALID_FORWARDED_CLIENT"));
+}
+
+TEST_CASE(
+    "GameApiRouter never grants the direct-peer Origin relaxation to a trusted loopback proxy",
+    "[unit][server][router][v2][trust-boundary]") {
+  // The deployed proxy is loopback. Loopback-first classification would put exactly the deployed
+  // configuration into the direct arm, where an absent Origin is allowed.
+  ProxyRouterFixture proxy;
+  server::GameApiHttpRequest without_origin = session_websocket_request();
+  without_origin.erase(http::field::origin);
+  without_origin.set("X-Forwarded-For", "100.101.102.103");
+  const server::GameApiHttpResponse response = proxy_route_response(proxy, without_origin);
+  CHECK(response.result() == http::status::forbidden);
+  CHECK(fixture::response_contains(response, "PROTOCOL.ORIGIN_REJECTED"));
+
+  // The identical request from a peer that is *not* configured as a trusted proxy is admitted,
+  // which is what makes the precedence rule the only difference between the two outcomes.
+  ReadyRouterFixture direct;
+  server::GameApiHttpRequest direct_request = session_websocket_request();
+  direct_request.erase(http::field::origin);
+  server::GameApiRouteResult admitted =
+      direct.router.route(direct_request, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
+  CHECK(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+}
+
+TEST_CASE("GameApiRouter accounts a proxy-forwarded upgrade to the forwarded client address",
+          "[unit][server][router][v2][rate][trust-boundary]") {
+  ProxyRouterFixture proxy;
+  const auto now = server::PeerTrafficPolicy::Clock::now();
+  server::GameApiHttpRequest first = session_websocket_request();
+  first.set("X-Forwarded-For", "100.101.102.103");
+  server::GameApiHttpRequest second = session_websocket_request();
+  second.set("X-Forwarded-For", "100.101.102.104");
+
+  // Two distinct forwarded clients each get their own upgrade bucket. Sharing the proxy's socket
+  // address would collapse every tailnet player into one principal, which is the accounting
+  // collapse the identity rules exist to undo.
+  for (std::size_t upgrade = 0;
+       upgrade < static_cast<std::size_t>(server::ServerLimits::kWebSocketUpgradeBucketCapacity);
+       ++upgrade) {
+    server::GameApiRouteResult result = proxy.router.route(first, kTrustedProxyAddress, now);
+    REQUIRE(result.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+  }
+  server::GameApiRouteResult exhausted = proxy.router.route(first, kTrustedProxyAddress, now);
+  REQUIRE(exhausted.disposition() == server::GameApiRouteDisposition::kHttpResponse);
+  CHECK(exhausted.take_response().result() == http::status::too_many_requests);
+
+  server::GameApiRouteResult other = proxy.router.route(second, kTrustedProxyAddress, now);
+  CHECK(other.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
 }

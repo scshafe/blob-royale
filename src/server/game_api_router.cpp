@@ -1,10 +1,13 @@
 #include "game_api_router.hpp"
 
 #include "http_error.hpp"
+#include "peer_identity.hpp"
 #include "protocol_constants.hpp"
 #include "protocol_encoding_error.hpp"
 #include "protocol_json_encoding.hpp"
+#include "protocol_v2_json_encoding.hpp"
 #include "server_limits.hpp"
+#include "v2_http_error.hpp"
 
 #include <boost/asio/ip/address.hpp>
 #include <boost/beast/core/string.hpp>
@@ -33,12 +36,58 @@ inline constexpr std::string_view kConfigTarget = "/api/v1/config";
 inline constexpr std::string_view kLivenessTarget = "/api/v1/health/live";
 inline constexpr std::string_view kReadinessTarget = "/api/v1/health/ready";
 inline constexpr std::string_view kSnapshotsTarget = "/api/v1/snapshots";
-inline constexpr std::string_view kSnapshotSubprotocol = "blob-royale.snapshot.v1";
+inline constexpr std::string_view kSessionTarget = "/api/v2/session";
 inline constexpr std::string_view kRequestIdHeader = "X-Request-ID";
+// The version prefix that selects the v2 error envelope. It is a prefix test on the parsed target
+// and not a route lookup, so an unrouted `/api/v2/anything` still fails in the version it named.
+inline constexpr std::string_view kProtocolV2TargetPrefix = "/api/v2/";
+
+// The route one target upgrades to, or nullopt when the target is not upgradeable. Route selection
+// is by exact target and never by offered subprotocol.
+[[nodiscard]] std::optional<GameApiUpgradeRoute>
+upgrade_route_of(const std::string_view target) noexcept {
+  if (target == kSnapshotsTarget) {
+    return GameApiUpgradeRoute::kSnapshotsV1;
+  }
+  if (target == kSessionTarget) {
+    return GameApiUpgradeRoute::kSessionV2;
+  }
+  return std::nullopt;
+}
 
 [[nodiscard]] bool is_known_target(const std::string_view target) noexcept {
   return target == kConfigTarget || target == kLivenessTarget || target == kReadinessTarget ||
-         target == kSnapshotsTarget;
+         upgrade_route_of(target).has_value();
+}
+
+[[nodiscard]] bool target_selects_v2_envelope(const std::string_view target) noexcept {
+  return target.starts_with(kProtocolV2TargetPrefix);
+}
+
+[[nodiscard]] std::string_view target_of(const GameApiHttpRequest& request) noexcept {
+  return {request.target().data(), request.target().size()};
+}
+
+// The bounded diagnostic a subprotocol rejection carries. It names the route that was requested,
+// not the token that was offered, so a client learns which pairing it violated without any byte of
+// its own offer list reaching the response.
+[[nodiscard]] std::string_view
+subprotocol_required_reason(const GameApiUpgradeRoute route) noexcept {
+  switch (route) {
+  case GameApiUpgradeRoute::kSnapshotsV1:
+    return "snapshot_subprotocol_required";
+  case GameApiUpgradeRoute::kSessionV2:
+    return "session_subprotocol_required";
+  }
+  return "subprotocol_required";
+}
+
+// The v1 `reason` detail that carries a forwarded-client rejection on a v1 target. It is derived
+// from the same closed enum the v2 detail uses, so the two versions cannot describe one refusal
+// differently and neither can carry an attacker-supplied byte.
+[[nodiscard]] std::string
+forwarded_client_reason_detail(const protocol::ForwardedClientReason reason) {
+  return std::string{"forwarded_client_"}.append(protocol::forwarded_client_reason_name(reason));
 }
 
 [[nodiscard]] std::size_t header_count(const GameApiHttpRequest& request,
@@ -232,26 +281,44 @@ void set_error_specific_headers(GameApiHttpResponse& response, const protocol::H
 
 GameApiRouteResult GameApiRouteResult::http_response(GameApiHttpResponse response,
                                                      protocol::RequestId request_id) {
-  return {GameApiRouteDisposition::kHttpResponse, std::move(response), std::move(request_id),
+  return {GameApiRouteDisposition::kHttpResponse,
+          std::move(response),
+          std::move(request_id),
+          std::nullopt,
+          std::nullopt,
           std::nullopt};
 }
 
 GameApiRouteResult GameApiRouteResult::websocket_upgrade(protocol::RequestId request_id,
-                                                         WebSocketAdmissionLease websocket_lease) {
-  return {GameApiRouteDisposition::kWebSocketUpgrade, std::nullopt, std::move(request_id),
-          std::move(websocket_lease)};
+                                                         WebSocketAdmissionLease websocket_lease,
+                                                         const GameApiUpgradeRoute upgrade_route,
+                                                         PeerIdentity peer_identity) {
+  return {GameApiRouteDisposition::kWebSocketUpgrade,
+          std::nullopt,
+          std::move(request_id),
+          std::move(websocket_lease),
+          upgrade_route,
+          std::move(peer_identity)};
 }
 
 GameApiRouteResult GameApiRouteResult::close_without_response() {
-  return {GameApiRouteDisposition::kCloseWithoutResponse, std::nullopt, std::nullopt, std::nullopt};
+  return {GameApiRouteDisposition::kCloseWithoutResponse,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt,
+          std::nullopt};
 }
 
-GameApiRouteResult::GameApiRouteResult(
-    const GameApiRouteDisposition disposition, std::optional<GameApiHttpResponse> response,
-    std::optional<protocol::RequestId> request_id,
-    std::optional<WebSocketAdmissionLease> websocket_lease) noexcept
+GameApiRouteResult::GameApiRouteResult(const GameApiRouteDisposition disposition,
+                                       std::optional<GameApiHttpResponse> response,
+                                       std::optional<protocol::RequestId> request_id,
+                                       std::optional<WebSocketAdmissionLease> websocket_lease,
+                                       std::optional<GameApiUpgradeRoute> upgrade_route,
+                                       std::optional<PeerIdentity> peer_identity) noexcept
     : disposition_(disposition), response_(std::move(response)), request_id_(std::move(request_id)),
-      websocket_lease_(std::move(websocket_lease)) {}
+      websocket_lease_(std::move(websocket_lease)), upgrade_route_(upgrade_route),
+      peer_identity_(std::move(peer_identity)) {}
 
 GameApiHttpResponse GameApiRouteResult::take_response() {
   if (!response_.has_value()) {
@@ -278,6 +345,20 @@ const protocol::RequestId& GameApiRouteResult::request_id() const& {
   return *request_id_;
 }
 
+GameApiUpgradeRoute GameApiRouteResult::upgrade_route() const {
+  if (!upgrade_route_.has_value()) {
+    throw std::logic_error{"route result does not contain a WebSocket upgrade route"};
+  }
+  return *upgrade_route_;
+}
+
+const PeerIdentity& GameApiRouteResult::peer_identity() const& {
+  if (!peer_identity_.has_value()) {
+    throw std::logic_error{"route result does not contain a derived peer identity"};
+  }
+  return *peer_identity_;
+}
+
 GameApiRouter::GameApiRouter(const ServerConfig& server_config,
                              const runtime::SnapshotPublication& snapshot_publication,
                              PeerTrafficPolicy& peer_traffic_policy,
@@ -293,11 +374,21 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
     return GameApiRouteResult::close_without_response();
   }
 
+  // Identity before any route runs. The classification is computed from the socket alone, so no
+  // header can move a connection into the trusted arm, and the derived principal -- not the socket
+  // address -- is what every request, upgrade, and connection bound below is charged to
+  // (`docs/protocol/v2.md` § "Identity"). A rejected forwarded address has no principal to charge,
+  // so its refusal is accounted to the socket peer, which is the only identity still provable.
+  const PeerIdentityResolution identity =
+      derive_peer_identity(server_config_, peer_address, request);
+  const std::string accounting_principal =
+      identity.accepted() ? identity.identity->accounting_principal() : std::string{peer_address};
+
   bool request_id_valid = false;
   const protocol::RequestId request_id =
       request_id_or_generated(request, request_id_generator_, request_id_valid);
   const AdmissionResult request_admission =
-      peer_traffic_policy_.consume_http_request(peer_address, now);
+      peer_traffic_policy_.consume_http_request(accounting_principal, now);
   if (!request_admission.allowed) {
     return error_response(request, request_id, rate_error(request_admission));
   }
@@ -314,6 +405,10 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
     return error_response(request, request_id,
                           protocol::HttpError::create(protocol::HttpErrorCode::kInvalidRequestId,
                                                       "X-Request-ID is invalid."));
+  }
+  if (!identity.accepted()) {
+    return forwarded_client_error_response(request, request_id,
+                                           *identity.forwarded_client_rejection);
   }
 
   if (approximate_header_bytes(request) > ServerLimits::kHeaderSectionMaximumByteCount ||
@@ -373,7 +468,7 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
     allowed_origin = std::string{request.base().at(http::field::origin)};
   }
 
-  const std::string_view target{request.target().data(), request.target().size()};
+  const std::string_view target = target_of(request);
   if (!is_known_target(target)) {
     return error_response(request, request_id,
                           protocol::HttpError::create(protocol::HttpErrorCode::kRouteNotFound,
@@ -423,6 +518,9 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
     return GameApiRouteResult::http_response(std::move(response), request_id);
   }
 
+  // The one remaining shape is an upgrade route, and which one is a function of the target alone.
+  const GameApiUpgradeRoute upgrade_route = *upgrade_route_of(target);
+
   if (!is_websocket_attempt(request)) {
     return error_response(request, request_id,
                           protocol::HttpError::create(protocol::HttpErrorCode::kUpgradeRequired,
@@ -430,7 +528,7 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
                           allowed_origin);
   }
   const AdmissionResult upgrade_rate =
-      peer_traffic_policy_.consume_websocket_upgrade(peer_address, now);
+      peer_traffic_policy_.consume_websocket_upgrade(accounting_principal, now);
   if (!upgrade_rate.allowed) {
     return error_response(request, request_id, rate_error(upgrade_rate), allowed_origin);
   }
@@ -453,32 +551,38 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
                           allowed_origin);
   }
 
+  // Route and subprotocol are validated as a pair: only the requested route's own token is looked
+  // for, so an offer list carrying the other route's token is refused exactly as an empty one is.
+  const std::string_view required_subprotocol = game_api_upgrade_subprotocol(upgrade_route);
   bool offered_subprotocol = false;
   const auto protocol_range = request.base().equal_range(http::field::sec_websocket_protocol);
   for (auto entry = protocol_range.first; entry != protocol_range.second; ++entry) {
-    if (token_list_contains(entry->value(), kSnapshotSubprotocol, true)) {
+    if (token_list_contains(entry->value(), required_subprotocol, true)) {
       offered_subprotocol = true;
       break;
     }
   }
   if (!offered_subprotocol) {
     protocol::HttpError::Parameters parameters;
-    parameters.reason = "snapshot_subprotocol_required";
+    parameters.reason = std::string{subprotocol_required_reason(upgrade_route)};
     return error_response(request, request_id,
                           protocol::HttpError::create(protocol::HttpErrorCode::kSubprotocolRequired,
-                                                      "Snapshot subprotocol is required.",
+                                                      "This route's subprotocol is required.",
                                                       std::move(parameters)),
                           allowed_origin);
   }
 
+  // Browser-origin policy, under the classification derived above. The direct-peer relaxation is
+  // reached only through `is_direct_peer()`, so a peer configured as a trusted proxy never
+  // inherits it -- which is the whole of v2's precedence rule, and it matters because on the
+  // accepted deployment the proxy *is* loopback.
   const bool peer_is_loopback = [&] {
     boost::system::error_code error;
     const auto address = boost::asio::ip::make_address(peer_address, error);
     return !error && address.is_loopback();
   }();
-  const bool peer_is_trusted_proxy = server_config_.trusts_proxy_address(peer_address);
-  if ((!peer_is_loopback && !peer_is_trusted_proxy) ||
-      (peer_is_trusted_proxy && !allowed_origin.has_value())) {
+  const bool direct_peer = identity.identity->is_direct_peer();
+  if ((direct_peer && !peer_is_loopback) || (!direct_peer && !allowed_origin.has_value())) {
     return error_response(request, request_id,
                           protocol::HttpError::create(protocol::HttpErrorCode::kOriginRejected,
                                                       "Origin is required for this peer."));
@@ -495,11 +599,12 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
   }
 
   WebSocketReservationResult reservation =
-      peer_traffic_policy_.reserve_websocket(peer_address, now);
+      peer_traffic_policy_.reserve_websocket(accounting_principal, now);
   if (!reservation.admission.allowed) {
     return error_response(request, request_id, rate_error(reservation.admission), allowed_origin);
   }
-  return GameApiRouteResult::websocket_upgrade(request_id, std::move(*reservation.lease));
+  return GameApiRouteResult::websocket_upgrade(request_id, std::move(*reservation.lease),
+                                               upgrade_route, *identity.identity);
 }
 
 GameApiRouteResult
@@ -507,9 +612,29 @@ GameApiRouter::error_response(const GameApiHttpRequest& request,
                               const protocol::RequestId& request_id, protocol::HttpError error,
                               const std::optional<std::string_view> allowed_origin) const {
   GameApiHttpResponse response{static_cast<http::status>(error.status_code()), 11};
-  response.body() = protocol::encode_error_response(error, request_id);
+  response.body() =
+      target_selects_v2_envelope(target_of(request))
+          ? protocol::encode_error_response_v2(protocol::V2HttpError::shared(error), request_id)
+          : protocol::encode_error_response(error, request_id);
   set_common_response_headers(response, request_id, allowed_origin);
   set_error_specific_headers(response, error);
+  response.keep_alive(request.keep_alive());
+  response.prepare_payload();
+  return GameApiRouteResult::http_response(std::move(response), request_id);
+}
+
+GameApiRouteResult
+GameApiRouter::forwarded_client_error_response(const GameApiHttpRequest& request,
+                                               const protocol::RequestId& request_id,
+                                               const protocol::ForwardedClientReason reason) const {
+  if (!target_selects_v2_envelope(target_of(request))) {
+    return error_response(request, request_id,
+                          invalid_request_error(forwarded_client_reason_detail(reason)));
+  }
+  const protocol::V2HttpError error = protocol::V2HttpError::invalid_forwarded_client(reason);
+  GameApiHttpResponse response{static_cast<http::status>(error.status_code()), 11};
+  response.body() = protocol::encode_error_response_v2(error, request_id);
+  set_common_response_headers(response, request_id, std::nullopt);
   response.keep_alive(request.keep_alive());
   response.prepare_payload();
   return GameApiRouteResult::http_response(std::move(response), request_id);

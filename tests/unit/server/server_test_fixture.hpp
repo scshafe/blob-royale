@@ -1,14 +1,17 @@
 #ifndef BLOB_ROYALE_TESTS_UNIT_SERVER_SERVER_TEST_FIXTURE_HPP
 #define BLOB_ROYALE_TESTS_UNIT_SERVER_SERVER_TEST_FIXTURE_HPP
 
+#include "command_kind_mask.hpp"
 #include "entity_id.hpp"
 #include "game_api_router.hpp"
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "match_session_context.hpp"
 #include "physics_body.hpp"
 #include "server_config.hpp"
 #include "simulation_config.hpp"
+#include "simulation_runtime.hpp"
 #include "snapshot_publication.hpp"
 #include "structured_log_capture.hpp"
 #include "vector2.hpp"
@@ -69,6 +72,41 @@ loopback_server_config(std::vector<std::string> allowed_hosts = {"127.0.0.1", "l
 [[nodiscard]] inline runtime::SnapshotPublication initial_publication() {
   return runtime::SnapshotPublication(game_simulation().snapshot());
 }
+
+inline constexpr std::string_view kFixtureMapName = "arena-960x640";
+
+// Everything `/api/v2/session` requires, owned for the life of one test.
+//
+// The runtime is constructed and never started, which is enough: `CommandSink` and
+// `ControllerDirectory` are fully usable before the first tick, and a test that started the worker
+// would be asserting against a moving world. The capability is required rather than optional
+// because the server serves both protocol versions unconditionally.
+class MatchSessionFixture final {
+public:
+  MatchSessionFixture() : simulation_runtime_(game_simulation()) {}
+
+  MatchSessionFixture(const MatchSessionFixture&) = delete;
+  MatchSessionFixture(MatchSessionFixture&&) = delete;
+  MatchSessionFixture& operator=(const MatchSessionFixture&) = delete;
+  MatchSessionFixture& operator=(MatchSessionFixture&&) = delete;
+  ~MatchSessionFixture() = default;
+
+  [[nodiscard]] MatchSessionContext context() const {
+    return MatchSessionContext::create(
+        simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
+        std::string{kFixtureMapName}, simulation::CommandKindMask::all());
+  }
+
+  [[nodiscard]] runtime::CommandSink& command_sink() const noexcept {
+    return simulation_runtime_.command_sink();
+  }
+  [[nodiscard]] const runtime::ControllerDirectory& controller_directory() const noexcept {
+    return simulation_runtime_.controller_directory();
+  }
+
+private:
+  mutable runtime::SimulationRuntime simulation_runtime_;
+};
 
 [[nodiscard]] inline GameApiHttpRequest request(const boost::beast::http::verb method,
                                                 const std::string_view target,

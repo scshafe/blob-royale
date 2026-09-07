@@ -41,8 +41,9 @@ TEST_CASE("GameServer treats stop-before-run as one graceful single-use lifecycl
           "[unit][server][lifecycle]") {
   const runtime::SnapshotPublication publication = fixture::initial_publication();
   fixture::LogCapture log_capture;
+  fixture::MatchSessionFixture match_session;
   server::GameServer game_server(server_config(reserve_available_loopback_port()), publication,
-                                 log_capture.logger);
+                                 match_session.context(), log_capture.logger);
 
   game_server.stop();
   game_server.stop();
@@ -62,8 +63,9 @@ TEST_CASE("GameServer stop wins the race after running is visible and before acc
   for (int repetition = 0; repetition < 8; ++repetition) {
     const runtime::SnapshotPublication publication = fixture::initial_publication();
     fixture::LogCapture log_capture;
+    fixture::MatchSessionFixture match_session;
     server::GameServer game_server(server_config(reserve_available_loopback_port()), publication,
-                                   log_capture.logger);
+                                   match_session.context(), log_capture.logger);
     std::promise<void> completed;
     std::future<void> completion = completed.get_future();
     std::exception_ptr run_failure;
@@ -105,7 +107,9 @@ TEST_CASE("GameServer retains and rethrows an exact listener bind failure",
   const std::uint16_t occupied_port = occupied_acceptor.local_endpoint().port();
   const runtime::SnapshotPublication publication = fixture::initial_publication();
   fixture::LogCapture log_capture;
-  server::GameServer game_server(server_config(occupied_port), publication, log_capture.logger);
+  fixture::MatchSessionFixture match_session;
+  server::GameServer game_server(server_config(occupied_port), publication, match_session.context(),
+                                 log_capture.logger);
 
   CHECK_THROWS_AS(game_server.run(), server::GameServerError);
   CHECK(game_server.state() == server::GameServerState::kFailed);

@@ -256,16 +256,16 @@ void PeerTrafficPolicy::prune_idle(const Clock::time_point now) {
   });
 }
 
-ControlFrameRatePolicy::ControlFrameRatePolicy(const Clock::time_point opened_at) noexcept
-    : available_tokens_(static_cast<double>(ServerLimits::kControlFrameBurstMaximumCount)),
+SessionTokenBucket::SessionTokenBucket(const double capacity, const double refill_per_second,
+                                       const Clock::time_point opened_at) noexcept
+    : capacity_(capacity), refill_per_second_(refill_per_second), available_tokens_(capacity),
       last_refill_(opened_at) {}
 
-bool ControlFrameRatePolicy::consume(const Clock::time_point now) noexcept {
+bool SessionTokenBucket::consume(const Clock::time_point now) noexcept {
   if (now > last_refill_) {
     const double elapsed_seconds = std::chrono::duration<double>(now - last_refill_).count();
-    available_tokens_ = std::min(
-        static_cast<double>(ServerLimits::kControlFrameBurstMaximumCount),
-        available_tokens_ + (elapsed_seconds * ServerLimits::kControlFrameRefillPerSecond));
+    available_tokens_ =
+        std::min(capacity_, available_tokens_ + (elapsed_seconds * refill_per_second_));
     last_refill_ = now;
   }
   if (available_tokens_ < 1.0) {
@@ -274,5 +274,13 @@ bool ControlFrameRatePolicy::consume(const Clock::time_point now) noexcept {
   available_tokens_ -= 1.0;
   return true;
 }
+
+ControlFrameRatePolicy::ControlFrameRatePolicy(const Clock::time_point opened_at) noexcept
+    : bucket_(static_cast<double>(ServerLimits::kControlFrameBurstMaximumCount),
+              ServerLimits::kControlFrameRefillPerSecond, opened_at) {}
+
+CommandRatePolicy::CommandRatePolicy(const Clock::time_point opened_at) noexcept
+    : bucket_(ServerLimits::kSessionCommandBucketCapacity,
+              ServerLimits::kSessionCommandRefillPerSecond, opened_at) {}
 
 } // namespace blob_royale::server

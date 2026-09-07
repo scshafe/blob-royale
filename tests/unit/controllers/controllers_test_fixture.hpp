@@ -108,7 +108,13 @@ public:
         mailbox_(stepped_.game().accepted_command_kinds()),
         allocator_(runtime::EntityIdAllocator::create(
             simulation::EntityId::create(kIssuedEntityIdCeiling))),
-        sink_(mailbox_, directory_, allocator_), host_(publication_, sink_) {
+        // Deliberately opens at the minimum, which is exactly the alignment production refuses:
+        // this fixture owns both sides, seating bodies whose controller ids it then reissues, so
+        // the sink's ids and the world's line up on purpose. A live runtime computes a floor above
+        // every controller id the loaded world carries, so a session can never adopt a body it did
+        // not spawn (`simulation_runtime.cpp`, first_session_controller_id).
+        sink_(mailbox_, directory_, allocator_, simulation::kMinimumControllerId),
+        host_(publication_, sink_) {
     // One open session per seated controller, so the ids the sink issues are the ids the world
     // already links its bodies to.
     for (std::size_t index = 0; index < seated_count; ++index) {

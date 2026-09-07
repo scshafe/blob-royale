@@ -219,6 +219,11 @@ TEST_CASE("SessionWebSocketSession opens exactly one controller and retires it e
       harness.make_session(kRequestId, direct_identity());
   SessionClient client{std::move(harness.client_socket())};
 
+  // The id this session is about to be issued. A live runtime opens its controller cursor above
+  // every id the loaded world already carries, so the first session is not necessarily one.
+  const simulation::ControllerId retired_controller_id =
+      simulation::ControllerId::create(harness.command_sink().next_controller_id());
+
   session->run(harness.request(kRequestId));
   run_until(harness.server_io_context(),
             [&harness] { return harness.controller_directory().size() == 1; });
@@ -246,12 +251,16 @@ TEST_CASE("SessionWebSocketSession opens exactly one controller and retires it e
   CHECK(count_events(harness, "session.closed") == 1);
 
   // The `ControllerId` this session held was retired exactly once: the next identity the sink
-  // issues is a *different* one, and it is the only entry the directory now holds.
+  // issues is a *different* one, and it is the only entry the directory now holds. The retired id
+  // is read from the sink rather than written as a literal, because a live runtime opens its
+  // controller cursor above every id the loaded world already carries and the first session is
+  // therefore not necessarily one (`simulation_runtime.cpp`, first_session_controller_id).
+  const simulation::ControllerId retired = retired_controller_id;
   const simulation::ControllerId later =
       harness.command_sink().open_session("session", "player-later");
-  CHECK(later != simulation::ControllerId::create(1));
+  CHECK(later != retired);
   CHECK(harness.controller_directory().size() == 1);
-  CHECK(harness.command_sink().close_session(simulation::ControllerId::create(1)) ==
+  CHECK(harness.command_sink().close_session(retired) ==
         runtime::ControllerCloseResult::kUnknownControllerId);
   CHECK(harness.command_sink().close_session(later) == runtime::ControllerCloseResult::kClosed);
 }
@@ -263,6 +272,10 @@ TEST_CASE("SessionWebSocketSession publishes the fallback display name for a dir
   const std::shared_ptr<server::SessionWebSocketSession> session =
       harness.make_session(kRequestId, direct_identity());
   SessionClient client{std::move(harness.client_socket())};
+  // The id this session will be issued, read before it opens. A literal would assume the sink
+  // starts at one, which a live runtime deliberately does not.
+  const simulation::ControllerId issued =
+      simulation::ControllerId::create(harness.command_sink().next_controller_id());
 
   session->run(harness.request(kRequestId));
   run_until(harness.server_io_context(),
@@ -270,7 +283,7 @@ TEST_CASE("SessionWebSocketSession publishes the fallback display name for a dir
 
   REQUIRE(harness.controller_directory().size() == 1);
   const std::optional<runtime::ControllerPresentation> presentation =
-      harness.controller_directory().find(simulation::ControllerId::create(1));
+      harness.controller_directory().find(issued);
   REQUIRE(presentation.has_value());
   CHECK(presentation->controller_kind == "session");
   CHECK(presentation->display_name.starts_with("player-"));
@@ -287,13 +300,15 @@ TEST_CASE("SessionWebSocketSession publishes an accepted proxy display name byte
       server::PeerIdentity::proxy_forwarded("100.101.102.103", std::string{"Cole Shaffer"},
                                             server::DisplayNameOutcome::kProxySupplied, 12));
   SessionClient client{std::move(harness.client_socket())};
+  const simulation::ControllerId issued =
+      simulation::ControllerId::create(harness.command_sink().next_controller_id());
 
   session->run(harness.request(kRequestId));
   run_until(harness.server_io_context(),
             [&harness] { return harness.controller_directory().size() == 1; });
 
   const std::optional<runtime::ControllerPresentation> presentation =
-      harness.controller_directory().find(simulation::ControllerId::create(1));
+      harness.controller_directory().find(issued);
   REQUIRE(presentation.has_value());
   CHECK(presentation->display_name == "Cole Shaffer");
   // A published name is never logged, and an accepted one produces no fallback line at all.

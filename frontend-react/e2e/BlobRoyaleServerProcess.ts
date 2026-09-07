@@ -14,6 +14,15 @@ export interface BlobRoyaleServerExitResult {
   readonly signal: NodeJS.Signals | null;
 }
 
+/**
+ * Which fixture world one flow runs against. The scenario is optional because `--scenario` is:
+ * a match seeds its roster from the map and the mode, and a scenario only adds extra entities.
+ */
+export interface BlobRoyaleServerFixture {
+  readonly configurationFileName: string;
+  readonly scenarioFileName: string | null;
+}
+
 function waitForProcessExit(
   exitPromise: Promise<BlobRoyaleServerExitResult>,
   timeoutMilliseconds: number,
@@ -55,11 +64,14 @@ export class BlobRoyaleServerProcess {
 
   private constructor(
     private readonly executablePath: string,
+    private readonly workingDirectory: string,
     private readonly configurationPath: string,
-    private readonly scenarioPath: string,
+    private readonly scenarioPath: string | null,
   ) {}
 
-  static async createFromEnvironment(): Promise<BlobRoyaleServerProcess> {
+  static async createFromEnvironment(
+    fixture: BlobRoyaleServerFixture,
+  ): Promise<BlobRoyaleServerProcess> {
     const executablePath =
       process.env.BLOB_ROYALE_BROWSER_E2E_SERVER_EXECUTABLE;
     if (executablePath === undefined || executablePath === '') {
@@ -80,13 +92,20 @@ export class BlobRoyaleServerProcess {
       );
     }
 
+    // Relative paths inside a fixture configuration -- `[match] maps_directory` above all -- are
+    // resolved by the server against its own working directory. Naming it here rather than
+    // inheriting whatever launched Playwright is what keeps those keys meaningful.
+    const workingDirectory = fileURLToPath(new URL('../', import.meta.url));
     const fixtureDirectory = fileURLToPath(
       new URL('./fixtures/', import.meta.url),
     );
     return new BlobRoyaleServerProcess(
       executablePath,
-      `${fixtureDirectory}blob-royale-browser-e2e.cfg`,
-      `${fixtureDirectory}blob-royale-browser-e2e.csv`,
+      workingDirectory,
+      `${fixtureDirectory}${fixture.configurationFileName}`,
+      fixture.scenarioFileName === null
+        ? null
+        : `${fixtureDirectory}${fixture.scenarioFileName}`,
     );
   }
 
@@ -104,8 +123,11 @@ export class BlobRoyaleServerProcess {
     this.serverOutputTruncated = false;
     const child = spawn(
       this.executablePath,
-      ['--config', this.configurationPath, '--scenario', this.scenarioPath],
+      this.scenarioPath === null
+        ? ['--config', this.configurationPath]
+        : ['--config', this.configurationPath, '--scenario', this.scenarioPath],
       {
+        cwd: this.workingDirectory,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -265,6 +287,7 @@ export class BlobRoyaleServerProcess {
       scenario_path: this.scenarioPath,
       server_output: this.serverOutput,
       server_output_truncated: this.serverOutputTruncated ? 1 : 0,
+      working_directory: this.workingDirectory,
     });
   }
 

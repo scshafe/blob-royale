@@ -1,11 +1,14 @@
 #include "simulation_runtime.hpp"
 
+#include "components/controllable_component.hpp"
+
 #include "command_registry.hpp"
 #include "entity_id_reservation.hpp"
 #include "fixed_delta.hpp"
 #include "input_batch.hpp"
 #include "simulation_runtime_lifecycle_error.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -16,6 +19,24 @@
 #include <vector>
 
 namespace blob_royale::runtime {
+namespace {
+
+// The lowest controller id a session may be issued: above every controller id the loaded world
+// already carries. A scenario-seeded entity derives its controller id from its entity id, so
+// without this floor the first session would be issued an id a seeded body already holds, and the
+// client -- which resolves its own body by controller id on every frame -- would adopt that body
+// instead of spawning one. Two issuing authorities, one identifier space.
+[[nodiscard]] simulation::ControllerId::Value
+first_session_controller_id(const simulation::GameSimulation& game_simulation) {
+  simulation::ControllerId::Value floor = simulation::kMinimumControllerId;
+  const simulation::WorldSnapshot committed = game_simulation.snapshot();
+  for (const auto& entry : committed.components<simulation::Controllable>()) {
+    floor = std::max(floor, entry.value.controller_id.value() + 1);
+  }
+  return floor;
+}
+
+} // namespace
 
 namespace {
 
@@ -41,7 +62,8 @@ SimulationRuntime::SimulationRuntime(simulation::GameSimulation game_simulation)
       snapshot_publication_(game_simulation_.snapshot()),
       entity_id_allocator_(EntityIdAllocator::above_committed_state(game_simulation_)),
       command_mailbox_(game_simulation_.accepted_command_kinds()),
-      command_sink_(command_mailbox_, controller_directory_, entity_id_allocator_),
+      command_sink_(command_mailbox_, controller_directory_, entity_id_allocator_,
+                    first_session_controller_id(game_simulation_)),
       simulation_thread_([this](const std::stop_token stop_token) { run(stop_token); }) {}
 
 SimulationRuntime::~SimulationRuntime() { stop(); }

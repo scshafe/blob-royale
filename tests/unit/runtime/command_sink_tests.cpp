@@ -29,11 +29,17 @@ constexpr std::uint64_t kIssuedEntityId = 9;
 
 // Everything one command source is given, owned together so a test reads like the runtime does.
 struct CommandSinkFixture final {
+  // The first controller id is explicit rather than defaulted, because it is a real decision: a
+  // live runtime opens it above every controller id the loaded world already carries, so a session
+  // can never be issued an id a seeded body holds and adopt that body instead of spawning
+  // (`simulation_runtime.cpp`, first_session_controller_id). These tests build no world, so the
+  // minimum is the honest floor here.
   explicit CommandSinkFixture(
-      const simulation::CommandKindMask accepted_kinds = simulation::CommandKindMask::all())
+      const simulation::CommandKindMask accepted_kinds = simulation::CommandKindMask::all(),
+      const simulation::ControllerId::Value first_controller_id = simulation::kMinimumControllerId)
       : mailbox(accepted_kinds), allocator(runtime::EntityIdAllocator::create(
                                      simulation::EntityId::create(kIssuedEntityIdCeiling))),
-        sink(mailbox, directory, allocator) {}
+        sink(mailbox, directory, allocator, first_controller_id) {}
 
   runtime::CommandMailbox mailbox;
   runtime::ControllerDirectory directory;

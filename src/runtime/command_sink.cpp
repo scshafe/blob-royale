@@ -12,10 +12,10 @@
 namespace blob_royale::runtime {
 
 CommandSink::CommandSink(CommandMailbox& mailbox, ControllerDirectory& controller_directory,
-                         const EntityIdAllocator& entity_id_allocator) noexcept
+                         const EntityIdAllocator& entity_id_allocator,
+                         const simulation::ControllerId::Value first_controller_id) noexcept
     : mailbox_(&mailbox), controller_directory_(&controller_directory),
-      entity_id_allocator_(&entity_id_allocator),
-      next_controller_id_(simulation::kMinimumControllerId) {}
+      entity_id_allocator_(&entity_id_allocator), next_controller_id_(first_controller_id) {}
 
 simulation::ControllerId CommandSink::open_session(const std::string_view controller_kind,
                                                    const std::string_view display_name) {

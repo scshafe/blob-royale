@@ -62,8 +62,19 @@ namespace blob_royale::runtime {
 // related: simulation_runtime.hpp -- the owner that hands this out.
 class CommandSink final {
 public:
+  // `first_controller_id` is the lowest id this sink may issue. It must open above every
+  // controller id the committed world already carries, because a seeded entity derives its
+  // controller id from its entity id and would otherwise share a value with the first session:
+  // the client resolves its own body by controller id, so a colliding session silently adopts a
+  // body it never asked for instead of spawning. `above_committed_state` computes it.
   CommandSink(CommandMailbox& mailbox, ControllerDirectory& controller_directory,
-              const EntityIdAllocator& entity_id_allocator) noexcept;
+              const EntityIdAllocator& entity_id_allocator,
+              simulation::ControllerId::Value first_controller_id) noexcept;
+
+  // The lowest controller id no session has been issued yet, for diagnostics and tests.
+  [[nodiscard]] simulation::ControllerId::Value next_controller_id() const noexcept {
+    return next_controller_id_.load(std::memory_order_acquire);
+  }
 
   CommandSink(const CommandSink&) = delete;
   CommandSink(CommandSink&&) = delete;

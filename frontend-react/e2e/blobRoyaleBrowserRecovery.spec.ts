@@ -1,21 +1,36 @@
-import {
-  expect,
-  test as playwrightTest,
-  type APIRequestContext,
-  type Locator,
-} from '@playwright/test';
+import { expect, test as playwrightTest, type Locator } from '@playwright/test';
 
 import { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
-import { BrowserE2EError } from './BrowserE2EError';
+import {
+  CONNECTED_STATUS,
+  RETRYING_STATUS,
+  matchHudCell,
+  waitForReadyServer,
+} from './browserFlowSupport';
 
-const PRODUCTION_ORIGIN = 'http://127.0.0.1:5173';
-const READINESS_PATH = '/api/v1/health/ready';
-const READINESS_TIMEOUT_MILLISECONDS = 10_000;
-const READINESS_RETRY_INTERVAL_MILLISECONDS = 50;
-const CONNECTED_STATUS = 'Connected to the read-only snapshot stream.';
-const RETRYING_STATUS =
-  'The snapshot stream disconnected. Retrying with bounded backoff…';
-const COMPLETE_TICK_PATTERN = /^Complete tick ([1-9][0-9]*) with 2 players\.$/;
+/**
+ * The sandbox fixture, and it stays sandbox. This flow asserts that the same world is rendered
+ * before and after a server restart, and a royale process restarts a match rather than resuming
+ * one; the royale flow lives in `blobRoyaleBrowserRoyaleMatch.spec.ts` on its own configuration.
+ */
+const RECOVERY_FIXTURE = Object.freeze({
+  configurationFileName: 'blob-royale-browser-e2e.cfg',
+  scenarioFileName: 'blob-royale-browser-e2e.csv',
+});
+
+/**
+ * Two entities and two players, and no third entity for the browser.
+ *
+ * A scenario row seeds an entity that decides for itself, with `controller_id == entity_id`
+ * (`src/simulation/game_world.hpp` § `EntitySeed::create`), so both seeded discs already carry a
+ * controller and both count as players. The controller directory issues session ids from one, so
+ * the first session's controller id is the one entity 1 already carries: the session recognises
+ * that entity as its own body and never asks to spawn. That is the documented "until sessions
+ * issue their own controller ids" hand-off, and it holds identically across the restart because
+ * the replacement process issues ids from one again.
+ */
+const COMPLETE_TICK_PATTERN =
+  /^Complete tick ([1-9][0-9]*) with 2 entities and 2 players\.$/;
 
 interface BrowserE2EFixtures {
   readonly blobRoyaleServer: BlobRoyaleServerProcess;
@@ -23,7 +38,8 @@ interface BrowserE2EFixtures {
 
 const test = playwrightTest.extend<BrowserE2EFixtures>({
   blobRoyaleServer: async ({}, use) => {
-    const server = await BlobRoyaleServerProcess.createFromEnvironment();
+    const server =
+      await BlobRoyaleServerProcess.createFromEnvironment(RECOVERY_FIXTURE);
     try {
       await use(server);
     } finally {
@@ -31,79 +47,6 @@ const test = playwrightTest.extend<BrowserE2EFixtures>({
     }
   },
 });
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
-  });
-}
-
-function isRetryableReadinessStatus(responseStatus: number): boolean {
-  return responseStatus === 502 || responseStatus === 503;
-}
-
-async function waitForReadyServer(
-  request: APIRequestContext,
-  server: BlobRoyaleServerProcess,
-): Promise<void> {
-  const deadline = Date.now() + READINESS_TIMEOUT_MILLISECONDS;
-  let lastTransportError: unknown = null;
-
-  while (Date.now() < deadline) {
-    await server.assertRunning();
-    try {
-      const response = await request.get(READINESS_PATH, {
-        headers: {
-          Accept: 'application/json',
-          Origin: PRODUCTION_ORIGIN,
-          'X-Request-ID': 'browser-e2e-readiness',
-        },
-        timeout: 1_000,
-      });
-      if (isRetryableReadinessStatus(response.status())) {
-        await delay(READINESS_RETRY_INTERVAL_MILLISECONDS);
-        continue;
-      }
-      if (response.status() !== 200) {
-        throw new BrowserE2EError(
-          'BROWSER_E2E.READINESS_STATUS_INVALID',
-          'Readiness through the production same-origin proxy returned an unexpected status.',
-          { response_status: response.status() },
-        );
-      }
-
-      expect(response.headers()['content-type']).toMatch(
-        /^application\/json(?:;|$)/,
-      );
-      expect(await response.json()).toEqual({
-        data: {
-          snapshot_available: true,
-          status: 'ready',
-        },
-        error: null,
-        meta: {
-          protocol_version: '1.0',
-          request_id: 'browser-e2e-readiness',
-          schema_id: 'blob-royale://protocol/v1/readiness-response',
-        },
-      });
-      return;
-    } catch (error) {
-      if (error instanceof BrowserE2EError) {
-        throw error;
-      }
-      lastTransportError = error;
-      await delay(READINESS_RETRY_INTERVAL_MILLISECONDS);
-    }
-  }
-
-  throw new BrowserE2EError(
-    'BROWSER_E2E.READINESS_TIMEOUT',
-    'The exact server did not become ready through the production same-origin proxy.',
-    { timeout_milliseconds: READINESS_TIMEOUT_MILLISECONDS },
-    lastTransportError,
-  );
-}
 
 async function readCompleteTick(caption: Locator): Promise<number> {
   const captionText = await caption.textContent();
@@ -162,10 +105,29 @@ test('production Chromium reconnects to a restarted exact server', async ({
   await expect(canvas).toBeVisible();
   const completeTickCaption = page.locator('.SimulationCanvas figcaption');
   await assertTwoIncreasingCompleteTicks(completeTickCaption);
+  // One of those two players is this session: without this the caption above would also pass with
+  // the browser connected but holding no body at all.
+  await expect(matchHudCell(page, 'Placement')).toHaveText('In play');
+
+  // Protocol metadata is a disclosure now, so a player who wants it must ask. Opening it here is
+  // part of the flow rather than a detour: the request ID underneath is how this test tells one
+  // server's snapshot stream from the next one's.
+  const detailsToggle = page.getByRole('button', {
+    name: /^(?:Show|Hide) simulation details$/,
+  });
+  await expect(detailsToggle).toHaveText('Show simulation details');
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(
+    page.getByRole('table', { name: 'Session protocol metadata' }),
+  ).toHaveCount(0);
+  await detailsToggle.click();
+  await expect(detailsToggle).toHaveText('Hide simulation details');
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
 
   const metadataTable = page.getByRole('table', {
-    name: 'Snapshot protocol metadata',
+    name: 'Session protocol metadata',
   });
+  await expect(metadataTable).toBeVisible();
   const firstServerRequestId = await readSnapshotRequestId(metadataTable);
   expect(firstServerRequestId).toMatch(/^br-[0-9a-f]+-[0-9a-f]+$/);
 
@@ -183,6 +145,10 @@ test('production Chromium reconnects to a restarted exact server', async ({
   await expect(
     page.getByRole('img', { name: 'Blob Royale simulation world' }),
   ).toBeVisible();
+  // The disclosure the player opened survives a reconnect: losing the server must not silently
+  // close the panel they were reading.
+  await expect(detailsToggle).toHaveText('Hide simulation details');
+  await expect(detailsToggle).toHaveAttribute('aria-expanded', 'true');
   await expect
     .poll(() => readSnapshotRequestId(metadataTable), {
       message:
@@ -191,6 +157,7 @@ test('production Chromium reconnects to a restarted exact server', async ({
     })
     .not.toBe(firstServerRequestId);
   await assertTwoIncreasingCompleteTicks(completeTickCaption);
+  await expect(matchHudCell(page, 'Placement')).toHaveText('In play');
 
   await blobRoyaleServer.terminateWithSigterm();
   expect(pageErrors).toEqual([]);

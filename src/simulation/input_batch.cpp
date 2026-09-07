@@ -8,7 +8,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -22,21 +21,6 @@ struct OrderedCommand final {
   std::size_t submission_index;
   Command command;
 };
-
-// The identity a command addresses. A spawn addresses its ControllerId because the engine, not
-// the command, chooses the EntityId (`commands/spawn_command.hpp`); every other kind addresses
-// the EntityId it names. Adding a kind adds its arm here.
-[[nodiscard]] std::uint64_t addressed_identity_of(const Command& command) noexcept {
-  return std::visit(
-      []<typename CommandType>(const CommandType& value) -> std::uint64_t {
-        if constexpr (std::is_same_v<CommandType, SpawnCommand>) {
-          return value.controller.value();
-        } else {
-          return value.entity.value();
-        }
-      },
-      command);
-}
 
 [[nodiscard]] std::string command_position(const std::size_t submission_index) {
   return " (submitted command " + std::to_string(submission_index) + ")";
@@ -120,7 +104,9 @@ InputBatch InputBatch::create(std::vector<Command> commands, const CommandKindMa
     validate_command(commands[index], accepted_kinds, entity_id_reservation, index);
     const std::uint32_t application_rank =
         command_kind_application_rank(command_kind_of(commands[index]));
-    const std::uint64_t addressed_identity = addressed_identity_of(commands[index]);
+    // The one implementation of "which identity does this command address?", shared with kernel
+    // phase 0 (`command_registry.hpp`, AddressedIdentity; engine review finding 5).
+    const std::uint64_t addressed_identity = addressed_identity_of(commands[index]).ordering_key();
     ordered.push_back(
         OrderedCommand{application_rank, addressed_identity, index, std::move(commands[index])});
   }

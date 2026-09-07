@@ -1,3 +1,4 @@
+#include "command_kind_mask.hpp"
 #include "command_registry.hpp"
 #include "commands/despawn_command.hpp"
 #include "commands/spawn_command.hpp"
@@ -8,7 +9,10 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string_view>
 #include <type_traits>
 #include <variant>
@@ -106,4 +110,84 @@ TEST_CASE("A spawn addresses its controller and every other kind addresses its e
   CHECK(despawn.entity.value() == 9);
   CHECK(thrust.entity.value() == 11);
   CHECK(thrust.direction == simulation::Vector2::create(1.0, 0.0));
+}
+
+TEST_CASE("addressed_identity_of is the one answer to which identity a command addresses",
+          "[unit][simulation][command_registry]") {
+  // One capability, one implementation: `InputBatch::create` reads `ordering_key()` and kernel
+  // phase 0 reads `entity()`, and both read this function (engine review finding 5).
+  const simulation::AddressedIdentity spawn = simulation::addressed_identity_of(spawn_command(7));
+  CHECK_FALSE(spawn.entity().has_value());
+  CHECK(spawn.ordering_key() == 7);
+
+  const simulation::AddressedIdentity despawn =
+      simulation::addressed_identity_of(despawn_command(9));
+  REQUIRE(despawn.entity().has_value());
+  CHECK(despawn.entity()->value() == 9);
+  CHECK(despawn.ordering_key() == 9);
+
+  const simulation::AddressedIdentity thrust =
+      simulation::addressed_identity_of(thrust_command(11, 1.0, 0.0));
+  REQUIRE(thrust.entity().has_value());
+  CHECK(thrust.entity()->value() == 11);
+  CHECK(thrust.ordering_key() == 11);
+
+  // Two commands of one kind for one identity carry the same identity value, which is what makes
+  // the batch's de-duplication a run over equal keys.
+  CHECK(simulation::addressed_identity_of(thrust_command(11, 1.0, 0.0)) ==
+        simulation::addressed_identity_of(thrust_command(11, -1.0, 0.5)));
+  CHECK(simulation::addressed_identity_of(thrust_command(11, 1.0, 0.0)) !=
+        simulation::addressed_identity_of(thrust_command(12, 1.0, 0.0)));
+
+  // Two *different* kinds naming one entity carry the same identity on purpose: the identity is
+  // kind-agnostic, and it is the injective application rank that separates the two groups. That is
+  // why the batch groups by (rank, identity) and never by identity alone.
+  CHECK(simulation::addressed_identity_of(thrust_command(11, 1.0, 0.0)) ==
+        simulation::addressed_identity_of(despawn_command(11)));
+  CHECK(simulation::command_kind_application_rank(simulation::CommandKind::kThrust) !=
+        simulation::command_kind_application_rank(simulation::CommandKind::kDespawn));
+
+  // The two identity spaces are never compared with each other: a spawn naming controller 9 and a
+  // despawn naming entity 9 share an ordering key and are kept apart by their ranks alone.
+  CHECK(simulation::addressed_identity_of(spawn_command(9)).ordering_key() ==
+        simulation::addressed_identity_of(despawn_command(9)).ordering_key());
+  CHECK(simulation::addressed_identity_of(spawn_command(9)) !=
+        simulation::addressed_identity_of(despawn_command(9)));
+}
+
+TEST_CASE("The command kind list is derived from the variant rather than typed beside it",
+          "[unit][simulation][command_registry]") {
+  // Derivation, not maintenance: `kCommandKinds` reads CommandKindOf over every variant
+  // alternative, so it can neither omit a kind nor carry a duplicate (engine review finding 7).
+  STATIC_REQUIRE(simulation::kCommandKinds.size() == std::variant_size_v<simulation::Command>);
+  STATIC_REQUIRE(simulation::values_are_distinct(simulation::kCommandKinds));
+  STATIC_REQUIRE(simulation::kCommandKinds ==
+                 simulation::kinds_of_variant<simulation::Command, simulation::CommandKindOf>());
+
+  // Every registered kind is in the complete mask, which is the property a duplicated hand-typed
+  // entry used to be able to break silently.
+  for (const simulation::CommandKind kind : simulation::kCommandKinds) {
+    CHECK(simulation::CommandKindMask::all().contains(kind));
+    CHECK(simulation::command_kind_name_of(kind) != std::string_view{"command_kind_invalid"});
+  }
+  CHECK(simulation::CommandKindMask::all().bits() ==
+        (static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSpawn) |
+         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kDespawn) |
+         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kThrust)));
+}
+
+TEST_CASE("No two command kinds share a phase 0 application rank",
+          "[unit][simulation][command_registry]") {
+  // The injectivity `InputBatch` depends on, derived over the whole kind list rather than written
+  // out as three pairwise comparisons that a fourth kind would silently outgrow.
+  STATIC_REQUIRE(simulation::values_are_distinct(simulation::projected_values(
+      simulation::kCommandKinds, simulation::command_kind_application_rank)));
+
+  std::vector<std::uint32_t> ranks;
+  for (const simulation::CommandKind kind : simulation::kCommandKinds) {
+    ranks.push_back(simulation::command_kind_application_rank(kind));
+  }
+  std::sort(ranks.begin(), ranks.end());
+  CHECK(std::adjacent_find(ranks.cbegin(), ranks.cend()) == ranks.cend());
+  CHECK(ranks.size() == simulation::kCommandKindCount);
 }

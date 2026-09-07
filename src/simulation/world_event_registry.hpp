@@ -6,6 +6,7 @@
 #include "events/elimination_event.hpp"
 #include "events/score_event.hpp"
 #include "events/spawn_event.hpp"
+#include "kind_registry.hpp"
 
 #include <array>
 #include <cstddef>
@@ -33,25 +34,25 @@ namespace blob_royale::simulation {
 //   new  src/simulation/events/<kind>_event.hpp  the value struct and its fields
 //   edit src/simulation/world_event_registry.hpp one type in the WorldEvent variant, one
 //                                                enumerator in WorldEventKind, one
-//                                                WorldEventKindName specialization, one
-//                                                WorldEventKindOf specialization, and one
-//                                                kWorldEventKinds entry
+//                                                WorldEventKindName specialization, and one
+//                                                WorldEventKindOf specialization
 //   new  src/gameplay/...                        the system that consumes it; an event has no
 //                                                meaning until a stage reads it
+//
+// `kWorldEventKinds` is not on that list: the kind array is derived from the variant through
+// WorldEventKindOf, so it cannot omit a kind or carry a duplicate (engine review finding 7;
+// kind_registry.hpp).
 //
 // related: game_world.hpp -- the owner of the tick's event list.
 // related: command_registry.hpp -- the same closed-variant shape for one tick's input.
 using WorldEvent =
     std::variant<ContactEvent, SpawnEvent, DespawnEvent, EliminationEvent, ScoreEvent>;
 
-// Every alternative is nothrow-move-constructible, so a WorldEvent is never valueless by
-// exception. That is what makes world_event_kind_of total and honestly noexcept rather than
-// terminate-on-throw.
-static_assert(std::is_nothrow_move_constructible_v<ContactEvent> &&
-                  std::is_nothrow_move_constructible_v<SpawnEvent> &&
-                  std::is_nothrow_move_constructible_v<DespawnEvent> &&
-                  std::is_nothrow_move_constructible_v<EliminationEvent> &&
-                  std::is_nothrow_move_constructible_v<ScoreEvent>,
+// A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
+// asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
+// does. That is what makes world_event_kind_of total and honestly noexcept rather than
+// terminate-on-throw: a WorldEvent is never valueless by exception.
+static_assert(std::is_nothrow_move_constructible_v<WorldEvent>,
               "every WorldEvent alternative must be nothrow-move-constructible");
 
 // Declaration order, which is the order the variant lists. Unlike CommandKind these are not bit
@@ -63,16 +64,6 @@ enum class WorldEventKind : std::uint32_t {
   kElimination = 3,
   kScore = 4,
 };
-
-// The closed list of kinds in declared order, so no diagnostic maintains a second list.
-inline constexpr std::array<WorldEventKind, 5> kWorldEventKinds{
-    WorldEventKind::kContact, WorldEventKind::kSpawn, WorldEventKind::kDespawn,
-    WorldEventKind::kElimination, WorldEventKind::kScore};
-
-inline constexpr std::size_t kWorldEventKindCount = kWorldEventKinds.size();
-
-static_assert(std::variant_size_v<WorldEvent> == kWorldEventKindCount,
-              "every WorldEvent alternative must declare exactly one WorldEventKind");
 
 // canonical: world_event_kind_name -- the one diagnostic name of one event kind.
 //
@@ -131,6 +122,19 @@ template <> struct WorldEventKindOf<EliminationEvent> {
 template <> struct WorldEventKindOf<ScoreEvent> {
   static constexpr WorldEventKind value = WorldEventKind::kScore;
 };
+
+// The closed list of kinds in declared order, **derived from the variant** through
+// WorldEventKindOf, so no diagnostic maintains a second list and no hand-typed entry can disagree
+// with the variant.
+inline constexpr std::array<WorldEventKind, std::variant_size_v<WorldEvent>> kWorldEventKinds =
+    kinds_of_variant<WorldEvent, WorldEventKindOf>();
+
+inline constexpr std::size_t kWorldEventKindCount = kWorldEventKinds.size();
+
+// Each alternative's enumerator must be its own. Two alternatives sharing one enumerator would
+// pass every size check while answering world_event_kind_of with a neighbour's kind.
+static_assert(values_are_distinct(kWorldEventKinds),
+              "every WorldEvent alternative must declare its own WorldEventKind enumerator");
 
 // The kind of one event value. Total over the closed variant and generated from WorldEventKindOf,
 // so a new alternative cannot silently answer with an existing kind.

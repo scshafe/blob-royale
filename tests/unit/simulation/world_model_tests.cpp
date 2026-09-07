@@ -247,8 +247,8 @@ TEST_CASE("GameWorld rejects duplicate IDs and unsafe entity counts",
                   simulation::SimulationValidationError);
 
   std::vector<simulation::GameWorld::EntitySeed> too_many_seeds;
-  too_many_seeds.reserve(simulation::kMaximumPlayerCount + 1);
-  for (std::size_t index = 0; index <= simulation::kMaximumPlayerCount; ++index) {
+  too_many_seeds.reserve(simulation::kMaximumEntityCount + 1);
+  for (std::size_t index = 0; index <= simulation::kMaximumEntityCount; ++index) {
     too_many_seeds.push_back(seed(static_cast<simulation::EntityId::Value>(index + 1), 0.0));
   }
 

@@ -23,10 +23,15 @@ namespace blob_royale::simulation {
 // (`docs/architecture/0004-gameplay-architecture.md` § "Entities, components, and stores").
 struct Controllable final {
   ControllerId controller_id;
-  // This tick's recorded commands for this entity: at most one of each kind, ascending
-  // CommandKind. Phase 0 records them and does not interpret them, because command meaning is a
-  // system's job. The default member initializer keeps `Controllable{controller_id}` -- the shape
-  // every existing seating and fixture site uses -- a complete aggregate initialization.
+  // This tick's recorded commands for this entity: at most one of each kind, **in the tick's one
+  // canonical order**, which is phase 0's application order and therefore the order
+  // `InputBatch::commands()` already arrives in (`input_batch.hpp`). There is no second
+  // convention: a recorded list used to be re-sorted by ascending CommandKind after phase 0 wrote
+  // it, which was a no-op over the rank table it claimed to be independent of and left one closed
+  // vocabulary with two orderings (engine review finding 6). Phase 0 records and does not
+  // interpret, because command meaning is a system's job. The default member initializer keeps
+  // `Controllable{controller_id}` -- the shape every existing seating and fixture site uses -- a
+  // complete aggregate initialization.
   //
   // **This field is tick-local and is never published.** It is one entity's live input for the
   // tick being committed, so a snapshot carrying it would hand every reader every player's input

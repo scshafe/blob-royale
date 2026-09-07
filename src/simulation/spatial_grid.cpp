@@ -225,7 +225,7 @@ build_cells(const GameWorld& world, const std::vector<CellCoverage>& coverages,
   if (player_count < 2) {
     return 0;
   }
-  if (player_count > kMaximumPlayerCount ||
+  if (player_count > kMaximumEntityCount ||
       player_count > std::numeric_limits<std::size_t>::max() / (player_count - 1)) {
     throw SimulationValidationError(
         SimulationValidationCode::kSpatialGridCandidatePairLimitExceeded,

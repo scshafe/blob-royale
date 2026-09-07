@@ -3,6 +3,7 @@ add_subdirectory(observability)
 add_executable(blob_simulation_unit_tests
   simulation/command_kind_mask_tests.cpp
   simulation/command_registry_tests.cpp
+  simulation/component_join_tests.cpp
   simulation/component_registry_tests.cpp
   simulation/component_store_tests.cpp
   simulation/contact_rule_table_tests.cpp
@@ -64,6 +65,7 @@ catch_discover_tests(blob_application_unit_tests
   DISCOVERY_MODE PRE_TEST
 )
 
+add_subdirectory(gameplay)
 add_subdirectory(protocol)
 add_subdirectory(runtime)
 add_subdirectory(server)

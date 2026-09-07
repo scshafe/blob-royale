@@ -8,6 +8,16 @@
 
 namespace blob_royale::simulation {
 
+// canonical: simulation_validation_error -- the one exception vocabulary of blob_simulation.
+//
+// **Every rejection and every violated invariant in this domain is a SimulationValidationError
+// carrying one greppable code.** There is no second vocabulary: the engine invariants that used to
+// throw a bare `std::logic_error` -- an unknown id reached through the spatial index, an incoherent
+// wall-motion list, a committed index that is not a rebuild of the committed world -- carry
+// `SIMULATION.GAME_SIMULATION_*` codes like every other failure here (engine review finding 13).
+// A caller that has to distinguish an input rejection from a broken invariant reads the code; two
+// exception types would make that distinction a `catch` clause and would leave half the failures
+// unnameable in a log filter.
 enum class SimulationValidationCode {
   kPhysicalScalarNotFinite,
   kPhysicalScalarOutOfRange,
@@ -25,7 +35,7 @@ enum class SimulationValidationCode {
   kInputBatchCommandKindNotAccepted,
   kInputBatchThrustDirectionOutOfRange,
   kInputBatchSpawnAndDespawnConflict,
-  kGameWorldPlayerLimitExceeded,
+  kGameWorldEntityLimitExceeded,
   kGameWorldDuplicateEntityId,
   kGameWorldEventLimitExceeded,
   kDeterministicRandomBoundEmpty,
@@ -56,6 +66,9 @@ enum class SimulationValidationCode {
   kMapMetadataDuplicateKey,
   kMapMetadataLimitExceeded,
   kGameSimulationBodyOutOfBounds,
+  kGameSimulationSpatialIndexUnknownEntityId,
+  kGameSimulationSpatialIndexStale,
+  kGameSimulationWallMotionIncoherent,
   kTickSequenceOutOfRange,
   kConfigWorldScalarNotFinite,
   kConfigWorldScalarOutOfRange,
@@ -111,8 +124,8 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.INPUT_BATCH_THRUST_DIRECTION_OUT_OF_RANGE";
   case SimulationValidationCode::kInputBatchSpawnAndDespawnConflict:
     return "SIMULATION.INPUT_BATCH_SPAWN_AND_DESPAWN_CONFLICT";
-  case SimulationValidationCode::kGameWorldPlayerLimitExceeded:
-    return "SIMULATION.GAME_WORLD_PLAYER_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kGameWorldEntityLimitExceeded:
+    return "SIMULATION.GAME_WORLD_ENTITY_LIMIT_EXCEEDED";
   case SimulationValidationCode::kGameWorldDuplicateEntityId:
     return "SIMULATION.GAME_WORLD_DUPLICATE_ENTITY_ID";
   case SimulationValidationCode::kGameWorldEventLimitExceeded:
@@ -173,6 +186,12 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.MAP_METADATA_LIMIT_EXCEEDED";
   case SimulationValidationCode::kGameSimulationBodyOutOfBounds:
     return "SIMULATION.GAME_SIMULATION_BODY_OUT_OF_BOUNDS";
+  case SimulationValidationCode::kGameSimulationSpatialIndexUnknownEntityId:
+    return "SIMULATION.GAME_SIMULATION_SPATIAL_INDEX_UNKNOWN_ENTITY_ID";
+  case SimulationValidationCode::kGameSimulationSpatialIndexStale:
+    return "SIMULATION.GAME_SIMULATION_SPATIAL_INDEX_STALE";
+  case SimulationValidationCode::kGameSimulationWallMotionIncoherent:
+    return "SIMULATION.GAME_SIMULATION_WALL_MOTION_INCOHERENT";
   case SimulationValidationCode::kTickSequenceOutOfRange:
     return "SIMULATION.TICK_SEQUENCE_OUT_OF_RANGE";
   case SimulationValidationCode::kConfigWorldScalarNotFinite:

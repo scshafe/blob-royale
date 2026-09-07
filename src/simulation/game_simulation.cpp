@@ -22,9 +22,7 @@
 #include <memory>
 #include <optional>
 #include <span>
-#include <stdexcept>
 #include <string>
-#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -40,24 +38,12 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
                                         return entry.entity < searched_id;
                                       });
   if (match == bodies.cend() || match->entity != id) {
-    throw std::logic_error("GameSimulation spatial-grid invariant references an unknown EntityId");
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameSimulationSpatialIndexUnknownEntityId,
+        "game_simulation.contacts.pairs[entity_id=" + std::to_string(id.value()) + "]",
+        "the spatial index named an EntityId the committed body store does not hold");
   }
   return static_cast<std::size_t>(std::distance(bodies.cbegin(), match));
-}
-
-// The entity a command is recorded against. A spawn addresses a ControllerId and asks the engine
-// to create an entity, so it is recorded against none; every other kind names the EntityId it
-// addresses. Adding a kind adds its arm here.
-[[nodiscard]] std::optional<EntityId> recorded_entity_of(const Command& command) noexcept {
-  return std::visit(
-      []<typename CommandType>(const CommandType& value) -> std::optional<EntityId> {
-        if constexpr (std::is_same_v<CommandType, SpawnCommand>) {
-          return std::nullopt;
-        } else {
-          return value.entity;
-        }
-      },
-      command);
 }
 
 // Phase 0. The batch arrives canonical -- despawns, then spawns, then every remaining kind, each
@@ -84,9 +70,8 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
   // Last tick's recorded commands are cleared in place rather than by reconstructing the
   // component, so each entity's vector keeps its capacity across ticks.
-  for (ComponentStore<Controllable>::Entry& entry :
-       world.mutable_store<Controllable>().mutable_entries()) {
-    entry.value.commands_this_tick.clear();
+  for (Controllable& controllable : world.mutable_store<Controllable>().mutable_values()) {
+    controllable.commands_this_tick.clear();
   }
   if (input_batch.commands().empty()) {
     return;
@@ -105,31 +90,23 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
     }
     // Total over the closed variant: the only kind that addresses no entity is the spawn handled
     // above, so this guard is unreachable today and is what keeps the pass correct the day a kind
-    // that addresses something other than an EntityId is registered.
-    const std::optional<EntityId> recorded_entity = recorded_entity_of(command);
+    // that addresses something other than an EntityId is registered
+    // (`command_registry.hpp`, AddressedIdentity).
+    const std::optional<EntityId> recorded_entity = addressed_identity_of(command).entity();
     if (!recorded_entity.has_value()) {
       continue;
     }
     if (Controllable* controllable =
             world.mutable_store<Controllable>().mutable_find(*recorded_entity);
         controllable != nullptr) {
+      // Appended in batch order, and that is the whole ordering rule. The batch already arrives in
+      // phase 0's application order, so **one canonical order governs one command list** and this
+      // pass neither sorts nor regroups. A second convention -- re-sorting each entity's recorded
+      // list by ascending CommandKind -- used to live here; it was a no-op over the rank table it
+      // claimed to be independent of, and two orderings over one closed vocabulary is a
+      // disagreement waiting for a fourth kind (engine review finding 6).
       controllable->commands_this_tick.push_back(command);
     }
-  }
-
-  // The batch groups kinds by phase 0 application rank -- despawn, spawn, then ascending
-  // enumerator -- while a Controllable records them in ascending CommandKind. The two orders agree
-  // while exactly one kind is recordable, so this sort is a no-op today; writing it is what makes
-  // the recorded order a stated contract rather than a coincidence of the rank table.
-  for (ComponentStore<Controllable>::Entry& entry :
-       world.mutable_store<Controllable>().mutable_entries()) {
-    if (entry.value.commands_this_tick.size() < 2) {
-      continue;
-    }
-    std::sort(entry.value.commands_this_tick.begin(), entry.value.commands_this_tick.end(),
-              [](const Command& left, const Command& right) {
-                return command_kind_of(left) < command_kind_of(right);
-              });
   }
 }
 
@@ -269,7 +246,11 @@ resolve_walls(const std::vector<BodyEntry>& bodies, const ArenaBounds& bounds,
 void integrate_bodies_into(GameWorld& world, std::vector<BodyEntry> bodies,
                            const std::vector<std::optional<WallMotionResult>>& wall_motions) {
   if (bodies.size() != wall_motions.size()) {
-    throw std::logic_error("GameSimulation wall-motion invariant has an incoherent player count");
+    throw SimulationValidationError(SimulationValidationCode::kGameSimulationWallMotionIncoherent,
+                                    "game_simulation.integrate.wall_motions",
+                                    "the wall-motion list holds " +
+                                        std::to_string(wall_motions.size()) + " results for " +
+                                        std::to_string(bodies.size()) + " bodies");
   }
 
   for (std::size_t index = 0; index < bodies.size(); ++index) {
@@ -390,8 +371,12 @@ struct IndexedBody final {
                     });
 }
 
+// Not noexcept, because `systems_at` rejects a stage outside the closed enumeration rather than
+// reading past its offsets array (engine review finding 15). Every call below names a literal
+// enumerator, so the rejection is unreachable from the kernel and is there for the caller that
+// manufactures a stage value.
 [[nodiscard]] bool stage_is_declared(const SystemPipeline& system_pipeline,
-                                     const SystemStage stage) noexcept {
+                                     const SystemStage stage) {
   return !system_pipeline.systems_at(stage).empty();
 }
 
@@ -584,8 +569,9 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   // It costs a second full rebuild, so it is debug-only -- which is every unit-test, fixture, and
   // sanitizer run, and therefore every run that could catch a stale index.
   if (!(next_grid == next_grid.rebuilt(next_world))) {
-    throw std::logic_error(
-        "GameSimulation committed a spatial index that is not a rebuild of the committed world");
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameSimulationSpatialIndexStale, "game_simulation.commit.grid",
+        "the committed spatial index is not a rebuild of the committed world");
   }
 #endif
 

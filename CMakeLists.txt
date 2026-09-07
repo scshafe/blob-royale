@@ -52,6 +52,7 @@ endfunction()
 
 add_subdirectory(src/observability)
 add_subdirectory(src/simulation)
+add_subdirectory(src/gameplay)
 add_subdirectory(src/runtime)
 add_subdirectory(src/protocol)
 add_subdirectory(src/server)

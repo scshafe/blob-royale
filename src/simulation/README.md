@@ -17,13 +17,27 @@ a `ComponentKindName` specialization. There is no entity base class and no entit
 `ComponentStore<C>` is the only component storage implementation. Its `entries()` are strict
 ascending `EntityId` order by construction, so **every loop that walks a store is ascending-`EntityId`
 for free**, `find` is a binary search, and a reader needing two kinds performs an ordered merge of two
-ascending spans rather than a hash lookup.
+ascending spans rather than a hash lookup. That merge has one implementation and one name:
+`for_each_entity_with_both` in `component_join.hpp`, with `count_entities_with_both` as its counting
+form. It is what `WorldSnapshot::players()` and every mode's steering system walk, and it is the
+answer to "what walks two stores together?".
+
+**Only the value half of a store is mutable.** `mutable_values()` hands out `C&` and no `EntityId` at
+all, and `mutable_find` hands out one `C*`, so a caller cannot rewrite the key that the ascending
+order and every binary search depend on; `insert_or_assign` and `erase` remain the only operations
+that change which ids a store holds. The tick has only ever needed the values.
 
 `component_registry.hpp` is the closed, ordered list of kinds:
 `ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team>`. Because it is a type list, three
 behaviors are **generated rather than maintained** — structural world equality, `destroy_entity`
 erasing from every store, and snapshot publication of every kind — so a new kind cannot forget to
 participate in any of them.
+
+The world's seat count is `kMaximumEntityCount`, and it says entities because it bounds entities: a
+wall, a projectile, a pickup, and a zone each take a seat and none of them is a player.
+`kMaximumPlayerCount` remains beside it as the protocol v1 snapshot *player* limit, which
+`src/protocol/protocol_constants.hpp` pins with a `static_assert` and which nothing but a publication
+reads.
 
 A **player** is not a type: it is an entity carrying both a `PhysicsBody` and a `Controllable`.
 `PhysicsBody` is the one body value in the game and carries position, velocity, stored acceleration,
@@ -57,9 +71,11 @@ belongs to the mode's steering system, whose written operation order is the cont
 `draw_next` advances it and throws on exhaustion; it never wraps and never reissues a drawn id,
 because a reused id would graft one entity's components onto another.
 
-Phase 0 fills `Controllable::commands_this_tick` and does not interpret it. **Command meaning is a
-system's job**, so a thrust becomes stored acceleration only when a mode's `kPreKernel` steering
-system reads it.
+Phase 0 fills `Controllable::commands_this_tick` **in the batch's order and no other**: one canonical
+order governs one command list, and the recorded list is phase 0's application order because that is
+the order the batch already arrives in. Phase 0 does not interpret what it records. **Command meaning
+is a system's job**, so a thrust becomes stored acceleration only when a mode's `kPreKernel` steering
+system reads it — `thrust_steering` in `src/gameplay/shared/`.
 
 ## The event vocabulary
 
@@ -189,6 +205,14 @@ tick can create.
 Grid cells contain non-owning `EntityId` values and are rebuilt deterministically after a committed
 tick. A `GameWorld&` exists only inside `step`, so nothing outside a tick can obtain one.
 
+**There is one exception vocabulary.** Every rejection and every violated invariant in this domain is
+a `SimulationValidationError` carrying one greppable `SIMULATION.*` code, including the engine
+invariants that used to throw a bare `std::logic_error`: an unknown id reached through the spatial
+index, an incoherent wall-motion list, and a committed index that is not a rebuild of the committed
+world. A caller that has to tell an input rejection from a broken invariant reads the code rather
+than the exception type. A mode in `blob_gameplay` raises `GameplayValidationError` with a
+`GAMEPLAY.*` code; both derive from `std::invalid_argument`.
+
 Constructors and named factories reject invalid values before they enter the world. A tick computes
 against a working copy of the committed world, so if any phase or stage fails, no partial tick
 becomes observable and the previous commit stands unchanged. The numbered phases read and write only
@@ -213,16 +237,31 @@ a new value-struct header under `components/` declaring its own `ComponentKindNa
 the registry list. `GameWorld`, `GameSimulation`, and existing systems are untouched. Two
 implementations beyond the engine set: `Zone` for the royale safe zone, `Flag` for capture the flag.
 
-`@extension-point command_kind` — `command_registry.hpp`. Adding a command kind is a new value-struct
-header under `commands/`, then one enumerator, one variant alternative, one `CommandKindName`
-specialization, one `CommandKindOf` specialization, one `kCommandKinds` entry, and one application
-rank in `command_registry.hpp`; its value validation and the identity it addresses in
-`input_batch.cpp`; a consuming system in `blob_gameplay`; and its protocol schema, which is a protocol
-minor version. Exactly one existing file in this domain declares the kind, the kernel records
-commands without interpreting them, and a mode that omits the kind from its accepted set never sees
-it. Two implementations beyond `SpawnCommand` and `DespawnCommand`: `ThrustCommand` for steering, and
-a later `UseAbilityCommand` for a dash or a weapon. **Command meaning is a system's job**, so a new
-kind adds a consuming system rather than a new kernel sub-step.
+`@extension-point command_kind` — `command_registry.hpp`. Adding a command kind edits **two**
+existing files in this domain:
+
+```
+new  src/simulation/commands/<kind>_command.hpp  the value struct and its fields
+edit src/simulation/command_registry.hpp         one type in the Command variant, one enumerator,
+                                                 one CommandKindName, one CommandKindOf, one
+                                                 application rank, one addressed_identity_of arm
+edit src/simulation/input_batch.cpp              the kind's value validation, if it has any
+new  src/gameplay/...                            the consuming system
+new  docs/protocol/schema/v2/...                 its wire schema, a protocol minor version
+```
+
+`kCommandKinds`, `CommandKindMask::all()`, and the rank-injectivity check are **derived** from the
+variant through `CommandKindOf` (`kind_registry.hpp`), so none of them is an edit and none of them
+can fall behind the variant: an alternative that copies a neighbour's enumerator fails to compile
+on `values_are_distinct(kCommandKinds)` rather than silently dropping a kind from the complete mask.
+`addressed_identity_of` is the one implementation of "which identity does this command address?",
+shared by `InputBatch::create` and kernel phase 0.
+
+The kernel records commands without interpreting them, and a mode that omits the kind from its
+accepted set never sees it. Two implementations beyond `SpawnCommand` and `DespawnCommand`:
+`ThrustCommand` for steering, and a later `UseAbilityCommand` for a dash or a weapon. **Command
+meaning is a system's job**, so a new kind adds a consuming system rather than a new kernel
+sub-step.
 
 `@extension-point simulation_system` — `system_pipeline.hpp`. A mechanic is a new
 `SimulationSystem` file plus one line in a mode's declared staged list; the kernel, the other
@@ -253,9 +292,12 @@ machine is engine mechanism: `SpawnSystem` owns iteration, occupancy, the rotati
 seating write, and `MatchLifecycleSystem` runs last at `kLifecycle` and commits at most one phase
 transition per tick. A mode's own match-wide state that is genuinely not entity-shaped is one arm of
 `ModeMatchState` plus one registration line — mode state should be a component wherever it can be.
+`validate_map` throws its own library's typed, coded validation error: `SimulationValidationError`
+inside this domain, `GameplayValidationError` for a mode in `blob_gameplay`.
+
 Two implementations: the engine's own `idle` declarations (`idle_spawn_policy.hpp`,
-`idle_match_objective.hpp`), which never seat and never start a match, and the in-test
-`TestGameMode`; `sandbox` and `royale` follow in `blob_gameplay`.
+`idle_match_objective.hpp`), which never seat and never start a match, and `sandbox` in
+`src/gameplay/sandbox/`; `royale` follows in `blob_gameplay` at plan Step 21.
 
 `@extension-point map_definition` — `map_definition.hpp`. A map is a data directory and one line of
 match configuration: `map.ini` for name, bounds, and metadata, `static_bodies.csv` for obstacles,
@@ -266,8 +308,9 @@ which is what lets any mode play any map; a mode that *requires* a kind rejects 
 in `validate_map` rather than discovering the absence mid-match.
 
 Adding an event kind is a new value-struct header under `events/` plus one type, one enumerator, one
-`WorldEventKindName`, one `WorldEventKindOf`, and one `kWorldEventKinds` entry in
-`world_event_registry.hpp`, and a consuming system. An event has no meaning until a stage reads it.
+`WorldEventKindName`, and one `WorldEventKindOf` in `world_event_registry.hpp`, and a consuming
+system. `kWorldEventKinds` is derived from the variant like `kCommandKinds`, so it is not an edit.
+An event has no meaning until a stage reads it.
 
 Pure equations in `physics.hpp` are the appropriate seam for a newly specified physical rule.
 Per-entity durable state belongs in a component, never in a new field on `GameWorld`; avoid a generic

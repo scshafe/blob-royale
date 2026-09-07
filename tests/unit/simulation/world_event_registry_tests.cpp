@@ -2,11 +2,13 @@
 #include "contact_rule_name.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "kind_registry.hpp"
 #include "vector2.hpp"
 #include "world_event_registry.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstddef>
 #include <string_view>
 #include <type_traits>
@@ -100,4 +102,35 @@ TEST_CASE("a ScoreEvent is a signed delta against the entity owning the scoreboa
   CHECK(penalty.entity == award.entity);
   CHECK(penalty.points == -5);
   CHECK_FALSE(penalty == award);
+}
+
+TEST_CASE("The world event kind list is derived from the variant rather than typed beside it",
+          "[unit][simulation][world_event_registry]") {
+  // Derivation, not maintenance: `kWorldEventKinds` reads WorldEventKindOf over every variant
+  // alternative, so it can neither omit a kind nor carry a duplicate (engine review finding 7).
+  STATIC_REQUIRE(simulation::kWorldEventKinds.size() ==
+                 std::variant_size_v<simulation::WorldEvent>);
+  STATIC_REQUIRE(simulation::values_are_distinct(simulation::kWorldEventKinds));
+  STATIC_REQUIRE(
+      simulation::kWorldEventKinds ==
+      simulation::kinds_of_variant<simulation::WorldEvent, simulation::WorldEventKindOf>());
+
+  for (const simulation::WorldEventKind kind : simulation::kWorldEventKinds) {
+    CHECK(simulation::world_event_kind_name_of(kind) !=
+          std::string_view{"world_event_kind_invalid"});
+  }
+}
+
+TEST_CASE("A derived kind list rejects a duplicated entry and accepts a distinct one",
+          "[unit][simulation][world_event_registry]") {
+  // The property the two registries rest on, stated over the helper itself: a list with a repeated
+  // value is not distinct, which is what makes the static_assert beside each registry fire when a
+  // new alternative copies a neighbour's enumerator.
+  STATIC_REQUIRE(simulation::values_are_distinct(std::array<int, 3>{1, 2, 3}));
+  STATIC_REQUIRE_FALSE(simulation::values_are_distinct(std::array<int, 3>{1, 2, 1}));
+  STATIC_REQUIRE(simulation::values_are_distinct(std::array<int, 0>{}));
+  STATIC_REQUIRE(simulation::values_are_distinct(std::array<int, 1>{7}));
+  STATIC_REQUIRE(simulation::projected_values(std::array<int, 3>{1, 2, 3}, [](const int value) {
+                   return value * 2;
+                 }) == std::array<int, 3>{2, 4, 6});
 }

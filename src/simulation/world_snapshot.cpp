@@ -1,39 +1,33 @@
 #include "world_snapshot.hpp"
 
+#include "component_join.hpp"
 #include "component_publication.hpp"
 #include "components/controllable_component.hpp"
 #include "entity_roster.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
 
-#include <cstddef>
 #include <utility>
 #include <vector>
 
 namespace blob_royale::simulation {
 namespace {
 
-// An ordered merge of two ascending stores, which is the join every multi-component reader
-// performs: a player is an entity carrying both a body and a controller link.
+// The protocol v1 player projection: a player is an entity carrying both a body and a controller
+// link, so this is the canonical two-store join and nothing else. The hand-written merge that used
+// to live here was the only one in the tree, which is exactly why it was the one to replace
+// (engine review finding 9; `component_join.hpp`).
 [[nodiscard]] std::vector<PlayerSnapshot> project_players(const GameWorld& world) {
-  const std::span<const ComponentStore<PhysicsBody>::Entry> bodies =
-      world.store<PhysicsBody>().entries();
-  const std::span<const ComponentStore<Controllable>::Entry> controllables =
-      world.store<Controllable>().entries();
+  const ComponentStore<PhysicsBody>& bodies = world.store<PhysicsBody>();
+  const ComponentStore<Controllable>& controllables = world.store<Controllable>();
 
   std::vector<PlayerSnapshot> players;
   players.reserve(bodies.size() < controllables.size() ? bodies.size() : controllables.size());
-  std::size_t controllable_index = 0;
-  for (const ComponentStore<PhysicsBody>::Entry& body : bodies) {
-    while (controllable_index < controllables.size() &&
-           controllables[controllable_index].entity < body.entity) {
-      ++controllable_index;
-    }
-    if (controllable_index < controllables.size() &&
-        controllables[controllable_index].entity == body.entity) {
-      players.push_back(PlayerSnapshot::from_body(body.entity, body.value));
-    }
-  }
+  for_each_entity_with_both(
+      bodies, controllables,
+      [&players](const EntityId entity, const PhysicsBody& body, const Controllable&) {
+        players.push_back(PlayerSnapshot::from_body(entity, body));
+      });
   return players;
 }
 
@@ -43,8 +37,8 @@ namespace {
 template <typename Component>
 [[nodiscard]] ComponentStore<Component> published_store_of(const GameWorld& world) {
   ComponentStore<Component> published = world.store<Component>();
-  for (typename ComponentStore<Component>::Entry& entry : published.mutable_entries()) {
-    entry.value = published_component<Component>(std::move(entry.value));
+  for (Component& value : published.mutable_values()) {
+    value = published_component<Component>(std::move(value));
   }
   return published;
 }

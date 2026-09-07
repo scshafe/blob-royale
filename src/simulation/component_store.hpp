@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <ranges>
 #include <span>
 #include <string>
 #include <utility>
@@ -20,8 +21,10 @@ namespace blob_royale::simulation {
 // by construction, so every loop that walks a store is ascending-EntityId for free, which is the
 // ordering `docs/architecture/0003-deterministic-simulation-contract.md` requires of every phase.
 // A system that needs two kinds performs an ordered merge of two ascending spans, never a hash
-// lookup, so no iteration order can depend on a container's hashing.
+// lookup, so no iteration order can depend on a container's hashing. That merge has one named
+// implementation and is not re-written per reader (`component_join.hpp`).
 // related: component_registry.hpp -- the closed list of kinds stored this way.
+// related: component_join.hpp -- the one ordered merge of two of these.
 template <typename Component> class ComponentStore final {
 public:
   struct Entry final {
@@ -33,7 +36,7 @@ public:
 
   // Canonicalizes to strict ascending EntityId order; a duplicate id is a validation failure.
   [[nodiscard]] static ComponentStore create(std::vector<Entry> entries) {
-    if (entries.size() > kMaximumPlayerCount) {
+    if (entries.size() > kMaximumEntityCount) {
       throw SimulationValidationError(SimulationValidationCode::kComponentStoreLimitExceeded,
                                       "component_store.entries",
                                       "component entry count " + std::to_string(entries.size()) +
@@ -78,11 +81,18 @@ public:
   [[nodiscard]] const Component* find(EntityId entity) const&& = delete;
 
   // The mutable twins of `entries()` and `find`, so a phase or a system can rewrite a component in
-  // place instead of copying it out and assigning it back. Neither may change an `Entry::entity`:
-  // strict ascending EntityId order is the invariant every phase's ordering rests on, and
-  // `insert_or_assign` and `erase` remain the only operations that may change which ids the store
-  // holds.
-  [[nodiscard]] std::span<Entry> mutable_entries() noexcept { return entries_; }
+  // place instead of copying it out and assigning it back.
+  //
+  // **Only the value half is mutable, and that is structural rather than a rule to remember.**
+  // `mutable_values()` hands out `Component&` and no `EntityId` at all, so a caller cannot rewrite
+  // the key that strict ascending order -- and therefore every phase's iteration order and every
+  // binary search -- depends on (engine review finding 8). `insert_or_assign` and `erase` remain
+  // the only operations that change which ids the store holds. The tick has only ever needed the
+  // values: phase 0 clears each recorded command list and the snapshot rewrites each published
+  // value, and both walk the whole store in the ascending order the keys already impose.
+  [[nodiscard]] auto mutable_values() {
+    return std::views::transform(entries_, [](Entry& entry) -> Component& { return entry.value; });
+  }
 
   [[nodiscard]] Component* mutable_find(const EntityId entity) noexcept {
     const auto match = lower_bound(entries_, entity);
@@ -102,7 +112,7 @@ public:
       entries_[static_cast<std::size_t>(match - entries_.cbegin())].value = std::move(value);
       return;
     }
-    if (entries_.size() >= kMaximumPlayerCount) {
+    if (entries_.size() >= kMaximumEntityCount) {
       throw SimulationValidationError(SimulationValidationCode::kComponentStoreLimitExceeded,
                                       "component_store.entries",
                                       "component entry count exceeds the accepted limit");

@@ -683,6 +683,39 @@ TEST_CASE("phase 0 records this tick's commands into the entity's Controllable w
   check_vector(snapshot_player(snapshot, 1).velocity(), 0.0, 0.0);
 }
 
+TEST_CASE("phase 0 records a Controllable's commands in the batch's one canonical order",
+          "[unit][simulation][game_simulation][phases][command]") {
+  // **One canonical order governs one command list** (engine review finding 6). The batch arrives
+  // in phase 0's application order -- despawns, then spawns, then the remaining kinds, each group
+  // ascending by the identity it addresses -- and the recorded list is that order rather than a
+  // second convention layered on top of it.
+  //
+  // The probe holds entity 2's thrust, so a 1 means entity 2's recorded list is exactly that one
+  // command: the despawn of entity 1 and the spawn of a new entity, both submitted in the same
+  // batch and both ranked ahead of the thrust, are applied rather than recorded, and neither leaks
+  // into a recorded list.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(
+      testing::staged(simulation::SystemStage::kPreKernel,
+                      std::make_unique<const testing::RecordedCommandProbeSystem>(
+                          "recorded_command_order_probe", thrust_command(2, -1.0, 0.25))));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0), player(2, 200.0, 50.0)}, std::move(declared));
+
+  // Submitted in an order the canonicalization has to undo, so the assertion is about the batch's
+  // order and not about the submission order.
+  simulation_game.step(
+      simulation::FixedDelta::canonical(),
+      reserved_batch({thrust_command(2, -1.0, 0.25), spawn_command(41), despawn_command(1)}, 50,
+                     4));
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+
+  CHECK(score_of(snapshot, 2) == 1);
+  // The spawned entity recorded nothing at all: a spawn addresses a controller, so phase 0 creates
+  // an entity for it rather than recording against one.
+  CHECK(score_of(snapshot, 50) == 0);
+}
+
 TEST_CASE("phase 0 clears the previous tick's recorded commands",
           "[unit][simulation][game_simulation][phases][command]") {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;

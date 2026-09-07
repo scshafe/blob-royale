@@ -152,3 +152,40 @@ TEST_CASE("SystemStage names every stage in kernel execution order",
   CHECK(simulation::system_stage_name(simulation::SystemStage::kPostKernel) == "post_kernel");
   CHECK(simulation::system_stage_name(simulation::SystemStage::kLifecycle) == "lifecycle");
 }
+
+TEST_CASE("systems_at rejects a stage outside the closed enumeration rather than reading past it",
+          "[unit][simulation][system_pipeline][validation]") {
+  // `create` already rejects a declared row whose stage is outside kSystemStages; `systems_at`
+  // indexed the same four-element offsets array with an unchecked cast inside a `noexcept`
+  // function, so the same hazard now gets the same answer (engine review finding 15).
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged_no_op(simulation::SystemStage::kPreKernel, "first"));
+  const simulation::SystemPipeline pipeline =
+      simulation::SystemPipeline::create(std::move(declared));
+
+  try {
+    static_cast<void>(pipeline.systems_at(static_cast<simulation::SystemStage>(7)));
+    FAIL("systems_at accepted a stage outside the closed enumeration");
+  } catch (const simulation::SimulationValidationError& failure) {
+    CHECK(failure.validation_code() ==
+          simulation::SimulationValidationCode::kSystemPipelineStageUnknown);
+    CHECK(failure.code() == std::string_view{"SIMULATION.SYSTEM_PIPELINE_STAGE_UNKNOWN"});
+    CHECK(failure.context() == "system_pipeline.systems_at.stage");
+  }
+
+  // Every declared stage is still total: a stage no system declared is an empty span, not a
+  // failure.
+  CHECK(pipeline.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
+  CHECK(pipeline.systems_at(simulation::SystemStage::kPostKernel).empty());
+  CHECK(pipeline.systems_at(simulation::SystemStage::kLifecycle).empty());
+  const simulation::SystemPipeline bare = simulation::SystemPipeline::empty();
+  CHECK(bare.systems_at(simulation::SystemStage::kPreKernel).empty());
+}
+
+TEST_CASE("An empty pipeline rejects an unknown stage exactly as a populated one does",
+          "[unit][simulation][system_pipeline][validation]") {
+  const simulation::SystemPipeline pipeline = simulation::SystemPipeline::empty();
+
+  CHECK_THROWS_AS(static_cast<void>(pipeline.systems_at(static_cast<simulation::SystemStage>(200))),
+                  simulation::SimulationValidationError);
+}

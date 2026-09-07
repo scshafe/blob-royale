@@ -44,7 +44,8 @@ namespace blob_royale::simulation {
 //   edit game_mode_registry.hpp (one line), match configuration
 //   do not touch               blob_simulation, blob_runtime, blob_server
 //
-// Two implementations of this seam: `sandbox` in Step 20 and `royale` in Step 21.
+// Two implementations of this seam: `sandbox` in `src/gameplay/sandbox/sandbox_mode.hpp` and
+// `royale` in plan Step 21.
 // related: match_objective.hpp -- the lifecycle half of a mode's declaration.
 // related: spawn_policy.hpp -- the seating half.
 // related: game_simulation_setup.hpp -- the value a mode is injected through.
@@ -74,8 +75,16 @@ public:
 
   [[nodiscard]] virtual std::unique_ptr<const MatchObjective> objective() const = 0;
 
-  // Rejects a map this mode cannot play, naming the missing marker kind or spawn point. Throws
-  // SimulationValidationError; returning a bool would let a caller ignore the answer.
+  // Rejects a map this mode cannot play, naming the missing marker kind or spawn point. Returning
+  // a bool would let a caller ignore the answer, so this throws.
+  //
+  // It throws **its own library's typed, coded validation error**: `SimulationValidationError` for
+  // a declaration inside `blob_simulation`, `GameplayValidationError` for a mode in
+  // `blob_gameplay`. A mode may not raise a `SIMULATION.*` code, because the kernel's code list is
+  // the kernel's vocabulary and a mode adding to it would be the dependency running backwards
+  // (`docs/architecture/0002-simulation-architecture.md` § "Decision"). Both derive from
+  // `std::invalid_argument`, which is what a caller that only needs "the map was rejected"
+  // catches; a caller that has to distinguish reads `code()`.
   virtual void validate_map(const MapDefinition& map) const = 0;
 
 protected:

@@ -22,9 +22,9 @@ GameWorld::EntitySeed GameWorld::EntitySeed::create(const EntityId entity, Physi
 }
 
 GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
-  if (seeds.size() > kMaximumPlayerCount) {
+  if (seeds.size() > kMaximumEntityCount) {
     throw SimulationValidationError(
-        SimulationValidationCode::kGameWorldPlayerLimitExceeded, "game_world.entities",
+        SimulationValidationCode::kGameWorldEntityLimitExceeded, "game_world.entities",
         "entity count " + std::to_string(seeds.size()) + " exceeds the accepted limit");
   }
 
@@ -69,9 +69,9 @@ GameWorld GameWorld::create(const SimulationConfig& configuration, const MapDefi
   require_spawn_points_are_seatable(configuration, map);
 
   const std::span<const PhysicsBody> static_bodies = map.static_bodies();
-  if (static_bodies.size() > kMaximumPlayerCount) {
+  if (static_bodies.size() > kMaximumEntityCount) {
     throw SimulationValidationError(
-        SimulationValidationCode::kGameWorldPlayerLimitExceeded, "game_world.entities",
+        SimulationValidationCode::kGameWorldEntityLimitExceeded, "game_world.entities",
         "map static body count " + std::to_string(static_bodies.size()) +
             " exceeds the accepted entity limit");
   }

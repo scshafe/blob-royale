@@ -94,8 +94,15 @@ SystemPipeline SystemPipeline::with_appended(StagedSystem staged) && {
 }
 
 std::span<const SystemPipeline::StagedSystem>
-SystemPipeline::systems_at(const SystemStage stage) const& noexcept {
+SystemPipeline::systems_at(const SystemStage stage) const& {
   const auto stage_index = static_cast<std::size_t>(stage);
+  if (stage_index >= kSystemStageCount) {
+    throw SimulationValidationError(SimulationValidationCode::kSystemPipelineStageUnknown,
+                                    "system_pipeline.systems_at.stage",
+                                    "stage value " + std::to_string(stage_index) +
+                                        " is outside the closed SystemStage enumeration of " +
+                                        std::to_string(kSystemStageCount) + " stages");
+  }
   const std::size_t first = stage_offsets_[stage_index];
   const std::size_t last = stage_offsets_[stage_index + 1];
   return std::span<const StagedSystem>(staged_systems_).subspan(first, last - first);

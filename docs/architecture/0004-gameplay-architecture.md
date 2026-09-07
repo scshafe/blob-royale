@@ -690,8 +690,8 @@ becomes the single authoring home for arena size (§ "Consequences", operational
 
 ### Commands
 
-`Command` is a closed variant over registered kinds. Adding a kind touches exactly one existing
-file:
+`Command` is a closed variant over registered kinds. Adding a kind edits this file and one other,
+`input_batch.cpp`; the exact set is at the end of this section:
 
 ```cpp
 // src/simulation/command_registry.hpp
@@ -731,7 +731,8 @@ job**, which is why a new kind adds a consuming system rather than a new kernel 
 ```cpp
 struct Controllable final {
   ControllerId controller_id{};
-  std::vector<Command> commands_this_tick;   // at most one per kind, ascending CommandKind
+  // At most one per kind, in the batch's one canonical order — phase 0's application order.
+  std::vector<Command> commands_this_tick;
 
   friend bool operator==(const Controllable&, const Controllable&) = default;
 };
@@ -745,9 +746,12 @@ acceleration ADR 0003 phase 0 produces. Persistent *ability state* — a dash co
 count, a held item — is a component, because it is per-entity durable state and that is what
 components are.
 
-Adding a command kind is therefore: a new value-type header, one type added to the `Command` variant
-and one enumerator in `command_registry.hpp`, its validation inside `InputBatch::create`, its
-consuming system, and its protocol schema. One existing file is edited; everything else is new.
+Adding a command kind is therefore: a new value-type header; six additions in
+`command_registry.hpp` — one type in the `Command` variant, one enumerator, one `CommandKindName`,
+one `CommandKindOf`, one application rank, and one `addressed_identity_of` arm; its value validation
+inside `InputBatch::create`; its consuming system; and its protocol schema. **Two existing files are
+edited**, which is the true count and the one § "Libraries, and where a new thing goes" reports;
+everything else is new or derived.
 
 The mode's accepted set is published so the boundary can reject early and the client can render only
 what it can send: `GameSimulation::accepted_command_kinds()` is copied into the runtime at
@@ -1012,13 +1016,27 @@ tick.
 | A mechanic | `src/gameplay/<mode>/<name>_system.{hpp,cpp}` | the mode's declared system list (one line) | the kernel, other systems |
 | An interaction | `src/gameplay/<mode>/<name>_contact_rule.{hpp,cpp}` | the mode's `contact_rules()` (one row) | `physics.hpp`, phase 3 |
 | An obstacle | a row in a map's `static_bodies.csv` | nothing | any C++ file |
-| A game | `src/gameplay/<mode>/` with its mode class, systems, rules, policies | `game_mode_registry.hpp` (one line), match configuration | `blob_simulation`, `blob_runtime`, `blob_server` |
+| A game | `src/gameplay/<mode>/` with its mode class, systems, rules, policies | `game_mode_registry.hpp` (one include and one row in `kGameModeRegistrations`), match configuration | `blob_simulation`, `blob_runtime`, `blob_server`, any other mode |
 | A map | a data directory under `maps/` | match configuration | any C++ file |
-| A command kind | its value-type header, its schema, its consuming system | `command_registry.hpp` (one type, one enumerator), `InputBatch::create` validation | the kernel's phase order |
+| A command kind | its value-type header, its schema, its consuming system | `command_registry.hpp` (one type, one enumerator, one `CommandKindName`, one `CommandKindOf`, one application rank, one `addressed_identity_of` arm), `InputBatch::create` validation | the kernel's phase order, `kCommandKinds`, `CommandKindMask` |
 | A bot | `src/controllers/<name>_controller.{hpp,cpp}` | `controller_registry.hpp` (one line), match configuration | everything else |
 
-Six of the eight rows are "new files plus one registration line." The other two — an obstacle and a
-map — are data with no code at all.
+Five of the eight rows are "new files plus one registration line." Two — an obstacle and a map — are
+data with no code at all. **A command kind is the one row that is neither**, and this is the honest
+count rather than an aspiration: it edits two existing files at six sites in
+`command_registry.hpp` plus its value validation in `input_batch.cpp`.
+`src/simulation/README.md` § "Extension points" states the same set.
+
+Engine review finding 5 removed one of the three files that row used to name: `recorded_entity_of`
+in `game_simulation.cpp` and `addressed_identity_of` in `input_batch.cpp` were one capability with
+two implementations, and they are now the single `addressed_identity_of` in `command_registry.hpp`.
+Engine review finding 7 removed the `kCommandKinds` entry entirely, because the kind list is now
+derived from the variant. What remains in `input_batch.cpp` is the kind's *value* rules — a thrust
+direction's component range, a despawn's conflict with the tick's reservation — which is where the
+one validated command value a tick may read is built. Collapsing that last site into the value-type
+header through a per-kind validation trait, the way `ComponentPublication` carries a component's
+publication rule, is the change that would make this row "one existing file"; it is named here and
+deliberately not made in the same step that measured the count.
 
 ### Justified extension points and what-if stress
 

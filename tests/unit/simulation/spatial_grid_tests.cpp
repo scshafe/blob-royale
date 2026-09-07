@@ -309,8 +309,8 @@ TEST_CASE("SpatialGrid rejects unsafe duplicate candidate traversal before pair 
           "[unit][simulation][spatial_grid]") {
   const simulation::SimulationConfig configuration = grid_configuration(100.0, 100.0, 49.9, 3, 3);
   std::vector<simulation::GameWorld::EntitySeed> players;
-  players.reserve(simulation::kMaximumPlayerCount);
-  for (std::size_t index = 0; index < simulation::kMaximumPlayerCount; ++index) {
+  players.reserve(simulation::kMaximumEntityCount);
+  for (std::size_t index = 0; index < simulation::kMaximumEntityCount; ++index) {
     players.push_back(
         stationary_player(static_cast<simulation::EntityId::Value>(index + 1), 50.0, 50.0));
   }

@@ -100,9 +100,16 @@ public:
   SystemPipeline& operator=(SystemPipeline&&) noexcept = default;
   ~SystemPipeline() = default;
 
-  // The stage's systems in declared order. Total: a stage no system declared returns an empty
-  // span rather than failing.
-  [[nodiscard]] std::span<const StagedSystem> systems_at(SystemStage stage) const& noexcept;
+  // The stage's systems in declared order. Total over the closed enumeration: a stage no system
+  // declared returns an empty span rather than failing.
+  //
+  // A value **outside** the enumeration is the same hazard `create` already guards fifteen lines
+  // earlier, so it gets the same answer: SimulationValidationError with
+  // `SIMULATION.SYSTEM_PIPELINE_STAGE_UNKNOWN`. That is why this is not `noexcept` -- indexing a
+  // four-element offsets array with an unchecked cast inside a `noexcept` function would read past
+  // it and terminate nothing, which is the one failure mode this domain never accepts (engine
+  // review finding 15).
+  [[nodiscard]] std::span<const StagedSystem> systems_at(SystemStage stage) const&;
   [[nodiscard]] std::span<const StagedSystem> systems_at(SystemStage) const&& = delete;
 
   // The declared system count across every stage.

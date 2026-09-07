@@ -22,6 +22,10 @@ blob_royale_add_fuzzer(
   blob_application_config_fuzzer
   application_config_fuzzer.cpp
   blob_application_input
+  # The loader resolves `[match] mode` and `[match] bots` through these registries, so their typed
+  # rejections are part of its contract and the harness must be able to name them.
+  blob_gameplay
+  blob_controllers
 )
 blob_royale_add_fuzzer(
   blob_application_cli_fuzzer

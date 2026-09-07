@@ -67,6 +67,17 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 // tick, because the command source is a network session and a hard failure would let one client
 // stop the match (`docs/architecture/0003-deterministic-simulation-contract.md`
 // § "Accepted simulation input").
+// True when some live entity's Controllable already names this controller. A controller drives at
+// most one body at a time, so a spawn for one that already has a body is a duplicate.
+[[nodiscard]] bool controller_holds_a_body(const GameWorld& world, const ControllerId controller) {
+  for (const auto& entry : world.store<Controllable>().entries()) {
+    if (entry.value.controller_id == controller) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
   // Last tick's recorded commands are cleared in place rather than by reconstructing the
   // component, so each entity's vector keeps its capacity across ticks.
@@ -83,6 +94,15 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
       continue;
     }
     if (const auto* spawn = std::get_if<SpawnCommand>(&command); spawn != nullptr) {
+      // A controller drives at most one body. `InputBatch` collapses repeated spawns *within* one
+      // tick, but nothing stopped a source from spawning again in a later tick, so a session or a
+      // bot that asked twice got two blobs -- steering one and abandoning the other in the arena.
+      // Ignored rather than rejected, exactly as ADR 0005 § "Roster edge rules" says a duplicate
+      // spawn is, because the source is an untrusted session and a hard failure would let one
+      // client stop the match.
+      if (controller_holds_a_body(world, spawn->controller)) {
+        continue;
+      }
       const EntityId created = world.create_entity();
       world.mutable_store<Controllable>().insert_or_assign(created,
                                                            Controllable{spawn->controller});

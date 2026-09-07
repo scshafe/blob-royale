@@ -65,6 +65,7 @@ catch_discover_tests(blob_application_unit_tests
   DISCOVERY_MODE PRE_TEST
 )
 
+add_subdirectory(controllers)
 add_subdirectory(gameplay)
 add_subdirectory(protocol)
 add_subdirectory(runtime)

@@ -813,6 +813,38 @@ TEST_CASE("a spawn command creates an entity from the tick's reservation and the
   check_vector(snapshot_player(spawned, 100).acceleration(), 0.0, 0.0);
 }
 
+TEST_CASE("a spawn for a controller that already holds a body is ignored",
+          "[unit][simulation][game_simulation][phases][command][spawn]") {
+  // `InputBatch` collapses repeated spawns within one tick, but nothing stopped a source from
+  // asking again in a later tick, so a session or a bot that spawned twice drove one blob and
+  // abandoned a second in the arena. A controller drives at most one body, and a duplicate spawn is
+  // ignored rather than rejected because the source is an untrusted session
+  // (`docs/architecture/0005-royale-mode.md` § "Roster edge rules").
+  simulation::GameSimulation spawning_game =
+      mode_game({}, testing::spawn_point_map(2), testing::TestGameMode::Declaration{});
+
+  spawning_game.step(simulation::FixedDelta::canonical(),
+                     reserved_batch({spawn_command(7)}, 100, 4));
+  const simulation::WorldSnapshot after_first = spawning_game.snapshot();
+  REQUIRE(after_first.entities().size() == 1);
+
+  // The same controller asks again on a later tick, with a fresh reservation that could seat it.
+  spawning_game.step(simulation::FixedDelta::canonical(),
+                     reserved_batch({spawn_command(7)}, 200, 4));
+
+  const simulation::WorldSnapshot after_second = spawning_game.snapshot();
+  CHECK(after_second.entities().size() == 1);
+  CHECK(after_second.entities()[0] == simulation::EntityId::create(100));
+
+  // A different controller is unaffected: the rule is one body per controller, not one body total.
+  spawning_game.step(simulation::FixedDelta::canonical(),
+                     reserved_batch({spawn_command(8)}, 300, 4));
+
+  const simulation::WorldSnapshot after_other = spawning_game.snapshot();
+  REQUIRE(after_other.entities().size() == 2);
+  CHECK(controllable_of(after_other, 300).controller_id.value() == 8);
+}
+
 TEST_CASE("a spawn command with no spawn point leaves the entity unseated and offers it again",
           "[unit][simulation][game_simulation][phases][command][spawn]") {
   // A policy that declines is a deferral, not a failure: the entity exists carrying its controller

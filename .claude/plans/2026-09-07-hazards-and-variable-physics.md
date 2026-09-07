@@ -16,6 +16,7 @@ The zone already publishes everything the client needs. `zone_exposure.outside_t
 - **The baseline collision does not change.** `elastic_disc` keeps calling `resolve_player_pair_collision` unmodified, and the `AcceptedBaselineTick` oracle and every replay fixture must pass untouched. If a change here alters one committed value, stop.
 - **A general rule must reduce to the baseline.** Prove by test that the general impulse equation with unit masses and restitution 1 equals the baseline result within the accepted tolerance, and say plainly that it is not bit-identical and therefore never used for baseline bodies.
 - **A new hazard kind is configuration.** Adding one must mean a config section and no C++. If that fails, the design is wrong.
+- **Only one build at a time.** `scripts/verify-focused` configures and builds the shared `out/build/<preset>` tree, and the Linux toolchain is an emulated Colima VM with 2 CPUs and 2 GiB. Two agents verifying at once corrupt one build directory and can get a compiler OOM-killed. Parallel agents are fine and worth it, but they must partition by path *and* the orchestrator must serialize every build. An agent that cannot build is told so up front and told to compensate by reading real declarations instead of inferring signatures.
 - Every other constraint from `.claude/plans/2026-09-06-playable-prototype-tailnet.md` still binds: format with `find`, verify a Clang lane as well as GCC, read CI after every push, stage explicit paths, and re-run every gate a behavior change can reach.
 
 ## Steps

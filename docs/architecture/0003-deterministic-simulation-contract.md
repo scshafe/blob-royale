@@ -217,7 +217,7 @@ deployment configuration sets a nonzero value (same plan, § "Execution constrai
 
 ### Player-pair policy
 
-The narrow phase models frictionless, perfectly elastic collisions between equal-radius, equal-unit-mass discs. For canonical pair `(a, b)`, where `a.id < b.id`:
+The narrow phase models frictionless, perfectly elastic collisions between equal-radius, equal-unit-mass discs. This section defines the `elastic_disc` row, which is the response for a pair of ordinary bodies and is unchanged by the 2026-09-07 amendment below; a pair in which either body declares its own mass or restitution is answered by the `variable_impulse` row above it and never reaches this equation. For canonical pair `(a, b)`, where `a.id < b.id`:
 
 * Let `d = p_b - p_a`, `distance = |d|`, and `contact_distance = 2r`.
 * The pair is in contact when `distance <= contact_distance + ε_position`. A larger separation produces no change.
@@ -258,7 +258,7 @@ The tick-local displacement is `folded_endpoint - position`; phase 5 applies it 
 
 `SpatialGrid` is a broad-phase index, not physical state. It must produce a superset of all pairs whose committed discs can touch; the narrow phase alone decides contact.
 
-Cells are ordered row-major by `(row, column)`. Their geometric regions are half-open on internal maximum edges and closed at the world's outer maximum. An exact internal boundary belongs to the cell on its positive side for a center/home-cell calculation. For collision coverage, insert each `EntityId` into every cell intersected by the disc's closed axis-aligned bounding box. A bounding-box edge exactly on an internal cell boundary counts as intersecting both adjacent cells. IDs inside each cell are ascending; candidate pair keys are deduplicated and sorted as specified above.
+Cells are ordered row-major by `(row, column)`. Their geometric regions are half-open on internal maximum edges and closed at the world's outer maximum. An exact internal boundary belongs to the cell on its positive side for a center/home-cell calculation. For collision coverage, insert each `EntityId` into every cell intersected by the disc's closed axis-aligned bounding box, sized at that body's own effective radius -- its declared radius, or the configured radius when it declares none. Sizing coverage at the configured radius instead would break the superset requirement for any body larger than it: the pair would never be offered at separations where the two discs genuinely overlap, so the contact would not be deferred to a later tick, it would never happen. A bounding-box edge exactly on an internal cell boundary counts as intersecting both adjacent cells. IDs inside each cell are ascending; candidate pair keys are deduplicated and sorted as specified above.
 
 Consequently, moving a fixture or contact onto a row/column boundary, a corner shared by four cells, or a non-divisible cell edge must not change whether the pair is detected, how often it resolves, or its physical result. Replacing the grid with an exhaustive all-pairs broad phase must produce the same canonical pair list after narrow-phase filtering.
 
@@ -399,7 +399,7 @@ and a consuming system at a stage — not a new kernel sub-step and not a new se
 
 ### Justified extension points and what-if stress
 
-* **What if gameplay adds unequal radii or masses?** `PhysicsBody` already carries `radius` and `mass`, so this becomes a general-impulse `ContactRule` row declared ahead of `elastic_disc`, not a new seam (ADR 0004 § "Contact rules"). Canonical pair formation and the outer phases are unchanged. It stays a versioned physics change because fixtures and snapshots can change; no strategy interface is added until a second live policy exists.
+* **What if gameplay adds unequal radii or masses?** **Answered on 2026-09-07 for mass, restitution, and contact size; see the amendment below.** The shape predicted here was right -- a general-impulse `ContactRule` row declared ahead of `elastic_disc`, not a new seam (ADR 0004 § "Contact rules"), with canonical pair formation and the outer phases unchanged. The prediction that it "stays a versioned physics change because fixtures and snapshots can change" was the conservative reading and did not hold: fixtures and snapshots change only if the accepted equation is *replaced*, and declaring the general row above the baseline and predicating it on a body that actually differs from the baseline means an ordinary pair never reaches it. No fixture horizon, accepted snapshot, or oracle value moved. What remains versioned is the arena itself: phase 4's fold and the commit-time centre interval still use the configured radius, so a body of a different size may not yet *stand* anywhere an ordinary body may not. No strategy interface was added, because there is still one live policy per row.
 * **What if fast players must not tunnel through each other?** Replace closed-disc overlap with swept candidate bounds and a deterministic time-of-impact event order inside phase 3. Equal-time events need a new explicit tie policy. The current pure collision boundary leaves an implementation path, but continuous behavior requires an ADR amendment rather than a silent improvement.
 * **What if multi-player piles need symmetric outcomes?** A deterministic simultaneous-contact solver may replace sequential impulses inside phase 3. It must state convergence and equality semantics and version changed outcomes. Stable IDs remain the final tie-breaker.
 * **What if another spatial index is faster?** Replace `SpatialGrid` behind `GameSimulation` only if it emits the same canonical candidate pair set. Grid shape and traversal remain non-observable mechanism (`docs/architecture/0002-simulation-architecture.md` § "Ownership and lifecycle").
@@ -474,3 +474,50 @@ where a rule runs, what it may read, and what makes it reproducible. At `drag_pe
 an empty batch and a mode whose systems write nothing, the accepted baseline is reproduced
 bit-for-bit, so no fixture horizon or expected outcome above is regenerated, and the decision and
 its `Accepted` status are unchanged.
+
+**Amended 2026-09-07:** A body may declare its own mass, restitution, and contact size, and may
+cross the arena bounds instead of folding off them. None of it changes the accepted collision.
+
+`PhysicsBody` gains `restitution`, defaulting to the perfectly elastic `1.0`, beside the `mass` no
+phase previously read. A `variable_impulse` row is declared **above** `elastic_disc` in
+`ContactRuleTable::built_in()` and matches only when one of the two bodies differs from the
+baseline, so a world of ordinary blobs never reaches it and `elastic_disc` still delegates to
+`resolve_player_pair_collision` unmodified. That ordering is the whole of the argument: `first_match`
+takes the first matching row in declared order, so the same row declared *below* the baseline would
+be unreachable instead, because `elastic_disc` matches every dynamic pair. The general equation is
+`j = -(1 + e) * (v_rel . n) / (1/m_a + 1/m_b)` with the operation order fixed in the implementation
+and `e` the pair's minimum restitution -- minimum because one perfectly inelastic body should damp
+every contact it takes part in, and because it returns exactly `1.0` for a baseline pair. It reduces
+to § "Player-pair policy" algebraically at unit masses and restitution `1`, but **not bit-for-bit**:
+it forms `(v_b - v_a) . n` where the baseline forms `(v_b . n) - (v_a . n)`, plus one product and
+three divisions the baseline never performs. That is precisely why a baseline pair must never reach
+it, and why the predicate is a requirement rather than an optimization.
+
+Contact size follows the same argument. The impulse, phase 3's narrow-phase gate, and the grid's
+coverage box now measure a pair at `r_a + r_b` from each body's effective radius rather than at
+`2 * player_radius`. This changes no committed value, because every body that exists today has an
+effective radius equal to the configured one and `x + x` is exactly `2 * x` in binary64 at every
+finite magnitude. The grid was the load-bearing one: coverage at the configured radius is not the
+superset § "Spatial-grid policy and partition boundaries" requires, and the falsification test
+builds the exhaustive all-pairs reference that section names and fails when the coverage is reverted.
+
+Contact is a question about a pair's own geometry, so it takes the pair's radii. The arena is a
+question about configuration, so `[r, extent - r]` and phase 4's fold keep `player_radius`. Moving
+that interval would change where every existing body may stand and would regenerate every accepted
+wall fixture; it stays the versioned growing-blob change.
+
+A body may also declare that it crosses the bounds rather than folding off them, which is what an
+object travelling across the arena needs. The commit-time bounds check skips such a body; it stays
+bounded by `Vector2`'s component limit, so it leaves the arena but never the representable world.
+The grid clamps it into the edge cells rather than dropping it from the index, because a body one
+step outside a wall already overlaps a body just inside it and absence would make that a missed
+contact rather than a deferred one. The cost is that a body far outside is offered against
+everything in the cells it clamps to, all of which the narrow phase rejects on distance.
+
+A static body may now carry zero mass. Nothing divides by it -- neither built-in row reads a mass,
+and the general impulse requires a dynamic body on both sides -- and the accepted protocol golden
+already publishes a wall that way against a schema typing mass as non-negative. Requiring otherwise
+would have regenerated an accepted artifact to state an invariant nothing needs.
+
+No fixture horizon, accepted snapshot, map, or oracle value changed, and the decision and its
+`Accepted` status are unchanged.

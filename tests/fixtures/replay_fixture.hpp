@@ -48,8 +48,8 @@ namespace gameplay = blob_royale::gameplay;
 // does not use it are each a rejection naming the file, the line, and the cause. A fixture that
 // silently parsed differently than it reads would be worse than no fixture at all.
 //
-// **The reservation policy is the fixture's own and is stated here** because a replay has no
-// runtime to hand it one: every tick receives a contiguous block of `spawn_count(tick) + 1` ids
+// **The reservation policy is reproduced here** because a replay has no runtime to hand it one:
+// every tick receives a contiguous block of `spawn_count(tick) + kSystemCreatedEntityHeadroom` ids
 // beginning at a monotonic cursor that advances by the same width, so an entity id is a
 // deterministic function of the command log alone and every tick has room for the one entity a
 // system may create. Plan Step 22 gives the runtime its own allocator; this is what a replay uses
@@ -67,9 +67,11 @@ public:
 
 class ReplayFixture final {
 public:
-  // The width of every tick's EntityIdReservation beyond that tick's spawn count: the one id a
-  // system may create, which for royale is the zone entity on the first tick it observes none.
-  static constexpr std::uint64_t kSystemCreatedEntityHeadroom = 1;
+  // The width of every tick's EntityIdReservation beyond that tick's spawn count, taken from the
+  // one definition in `blob_simulation` rather than restated, so a replay's numbering cannot drift
+  // from the production allocator's (`simulation/simulation_limits.hpp`).
+  static constexpr std::uint64_t kSystemCreatedEntityHeadroom =
+      simulation::kSystemCreatedEntityHeadroom;
 
   // Reads and validates one replay directory. Throws ReplayFixtureError naming the file and the
   // cause for every malformed input.

@@ -5,6 +5,7 @@
 #include "component_registry.hpp"
 #include "component_store.hpp"
 #include "components/controllable_component.hpp"
+#include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
@@ -28,20 +29,24 @@ namespace simulation = blob_royale::simulation;
 
 TEST_CASE("ComponentRegistry declares every component kind in one closed ordered list",
           "[unit][simulation][component_registry]") {
-  // Seven, not the five the engine itself needs: `Zone` and `ZoneExposure` are royale's, added by
+  // Eight, not the five the engine itself needs. `Zone` and `ZoneExposure` are royale's, added by
   // plan Step 21 as two headers under `components/` and one edited line in the registry, with no
-  // other kernel file touched. That is the measurement the `entity_component` seam's claim is
-  // answerable to (`docs/architecture/0005-royale-mode.md` § "Where zone and elimination state
-  // live").
-  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 7);
-  STATIC_REQUIRE(std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
-                                std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
-                                           simulation::ComponentStore<simulation::Controllable>,
-                                           simulation::ComponentStore<simulation::Lifetime>,
-                                           simulation::ComponentStore<simulation::Score>,
-                                           simulation::ComponentStore<simulation::Team>,
-                                           simulation::ComponentStore<simulation::Zone>,
-                                           simulation::ComponentStore<simulation::ZoneExposure>>>);
+  // other kernel file touched. `LethalOnContact` is the third addition and the one that measures
+  // the seam hardest: it belongs to **no mode at all** but to `src/gameplay/shared/`, and it cost
+  // the same one header plus one line here. That is the measurement the `entity_component` seam's
+  // claim is answerable to (`docs/architecture/0005-royale-mode.md` § "Where zone and elimination
+  // state live").
+  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 8);
+  STATIC_REQUIRE(
+      std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
+                     std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
+                                simulation::ComponentStore<simulation::Controllable>,
+                                simulation::ComponentStore<simulation::Lifetime>,
+                                simulation::ComponentStore<simulation::Score>,
+                                simulation::ComponentStore<simulation::Team>,
+                                simulation::ComponentStore<simulation::Zone>,
+                                simulation::ComponentStore<simulation::ZoneExposure>,
+                                simulation::ComponentStore<simulation::LethalOnContact>>>);
 }
 
 TEST_CASE("Every registered component kind declares its own wire name",
@@ -52,7 +57,8 @@ TEST_CASE("Every registered component kind declares its own wire name",
   });
 
   CHECK(names == std::vector<std::string_view>{"physics_body", "controllable", "lifetime", "score",
-                                               "team", "zone", "zone_exposure"});
+                                               "team", "zone", "zone_exposure",
+                                               "lethal_on_contact"});
 }
 
 TEST_CASE("Registry visitation reaches every kind exactly once in declared order",

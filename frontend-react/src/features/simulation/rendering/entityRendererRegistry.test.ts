@@ -7,6 +7,7 @@ import {
   visualEntityRenderers,
 } from './entityRendererRegistry';
 import type { EntityRenderFrame } from './entityRendering';
+import { LETHAL_HAZARD_RING_COLOR } from './lethalOnContactRenderer';
 import {
   EXPOSED_OWN_RING_COLOR,
   EXPOSED_PEER_RING_COLOR,
@@ -17,16 +18,27 @@ function createFrame(ownEntityId: number | null = null): {
   readonly arcRadii: readonly number[];
   readonly fillText: ReturnType<typeof vi.fn>;
   readonly frame: EntityRenderFrame;
+  readonly lineDashCalls: readonly (readonly number[])[];
+  readonly restore: ReturnType<typeof vi.fn>;
+  readonly surface: CanvasRenderingContext2D;
 } {
   // The radii are captured through a typed implementation rather than read back out of
   // `arc.mock.calls`, whose recorded arguments are erased to `any` on an untyped spy.
   const arcRadii: number[] = [];
+  const lineDashCalls: number[][] = [];
   const arc = vi.fn((x: number, y: number, radius: number) => {
     void x;
     void y;
     arcRadii.push(radius);
   });
   const fillText = vi.fn();
+  // `setLineDash`, `save` and `restore` are on the mock because a renderer that dashes must be able
+  // to put the surface back: the canvas is shared with every later renderer in the frame, and a
+  // leaked dash pattern would turn the next solid ring into a dotted one.
+  const setLineDash = vi.fn((segments: readonly number[]) => {
+    lineDashCalls.push([...segments]);
+  });
+  const restore = vi.fn();
   const surface = {
     arc,
     beginPath: vi.fn(),
@@ -35,6 +47,9 @@ function createFrame(ownEntityId: number | null = null): {
     fillText,
     font: '',
     lineWidth: 1,
+    restore,
+    save: vi.fn(),
+    setLineDash,
     stroke: vi.fn(),
     strokeStyle: '',
     textAlign: '',
@@ -50,7 +65,32 @@ function createFrame(ownEntityId: number | null = null): {
       projection: { horizontalScale: 1, verticalScale: 1 },
       surface,
     },
+    lineDashCalls,
+    restore,
+    surface,
   };
+}
+
+/**
+ * Draws through the registry entry rather than importing the renderer directly, so these tests fail
+ * if the kind is ever unregistered or demoted to non-visual -- which is the failure that would
+ * actually reach a player, not a broken drawing function.
+ */
+function drawHazard(
+  entity: SessionEntitySnapshot,
+  surface: CanvasRenderingContext2D,
+): void {
+  const registration = entityRendererRegistry.lethal_on_contact;
+  if (!registration.renders) {
+    throw new Error(
+      'lethal_on_contact must be registered as a visual renderer',
+    );
+  }
+  registration.drawEntity(entity, {
+    ownEntityId: null,
+    projection: { horizontalScale: 1, verticalScale: 1 },
+    surface,
+  });
 }
 
 const zoneEntity: SessionEntitySnapshot = {
@@ -114,14 +154,68 @@ describe('entityRendererRegistry', () => {
   });
 
   it('draws the zone beneath bodies and names above them', () => {
-    // `zone_exposure` joins between the body and the label: a danger ring painted under the disc
-    // would be hidden by it, and one painted over the name would strike the name through.
+    // Both danger rings join between the body and the label: one painted under the disc would be
+    // hidden by it, and one painted over the name would strike the name through.
+    //
+    // `lethal_on_contact` sorts before `zone_exposure` because a hazard's ring is the warning a
+    // player has least time to act on, so it must never be the one that gets overdrawn. The two
+    // never land on one entity today -- a hazard carries no exposure counter -- but the order is
+    // pinned here so that stops being an accident if one ever does.
     expect(visualEntityRenderers().map((renderer) => renderer.kind)).toEqual([
       'zone',
       'physics_body',
+      'lethal_on_contact',
       'zone_exposure',
       'controllable',
     ]);
+  });
+
+  it('rings a lethal hazard outside its own radius, dashed, and restores the surface', () => {
+    // A hazard is a body like any other, so the ring has to come from `physics_body`: the marker
+    // publishes `{}` and carries no geometry at all.
+    const hazard: SessionEntitySnapshot = {
+      entity_id: 21,
+      components: {
+        lethal_on_contact: {},
+        physics_body: {
+          position: { x: 40, y: 40 },
+          velocity: { x: -90, y: 0 },
+          acceleration: { x: 0, y: 0 },
+          radius: 26,
+          mass: 40,
+          collision_layer: 1,
+          collision_mask: 1,
+          is_static: false,
+        },
+      },
+    };
+    const { arcRadii, lineDashCalls, restore, surface } = createFrame();
+
+    drawHazard(hazard, surface);
+
+    // Outside the body, so the hazard stays legible underneath rather than being repainted.
+    expect(arcRadii.every((radius) => radius > 26)).toBe(true);
+    expect(surface.strokeStyle).toBe(LETHAL_HAZARD_RING_COLOR);
+    // Dashed, which is what distinguishes "this kills you" from the solid zone-exposure ring. The
+    // two never land on one entity today but they share a frame constantly.
+    expect(lineDashCalls.length).toBeGreaterThan(0);
+    expect(lineDashCalls[0]?.length).toBeGreaterThan(0);
+    // Restored, so the dash cannot leak into the next renderer's solid ring.
+    expect(restore).toHaveBeenCalled();
+  });
+
+  it('draws no hazard ring for a lethal marker whose body is gone', () => {
+    // The server destroyed the entity, or has not placed it yet. Ringing the origin would paint a
+    // threat where nothing is standing.
+    const bodiless: SessionEntitySnapshot = {
+      entity_id: 22,
+      components: { lethal_on_contact: {} },
+    };
+    const { arc, surface } = createFrame();
+
+    drawHazard(bodiless, surface);
+
+    expect(arc).not.toHaveBeenCalled();
   });
 
   it('draws a component only for the entities that carry it', () => {

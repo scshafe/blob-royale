@@ -15,7 +15,19 @@ void require_match_fits_snapshot_bound(const MatchConfiguration& match_configura
   const std::uint64_t static_body_count = map.static_bodies().size();
   const std::uint64_t session_seat_count = server::ServerLimits::kConcurrentWebSocketMaximumCount;
   const std::uint64_t bot_count = match_configuration.total_bot_count();
-  const std::uint64_t mode_created_count = runtime::kSystemCreatedEntityHeadroom;
+  // The entities a mode's own systems create, which is one per tick by construction
+  // (`simulation/simulation_limits.hpp`) and for royale is the zone entity.
+  //
+  // **This does not yet count standing hazards.** A hazard occupies a seat between the tick it is
+  // seated and the tick its `Lifetime` runs out, so a configured `[hazard.*]` table raises the
+  // worst case by roughly `crossing_ticks / spawn_interval_ticks` per kind. Both terms are known at
+  // startup, but the hazard table is not reachable from here: this function is handed a
+  // `MatchConfiguration` and a `MapDefinition`, and the archetypes live on
+  // `GameModeConfiguration`. Until that is threaded through, a deployment that authors many or very
+  // slow hazard kinds can exceed `kSnapshotEntityLimit` at run time rather than being refused at
+  // startup, which is a worse failure than this check exists to prevent and is why it is named here
+  // rather than left to be discovered.
+  const std::uint64_t mode_created_count = simulation::kSystemCreatedEntityHeadroom;
   const std::uint64_t worst_case_entity_count =
       static_body_count + session_seat_count + bot_count + mode_created_count;
 

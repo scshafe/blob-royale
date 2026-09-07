@@ -3,6 +3,7 @@
 
 #include "component_list.hpp"
 #include "components/controllable_component.hpp"
+#include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
@@ -29,8 +30,14 @@ namespace blob_royale::simulation {
 //
 // Two implementations of the seam beyond the engine set: `Zone` for the royale safe zone, and
 // `Flag` for capture the flag.
-using ComponentRegistry =
-    ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure>;
+//
+// `LethalOnContact` is the third, and it is the one that proves the seam is not royale-shaped: it
+// is declared by no mode's directory at all but by `src/gameplay/shared/`, because an object that
+// kills on touch is a mechanic any mode may field. It is also the first kind whose presence is its
+// whole value, which is why it publishes an empty object rather than a synthetic flag member
+// (`components/lethal_on_contact_component.hpp`).
+using ComponentRegistry = ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone,
+                                        ZoneExposure, LethalOnContact>;
 
 } // namespace blob_royale::simulation
 

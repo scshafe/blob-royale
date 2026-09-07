@@ -64,7 +64,7 @@ interface MutableBlobRoyaleProtocolV2HTTPErrorResponse {
   data: null;
   error: MutableError;
   meta: {
-    protocol_version: '2.0';
+    protocol_version: '2.1';
     schema_id: 'blob-royale://protocol/v2/error-response';
     request_id: string;
   };
@@ -113,7 +113,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketSnapshotMessage {
   data: MutableBlobRoyaleProtocolV2WorldSnapshotData;
   error: null;
   meta: {
-    protocol_version: '2.0';
+    protocol_version: '2.1';
     schema_id: 'blob-royale://protocol/v2/snapshot-message';
     request_id: string;
     message_sequence: number;
@@ -138,6 +138,7 @@ interface MutableBlobRoyaleProtocolV2EntitySnapshot {
   entity_id: number;
   components: {
     controllable?: MutableBlobRoyaleProtocolV2ControllableComponent;
+    lethal_on_contact?: MutableBlobRoyaleProtocolV2LethalOnContactComponent;
     lifetime?: MutableBlobRoyaleProtocolV2LifetimeComponent;
     physics_body?: MutableBlobRoyaleProtocolV2PhysicsBodyComponent;
     score?: MutableBlobRoyaleProtocolV2ScoreComponent;
@@ -154,6 +155,10 @@ interface MutableBlobRoyaleProtocolV2ControllableComponent {
   controller_kind: string;
   display_name: string;
 }
+/**
+ * Touching this entity eliminates a player. The component is a marker: its presence under an entity's components map is the entire message, so the object carries no member and an absent component is the whole of 'harmless'. A synthetic boolean member was rejected because it could only ever hold true - an entity that is not lethal does not carry the kind at all - and a field with one possible value is a fact a client must trust rather than read.
+ */
+interface MutableBlobRoyaleProtocolV2LethalOnContactComponent {}
 /**
  * A self-expiring entity's remaining committed ticks.
  */
@@ -235,7 +240,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketWelcomeMessage {
   data: MutableBlobRoyaleProtocolV2WelcomeData;
   error: null;
   meta: {
-    protocol_version: '2.0';
+    protocol_version: '2.1';
     schema_id: 'blob-royale://protocol/v2/welcome-message';
     request_id: string;
     message_sequence: 1;
@@ -274,6 +279,8 @@ export type BlobRoyaleProtocolV2EntitySnapshot =
   DeepReadonly<MutableBlobRoyaleProtocolV2EntitySnapshot>;
 export type BlobRoyaleProtocolV2ControllableComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2ControllableComponent>;
+export type BlobRoyaleProtocolV2LethalOnContactComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV2LethalOnContactComponent>;
 export type BlobRoyaleProtocolV2LifetimeComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2LifetimeComponent>;
 export type BlobRoyaleProtocolV2PhysicsBodyComponent =

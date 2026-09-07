@@ -11,12 +11,15 @@
 #include "royale/rotating_ring_spawn_policy.hpp"
 #include "royale/royale_configuration.hpp"
 #include "royale/royale_objective.hpp"
+#include "shared/hazard_archetype.hpp"
+#include "shared/lethal_hazard_contact_rule.hpp"
 #include "spawn_policy.hpp"
 #include "system_pipeline.hpp"
 
 #include <memory>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace blob_royale::gameplay {
 
@@ -29,23 +32,43 @@ namespace blob_royale::gameplay {
 // world (`docs/architecture/0005-royale-mode.md` § "The mode declaration").
 //
 //   systems()               thrust_steering at kPreKernel; zone_shrink then zone_elimination at
-//                           kPostKernel; placement_recorder at kLifecycle
-//   contact_rules()         ContactRuleTable::built_in(), with no royale row added
+//                           kPostKernel; placement_recorder then hazard_spawn at kLifecycle
+//   contact_rules()         lethal_hazard, then the built-in rows
 //   accepted_command_kinds  spawn, despawn, thrust
 //   spawn_policy()          RotatingRingSpawnPolicy
 //   objective()             RoyaleObjective
 //   validate_map()          at least `lobby_minimum_players` spawn markers, and an arena whose
 //                           `R_full` is strictly greater than the configured zone minimum
 //
-// **Why `contact_rules()` is the built-in table verbatim.** Royale changes no collision equation.
-// Blob meets blob is the accepted equal-mass exchange and blob meets wall or static body is the
-// accepted reflection. That one line is why every accepted pair and wall fixture stays valid
-// without regeneration: the mode is structurally incapable of reaching those equations.
+// **Why `contact_rules()` declares one row above the built-in ones.** Royale still changes no
+// collision *equation*: `lethal_hazard` computes no physics at all, returns both bodies verbatim,
+// and its whole effect is one `EliminationEvent`. What it changes is which rule a pair reaches, and
+// only for a pair the built-in rows were never written for.
+//
+// The declared order is `lethal_hazard`, then `variable_impulse`, then `elastic_disc`, then
+// `reflect_static`, and each boundary earns its place. `lethal_hazard` is above the impulse rows
+// because a hazard is a dynamic body with a non-baseline mass, so `variable_impulse` matches the
+// same pair; declared second, `lethal_hazard` would never fire and a comet would shove a player
+// aside instead of killing them. The three below it are `ContactRuleTable::built_in()`'s own rows
+// in its own order, taken by calling it rather than by transcribing it, which is what
+// `with_rows_above_built_in` exists for -- a second copy of the accepted baseline's predicates in
+// this file could drift from the real ones without a test noticing.
+//
+// **Every accepted pair and wall fixture still passes untouched**, and the reason is unchanged in
+// substance: `lethal_hazard`'s first predicate is `LethalOnContact` presence, and no ordinary blob,
+// wall, or zone carries that kind. A world with no hazards in it never reaches the new row, exactly
+// as a world of baseline blobs never reaches `variable_impulse`. The mode is still structurally
+// incapable of reaching a different equation for a pair of ordinary blobs.
 //
 // The order of the two `kPostKernel` systems is load-bearing and comes from this declared list
 // alone: elimination reads the radius this tick's `zone_shrink` wrote. The engine appends its own
 // `MatchLifecycleSystem` last at `kLifecycle` and it is not removable, so `placement_recorder`
 // always runs before this tick's phase transition is evaluated.
+//
+// The two `kLifecycle` systems are ordered for the same kind of reason. `placement_recorder` runs
+// first because it *destroys* this tick's eliminated entities, and `hazard_spawn` runs second so it
+// sees the seats that freed and the entity ids that did not. Both create or destroy roster
+// entries, which is what `kLifecycle` is for.
 //
 // The mode holds its validated `[royale]` configuration and hands it to the systems and policies it
 // builds, which is the only way configuration reaches a tick. Every declaration returns an
@@ -72,16 +95,22 @@ public:
   create(const GameModeConfiguration& configuration);
 
   // The mode's own proposed balance values, for a test or a diagnostic that does not configure it.
+  // Both overloads field **no hazards**, which is the honest default: a hazard kind exists only
+  // because a `[hazard.<kind>]` section declared one, so a mode built without a configuration file
+  // has none to declare.
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode> create();
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
   create(RoyaleConfiguration configuration);
+  [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
+  create(RoyaleConfiguration configuration, std::vector<HazardArchetype> hazards);
 
   [[nodiscard]] std::string_view name() const noexcept override { return kModeName; }
 
   [[nodiscard]] simulation::SystemPipeline systems() const override;
 
   [[nodiscard]] simulation::ContactRuleTable contact_rules() const override {
-    return simulation::ContactRuleTable::built_in();
+    // One royale row, above everything the engine ships. See the note on precedence above.
+    return simulation::ContactRuleTable::with_rows_above_built_in({lethal_hazard_contact_rule()});
   }
 
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
@@ -107,12 +136,23 @@ public:
 
   // Public because `create` hands the mode over as a `std::unique_ptr<const GameMode>` and
   // `std::make_unique` needs an accessible constructor. **`create` is the entry point**; the
-  // configuration arrives already validated by `RoyaleConfiguration::create`.
+  // configuration arrives already validated by `RoyaleConfiguration::create`, and the hazard table
+  // by `HazardArchetype::create`.
+  RoyaleMode(RoyaleConfiguration configuration, std::vector<HazardArchetype> hazards) noexcept
+      : configuration_(std::move(configuration)), hazards_(std::move(hazards)) {}
+
+  // Royale with no hazards, which is what the mode was before hazards existed and what a test or a
+  // diagnostic about anything else wants. It delegates rather than repeating the member list, so
+  // there is one place a royale mode is assembled.
   explicit RoyaleMode(RoyaleConfiguration configuration) noexcept
-      : configuration_(std::move(configuration)) {}
+      : RoyaleMode(std::move(configuration), {}) {}
 
 private:
   RoyaleConfiguration configuration_;
+  // Copied rather than referenced, for the reason stated above: every declaration returns an
+  // independently owned value, so the system built from this table outlives the mode the engine
+  // destroys at construction.
+  std::vector<HazardArchetype> hazards_;
 };
 
 } // namespace blob_royale::gameplay

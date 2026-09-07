@@ -1,5 +1,7 @@
 #include "royale/royale_mode.hpp"
 
+#include "shared/lethal_hazard_contact_rule.hpp"
+
 #include "gameplay_test_fixture.hpp"
 
 #include "command_kind_mask.hpp"
@@ -17,6 +19,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -40,19 +43,27 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
   const gameplay::RoyaleMode mode = default_mode();
 
   CHECK(mode.name() == std::string_view{"royale"});
-  // The built-in table verbatim, with no royale row added: royale changes no collision equation, so
-  // every accepted pair and wall fixture stays valid without regeneration.
-  CHECK(mode.contact_rules() == simulation::ContactRuleTable::built_in());
+  // One royale row above the built-in ones, and the built-in ones unmodified below it. Royale still
+  // changes no collision *equation* -- `lethal_hazard` computes no physics and returns both bodies
+  // verbatim -- so every accepted pair and wall fixture stays valid without regeneration, which the
+  // suffix check below states as a property rather than as a retyped list.
+  const simulation::ContactRuleTable rules = mode.contact_rules();
+  const simulation::ContactRuleTable built_in = simulation::ContactRuleTable::built_in();
+  REQUIRE(rules.size() == built_in.size() + 1);
+  CHECK(rules.rows()[0].name() == gameplay::kLethalHazardContactRuleName);
+  for (std::size_t index = 0; index < built_in.size(); ++index) {
+    CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
+  }
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
                                              simulation::CommandKind::kDespawn,
                                              simulation::CommandKind::kThrust}));
 }
 
-TEST_CASE("RoyaleMode declares four systems in the order its rules depend on",
+TEST_CASE("RoyaleMode declares six systems in the order its rules depend on",
           "[unit][gameplay][royale]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 4);
+  REQUIRE(systems.size() == 6);
 
   REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
@@ -66,7 +77,14 @@ TEST_CASE("RoyaleMode declares four systems in the order its rules depend on",
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() ==
         std::string_view{"zone_elimination"});
 
-  REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 1);
+  // Remove then add: `placement_recorder` destroys this tick's eliminated entities, then
+  // `lifetime_expiry` emits the despawns for whatever ran out, then `hazard_spawn` draws from the
+  // entity id reservation only after every other creating system has taken what it needs.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 3);
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[1].system->name() ==
+        std::string_view{"lifetime_expiry"});
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[2].system->name() ==
+        std::string_view{"hazard_spawn"});
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[0].system->name() ==
         std::string_view{"placement_recorder"});
 }

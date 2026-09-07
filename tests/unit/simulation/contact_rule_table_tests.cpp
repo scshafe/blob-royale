@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -612,4 +613,51 @@ TEST_CASE("variable_impulse reproduces resolve_general_pair_collision exactly",
   const simulation::ContactEvent& event = only_contact_event(response);
   CHECK(event.pair == simulation::CandidatePair::create(entity(1), entity(2)));
   CHECK(event.rule_name == simulation::kVariableImpulseContactRuleName);
+}
+
+TEST_CASE("with_rows_above_built_in puts the caller's rows first and the built-in ones below",
+          "[unit][simulation][contact_rule_table]") {
+  const simulation::ContactRuleTable built_in = simulation::ContactRuleTable::built_in();
+  const simulation::ContactRule mode_row = simulation::ContactRule::create(
+      "mode_row", simulation::body_is_dynamic, simulation::body_is_dynamic,
+      simulation::elastic_disc_response);
+  const simulation::ContactRuleTable composed =
+      simulation::ContactRuleTable::with_rows_above_built_in({mode_row});
+
+  REQUIRE(composed.size() == built_in.size() + 1);
+  CHECK(composed.rows()[0] == mode_row);
+  // The built-in rows are the values `built_in()` returns, in its order, not a transcription of
+  // them: a mode that inherits the defaults cannot end up with a drifted copy of the accepted
+  // baseline's predicates.
+  for (std::size_t index = 0; index < built_in.size(); ++index) {
+    CHECK(composed.rows()[index + 1] == built_in.rows()[index]);
+  }
+}
+
+TEST_CASE("with_rows_above_built_in preserves the caller's own declared order",
+          "[unit][simulation][contact_rule_table]") {
+  const simulation::ContactRuleTable composed =
+      simulation::ContactRuleTable::with_rows_above_built_in(
+          {simulation::ContactRule::create("first_row", simulation::body_is_dynamic,
+                                           simulation::body_is_dynamic,
+                                           simulation::elastic_disc_response),
+           simulation::ContactRule::create("second_row", simulation::body_is_dynamic,
+                                           simulation::body_is_dynamic,
+                                           simulation::elastic_disc_response)});
+
+  CHECK(composed.rows()[0].name() == std::string_view{"first_row"});
+  CHECK(composed.rows()[1].name() == std::string_view{"second_row"});
+  CHECK(composed.rows()[2].name() == simulation::kVariableImpulseContactRuleName);
+}
+
+TEST_CASE("with_rows_above_built_in rejects a row that redeclares a built-in name",
+          "[unit][simulation][contact_rule_table]") {
+  // A silently shadowed baseline row would be the worst outcome here: the mode would appear to
+  // declare `elastic_disc` and the real one below would be unreachable, so the duplicate check
+  // `create` already performs has to apply to the composed list too.
+  CHECK_THROWS_AS(
+      simulation::ContactRuleTable::with_rows_above_built_in({simulation::ContactRule::create(
+          simulation::kElasticDiscContactRuleName, simulation::body_is_dynamic,
+          simulation::body_is_dynamic, simulation::elastic_disc_response)}),
+      simulation::SimulationValidationError);
 }

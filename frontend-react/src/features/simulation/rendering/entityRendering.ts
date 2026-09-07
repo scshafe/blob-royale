@@ -34,8 +34,9 @@ export type EntityComponentDraw<Kind extends SessionComponentKind> = (
  */
 export const ENTITY_RENDER_LAYERS = Object.freeze({
   body: 1,
-  exposure: 2,
-  label: 3,
+  hazard: 2,
+  exposure: 3,
+  label: 4,
   zone: 0,
 });
 

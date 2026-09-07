@@ -10,6 +10,9 @@ add_executable(blob_gameplay_unit_tests
   sandbox/sandbox_mode_tests.cpp
   shared/duration_ticks_tests.cpp
   shared/hazard_archetype_tests.cpp
+  shared/hazard_spawn_system_tests.cpp
+  shared/lethal_hazard_contact_rule_tests.cpp
+  shared/lifetime_expiry_system_tests.cpp
   shared/thrust_steering_system_tests.cpp
 )
 

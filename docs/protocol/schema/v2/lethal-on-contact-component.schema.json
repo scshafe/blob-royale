@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/lethal-on-contact-component.schema.json",
+  "title": "Blob Royale protocol v2 lethal_on_contact component",
+  "description": "Touching this entity eliminates a player. The component is a marker: its presence under an entity's components map is the entire message, so the object carries no member and an absent component is the whole of 'harmless'. A synthetic boolean member was rejected because it could only ever hold true - an entity that is not lethal does not carry the kind at all - and a field with one possible value is a fact a client must trust rather than read.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "$comment": "No 'required' and no 'properties': the empty object is the complete value, and additionalProperties:false keeps it that way, so a later member cannot be added without a minor version. Added in 2.1."
+}

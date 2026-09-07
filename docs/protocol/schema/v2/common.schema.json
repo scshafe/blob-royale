@@ -7,8 +7,8 @@
   "$defs": {
     "protocol_version": {
       "type": "string",
-      "const": "2.0",
-      "$comment": "A minor revision (2.1) republishes this schema set with the const bumped. A 2.0 client therefore rejects a 2.1 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
+      "const": "2.1",
+      "$comment": "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind. A 2.1 client therefore rejects a 2.2 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
     },
     "request_id": {
       "type": "string",
@@ -148,6 +148,7 @@
       "type": "string",
       "enum": [
         "controllable",
+        "lethal_on_contact",
         "lifetime",
         "physics_body",
         "score",

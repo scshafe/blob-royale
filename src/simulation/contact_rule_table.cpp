@@ -65,6 +65,17 @@ ContactRuleTable ContactRuleTable::built_in() {
   return create(std::move(rows));
 }
 
+ContactRuleTable ContactRuleTable::with_rows_above_built_in(std::vector<ContactRule> rows) {
+  // `built_in()` is called rather than reconstructed, so the baseline rows a mode inherits are the
+  // same values `built_in()` returns and cannot drift from them. The caller's rows keep their
+  // declared order and all of them precede all of the built-in ones.
+  const ContactRuleTable built_in_table = built_in();
+  const std::span<const ContactRule> built_in_rows = built_in_table.rows();
+  rows.reserve(rows.size() + built_in_rows.size());
+  rows.insert(rows.end(), built_in_rows.begin(), built_in_rows.end());
+  return create(std::move(rows));
+}
+
 ContactRuleTable ContactRuleTable::empty() { return ContactRuleTable{{}}; }
 
 std::optional<ContactRuleTable::Match>

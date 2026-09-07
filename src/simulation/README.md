@@ -28,8 +28,9 @@ order and every binary search depend on; `insert_or_assign` and `erase` remain t
 that change which ids a store holds. The tick has only ever needed the values.
 
 `component_registry.hpp` is the closed, ordered list of kinds:
-`ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure>`, where the last
-two are royale's. Because it is a type list, three behaviors are **generated rather than
+`ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
+LethalOnContact>`, where `Zone` and `ZoneExposure` are royale's and `LethalOnContact` belongs to no
+mode at all. Because it is a type list, three behaviors are **generated rather than
 maintained** — structural world equality, `destroy_entity` erasing from every store, and snapshot
 publication of every kind — so a new kind cannot forget to participate in any of them.
 
@@ -254,8 +255,11 @@ entity ordering. Older snapshots never change when the simulation advances.
 a new value-struct header under `components/` declaring its own `ComponentKindName`, plus one type in
 the registry list. `GameWorld`, `GameSimulation`, and existing systems are untouched. Two
 implementations beyond the engine set are registered: `Zone` and `ZoneExposure` for royale, added in
-plan Step 21 as two headers and one edited line, which is the first measured use of this seam. `Flag`
-for capture the flag is the next.
+plan Step 21 as two headers and one edited line, which is the first measured use of this seam. The
+third, `LethalOnContact`, is the one that measures it hardest, because it is declared by
+`src/gameplay/shared/` rather than by any mode and still cost the same one header plus one line; it
+is also the first kind whose presence is its entire value, so it publishes an empty wire object.
+`Flag` for capture the flag is the next.
 
 `@extension-point game_mode` (mode state) — `mode_match_state_registry.hpp`. A mode's match-wide
 state that is **not** entity-shaped is one arm of the `ModeMatchState` variant plus one

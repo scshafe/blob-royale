@@ -577,7 +577,7 @@ TEST_CASE("SimulationRuntime hands every tick a non-empty entity id reservation"
   // running tick, so a tick with no ids to draw would be a hard failure there.
   REQUIRE(observation.empty_reservation_tick_count.load(std::memory_order_acquire) == 0);
   REQUIRE(observation.minimum_reservation_count.load(std::memory_order_acquire) >=
-          runtime::kSystemCreatedEntityHeadroom);
+          simulation::kSystemCreatedEntityHeadroom);
 }
 
 TEST_CASE("SimulationRuntime mutates the simulation only on its own worker thread",

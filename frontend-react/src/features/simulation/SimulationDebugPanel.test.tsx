@@ -5,7 +5,10 @@ import { SimulationDebugPanel } from './SimulationDebugPanel';
 import { DEBUG_ENTITY_ROW_LIMIT } from './simulationConstants';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import { snapshotDocument } from './fixtures/sessionFrames';
-import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
+import {
+  SUPPORTED_PROTOCOL_VERSION,
+  validateSessionSnapshotMessage,
+} from './sessionProtocolValidation';
 import { validateSimulationConfigurationResponse } from './simulationProtocolValidation';
 import type { SimulationSessionIdentity } from './useSimulationConnection';
 
@@ -72,7 +75,13 @@ describe('SimulationDebugPanel', () => {
     const metadataTable = screen.getByRole('table', {
       name: 'Session protocol metadata',
     });
-    expect(within(metadataTable).getByText('2.0')).toBeVisible();
+    // Read from the supported-version constant rather than a literal. The panel's job is to show
+    // the version it decoded, not a particular number, and hardcoding one turns every protocol
+    // minor into an unrelated test edit -- which is exactly what happened when the server published
+    // `lethal_on_contact` and the schema set went to 2.1.
+    expect(
+      within(metadataTable).getByText(SUPPORTED_PROTOCOL_VERSION),
+    ).toBeVisible();
     expect(
       within(metadataTable).getByText(
         'blob-royale://protocol/v2/snapshot-message',

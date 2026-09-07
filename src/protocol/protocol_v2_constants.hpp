@@ -25,7 +25,7 @@ namespace blob_royale::protocol {
 // related: docs/protocol/v2.md -- the accepted contract these values are read from.
 // related: protocol_constants.hpp -- the v1 twin, deliberately not shared.
 
-inline constexpr std::string_view kProtocolV2Version = "2.0";
+inline constexpr std::string_view kProtocolV2Version = "2.1";
 
 inline constexpr std::string_view kWelcomeMessageSchemaId =
     "blob-royale://protocol/v2/welcome-message";
@@ -64,8 +64,9 @@ inline constexpr double kThrustComponentMaximumMagnitude = 1.0;
 // The closed component-kind vocabulary of `common.schema.json#/$defs/component_kind`, in the
 // schema's own ascending order, which is also the order `docs/protocol/v2.md`
 // § "Object member order" requires component keys to be encoded in.
-inline constexpr std::array<std::string_view, 7> kV2ComponentKindNames{
-    "controllable", "lifetime", "physics_body", "score", "team", "zone", "zone_exposure"};
+inline constexpr std::array<std::string_view, 8> kV2ComponentKindNames{
+    "controllable", "lethal_on_contact", "lifetime", "physics_body", "score", "team",
+    "zone",         "zone_exposure"};
 
 // The client-sendable command vocabulary of `common.schema.json#/$defs/command_kind`. It names
 // neither `spawn` nor `despawn`: both are server-issued on session admission and close, and

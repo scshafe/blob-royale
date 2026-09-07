@@ -41,6 +41,31 @@ inline constexpr std::size_t kMaximumInputBatchCommandCount = 65'536;
 // than the roster is an allocator defect rather than a large tick.
 inline constexpr std::uint64_t kMaximumEntityIdReservationCount =
     static_cast<std::uint64_t>(kMaximumEntityCount);
+// canonical: system_created_entity_headroom -- how many entities one tick's systems may create.
+//
+// Every tick's reservation is `spawn_count + this`, so this is the whole budget shared by every
+// system that calls `GameWorld::create_entity()`: royale's `zone_shrink` takes it on the first
+// running tick, and `hazard_spawn` takes what is left on every other one.
+//
+// **It lives here because three unrelated callers must agree on it and only this library is
+// reachable from all three**: `runtime::EntityIdAllocator` sizes the production reservation,
+// `tests/fixtures/replay_fixture.hpp` reproduces that sizing for a replay that has no runtime, and
+// `tests/unit/gameplay/gameplay_test_fixture.hpp` does the same for a hand-built world. Each
+// previously declared its own literal `1` with a comment saying the three must agree, which is a
+// request rather than an enforcement -- the same defect the published kind-name grammar had before
+// it moved into this library.
+//
+// **Raising it is not a local change.** The allocator advances its monotonic cursor by
+// `spawn_count + this` on *every* tick, so a wider headroom renumbers every simulation-created
+// entity id from the second tick onward, and the recorded replay logs under
+// `tests/fixtures/replays/` name explicit ids that would all have to be regenerated. A mechanic
+// that needs more than one entity per tick spreads its creations across ticks instead.
+inline constexpr std::uint64_t kSystemCreatedEntityHeadroom = 1;
+static_assert(kSystemCreatedEntityHeadroom >= 1,
+              "every tick must receive a non-empty block: royale creates its zone entity from the "
+              "reservation on its first running tick");
+static_assert(kSystemCreatedEntityHeadroom <= kMaximumEntityIdReservationCount,
+              "the headroom alone must still be a legal reservation width");
 // One tick's WorldEvent list: sixteen events per world seat. The dominant producer is the contact
 // phase, which emits at most one event per contacting pair, and an equal-radius disc in a
 // non-overlapping arrangement touches at most six coplanar neighbours, so sixteen leaves room for

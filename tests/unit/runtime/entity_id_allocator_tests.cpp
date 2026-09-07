@@ -81,7 +81,7 @@ TEST_CASE("EntityIdAllocator hands every tick a non-empty block",
   // spawn-free tick still needs an id to draw and never receives EntityIdReservation::none().
   REQUIRE_FALSE(reservation.empty());
   REQUIRE_FALSE(reservation == simulation::EntityIdReservation::none());
-  REQUIRE(reservation.count() == runtime::kSystemCreatedEntityHeadroom);
+  REQUIRE(reservation.count() == simulation::kSystemCreatedEntityHeadroom);
 }
 
 TEST_CASE("EntityIdAllocator reserves the spawn count plus the system headroom",
@@ -92,8 +92,8 @@ TEST_CASE("EntityIdAllocator reserves the spawn count plus the system headroom",
   const simulation::EntityIdReservation reservation = allocator.reserve_for_tick(4);
 
   REQUIRE(reservation.first_entity_id().value() == 100);
-  REQUIRE(reservation.count() == 4 + runtime::kSystemCreatedEntityHeadroom);
-  REQUIRE(allocator.next_entity_id().value() == 100 + 4 + runtime::kSystemCreatedEntityHeadroom);
+  REQUIRE(reservation.count() == 4 + simulation::kSystemCreatedEntityHeadroom);
+  REQUIRE(allocator.next_entity_id().value() == 100 + 4 + simulation::kSystemCreatedEntityHeadroom);
 }
 
 TEST_CASE("EntityIdAllocator issues monotonic non-overlapping blocks across ticks",

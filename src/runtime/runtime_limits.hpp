@@ -32,14 +32,11 @@ static_assert(kMaximumMailboxCommandCount + 1 <= simulation::kMaximumEntityIdRes
 static_assert(kMaximumMailboxCommandCount <= simulation::kMaximumInputBatchCommandCount,
               "a full mailbox must still be a legal InputBatch submission");
 
-// The width of every tick's EntityIdReservation beyond that tick's spawn count: the one entity a
-// system may create, which for royale is the zone entity on the first tick it observes none. This
-// is the same policy `tests/fixtures/replay_fixture.hpp` states, and the two must agree because a
-// replay of a recorded command log must reproduce simulation-created ids exactly.
-inline constexpr std::uint64_t kSystemCreatedEntityHeadroom = 1;
-static_assert(kSystemCreatedEntityHeadroom >= 1,
-              "every tick must receive a non-empty block: royale creates its zone entity from the "
-              "reservation on its first running tick");
+// The width of every tick's EntityIdReservation beyond that tick's spawn count is
+// `simulation::kSystemCreatedEntityHeadroom`, which this library reads rather than restates. It
+// used to be declared here and again in `tests/fixtures/replay_fixture.hpp` with a comment saying
+// the two must agree; it now has one definition in the one library both can reach, so agreement is
+// structural instead of requested.
 
 // Concurrently open controllers. A controller drives at most one live entity at a time, so the
 // world's seat count is the honest ceiling: more open controllers than seats could never all be

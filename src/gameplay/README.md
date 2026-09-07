@@ -23,6 +23,9 @@ src/gameplay/
     thrust_steering_system.*    a validated thrust direction becomes stored acceleration
     duration_ticks.*            the one conversion from an authored duration to tick counts
     hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
+    hazard_spawn_system.*       seats a crossing body per archetype whose interval is due
+    lethal_hazard_contact_rule.* touching a lethal hazard eliminates the player
+    lifetime_expiry_system.*    decrements `Lifetime` and despawns what runs out
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations
@@ -133,10 +136,12 @@ the bar the whole mechanic exists to clear.
 
 Thrust and drag inside a linearly shrinking circular safe zone, last blob standing
 (`docs/architecture/0005-royale-mode.md`). It accepts `spawn`, `despawn`, and `thrust`; uses the
-engine's two built-in contact rows unchanged, so it is structurally incapable of reaching a
-collision equation; declares `thrust_steering` at `kPreKernel`, `zone_shrink` then `zone_elimination`
-at `kPostKernel`, and `placement_recorder` at `kLifecycle`; seats joiners on a rotating ring and only
-between matches; and ends when one blob or none is alive.
+engine's built-in contact rows unchanged beneath one row of its own, `lethal_hazard`, which computes
+no physics at all, so it is still structurally incapable of reaching a different collision equation
+for a pair of ordinary blobs; declares `thrust_steering` at `kPreKernel`, `zone_shrink` then
+`zone_elimination` at `kPostKernel`, and `placement_recorder`, `lifetime_expiry` then `hazard_spawn`
+at `kLifecycle`; seats joiners on a rotating ring and only between matches; and ends when one blob or
+none is alive.
 
 `RoyaleMode` is **101 lines** — a 52-line class block plus 49 lines of definitions — of which **73
 are code**, against `SandboxMode`'s 89 and 58 measured the same way. The two class blocks are

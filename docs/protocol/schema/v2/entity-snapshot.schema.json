@@ -19,6 +19,9 @@
         "controllable": {
           "$ref": "controllable-component.schema.json"
         },
+        "lethal_on_contact": {
+          "$ref": "lethal-on-contact-component.schema.json"
+        },
         "lifetime": {
           "$ref": "lifetime-component.schema.json"
         },

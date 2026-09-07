@@ -75,11 +75,14 @@ gameplay_map(const std::size_t point_count, const std::string& name = "gameplay_
   return gameplay_map(0, "gameplay_map_without_spawn_points");
 }
 
+// The seed is explicit because a mode whose systems draw from `GameWorld::random()` -- a hazard
+// spawner is the first -- is only testable if two runs can be given the same seed deliberately and
+// different seeds deliberately. Everything written before hazards passed no seed and keeps `0`.
 [[nodiscard]] inline simulation::GameSimulation
-gameplay_simulation(std::unique_ptr<const simulation::GameMode> mode,
-                    simulation::MapDefinition map) {
+gameplay_simulation(std::unique_ptr<const simulation::GameMode> mode, simulation::MapDefinition map,
+                    const std::uint64_t seed = 0) {
   const simulation::SimulationConfig configuration = gameplay_configuration();
-  simulation::GameWorld world = simulation::GameWorld::create(configuration, map, 0);
+  simulation::GameWorld world = simulation::GameWorld::create(configuration, map, seed);
   return simulation::GameSimulation::create(
       configuration, std::move(world),
       simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));
@@ -199,14 +202,17 @@ private:
 // (`entity_id_reservation.hpp`). This owns the cursor so a test writes commands and never
 // arithmetic.
 //
-// **The reservation policy is the same one `tests/fixtures/replay_fixture.hpp` states and is
-// canonical there**: every tick receives a contiguous block of `spawn_count + 1` ids from a
+// **The reservation policy is the one `simulation/simulation_limits.hpp` pins**, which both this
+// fixture and `tests/fixtures/replay_fixture.hpp` read rather than restate: every tick receives a
+// contiguous block of `spawn_count + kSystemCreatedEntityHeadroom` ids from a
 // monotonic cursor that advances by the same width, so an entity id is a deterministic function of
 // the command sequence alone and every tick has room for the one entity a system may create. A
 // hand-built test and a replay fixture therefore number entities identically.
 class SteppedGame final {
 public:
-  static constexpr std::uint64_t kSystemCreatedEntityHeadroom = 1;
+  // The one definition, not a third copy of the literal (`simulation/simulation_limits.hpp`).
+  static constexpr std::uint64_t kSystemCreatedEntityHeadroom =
+      simulation::kSystemCreatedEntityHeadroom;
 
   explicit SteppedGame(simulation::GameSimulation game) : game_(std::move(game)) {}
 

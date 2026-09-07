@@ -38,7 +38,7 @@ EntityIdAllocator::above_committed_state(const simulation::GameSimulation& game_
 simulation::EntityIdReservation
 EntityIdAllocator::reserve_for_tick(const std::uint64_t spawn_count) {
   const std::uint64_t cursor = next_entity_id_.load(std::memory_order_relaxed);
-  const std::uint64_t width = spawn_count + kSystemCreatedEntityHeadroom;
+  const std::uint64_t width = spawn_count + simulation::kSystemCreatedEntityHeadroom;
   // Validation, including the overflow past kMaximumEntityId, belongs to the reservation value and
   // is not restated here: one rule, one implementation, one named validation code.
   const simulation::EntityIdReservation reservation =

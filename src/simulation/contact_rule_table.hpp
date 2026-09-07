@@ -77,6 +77,27 @@ public:
   // dynamic pair including a variable one.
   [[nodiscard]] static ContactRuleTable built_in();
 
+  // canonical: rows_above_built_in -- "these rows, then the built-in ones", as one call.
+  //
+  // The engine still never appends a row a mode did not ask for: a mode that wants the defaults
+  // must say so, and this is how it says so. What it removes is only the transcription. Before it
+  // existed, a mode adding one row of its own had to rebuild all three built-in rows by hand, which
+  // put a second copy of the accepted baseline's predicates and responses in that mode's source --
+  // free to drift from `built_in()` without one test noticing, which is exactly the defect the
+  // published `elastic_disc_response` and friends exist to prevent.
+  //
+  // **Precedence stays visible in the mode's own source**, which is
+  // `docs/architecture/0004-gameplay-architecture.md` § "Contact rules"'s actual requirement: the
+  // caller writes its rows in the order it wants them and the name of this function says where the
+  // built-in ones land relative to them. A mode that needs a row *below* the built-in rows, or
+  // between two of them, does not use this and writes the whole list; that is a deliberate
+  // asymmetry, because "above everything the engine ships" is the only position a mode has so far
+  // wanted and a general splice would be a seam with no second caller.
+  //
+  // Duplicate names are rejected exactly as `create` rejects them, so a mode that redeclares
+  // `elastic_disc` is a startup failure naming the row rather than a silently shadowed baseline.
+  [[nodiscard]] static ContactRuleTable with_rows_above_built_in(std::vector<ContactRule> rows);
+
   // The table of a mode that declares no interaction at all. Every admitted contact then matches
   // no row and is unchanged, which is the totality rule stated without a default row.
   [[nodiscard]] static ContactRuleTable empty();

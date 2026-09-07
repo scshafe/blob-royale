@@ -9,6 +9,7 @@ import {
 } from './entityRendering';
 import { drawPhysicsBody } from './physicsBodyRenderer';
 import { drawZone } from './zoneRenderer';
+import { drawLethalOnContact } from './lethalOnContactRenderer';
 import { drawZoneExposure } from './zoneExposureRenderer';
 
 /**
@@ -35,6 +36,11 @@ export const entityRendererRegistry = Object.freeze({
   lifetime: nonVisualComponent(
     'lifetime',
     'A remaining-tick count has no geometry; it is reported in the debug panel.',
+  ),
+  lethal_on_contact: entityRenderer(
+    'lethal_on_contact',
+    ENTITY_RENDER_LAYERS.hazard,
+    drawLethalOnContact,
   ),
   physics_body: entityRenderer(
     'physics_body',

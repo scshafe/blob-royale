@@ -53,9 +53,9 @@ export const protocolV2Schemas = {
     $defs: {
       protocol_version: {
         type: 'string',
-        const: '2.0',
+        const: '2.1',
         $comment:
-          "A minor revision (2.1) republishes this schema set with the const bumped. A 2.0 client therefore rejects a 2.1 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
+          "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind. A 2.1 client therefore rejects a 2.2 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
       },
       request_id: {
         type: 'string',
@@ -199,6 +199,7 @@ export const protocolV2Schemas = {
         type: 'string',
         enum: [
           'controllable',
+          'lethal_on_contact',
           'lifetime',
           'physics_body',
           'score',
@@ -348,6 +349,9 @@ export const protocolV2Schemas = {
           controllable: {
             $ref: 'controllable-component.schema.json',
           },
+          lethal_on_contact: {
+            $ref: 'lethal-on-contact-component.schema.json',
+          },
           lifetime: {
             $ref: 'lifetime-component.schema.json',
           },
@@ -406,6 +410,18 @@ export const protocolV2Schemas = {
         },
       },
     },
+  },
+  lethalOnContactComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v2/lethal-on-contact-component.schema.json',
+    title: 'Blob Royale protocol v2 lethal_on_contact component',
+    description:
+      "Touching this entity eliminates a player. The component is a marker: its presence under an entity's components map is the entire message, so the object carries no member and an absent component is the whole of 'harmless'. A synthetic boolean member was rejected because it could only ever hold true - an entity that is not lethal does not carry the kind at all - and a field with one possible value is a fact a client must trust rather than read.",
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    $comment:
+      "No 'required' and no 'properties': the empty object is the complete value, and additionalProperties:false keeps it that way, so a later member cannot be added without a minor version. Added in 2.1.",
   },
   lifetimeComponent: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',

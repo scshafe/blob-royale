@@ -22,6 +22,9 @@
 #include "match_snapshot.hpp"
 #include "physics_body.hpp"
 #include "simulation_config.hpp"
+#include "simulation_limits.hpp"
+#include "spatial_grid.hpp"
+#include "tick_context.hpp"
 #include "tick_sequence.hpp"
 #include "vector2.hpp"
 #include "world_snapshot.hpp"
@@ -32,6 +35,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace blob_royale::testing {
@@ -151,6 +155,108 @@ published_body(const simulation::WorldSnapshot& snapshot, const std::uint64_t en
 }
 
 inline constexpr simulation::FixedDelta kGameplayFixedDelta = simulation::FixedDelta::canonical();
+
+// canonical: gameplay_tick_harness -- an owning (map, index, context) for a system tested directly.
+//
+// A `TickContext` holds the map and the spatial index by reference, so a helper that built one from
+// temporaries would hand back a dangling value. This owns all three, which is what lets a test call
+// one system's `apply` against a hand-built world -- the way to reach a rule that needs a world
+// state the engine would never reach on its own, such as `running` with no `Zone`.
+class TickHarness final {
+public:
+  explicit TickHarness(const simulation::TickSequence tick_sequence,
+                       simulation::MapDefinition map = gameplay_map(4))
+      : configuration_(gameplay_configuration()), map_(std::move(map)),
+        indexed_world_(simulation::GameWorld::create({})),
+        grid_(simulation::SpatialGrid::create(configuration_, map_.bounds(), indexed_world_)),
+        context_(simulation::TickContext::create(tick_sequence, kGameplayFixedDelta, configuration_,
+                                                 map_, grid_)) {}
+
+  TickHarness(const TickHarness&) = delete;
+  TickHarness(TickHarness&&) = delete;
+  TickHarness& operator=(const TickHarness&) = delete;
+  TickHarness& operator=(TickHarness&&) = delete;
+  ~TickHarness() = default;
+
+  [[nodiscard]] const simulation::TickContext& context() const& noexcept { return context_; }
+  [[nodiscard]] const simulation::TickContext& context() const&& = delete;
+  [[nodiscard]] const simulation::MapDefinition& map() const& noexcept { return map_; }
+  [[nodiscard]] const simulation::MapDefinition& map() const&& = delete;
+
+private:
+  simulation::SimulationConfig configuration_;
+  simulation::MapDefinition map_;
+  simulation::GameWorld indexed_world_;
+  simulation::SpatialGrid grid_;
+  simulation::TickContext context_;
+};
+
+// canonical: gameplay_stepped_game -- drives a declared mode through ticks with a live reservation.
+//
+// A mode whose systems create entities -- royale's `zone_shrink` creates the zone entity on the
+// first tick it observes none -- cannot be driven with `InputBatch::empty()`, because the no-input
+// tick carries no reservation and a tick that was handed nothing may create nothing
+// (`entity_id_reservation.hpp`). This owns the cursor so a test writes commands and never
+// arithmetic.
+//
+// **The reservation policy is the same one `tests/fixtures/replay_fixture.hpp` states and is
+// canonical there**: every tick receives a contiguous block of `spawn_count + 1` ids from a
+// monotonic cursor that advances by the same width, so an entity id is a deterministic function of
+// the command sequence alone and every tick has room for the one entity a system may create. A
+// hand-built test and a replay fixture therefore number entities identically.
+class SteppedGame final {
+public:
+  static constexpr std::uint64_t kSystemCreatedEntityHeadroom = 1;
+
+  explicit SteppedGame(simulation::GameSimulation game) : game_(std::move(game)) {}
+
+  SteppedGame(const SteppedGame&) = delete;
+  SteppedGame(SteppedGame&&) noexcept = default;
+  SteppedGame& operator=(const SteppedGame&) = delete;
+  SteppedGame& operator=(SteppedGame&&) = delete;
+  ~SteppedGame() = default;
+
+  [[nodiscard]] const simulation::GameSimulation& game() const& noexcept { return game_; }
+  [[nodiscard]] const simulation::GameSimulation& game() const&& = delete;
+
+  // The id the next entity brought into existence will take, which is the lowest id of the next
+  // tick's block.
+  [[nodiscard]] simulation::EntityId next_entity_id() const {
+    return simulation::EntityId::create(cursor_);
+  }
+
+  // Steps one tick with these commands and returns the committed snapshot.
+  simulation::WorldSnapshot step(std::vector<simulation::Command> commands) {
+    std::uint64_t spawn_count = 0;
+    for (const simulation::Command& command : commands) {
+      if (std::holds_alternative<simulation::SpawnCommand>(command)) {
+        ++spawn_count;
+      }
+    }
+    const std::uint64_t width = spawn_count + kSystemCreatedEntityHeadroom;
+    const simulation::InputBatch batch = simulation::InputBatch::create(
+        std::move(commands), game_.accepted_command_kinds(),
+        simulation::EntityIdReservation::create(simulation::EntityId::create(cursor_), width));
+    cursor_ += width;
+    game_.step(kGameplayFixedDelta, batch);
+    return game_.snapshot();
+  }
+
+  simulation::WorldSnapshot step() { return step({}); }
+
+  // Steps `tick_count` command-free ticks and returns the last committed snapshot.
+  simulation::WorldSnapshot advance(const std::size_t tick_count) {
+    simulation::WorldSnapshot snapshot = game_.snapshot();
+    for (std::size_t tick = 0; tick < tick_count; ++tick) {
+      snapshot = step();
+    }
+    return snapshot;
+  }
+
+private:
+  simulation::GameSimulation game_;
+  std::uint64_t cursor_{simulation::kMinimumEntityId};
+};
 
 } // namespace blob_royale::testing
 

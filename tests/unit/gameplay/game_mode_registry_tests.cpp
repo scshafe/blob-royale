@@ -5,6 +5,7 @@
 #include "game_mode.hpp"
 #include "gameplay_validation_error.hpp"
 #include "match_phase.hpp"
+#include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
 #include "world_snapshot.hpp"
 
@@ -63,8 +64,13 @@ TEST_CASE("GameModeRegistry publishes every registered mode in declared order",
   REQUIRE(gameplay::GameModeRegistry::registrations().size() ==
           gameplay::kGameModeRegistrations.size());
   CHECK(gameplay::GameModeRegistry::registrations()[0].name == gameplay::SandboxMode::kModeName);
+  CHECK(gameplay::GameModeRegistry::registrations()[1].name == gameplay::RoyaleMode::kModeName);
   CHECK(gameplay::GameModeRegistry::contains("sandbox"));
-  CHECK(gameplay::GameModeRegistry::registered_names() == "sandbox");
+  CHECK(gameplay::GameModeRegistry::contains("royale"));
+  // Declared order, which is the order a rejection detail and a `--help` list them in. It was
+  // `"sandbox"` alone until plan Step 21 registered the second game; the seam's whole claim is that
+  // adding one is a row here, so this is the assertion that measures it.
+  CHECK(gameplay::GameModeRegistry::registered_names() == "sandbox, royale");
 }
 
 TEST_CASE("Every registered mode name is distinct at compile time",

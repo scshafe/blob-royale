@@ -1,5 +1,10 @@
 add_library(blob_gameplay STATIC
   game_mode_registry.cpp
+  royale/placement_recorder_system.cpp
+  royale/royale_configuration.cpp
+  royale/royale_mode.cpp
+  royale/zone_elimination_system.cpp
+  royale/zone_shrink_system.cpp
   sandbox/sandbox_mode.cpp
   shared/thrust_steering_system.cpp
 )

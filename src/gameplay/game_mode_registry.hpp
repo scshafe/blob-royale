@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_GAMEPLAY_GAME_MODE_REGISTRY_HPP
 
 #include "game_mode.hpp"
+#include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
 
 #include <array>
@@ -37,12 +38,15 @@ namespace blob_royale::gameplay {
 // compile rather than resolving to whichever row was written first, the same way a kind registry's
 // duplicate enumerator does (`kind_registry.hpp`; engine review finding 7).
 //
-// A factory takes no argument today because the only balance number any registered mode owns has a
+// A factory takes no argument today because every balance number a registered mode owns has a
 // declared default. Plan Step 25 adds the validated `[<mode>]` configuration section a factory is
-// handed; that is a change to this row shape, made once here, and not a change to any mode.
+// handed; that is a change to this row shape, made once here, and not a change to any mode. Both
+// registered modes already accept their configuration through a second `create` overload, so that
+// change is this table and nothing else.
 //
-// Two implementations of this seam: `sandbox` below, and `royale` in plan Step 21.
-// related: sandbox/sandbox_mode.hpp -- the registered mode.
+// Two implementations of this seam, both registered below: `sandbox` and `royale`.
+// related: sandbox/sandbox_mode.hpp -- the first registered mode.
+// related: royale/royale_mode.hpp -- the second.
 // related: game_mode.hpp -- the seven declarations a registered factory produces.
 class GameModeRegistry final {
 public:
@@ -79,8 +83,9 @@ public:
 };
 
 // The closed table. One row per game; the row is the whole registration.
-inline constexpr std::array<GameModeRegistry::Registration, 1> kGameModeRegistrations{
+inline constexpr std::array<GameModeRegistry::Registration, 2> kGameModeRegistrations{
     GameModeRegistry::Registration{SandboxMode::kModeName, &SandboxMode::create},
+    GameModeRegistry::Registration{RoyaleMode::kModeName, &RoyaleMode::create},
 };
 
 // A mode name is an identity, so two rows may not claim one. Checked over the whole table rather

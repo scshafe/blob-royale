@@ -24,11 +24,20 @@ namespace blob_royale::gameplay {
 // both libraries while a caller that has to distinguish reads `code()`.
 // related: game_mode_registry.hpp -- the unknown-mode rejection.
 // related: sandbox/sandbox_mode.hpp -- the map rejection.
+// related: royale/royale_configuration.hpp -- the `[royale]` balance-number rejections.
 enum class GameplayValidationCode {
   kGameModeNameUnknown,
   kThrustMaximumNotFinite,
   kThrustMaximumOutOfRange,
   kSandboxMapWithoutSpawnPoint,
+  kRoyaleScalarNotFinite,
+  kRoyaleScalarOutOfRange,
+  kRoyaleDurationTickOverflow,
+  kRoyaleMapWithoutEnoughSpawnPoints,
+  kRoyaleMapArenaWithinZoneMinimum,
+  kRoyaleZoneEntityUnreserved,
+  kRoyaleZoneAbsent,
+  kRoyalePlacementLimitExceeded,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -42,6 +51,22 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.THRUST_MAXIMUM_OUT_OF_RANGE";
   case GameplayValidationCode::kSandboxMapWithoutSpawnPoint:
     return "GAMEPLAY.SANDBOX_MAP_WITHOUT_SPAWN_POINT";
+  case GameplayValidationCode::kRoyaleScalarNotFinite:
+    return "GAMEPLAY.ROYALE_SCALAR_NOT_FINITE";
+  case GameplayValidationCode::kRoyaleScalarOutOfRange:
+    return "GAMEPLAY.ROYALE_SCALAR_OUT_OF_RANGE";
+  case GameplayValidationCode::kRoyaleDurationTickOverflow:
+    return "GAMEPLAY.ROYALE_DURATION_TICK_OVERFLOW";
+  case GameplayValidationCode::kRoyaleMapWithoutEnoughSpawnPoints:
+    return "GAMEPLAY.ROYALE_MAP_WITHOUT_ENOUGH_SPAWN_POINTS";
+  case GameplayValidationCode::kRoyaleMapArenaWithinZoneMinimum:
+    return "GAMEPLAY.ROYALE_MAP_ARENA_WITHIN_ZONE_MINIMUM";
+  case GameplayValidationCode::kRoyaleZoneEntityUnreserved:
+    return "GAMEPLAY.ROYALE_ZONE_ENTITY_UNRESERVED";
+  case GameplayValidationCode::kRoyaleZoneAbsent:
+    return "GAMEPLAY.ROYALE_ZONE_ABSENT";
+  case GameplayValidationCode::kRoyalePlacementLimitExceeded:
+    return "GAMEPLAY.ROYALE_PLACEMENT_LIMIT_EXCEEDED";
   }
   return "GAMEPLAY.VALIDATION_CODE_INVALID";
 }

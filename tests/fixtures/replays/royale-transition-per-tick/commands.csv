@@ -1,0 +1,4 @@
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y
+1,,spawn,1,,
+6,,spawn,2,,
+11,,spawn,3,,

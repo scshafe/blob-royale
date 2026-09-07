@@ -3,7 +3,7 @@
 namespace blob_royale::simulation {
 
 PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acceleration) {
-  return PhysicsBody(position, velocity, acceleration, kDefaultRadius, kDefaultMass,
+  return PhysicsBody(position, velocity, acceleration, kUndeclaredRadius, kDefaultMass,
                      kDefaultCollisionLayer, kDefaultCollisionMask, false);
 }
 
@@ -21,8 +21,8 @@ PhysicsBody PhysicsBody::create_static(Vector2 position) {
 
 PhysicsBody PhysicsBody::create_static(Vector2 position, const CollisionLayer collision_layer,
                                        const CollisionLayer collision_mask) {
-  return PhysicsBody(position, Vector2::create(0.0, 0.0), Vector2::create(0.0, 0.0), kDefaultRadius,
-                     kDefaultMass, collision_layer, collision_mask, true);
+  return PhysicsBody(position, Vector2::create(0.0, 0.0), Vector2::create(0.0, 0.0),
+                     kUndeclaredRadius, kDefaultMass, collision_layer, collision_mask, true);
 }
 
 PhysicsBody PhysicsBody::with_position(Vector2 position) const {
@@ -37,6 +37,11 @@ PhysicsBody PhysicsBody::with_velocity(Vector2 velocity) const {
 
 PhysicsBody PhysicsBody::with_acceleration(Vector2 acceleration) const {
   return create(position_, velocity_, acceleration, radius_, mass_, collision_layer_,
+                collision_mask_, is_static_);
+}
+
+PhysicsBody PhysicsBody::with_radius(const double radius) const {
+  return create(position_, velocity_, acceleration_, radius, mass_, collision_layer_,
                 collision_mask_, is_static_);
 }
 

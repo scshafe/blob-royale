@@ -6,6 +6,8 @@
 #include "components/lifetime_component.hpp"
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
+#include "components/zone_component.hpp"
+#include "components/zone_exposure_component.hpp"
 #include "physics_body.hpp"
 
 namespace blob_royale::simulation {
@@ -19,9 +21,16 @@ namespace blob_royale::simulation {
 // participate in any of them. The list is closed at compile time and ordered by declaration, so no
 // iteration order depends on a runtime registry.
 //
-// Two implementations of the seam beyond the engine set below: `Zone` for the royale safe zone and
+// The first five kinds are everything the engine itself needs. A mode contributes further kinds to
+// the same one registry, which is why the list is closed at compile time but not fixed for all
+// time: `Zone` and `ZoneExposure` are royale's, added by plan Step 21 as two headers plus this one
+// line, with no other kernel file edited
+// (`docs/architecture/0005-royale-mode.md` § "Where zone and elimination state live").
+//
+// Two implementations of the seam beyond the engine set: `Zone` for the royale safe zone, and
 // `Flag` for capture the flag.
-using ComponentRegistry = ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team>;
+using ComponentRegistry =
+    ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure>;
 
 } // namespace blob_royale::simulation
 

@@ -1,0 +1,455 @@
+#include "replay_fixture.hpp"
+
+#include "command_kind_mask.hpp"
+#include "commands/despawn_command.hpp"
+#include "commands/spawn_command.hpp"
+#include "commands/thrust_command.hpp"
+#include "controller_id.hpp"
+#include "entity_id_reservation.hpp"
+#include "fixed_delta.hpp"
+#include "game_mode_registry.hpp"
+#include "game_simulation.hpp"
+#include "game_simulation_setup.hpp"
+#include "game_world.hpp"
+#include "input_batch.hpp"
+#include "royale/royale_mode.hpp"
+#include "vector2.hpp"
+
+#include <algorithm>
+#include <charconv>
+#include <cstddef>
+#include <fstream>
+#include <ios>
+#include <map>
+#include <memory>
+#include <optional>
+#include <set>
+#include <sstream>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <variant>
+
+namespace blob_royale::testing {
+namespace {
+
+constexpr std::size_t kMaximumReplayFileBytes = 1'048'576;
+
+[[nodiscard]] std::string read_replay_file(const std::filesystem::path& path) {
+  std::ifstream file{path, std::ios::binary};
+  if (!file.is_open()) {
+    throw ReplayFixtureError("replay fixture file is missing: " + path.string());
+  }
+  std::ostringstream contents;
+  contents << file.rdbuf();
+  std::string text = contents.str();
+  if (text.size() > kMaximumReplayFileBytes) {
+    throw ReplayFixtureError("replay fixture file exceeds the accepted size: " + path.string());
+  }
+  return text;
+}
+
+[[nodiscard]] std::vector<std::string> split_lines(const std::string& text) {
+  std::vector<std::string> lines;
+  std::istringstream stream{text};
+  std::string line;
+  while (std::getline(stream, line)) {
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
+    lines.push_back(line);
+  }
+  return lines;
+}
+
+[[nodiscard]] std::vector<std::string> split_columns(const std::string& row) {
+  std::vector<std::string> columns;
+  std::size_t column_start = 0;
+  while (true) {
+    const std::size_t delimiter = row.find(',', column_start);
+    if (delimiter == std::string::npos) {
+      columns.push_back(row.substr(column_start));
+      return columns;
+    }
+    columns.push_back(row.substr(column_start, delimiter - column_start));
+    column_start = delimiter + 1;
+  }
+}
+
+[[nodiscard]] double parse_double(const std::string& value, const std::string& where) {
+  double parsed = 0.0;
+  const char* const begin = value.data();
+  const char* const end = begin + value.size();
+  const auto [stop, error] = std::from_chars(begin, end, parsed);
+  if (error != std::errc{} || stop != end || value.empty()) {
+    throw ReplayFixtureError(where + ": '" + value + "' is not a decimal number");
+  }
+  return parsed;
+}
+
+[[nodiscard]] std::uint64_t parse_unsigned(const std::string& value, const std::string& where) {
+  std::uint64_t parsed = 0;
+  const char* const begin = value.data();
+  const char* const end = begin + value.size();
+  const auto [stop, error] = std::from_chars(begin, end, parsed);
+  if (error != std::errc{} || stop != end || value.empty()) {
+    throw ReplayFixtureError(where + ": '" + value + "' is not an unsigned integer");
+  }
+  return parsed;
+}
+
+// One strict INI document: `[section] key=value`, no comments, no blank-line tolerance beyond fully
+// empty lines, no duplicate keys, and no repeated sections.
+class StrictIni final {
+public:
+  [[nodiscard]] static StrictIni parse(const std::string& text, const std::string& path) {
+    StrictIni document;
+    std::string section;
+    std::size_t line_number = 0;
+    for (const std::string& line : split_lines(text)) {
+      ++line_number;
+      const std::string where = path + ":" + std::to_string(line_number);
+      if (line.empty()) {
+        continue;
+      }
+      if (line.front() == '[') {
+        if (line.back() != ']' || line.size() < 3) {
+          throw ReplayFixtureError(where + ": malformed section header '" + line + "'");
+        }
+        section = line.substr(1, line.size() - 2);
+        if (!document.sections_.emplace(section, Entries{}).second) {
+          throw ReplayFixtureError(where + ": section [" + section + "] is declared twice");
+        }
+        continue;
+      }
+      if (section.empty()) {
+        throw ReplayFixtureError(where + ": '" + line + "' appears before any section header");
+      }
+      const std::size_t separator = line.find('=');
+      if (separator == std::string::npos) {
+        throw ReplayFixtureError(where + ": '" + line + "' is not a key=value pair");
+      }
+      const std::string key = line.substr(0, separator);
+      const std::string value = line.substr(separator + 1);
+      if (key.empty()) {
+        throw ReplayFixtureError(where + ": empty key");
+      }
+      if (!document.sections_[section].emplace(key, value).second) {
+        throw ReplayFixtureError(where + ": key '" + key + "' is declared twice in [" + section +
+                                 "]");
+      }
+    }
+    document.path_ = path;
+    return document;
+  }
+
+  // Reads one required key and marks it consumed, so `require_every_key_was_read` can reject a key
+  // no reader asked for. An unknown key is a rejection, never a silently ignored line.
+  [[nodiscard]] const std::string& value(const std::string& section, const std::string& key) {
+    const auto section_entry = sections_.find(section);
+    if (section_entry == sections_.end()) {
+      throw ReplayFixtureError(path_ + ": section [" + section + "] is missing");
+    }
+    const auto key_entry = section_entry->second.find(key);
+    if (key_entry == section_entry->second.end()) {
+      throw ReplayFixtureError(path_ + ": [" + section + "] " + key + " is missing");
+    }
+    read_keys_.emplace(section + "." + key);
+    return key_entry->second;
+  }
+
+  [[nodiscard]] double number(const std::string& section, const std::string& key) {
+    return parse_double(value(section, key), path_ + ": [" + section + "] " + key);
+  }
+
+  [[nodiscard]] std::uint64_t count(const std::string& section, const std::string& key) {
+    return parse_unsigned(value(section, key), path_ + ": [" + section + "] " + key);
+  }
+
+  void require_every_key_was_read() const {
+    for (const auto& [section, entries] : sections_) {
+      for (const auto& [key, unused_value] : entries) {
+        if (!read_keys_.contains(section + "." + key)) {
+          throw ReplayFixtureError(path_ + ": [" + section + "] " + key +
+                                   " is not a key this format declares");
+        }
+      }
+    }
+  }
+
+private:
+  using Entries = std::map<std::string, std::string>;
+
+  std::string path_;
+  std::map<std::string, Entries> sections_;
+  std::set<std::string> read_keys_;
+};
+
+constexpr std::string_view kMarkerHeader =
+    "marker_kind,position_x_world_units,position_y_world_units";
+constexpr std::string_view kCommandHeader =
+    "tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y";
+
+[[nodiscard]] std::vector<simulation::MapDefinition::Marker>
+read_markers(const std::filesystem::path& path) {
+  const std::vector<std::string> lines = split_lines(read_replay_file(path));
+  if (lines.empty() || lines.front() != kMarkerHeader) {
+    throw ReplayFixtureError(path.string() + ": the first row must be exactly '" +
+                             std::string(kMarkerHeader) + "'");
+  }
+  std::vector<simulation::MapDefinition::Marker> markers;
+  for (std::size_t index = 1; index < lines.size(); ++index) {
+    if (lines[index].empty()) {
+      continue;
+    }
+    const std::string where = path.string() + ":" + std::to_string(index + 1);
+    const std::vector<std::string> columns = split_columns(lines[index]);
+    if (columns.size() != 3) {
+      throw ReplayFixtureError(where + ": expected 3 columns, found " +
+                               std::to_string(columns.size()));
+    }
+    const simulation::Vector2 position =
+        simulation::Vector2::create(parse_double(columns[1], where + " position_x_world_units"),
+                                    parse_double(columns[2], where + " position_y_world_units"));
+    markers.push_back(simulation::MapDefinition::Marker::create(columns[0], position, std::nullopt,
+                                                                simulation::MapMetadata::none()));
+  }
+  return markers;
+}
+
+// One command row. The payload columns a kind does not use must be empty, so a row cannot carry a
+// value that is silently dropped.
+void require_empty(const std::vector<std::string>& columns, const std::size_t index,
+                   const std::string_view column_name, const std::string& where) {
+  if (!columns[index].empty()) {
+    throw ReplayFixtureError(where + ": " + std::string(column_name) +
+                             " must be empty for this command kind");
+  }
+}
+
+[[nodiscard]] std::vector<std::vector<simulation::Command>>
+read_commands(const std::filesystem::path& path, const std::uint64_t tick_count) {
+  const std::vector<std::string> lines = split_lines(read_replay_file(path));
+  if (lines.empty() || lines.front() != kCommandHeader) {
+    throw ReplayFixtureError(path.string() + ": the first row must be exactly '" +
+                             std::string(kCommandHeader) + "'");
+  }
+  std::vector<std::vector<simulation::Command>> by_tick(static_cast<std::size_t>(tick_count));
+  std::uint64_t previous_tick = 0;
+  for (std::size_t index = 1; index < lines.size(); ++index) {
+    if (lines[index].empty()) {
+      continue;
+    }
+    const std::string where = path.string() + ":" + std::to_string(index + 1);
+    const std::vector<std::string> columns = split_columns(lines[index]);
+    if (columns.size() != 6) {
+      throw ReplayFixtureError(where + ": expected 6 columns, found " +
+                               std::to_string(columns.size()));
+    }
+    const std::uint64_t tick = parse_unsigned(columns[0], where + " tick_sequence");
+    if (tick == 0 || tick > tick_count) {
+      throw ReplayFixtureError(where + ": tick_sequence " + std::to_string(tick) +
+                               " is outside [1, " + std::to_string(tick_count) + "]");
+    }
+    if (tick < previous_tick) {
+      throw ReplayFixtureError(where + ": rows must be ascending by tick_sequence");
+    }
+    previous_tick = tick;
+
+    const std::string& kind = columns[2];
+    std::vector<simulation::Command>& tick_commands = by_tick[static_cast<std::size_t>(tick) - 1];
+    if (kind == "spawn") {
+      require_empty(columns, 1, "entity_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      tick_commands.push_back(simulation::Command{simulation::SpawnCommand{
+          simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id"))}});
+      continue;
+    }
+    if (kind == "despawn") {
+      require_empty(columns, 3, "controller_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      tick_commands.push_back(simulation::Command{simulation::DespawnCommand{
+          simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id"))}});
+      continue;
+    }
+    if (kind == "thrust") {
+      require_empty(columns, 3, "controller_id", where);
+      tick_commands.push_back(simulation::Command{simulation::ThrustCommand{
+          simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id")),
+          simulation::Vector2::create(parse_double(columns[4], where + " direction_x"),
+                                      parse_double(columns[5], where + " direction_y"))}});
+      continue;
+    }
+    throw ReplayFixtureError(where + ": '" + kind + "' is not a registered command kind");
+  }
+  return by_tick;
+}
+
+[[nodiscard]] std::uint64_t
+spawn_count_of(const std::vector<simulation::Command>& tick_commands) noexcept {
+  std::uint64_t spawns = 0;
+  for (const simulation::Command& command : tick_commands) {
+    if (std::holds_alternative<simulation::SpawnCommand>(command)) {
+      ++spawns;
+    }
+  }
+  return spawns;
+}
+
+} // namespace
+
+ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory) {
+  const std::filesystem::path match_path = replay_directory / "match.ini";
+  StrictIni match = StrictIni::parse(read_replay_file(match_path), match_path.string());
+
+  std::string mode_name = match.value("match", "mode");
+  const std::uint64_t seed = match.count("match", "seed");
+  const std::uint64_t tick_count = match.count("match", "tick_count");
+
+  simulation::MapDefinition map = simulation::MapDefinition::create(
+      match.value("map", "name"),
+      simulation::ArenaBounds::create(match.number("map", "width_world_units"),
+                                      match.number("map", "height_world_units")),
+      {}, read_markers(replay_directory / "markers.csv"), simulation::MapMetadata::none());
+
+  // Read into named locals in declared order rather than as arguments, because the order in which
+  // function arguments are evaluated is unspecified in C++: a fixture with two malformed values
+  // would otherwise be rejected naming whichever key the compiler happened to reach first.
+  const double player_radius = match.number("simulation", "player_radius_world_units");
+  const std::uint64_t ticks_per_second = match.count("simulation", "ticks_per_second");
+  const std::uint64_t grid_columns = match.count("simulation", "spatial_grid_columns");
+  const std::uint64_t grid_rows = match.count("simulation", "spatial_grid_rows");
+  const double drag_per_second = match.number("simulation", "drag_per_second");
+  const simulation::SimulationConfig configuration = simulation::SimulationConfig::create(
+      map.bounds().width(), map.bounds().height(), player_radius, ticks_per_second, grid_columns,
+      grid_rows, drag_per_second);
+
+  // Aggregate initialization of `Section` sequences its initializers left to right, unlike a
+  // function call's arguments, so this one is already ordered.
+  const gameplay::RoyaleConfiguration::Section royale_section{
+      match.number("royale", "thrust_max_world_units_per_second_squared"),
+      match.number("royale", "zone_minimum_radius_world_units"),
+      match.number("royale", "zone_shrink_seconds"),
+      match.number("royale", "elimination_grace_seconds"),
+      match.count("royale", "lobby_minimum_players"),
+      match.number("royale", "countdown_seconds"),
+      match.number("royale", "restart_delay_seconds")};
+  const gameplay::RoyaleConfiguration royale =
+      gameplay::RoyaleConfiguration::create(royale_section);
+
+  match.require_every_key_was_read();
+
+  std::vector<std::vector<simulation::Command>> commands_by_tick =
+      read_commands(replay_directory / "commands.csv", tick_count);
+  std::vector<std::uint64_t> spawn_count_by_tick;
+  spawn_count_by_tick.reserve(commands_by_tick.size());
+  for (const std::vector<simulation::Command>& tick_commands : commands_by_tick) {
+    spawn_count_by_tick.push_back(spawn_count_of(tick_commands));
+  }
+
+  return ReplayFixture(replay_directory.filename().string(), std::move(mode_name), seed, tick_count,
+                       configuration, std::move(map), royale, std::move(commands_by_tick),
+                       std::move(spawn_count_by_tick));
+}
+
+ReplayFixture ReplayFixture::named(const std::string& fixture_name) {
+  return load(std::filesystem::path{BLOB_ROYALE_REPLAY_FIXTURE_DIRECTORY} / fixture_name);
+}
+
+ReplayFixture::ReplayFixture(std::string name, std::string mode_name, const std::uint64_t seed,
+                             const std::uint64_t tick_count,
+                             simulation::SimulationConfig configuration,
+                             simulation::MapDefinition map, gameplay::RoyaleConfiguration royale,
+                             std::vector<std::vector<simulation::Command>> commands_by_tick,
+                             std::vector<std::uint64_t> spawn_count_by_tick)
+    : name_(std::move(name)), mode_name_(std::move(mode_name)), seed_(seed),
+      tick_count_(tick_count), configuration_(std::move(configuration)), map_(std::move(map)),
+      royale_(std::move(royale)), commands_by_tick_(std::move(commands_by_tick)),
+      spawn_count_by_tick_(std::move(spawn_count_by_tick)) {}
+
+simulation::EntityId
+ReplayFixture::first_reserved_entity_id(const std::uint64_t tick_sequence) const {
+  if (tick_sequence == 0 || tick_sequence > tick_count_) {
+    throw ReplayFixtureError(name_ + ": tick " + std::to_string(tick_sequence) +
+                             " is outside [1, " + std::to_string(tick_count_) + "]");
+  }
+  // The map's static bodies occupy `[kMinimumEntityId, kMinimumEntityId + static_body_count)`, so
+  // the first reservation opens above that block exactly as plan Step 22's allocator must.
+  std::uint64_t cursor =
+      simulation::kMinimumEntityId + static_cast<std::uint64_t>(map_.static_bodies().size());
+  for (std::uint64_t tick = 1; tick < tick_sequence; ++tick) {
+    cursor +=
+        spawn_count_by_tick_[static_cast<std::size_t>(tick) - 1] + kSystemCreatedEntityHeadroom;
+  }
+  return simulation::EntityId::create(cursor);
+}
+
+simulation::EntityId ReplayFixture::spawned_entity_id(const std::uint64_t tick_sequence,
+                                                      const std::uint64_t spawn_index) const {
+  if (spawn_index >= spawn_count_by_tick_[static_cast<std::size_t>(tick_sequence) - 1]) {
+    throw ReplayFixtureError(
+        name_ + ": tick " + std::to_string(tick_sequence) + " carries " +
+        std::to_string(spawn_count_by_tick_[static_cast<std::size_t>(tick_sequence) - 1]) +
+        " spawn commands, so index " + std::to_string(spawn_index) + " names none");
+  }
+  return simulation::EntityId::create(first_reserved_entity_id(tick_sequence).value() +
+                                      spawn_index);
+}
+
+std::vector<simulation::WorldSnapshot> ReplayFixture::run() const {
+  // The mode name must resolve in the registry, because `[match] mode=` naming an unregistered game
+  // is exactly the rejection the registry exists for. The mode is then built from **this replay's**
+  // `[royale]` section rather than through the registry's factory, which takes no argument until
+  // plan Step 25 hands it a parsed section: a fixture whose balance numbers were silently replaced
+  // by the mode's defaults would assert against a game it is not running.
+  if (!gameplay::GameModeRegistry::contains(mode_name_)) {
+    throw ReplayFixtureError(name_ + ": [match] mode=" + mode_name_ +
+                             " is registered by no row; the registered modes are " +
+                             gameplay::GameModeRegistry::registered_names());
+  }
+  if (mode_name_ != gameplay::RoyaleMode::kModeName) {
+    throw ReplayFixtureError(name_ + ": [match] mode=" + mode_name_ +
+                             " has no configuration section this format knows how to read; only " +
+                             std::string(gameplay::RoyaleMode::kModeName) + " does today");
+  }
+  std::unique_ptr<const simulation::GameMode> mode = gameplay::RoyaleMode::create(royale_);
+  simulation::MapDefinition map = map_;
+  simulation::GameWorld world = simulation::GameWorld::create(configuration_, map, seed_);
+  simulation::GameSimulation game = simulation::GameSimulation::create(
+      configuration_, std::move(world),
+      simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));
+
+  std::vector<simulation::WorldSnapshot> snapshots;
+  snapshots.reserve(static_cast<std::size_t>(tick_count_));
+  for (std::uint64_t tick = 1; tick <= tick_count_; ++tick) {
+    const std::vector<simulation::Command>& tick_commands =
+        commands_by_tick_[static_cast<std::size_t>(tick) - 1];
+    const simulation::InputBatch batch = simulation::InputBatch::create(
+        tick_commands, game.accepted_command_kinds(),
+        simulation::EntityIdReservation::create(
+            first_reserved_entity_id(tick),
+            spawn_count_by_tick_[static_cast<std::size_t>(tick) - 1] +
+                kSystemCreatedEntityHeadroom));
+    game.step(simulation::FixedDelta::canonical(), batch);
+    snapshots.push_back(game.snapshot());
+  }
+  return snapshots;
+}
+
+std::size_t first_divergent_tick(const std::vector<simulation::WorldSnapshot>& expected,
+                                 const std::vector<simulation::WorldSnapshot>& actual) {
+  const std::size_t common = std::min(expected.size(), actual.size());
+  for (std::size_t index = 0; index < common; ++index) {
+    if (!(expected[index] == actual[index])) {
+      return index + 1;
+    }
+  }
+  if (expected.size() != actual.size()) {
+    return common + 1;
+  }
+  return 0;
+}
+
+} // namespace blob_royale::testing

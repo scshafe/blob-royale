@@ -80,9 +80,16 @@ system reads it — `thrust_steering` in `src/gameplay/shared/`.
 ## The event vocabulary
 
 `world_event_registry.hpp` is the closed, ordered list of in-tick event kinds: the variant
-`WorldEvent = ContactEvent | SpawnEvent | DespawnEvent | EliminationEvent | ScoreEvent`, the
-`WorldEventKind` enumerators, and each kind's diagnostic name. An event is a value struct in its own
-header under `events/`.
+`WorldEvent = ContactEvent | DespawnEvent | EliminationEvent`, the `WorldEventKind` enumerators, and
+each kind's diagnostic name. An event is a value struct in its own header under `events/`.
+
+**Every registered kind has a producer, and the list is kept that way rather than kept full.** An
+event is a channel between two stages of one tick, so a kind nothing emits is a switch arm, a name,
+and a header no reader can reach. `SpawnEvent` and `ScoreEvent` were registered ahead of any producer
+and were removed in plan Step 21 (engine review finding 17). Today the contact phase emits
+`ContactEvent`, royale's `zone_elimination` emits `EliminationEvent`, and royale's
+`placement_recorder` emits `DespawnEvent`, which the commit applies. Re-adding a kind is its header
+plus four lines in the registry, so removing an unused one costs nothing to reverse.
 
 Systems within one tick communicate through the bounded, ordered list `GameWorld` owns.
 `GameWorld::emit` appends in production order and `GameWorld::events()` publishes it; the list is
@@ -235,7 +242,16 @@ entity ordering. Older snapshots never change when the simulation advances.
 `@extension-point entity_component` — `component_registry.hpp`. Adding an entity kind's vocabulary is
 a new value-struct header under `components/` declaring its own `ComponentKindName`, plus one type in
 the registry list. `GameWorld`, `GameSimulation`, and existing systems are untouched. Two
-implementations beyond the engine set: `Zone` for the royale safe zone, `Flag` for capture the flag.
+implementations beyond the engine set are registered: `Zone` and `ZoneExposure` for royale, added in
+plan Step 21 as two headers and one edited line, which is the first measured use of this seam. `Flag`
+for capture the flag is the next.
+
+`@extension-point game_mode` (mode state) — `mode_match_state_registry.hpp`. A mode's match-wide
+state that is **not** entity-shaped is one arm of the `ModeMatchState` variant plus one
+`ModeMatchStateSchemaId` specialization. Mode state should be a component wherever it can be, so this
+carries only what has no entity: `NoModeState` for every mode whose state is entity-shaped, and
+`RoyalePlacementsModeState` (schema id `royale_placements`) for royale's ordered placement list and
+the phase it observed on the previous tick.
 
 `@extension-point command_kind` — `command_registry.hpp`. Adding a command kind edits **two**
 existing files in this domain:

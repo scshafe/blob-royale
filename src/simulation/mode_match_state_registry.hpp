@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_MODE_MATCH_STATE_REGISTRY_HPP
 
 #include "mode_states/no_mode_state.hpp"
+#include "mode_states/royale_placements_mode_state.hpp"
 
 #include <string_view>
 #include <type_traits>
@@ -32,13 +33,18 @@ namespace blob_royale::simulation {
 //                                                            ModeMatchStateSchemaId specialization
 //   new  src/gameplay/<mode>/...                             the system that writes it
 //
-// Two implementations of this seam: `NoModeState` for every mode whose state is entity-shaped,
-// and royale's `royale_placements` block in Step 21.
+// Two implementations of this seam: `NoModeState` for every mode whose state is entity-shaped, and
+// royale's `royale_placements` block, which plan Step 21 added as one type below and one
+// `ModeMatchStateSchemaId` specialization with no other kernel file edited.
 // related: match_state.hpp -- the world state that holds one of these.
 // related: component_registry.hpp -- the same closed-list shape for entity state.
-using ModeMatchState = std::variant<NoModeState>;
+using ModeMatchState = std::variant<NoModeState, RoyalePlacementsModeState>;
 
-static_assert(std::is_nothrow_move_constructible_v<NoModeState>,
+// A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
+// asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
+// does. It is `MatchState`'s member, and `MatchState` is copied into every working world at the
+// start of every tick.
+static_assert(std::is_nothrow_move_constructible_v<ModeMatchState>,
               "every ModeMatchState alternative must be nothrow-move-constructible");
 
 // canonical: mode_match_state_schema_id -- the one wire schema id of one mode-state block.
@@ -49,6 +55,10 @@ template <typename ModeStateType> struct ModeMatchStateSchemaId;
 
 template <> struct ModeMatchStateSchemaId<NoModeState> {
   static constexpr std::string_view value = "none";
+};
+
+template <> struct ModeMatchStateSchemaId<RoyalePlacementsModeState> {
+  static constexpr std::string_view value = "royale_placements";
 };
 
 template <typename ModeStateType>

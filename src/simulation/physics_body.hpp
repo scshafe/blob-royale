@@ -17,14 +17,32 @@ namespace blob_royale::simulation {
 // `collision_layer` and `collision_mask` are bitmasks: a candidate pair is admitted to the contact
 // phase only when `(a.collision_mask & b.collision_layer)` and `(b.collision_mask &
 // a.collision_layer)` are both nonzero, which is a pure integer predicate that adds no ordering.
-// The kernel does not consult radius, mass, the masks, or `is_static` yet -- the accepted physics
-// takes the one common radius from SimulationConfig, and moving it here is a separate, versioned
-// physics change.
+//
+// **`radius_` is not read by any accepted phase, and the constant that fills it says so.** Every
+// phase takes the one common radius from `SimulationConfig::player_radius()`: the pair contact
+// predicate uses `2r`, the wall fold uses `[r, extent - r]`, the spatial index sizes its cells from
+// it, and the spawn occupancy test measures against it. The field is therefore an *undeclared*
+// radius on every body this codebase builds today, which is why the constant is named
+// `kUndeclaredRadius` rather than `kDefaultRadius`: `0.0` is not a body one wu across, it is a body
+// that declares no size and defers to the configuration (engine review finding 10).
+//
+// It stays a field rather than being deleted because making it authoritative is the growing-blob
+// change, and that is a **versioned physics change on ADR 0003's amendment path**, not a cleanup:
+// unequal radii replace the accepted equal-mass pair equation with the general impulse equation and
+// regenerate every accepted pair and wall fixture
+// (`docs/architecture/0003-deterministic-simulation-contract.md` § "Justified extension points and
+// what-if stress"; `docs/architecture/0005-royale-mode.md` § "Considered Options" B, rejected for
+// exactly that cost). What that change needs from this file is `with_radius`, which now exists, so
+// a growth system is a `kPostKernel` system writing `body.with_radius(...)` and the remaining cost
+// is entirely in the kernel and its fixtures rather than in this value.
+// related: with_radius -- the value operation a growing blob needs.
+// related: simulation_config.hpp -- where every accepted phase reads the radius it actually uses.
 class PhysicsBody final {
 public:
   using CollisionLayer = std::uint32_t;
 
-  static constexpr double kDefaultRadius = 0.0;
+  // Not a radius: the absence of a declared one. See the note above the class.
+  static constexpr double kUndeclaredRadius = 0.0;
   static constexpr double kDefaultMass = 1.0;
   static constexpr CollisionLayer kDefaultCollisionLayer = 1;
   static constexpr CollisionLayer kDefaultCollisionMask = 1;
@@ -66,6 +84,10 @@ public:
   [[nodiscard]] PhysicsBody with_position(Vector2 position) const;
   [[nodiscard]] PhysicsBody with_velocity(Vector2 velocity) const;
   [[nodiscard]] PhysicsBody with_acceleration(Vector2 acceleration) const;
+  // The wither a growing blob needs. No accepted phase reads `radius()`, so this changes only the
+  // value; it is here so the growth change is a system plus a kernel amendment rather than a system
+  // plus a missing operation on the one body type.
+  [[nodiscard]] PhysicsBody with_radius(double radius) const;
 
   friend bool operator==(const PhysicsBody&, const PhysicsBody&) = default;
 

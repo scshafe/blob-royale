@@ -395,8 +395,17 @@ appear in a snapshot**; a consequence that must outlive the tick is written into
 ```cpp
 // src/simulation/world_event_registry.hpp
 // canonical: world_event_registry -- the closed list of in-tick event kinds.
-using WorldEvent = std::variant<ContactEvent, SpawnEvent, DespawnEvent, EliminationEvent, ScoreEvent>;
+using WorldEvent = std::variant<ContactEvent, DespawnEvent, EliminationEvent>;
 ```
+
+**Correction, 2026-09-07 (plan Step 21).** This section first listed five kinds. `SpawnEvent` and
+`ScoreEvent` were registered ahead of any producer and are removed, because a kind nothing emits is
+a switch arm, a name, and a header that no reader can reach, and a mode author grepping for how a
+kind is used finds nothing (`docs/reviews/2026-09-06-engine-kernel-review.md` finding 17). The three
+above each have a producer: the contact phase emits `ContactEvent`, royale's `zone_elimination`
+emits `EliminationEvent`, and royale's `placement_recorder` emits `DespawnEvent`, which the commit
+applies. Re-adding a kind is its header plus four registry lines, so the rule this states is "every
+registered kind has a producer", not "the list is fixed".
 
 `ContactEvent` carries the canonical pair, the contact normal, the relative normal speed, and the
 name of the rule row that matched, which is what lets one generic contact phase feed many different

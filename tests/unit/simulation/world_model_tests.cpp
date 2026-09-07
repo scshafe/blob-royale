@@ -139,7 +139,7 @@ TEST_CASE("PhysicsBody motion-only creation carries the baseline dynamic disc de
           "[unit][simulation][physics_body]") {
   const simulation::PhysicsBody body = stationary_body(1.0, 2.0);
 
-  CHECK(body.radius() == simulation::PhysicsBody::kDefaultRadius);
+  CHECK(body.radius() == simulation::PhysicsBody::kUndeclaredRadius);
   CHECK(body.mass() == simulation::PhysicsBody::kDefaultMass);
   CHECK(body.collision_layer() == simulation::PhysicsBody::kDefaultCollisionLayer);
   CHECK(body.collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);
@@ -322,16 +322,17 @@ TEST_CASE("GameWorld appends events in production order and publishes them uncha
   simulation::GameWorld world = simulation::GameWorld::create({seed(2, 2.0), seed(5, 5.0)});
 
   world.emit(simulation::EliminationEvent{simulation::EntityId::create(2)});
-  world.emit(simulation::ScoreEvent{simulation::EntityId::create(5), 3});
+  world.emit(simulation::EliminationEvent{simulation::EntityId::create(5)});
   world.emit(simulation::DespawnEvent{simulation::EntityId::create(2)});
 
   REQUIRE(world.events().size() == 3);
   CHECK(simulation::world_event_kind_of(world.events()[0]) ==
         simulation::WorldEventKind::kElimination);
-  CHECK(simulation::world_event_kind_of(world.events()[1]) == simulation::WorldEventKind::kScore);
+  CHECK(simulation::world_event_kind_of(world.events()[1]) ==
+        simulation::WorldEventKind::kElimination);
   CHECK(simulation::world_event_kind_of(world.events()[2]) == simulation::WorldEventKind::kDespawn);
   CHECK(world.events()[1] ==
-        simulation::WorldEvent{simulation::ScoreEvent{simulation::EntityId::create(5), 3}});
+        simulation::WorldEvent{simulation::EliminationEvent{simulation::EntityId::create(5)}});
 }
 
 TEST_CASE("GameWorld starts every world with an empty event list",

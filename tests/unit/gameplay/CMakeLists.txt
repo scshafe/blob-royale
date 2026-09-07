@@ -1,5 +1,12 @@
 add_executable(blob_gameplay_unit_tests
   game_mode_registry_tests.cpp
+  royale/placement_recorder_system_tests.cpp
+  royale/rotating_ring_spawn_policy_tests.cpp
+  royale/royale_configuration_tests.cpp
+  royale/royale_mode_tests.cpp
+  royale/royale_objective_tests.cpp
+  royale/zone_elimination_system_tests.cpp
+  royale/zone_shrink_system_tests.cpp
   sandbox/sandbox_mode_tests.cpp
   shared/thrust_steering_system_tests.cpp
 )

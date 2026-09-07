@@ -8,6 +8,8 @@
 #include "components/lifetime_component.hpp"
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
+#include "components/zone_component.hpp"
+#include "components/zone_exposure_component.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "physics_body.hpp"
@@ -24,15 +26,22 @@
 
 namespace simulation = blob_royale::simulation;
 
-TEST_CASE("ComponentRegistry declares the engine component kinds in a closed ordered list",
+TEST_CASE("ComponentRegistry declares every component kind in one closed ordered list",
           "[unit][simulation][component_registry]") {
-  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 5);
+  // Seven, not the five the engine itself needs: `Zone` and `ZoneExposure` are royale's, added by
+  // plan Step 21 as two headers under `components/` and one edited line in the registry, with no
+  // other kernel file touched. That is the measurement the `entity_component` seam's claim is
+  // answerable to (`docs/architecture/0005-royale-mode.md` § "Where zone and elimination state
+  // live").
+  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 7);
   STATIC_REQUIRE(std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
                                 std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
                                            simulation::ComponentStore<simulation::Controllable>,
                                            simulation::ComponentStore<simulation::Lifetime>,
                                            simulation::ComponentStore<simulation::Score>,
-                                           simulation::ComponentStore<simulation::Team>>>);
+                                           simulation::ComponentStore<simulation::Team>,
+                                           simulation::ComponentStore<simulation::Zone>,
+                                           simulation::ComponentStore<simulation::ZoneExposure>>>);
 }
 
 TEST_CASE("Every registered component kind declares its own wire name",
@@ -42,8 +51,8 @@ TEST_CASE("Every registered component kind declares its own wire name",
     names.push_back(simulation::component_kind_name<Component>);
   });
 
-  CHECK(names ==
-        std::vector<std::string_view>{"physics_body", "controllable", "lifetime", "score", "team"});
+  CHECK(names == std::vector<std::string_view>{"physics_body", "controllable", "lifetime", "score",
+                                               "team", "zone", "zone_exposure"});
 }
 
 TEST_CASE("Registry visitation reaches every kind exactly once in declared order",
@@ -75,6 +84,12 @@ TEST_CASE("Every registered component kind is a comparable value struct",
         simulation::Team{simulation::TeamId::create(2)});
   CHECK(simulation::Team{simulation::TeamId::create(2)} !=
         simulation::Team{simulation::TeamId::create(3)});
+  CHECK(simulation::Zone{zero, 10.0} == simulation::Zone{zero, 10.0});
+  CHECK(simulation::Zone{zero, 10.0} != simulation::Zone{zero, 11.0});
+  CHECK(simulation::Zone{zero, 10.0} !=
+        simulation::Zone{simulation::Vector2::create(1.0, 0.0), 10.0});
+  CHECK(simulation::ZoneExposure{4} == simulation::ZoneExposure{4});
+  CHECK(simulation::ZoneExposure{4} != simulation::ZoneExposure{5});
 }
 
 TEST_CASE("Controllable carries this tick's recorded commands and compares on them",

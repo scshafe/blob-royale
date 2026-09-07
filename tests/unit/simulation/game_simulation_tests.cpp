@@ -937,12 +937,13 @@ TEST_CASE("a system reads the tick sequence the tick is about to commit",
 TEST_CASE("a kPostKernel system reads the events an earlier stage emitted",
           "[unit][simulation][game_simulation][stages][world_event]") {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
-  declared.push_back(testing::staged(
-      simulation::SystemStage::kPreKernel,
-      std::make_unique<const testing::EventEmittingSystem>(
-          "pre_kernel_emitter", std::vector<simulation::WorldEvent>{
-                                    simulation::EliminationEvent{simulation::EntityId::create(1)},
-                                    simulation::ScoreEvent{simulation::EntityId::create(1), 4}})));
+  declared.push_back(
+      testing::staged(simulation::SystemStage::kPreKernel,
+                      std::make_unique<const testing::EventEmittingSystem>(
+                          "pre_kernel_emitter",
+                          std::vector<simulation::WorldEvent>{
+                              simulation::EliminationEvent{simulation::EntityId::create(1)},
+                              simulation::EliminationEvent{simulation::EntityId::create(2)}})));
   declared.push_back(testing::staged(
       simulation::SystemStage::kPostKernel,
       std::make_unique<const testing::EventCountProbeSystem>("post_kernel_event_probe")));
@@ -1122,7 +1123,7 @@ struct SeatedWall final {
   return SeatedWall{simulation::EntityId::create(id),
                     simulation::PhysicsBody::create(
                         at(x, y), at(velocity_x, velocity_y), at(acceleration_x, acceleration_y),
-                        simulation::PhysicsBody::kDefaultRadius,
+                        simulation::PhysicsBody::kUndeclaredRadius,
                         simulation::PhysicsBody::kDefaultMass,
                         simulation::PhysicsBody::kDefaultCollisionLayer,
                         simulation::PhysicsBody::kDefaultCollisionMask, true)};
@@ -1135,7 +1136,7 @@ masked_player(const simulation::EntityId::Value id, const double x, const double
   return simulation::GameWorld::EntitySeed::create(
       simulation::EntityId::create(id),
       simulation::PhysicsBody::create(at(x, y), at(velocity_x, 0.0), at(0.0, 0.0),
-                                      simulation::PhysicsBody::kDefaultRadius,
+                                      simulation::PhysicsBody::kUndeclaredRadius,
                                       simulation::PhysicsBody::kDefaultMass, layer, mask, false));
 }
 
@@ -1194,7 +1195,7 @@ TEST_CASE("a static body is never integrated, accelerated, or dragged",
   // configuration carries a drag that would decay any velocity phase 1 touched. After a hundred
   // ticks the body is bit-identical to the value the map declared.
   const simulation::PhysicsBody declared = simulation::PhysicsBody::create(
-      at(50.0, 50.0), at(7.0, -3.0), at(11.0, 13.0), simulation::PhysicsBody::kDefaultRadius,
+      at(50.0, 50.0), at(7.0, -3.0), at(11.0, 13.0), simulation::PhysicsBody::kUndeclaredRadius,
       simulation::PhysicsBody::kDefaultMass, simulation::PhysicsBody::kDefaultCollisionLayer,
       simulation::PhysicsBody::kDefaultCollisionMask, true);
   simulation::GameSimulation simulation_game =

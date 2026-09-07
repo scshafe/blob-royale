@@ -24,6 +24,16 @@ src/gameplay/
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations
     next_free_spawn_point_policy.hpp  the next free point, in every phase
+  royale/                       thrust and drag inside a shrinking zone, last blob standing
+    royale_mode.*               the seven declarations
+    royale_configuration.*      the validated `[royale]` section, in the units systems read
+    zone_shrink_system.*        the zone's geometry, and the component it writes each tick
+    zone_elimination_system.*   grace against the zone, and who is out
+    placement_recorder_system.* ranking, roster removal, and the restart wipe
+    rotating_ring_spawn_policy.hpp  the next free point, and only between matches
+    royale_objective.hpp        ending by attrition, as three total predicates
+    royale_roster.hpp           the one definition of "alive" royale's rules read
+    royale_mode_state.hpp       the one read of royale's arm of `ModeMatchState`
 ```
 
 **`shared/` is where a system more than one mode declares lives.** ADR 0004 files a mechanic under
@@ -45,11 +55,12 @@ do not touch                                    blob_simulation, blob_runtime, b
 
 `@extension-point game_mode` — `game_mode_registry.hpp`. The table is `constexpr`, so two rows
 claiming one name fail to compile rather than resolving to whichever was written first. A factory
-takes no argument today because the only balance number a registered mode owns has a declared
-default; plan Step 25 hands a factory its validated `[<mode>]` section, which changes this row shape
-once and changes no mode.
+takes no argument today because every balance number a registered mode owns has a declared default;
+plan Step 25 hands a factory its validated `[<mode>]` section, which changes this row shape once and
+changes no mode. Both registered modes already accept their configuration through a second `create`
+overload, so that change is the table and nothing else.
 
-Two implementations of the seam: `sandbox` here, and `royale` in plan Step 21.
+Two implementations of the seam, both registered: `sandbox` and `royale`.
 
 ## `sandbox`
 
@@ -67,6 +78,45 @@ sub-declarations are 44 and 53 lines including their comment blocks, and 13 and 
 
 `validate_map` rejects a map with no `spawn` marker at startup, naming the map: free play with
 nowhere to seat a joiner would silently defer every spawn command forever.
+
+## `royale`
+
+Thrust and drag inside a linearly shrinking circular safe zone, last blob standing
+(`docs/architecture/0005-royale-mode.md`). It accepts `spawn`, `despawn`, and `thrust`; uses the
+engine's two built-in contact rows unchanged, so it is structurally incapable of reaching a
+collision equation; declares `thrust_steering` at `kPreKernel`, `zone_shrink` then `zone_elimination`
+at `kPostKernel`, and `placement_recorder` at `kLifecycle`; seats joiners on a rotating ring and only
+between matches; and ends when one blob or none is alive.
+
+`RoyaleMode` is **91 lines** — a 49-line class declaration plus 42 lines of definitions — of which
+**67 are code**, against `SandboxMode`'s 77 and 53 measured the same way. The two class declarations
+are the same size, 28 code lines each, because every one of the seven declarations is still one line
+in both; the whole difference is in the definitions, which are `systems()`'s four rows instead of one
+and `validate_map`'s two rejections instead of one. That is the seam holding: a second, far richer
+game cost the mode class fourteen lines of code, and everything else it needed went into new files.
+
+What it contributed outside its own directory is two component headers plus one line in
+`component_registry.hpp`, one mode-state header plus one type and one schema id in
+`mode_match_state_registry.hpp`, and one row in `game_mode_registry.hpp`. It added no command kind,
+no contact rule, no world event kind, and no kernel phase.
+
+`validate_map` rejects two maps at startup, naming the map and the cause: one with fewer `spawn`
+markers than `lobby_minimum_players`, which could never satisfy `can_start` and would hold every
+match in `lobby` forever; and one whose arena's circumscribed radius is not strictly greater than
+`zone_minimum_radius_world_units`, which would start the zone already at its floor so it never
+contracts and the game never ends.
+
+**Balance is `[royale]` and layout is the map.** `RoyaleConfiguration` is the validated section: it
+converts the four durations to integer tick counts once, at load, so no system ever sees a value in
+seconds and nothing multiplies by the tick rate at runtime. The proposed values give
+`countdown_ticks = 2,000`, `zone_shrink_ticks = 36,000`, `elimination_grace_ticks = 1,200`, and
+`restart_delay_ticks = 3,200`.
+
+**Royale is the first mode that creates an entity.** `zone_shrink` draws one `EntityId` from the
+tick's reservation on the first tick it observes no `Zone`, so a royale simulation cannot be stepped
+with `InputBatch::empty()`: the no-input tick carries no reservation and a tick handed nothing may
+create nothing. That is a hard failure with `GAMEPLAY.ROYALE_ZONE_ENTITY_UNRESERVED` rather than a
+match quietly played with no zone and therefore no elimination.
 
 ## Steering
 
@@ -104,3 +154,29 @@ back into its mode would dangle on the first tick.
 Focused tests are registered under the `blob_gameplay_unit_tests` CTest target with the
 `unit.gameplay.` prefix, mirroring this directory under `tests/unit/gameplay/`. Run
 `./scripts/verify-focused 'unit.gameplay'`; the canonical gate remains `./scripts/verify-linux pr`.
+
+**The primary gameplay fixture is a replay**, not a hand-built world:
+`(map, mode configuration, seed, command log)` as a directory under `tests/fixtures/replays/`, read
+by `tests/fixtures/replay_fixture.hpp` and asserted by `tests/fixtures/royale_replay_fixture_tests.cpp`
+under the `fixtures.` prefix. Every number in `docs/architecture/0005-royale-mode.md` is asserted
+there rather than in a world assembled in C++, because the same tuple is what a bug report and a
+replay viewer carry. The suite covers the six scenarios the ADR names, one directory each:
+
+```
+royale-thrust-integration     thrust_max * t at zero drag; (1, 1) at magnitude thrust_max;
+                              acceleration persists with no further command
+royale-drag-decay             the exact per-tick damping factor and the 199 wu/s discrete fixed
+                              point rather than the 200 wu/s continuous limit
+royale-spawn-order            consecutive ring points, a full ring deferring, a freed point seated
+                              the next tick, and a joiner deferred for the whole match
+royale-elimination-timing     elimination on exactly the Gth consecutive outside tick, a centre on
+                              the boundary staying inside, and re-entry losing partial grace
+royale-simultaneous-draw      one shared placement per tick, and placement 1 with a drawn outcome
+                              for a mutual finish
+royale-transition-per-tick    one phase per tick and a terminating cycle under all-zero durations
+royale-scripted-match         the multi-entity match 100 fresh runs must reproduce bit-identically
+```
+
+`royale-drag-decay` is **the one fixture in the tree that runs at a nonzero drag**, which is what the
+ADR's scenario table asks of it. Every other fixture keeps `drag_per_second = 0`, so every accepted
+ADR 0003 horizon stays bit-identical.

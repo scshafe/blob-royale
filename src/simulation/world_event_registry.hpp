@@ -4,8 +4,6 @@
 #include "events/contact_event.hpp"
 #include "events/despawn_event.hpp"
 #include "events/elimination_event.hpp"
-#include "events/score_event.hpp"
-#include "events/spawn_event.hpp"
 #include "kind_registry.hpp"
 
 #include <array>
@@ -36,8 +34,19 @@ namespace blob_royale::simulation {
 //                                                enumerator in WorldEventKind, one
 //                                                WorldEventKindName specialization, and one
 //                                                WorldEventKindOf specialization
-//   new  src/gameplay/...                        the system that consumes it; an event has no
-//                                                meaning until a stage reads it
+//   new  src/gameplay/...                        the system that produces it and the system that
+//                                                consumes it
+//
+// **Every registered kind has a producer, and this list is kept that way rather than kept full.**
+// An event is a channel between two stages of one tick, so a kind nothing emits is not a reserved
+// slot -- it is a switch arm, a name, and a header that no reader can reach, and a mode author
+// grepping for how a kind is used finds nothing (engine review finding 17). `SpawnEvent` and
+// `ScoreEvent` were registered here ahead of any producer and were removed in plan Step 21, which
+// is the step that gave every remaining kind a real producer: the kernel's contact phase emits
+// ContactEvent, royale's `zone_elimination` emits EliminationEvent, and royale's
+// `placement_recorder` emits DespawnEvent, which the commit applies. Re-adding a kind is the four
+// lines above plus its header, so nothing is lost by removing one and a dead arm is not paid for
+// until it is used.
 //
 // `kWorldEventKinds` is not on that list: the kind array is derived from the variant through
 // WorldEventKindOf, so it cannot omit a kind or carry a duplicate (engine review finding 7;
@@ -45,8 +54,7 @@ namespace blob_royale::simulation {
 //
 // related: game_world.hpp -- the owner of the tick's event list.
 // related: command_registry.hpp -- the same closed-variant shape for one tick's input.
-using WorldEvent =
-    std::variant<ContactEvent, SpawnEvent, DespawnEvent, EliminationEvent, ScoreEvent>;
+using WorldEvent = std::variant<ContactEvent, DespawnEvent, EliminationEvent>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -59,10 +67,8 @@ static_assert(std::is_nothrow_move_constructible_v<WorldEvent>,
 // flags: no operation takes a *set* of event kinds, so a mask would be structure without a reader.
 enum class WorldEventKind : std::uint32_t {
   kContact = 0,
-  kSpawn = 1,
-  kDespawn = 2,
-  kElimination = 3,
-  kScore = 4,
+  kDespawn = 1,
+  kElimination = 2,
 };
 
 // canonical: world_event_kind_name -- the one diagnostic name of one event kind.
@@ -77,20 +83,12 @@ template <> struct WorldEventKindName<ContactEvent> {
   static constexpr std::string_view value = "contact";
 };
 
-template <> struct WorldEventKindName<SpawnEvent> {
-  static constexpr std::string_view value = "spawn";
-};
-
 template <> struct WorldEventKindName<DespawnEvent> {
   static constexpr std::string_view value = "despawn";
 };
 
 template <> struct WorldEventKindName<EliminationEvent> {
   static constexpr std::string_view value = "elimination";
-};
-
-template <> struct WorldEventKindName<ScoreEvent> {
-  static constexpr std::string_view value = "score";
 };
 
 // The declared name of one event kind, for diagnostics and fixtures.
@@ -107,20 +105,12 @@ template <> struct WorldEventKindOf<ContactEvent> {
   static constexpr WorldEventKind value = WorldEventKind::kContact;
 };
 
-template <> struct WorldEventKindOf<SpawnEvent> {
-  static constexpr WorldEventKind value = WorldEventKind::kSpawn;
-};
-
 template <> struct WorldEventKindOf<DespawnEvent> {
   static constexpr WorldEventKind value = WorldEventKind::kDespawn;
 };
 
 template <> struct WorldEventKindOf<EliminationEvent> {
   static constexpr WorldEventKind value = WorldEventKind::kElimination;
-};
-
-template <> struct WorldEventKindOf<ScoreEvent> {
-  static constexpr WorldEventKind value = WorldEventKind::kScore;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through
@@ -151,14 +141,10 @@ world_event_kind_name_of(const WorldEventKind kind) noexcept {
   switch (kind) {
   case WorldEventKind::kContact:
     return world_event_kind_name<ContactEvent>;
-  case WorldEventKind::kSpawn:
-    return world_event_kind_name<SpawnEvent>;
   case WorldEventKind::kDespawn:
     return world_event_kind_name<DespawnEvent>;
   case WorldEventKind::kElimination:
     return world_event_kind_name<EliminationEvent>;
-  case WorldEventKind::kScore:
-    return world_event_kind_name<ScoreEvent>;
   }
   return "world_event_kind_invalid";
 }

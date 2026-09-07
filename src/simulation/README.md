@@ -57,21 +57,73 @@ belongs to the mode's steering system, whose written operation order is the cont
 `draw_next` advances it and throws on exhaustion; it never wraps and never reissues a drawn id,
 because a reused id would graft one entity's components onto another.
 
-Nothing reads `Controllable::commands_this_tick` yet. The staged kernel that fills it is the next
-change, and no tick behavior moved with this vocabulary.
+Phase 0 fills `Controllable::commands_this_tick` and does not interpret it. **Command meaning is a
+system's job**, so a thrust becomes stored acceleration only when a mode's `kPreKernel` steering
+system reads it.
+
+## The event vocabulary
+
+`world_event_registry.hpp` is the closed, ordered list of in-tick event kinds: the variant
+`WorldEvent = ContactEvent | SpawnEvent | DespawnEvent | EliminationEvent | ScoreEvent`, the
+`WorldEventKind` enumerators, and each kind's diagnostic name. An event is a value struct in its own
+header under `events/`.
+
+Systems within one tick communicate through the bounded, ordered list `GameWorld` owns.
+`GameWorld::emit` appends in production order and `GameWorld::events()` publishes it; the list is
+cleared at every commit, so **events are tick-local and never appear in a snapshot**. A consequence
+that must outlive the tick is written into a component instead. The list is bounded by
+`kMaximumWorldEventCount` and overflow is a hard failure with
+`SIMULATION.GAME_WORLD_EVENT_LIMIT_EXCEEDED`, never a silent drop, because a dropped event would
+convert a failure into a differently wrong tick.
+
+## The tick: one fixed kernel, three named stages
+
+`GameSimulation::step(FixedDelta, const InputBatch&)` is the only mutable world operation, and a
+tick with no commands is that same call with `InputBatch::empty()`. The numbered phases are kernel
+mechanism that no mode may reorder, skip, replace, or add; the stages hold the mode's declared
+systems:
+
+```
+  phase 0            despawns, then this tick's remaining commands recorded per entity
+  ---- kPreKernel -- the mode's systems, declared order
+  phase 1            stored acceleration, then drag
+  phases 2-6         canonical pairs, contacts, world bounds, integration, spatial reindex
+  ---- kPostKernel - the mode's systems, declared order
+  ---- kLifecycle -- the mode's systems, declared order
+  phase 10           validate, apply DespawnEvent removals, reindex survivors, clear events, publish
+```
+
+A `SimulationSystem` is one interface with `name()` and `apply(GameWorld&, const TickContext&)
+const`. **`apply` is `const` on purpose:** a system holds immutable configuration and nothing else,
+so a tick's result stays a function of the committed world and the tick's `InputBatch` alone.
+`TickContext` carries the sequence this tick commits, the fixed delta, and the configuration -- and
+no clock and no `InputBatch`, so no system can read a wall time or observe a half-applied intake.
+
+`SystemPipeline` stable-partitions a mode's declared list by `SystemStage` and preserves the
+declared order inside each stage, so precedence is a property of the mode's written list and never
+of insertion, allocation, or static-initialization order. It rejects a null system, an empty name,
+and a duplicate name.
+
+Drag is kernel mechanism, not mode configuration: `SimulationConfig::drag_per_second` is validated
+finite and non-negative and phase 1 scales the accelerated velocity by
+`max(0, 1 - drag_per_second * dt)`. At the accepted `drag_per_second = 0` the factor is exactly
+`1.0`, so **an empty pipeline, zero drag, and an empty batch reproduce every accepted horizon
+bit-for-bit** -- asserted against a second, in-test implementation of the accepted seven-phase tick
+in `tests/unit/simulation/game_simulation_tests.cpp`.
 
 ## Ownership and invariants
 
-`GameSimulation` owns one `GameWorld` and one `SpatialGrid`; `step(FixedDelta)` is its only mutable
-world operation. `GameWorld` owns one ascending `entities()` roster plus one `ComponentStore` per
-registered component kind, reached through `store<C>()` and `mutable_store<C>()`. Grid cells contain
-non-owning `EntityId` values and are rebuilt deterministically after a committed tick.
+`GameSimulation` owns one `GameWorld`, one `SpatialGrid`, and one `SystemPipeline`. `GameWorld` owns
+one ascending `entities()` roster, one `ComponentStore` per registered component kind reached
+through `store<C>()` and `mutable_store<C>()`, and the tick's `WorldEvent` list. Grid cells contain
+non-owning `EntityId` values and are rebuilt deterministically after a committed tick. A
+`GameWorld&` exists only inside `step`, so nothing outside a tick can obtain one.
 
 Constructors and named factories reject invalid values before they enter the world. A tick computes
-against a working state, applies each canonical collision pair once, resolves walls, integrates,
-rebuilds the grid, validates the result, and only then commits the tick. If a phase fails, no partial
-tick becomes observable. The tick reads and writes only the `PhysicsBody` store, so every other
-registered component survives a tick unchanged.
+against a working copy of the committed world, so if any phase or stage fails, no partial tick
+becomes observable and the previous commit stands unchanged. The numbered phases read and write only
+the `PhysicsBody` store and the `Controllable` command lists, so every other registered component
+survives a tick unless a system writes it.
 
 `WorldSnapshot` and `PlayerSnapshot` are immutable, copy-owned publication values. A snapshot carries
 the ascending entity roster, every registered component kind through `components<C>()`, and the
@@ -96,6 +148,18 @@ commands without interpreting them, and a mode that omits the kind from its acce
 it. Two implementations beyond `SpawnCommand` and `DespawnCommand`: `ThrustCommand` for steering, and
 a later `UseAbilityCommand` for a dash or a weapon. **Command meaning is a system's job**, so a new
 kind adds a consuming system rather than a new kernel sub-step.
+
+`@extension-point simulation_system` — `system_pipeline.hpp`. A mechanic is a new
+`SimulationSystem` file plus one line in a mode's declared staged list; the kernel, the other
+systems, and every other mode are untouched. Two implementations beyond the engine set:
+`zone_shrink` for royale, `hill_scoring` for king of the hill. `SystemStage` decides what a system
+may see, not when it happens to have been registered: `kPreKernel` sees start-of-tick positions and
+this tick's recorded commands, `kPostKernel` sees committed positions and this tick's events, and
+`kLifecycle` sees the tick's final world.
+
+Adding an event kind is a new value-struct header under `events/` plus one type, one enumerator, one
+`WorldEventKindName`, one `WorldEventKindOf`, and one `kWorldEventKinds` entry in
+`world_event_registry.hpp`, and a consuming system. An event has no meaning until a stage reads it.
 
 Pure equations in `physics.hpp` are the appropriate seam for a newly specified physical rule.
 Per-entity durable state belongs in a component, never in a new field on `GameWorld`; avoid a generic

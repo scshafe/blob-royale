@@ -26,7 +26,8 @@ namespace simulation = blob_royale::simulation;
 namespace {
 
 [[nodiscard]] simulation::Command spawn(const simulation::ControllerId::Value controller) {
-  return simulation::Command{simulation::SpawnCommand{simulation::ControllerId::create(controller)}};
+  return simulation::Command{
+      simulation::SpawnCommand{simulation::ControllerId::create(controller)}};
 }
 
 [[nodiscard]] simulation::Command despawn(const simulation::EntityId::Value entity) {
@@ -41,8 +42,7 @@ namespace {
 
 // "<wire name>:<addressed identity>", which is exactly what the canonical order is stated over.
 [[nodiscard]] std::string describe(const simulation::Command& command) {
-  const std::string name{
-      simulation::command_kind_name_of(simulation::command_kind_of(command))};
+  const std::string name{simulation::command_kind_name_of(simulation::command_kind_of(command))};
   if (const auto* spawn_command = std::get_if<simulation::SpawnCommand>(&command);
       spawn_command != nullptr) {
     return name + ":" + std::to_string(spawn_command->controller.value());
@@ -51,8 +51,7 @@ namespace {
       despawn_command != nullptr) {
     return name + ":" + std::to_string(despawn_command->entity.value());
   }
-  return name + ":" +
-         std::to_string(std::get<simulation::ThrustCommand>(command).entity.value());
+  return name + ":" + std::to_string(std::get<simulation::ThrustCommand>(command).entity.value());
 }
 
 [[nodiscard]] std::vector<std::string> describe(const simulation::InputBatch& batch) {
@@ -74,9 +73,9 @@ namespace {
 
 TEST_CASE("InputBatch canonicalizes submitted order into despawns, spawns, then remaining kinds",
           "[unit][simulation][input_batch]") {
-  const simulation::InputBatch batch = simulation::InputBatch::create(
-      {thrust(7, 0.0, 1.0), spawn(3), despawn(5)}, simulation::CommandKindMask::all(),
-      reservation());
+  const simulation::InputBatch batch =
+      simulation::InputBatch::create({thrust(7, 0.0, 1.0), spawn(3), despawn(5)},
+                                     simulation::CommandKindMask::all(), reservation());
 
   CHECK(describe(batch) == std::vector<std::string>{"despawn:5", "spawn:3", "thrust:7"});
 }
@@ -87,8 +86,8 @@ TEST_CASE("InputBatch orders each kind ascending by the entity it addresses",
       {thrust(9, 0.0, 1.0), despawn(8), thrust(2, 0.0, 1.0), despawn(4), thrust(5, 0.0, 1.0)},
       simulation::CommandKindMask::all(), reservation());
 
-  CHECK(describe(batch) == std::vector<std::string>{"despawn:4", "despawn:8", "thrust:2",
-                                                    "thrust:5", "thrust:9"});
+  CHECK(describe(batch) ==
+        std::vector<std::string>{"despawn:4", "despawn:8", "thrust:2", "thrust:5", "thrust:9"});
 }
 
 TEST_CASE("InputBatch orders spawns ascending by ControllerId as one group after the despawns",
@@ -113,9 +112,8 @@ TEST_CASE("InputBatch keeps the last submitted command of a kind for an entity",
 
 TEST_CASE("InputBatch keeps the last submitted spawn for a controller",
           "[unit][simulation][input_batch]") {
-  const simulation::InputBatch batch =
-      simulation::InputBatch::create({spawn(4), spawn(4)}, simulation::CommandKindMask::all(),
-                                     reservation());
+  const simulation::InputBatch batch = simulation::InputBatch::create(
+      {spawn(4), spawn(4)}, simulation::CommandKindMask::all(), reservation());
 
   CHECK(describe(batch) == std::vector<std::string>{"spawn:4"});
 }
@@ -142,9 +140,8 @@ TEST_CASE("InputBatch de-duplicates one entity without disturbing another entity
 TEST_CASE("InputBatch rejects a despawn naming an id inside the tick's own reservation",
           "[unit][simulation][input_batch][validation]") {
   try {
-    static_cast<void>(simulation::InputBatch::create({spawn(3), despawn(1'001)},
-                                                     simulation::CommandKindMask::all(),
-                                                     reservation()));
+    static_cast<void>(simulation::InputBatch::create(
+        {spawn(3), despawn(1'001)}, simulation::CommandKindMask::all(), reservation()));
     FAIL("a batch that both spawns and despawns in one tick was accepted");
   } catch (const simulation::SimulationValidationError& error) {
     CHECK(error.validation_code() ==
@@ -224,8 +221,7 @@ TEST_CASE("InputBatch rejects an out-of-range thrust direction on either compone
 TEST_CASE("A non-finite thrust direction cannot be built, so it never reaches InputBatch",
           "[unit][simulation][input_batch][validation]") {
   try {
-    static_cast<void>(
-        simulation::Vector2::create(std::numeric_limits<double>::quiet_NaN(), 0.0));
+    static_cast<void>(simulation::Vector2::create(std::numeric_limits<double>::quiet_NaN(), 0.0));
     FAIL("a non-finite thrust direction was built");
   } catch (const simulation::SimulationValidationError& error) {
     CHECK(error.validation_code() ==
@@ -272,8 +268,8 @@ TEST_CASE("InputBatch created from no commands equals the empty batch",
 
 TEST_CASE("InputBatch carries the tick's EntityIdReservation unchanged",
           "[unit][simulation][input_batch]") {
-  const simulation::InputBatch batch = simulation::InputBatch::create(
-      {spawn(3)}, simulation::CommandKindMask::all(), reservation());
+  const simulation::InputBatch batch =
+      simulation::InputBatch::create({spawn(3)}, simulation::CommandKindMask::all(), reservation());
 
   CHECK(batch.entity_id_reservation() == reservation());
   CHECK(batch.entity_id_reservation().count() == 4);
@@ -281,8 +277,8 @@ TEST_CASE("InputBatch carries the tick's EntityIdReservation unchanged",
 
 TEST_CASE("Drawing from the reservation a batch hands out leaves the batch unchanged",
           "[unit][simulation][input_batch]") {
-  const simulation::InputBatch batch = simulation::InputBatch::create(
-      {spawn(3)}, simulation::CommandKindMask::all(), reservation());
+  const simulation::InputBatch batch =
+      simulation::InputBatch::create({spawn(3)}, simulation::CommandKindMask::all(), reservation());
 
   simulation::EntityIdReservation drawn_from = batch.entity_id_reservation();
   static_cast<void>(drawn_from.draw_next());

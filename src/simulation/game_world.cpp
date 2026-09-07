@@ -79,6 +79,17 @@ void GameWorld::create_entity(const EntityId entity) {
   entities_.insert(position, entity);
 }
 
+void GameWorld::emit(WorldEvent event) {
+  if (events_.size() >= kMaximumWorldEventCount) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameWorldEventLimitExceeded, "game_world.events",
+        "emitting a " + std::string(world_event_kind_name_of(world_event_kind_of(event))) +
+            " event would exceed the accepted per-tick limit " +
+            std::to_string(kMaximumWorldEventCount));
+  }
+  events_.push_back(std::move(event));
+}
+
 void GameWorld::destroy_entity(const EntityId entity) noexcept {
   const auto position = std::lower_bound(entities_.cbegin(), entities_.cend(), entity);
   if (position != entities_.cend() && *position == entity) {

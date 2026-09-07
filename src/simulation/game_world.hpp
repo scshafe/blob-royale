@@ -6,6 +6,7 @@
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "physics_body.hpp"
+#include "world_event_registry.hpp"
 
 #include <span>
 #include <tuple>
@@ -20,7 +21,14 @@ namespace blob_royale::simulation {
 // components keyed by its id. The world therefore owns one ascending entity roster plus one store
 // per registered component kind, and structural equality and entity destruction are generated over
 // ComponentRegistry rather than written per kind.
+//
+// The world also owns the tick's WorldEvent list, which is how systems within one tick communicate.
+// The list is append-only during a tick and the kernel clears it at commit, so events are
+// tick-local and never appear in a snapshot; a consequence that must outlive the tick is written
+// into a component instead
+// (`docs/architecture/0004-gameplay-architecture.md` § "World events").
 // related: component_registry.hpp -- the closed list this world is generated from.
+// related: world_event_registry.hpp -- the closed list of event kinds this world carries.
 class GameWorld final {
 public:
   // One entity's complete seeded state. Seeding is the loader's and the fixtures' construction
@@ -74,13 +82,32 @@ public:
   // survive the entity that carried it.
   void destroy_entity(EntityId entity) noexcept;
 
+  // This tick's events in production order. Empty on every committed world, because the kernel
+  // clears the list at commit.
+  [[nodiscard]] std::span<const WorldEvent> events() const& noexcept { return events_; }
+  [[nodiscard]] std::span<const WorldEvent> events() const&& = delete;
+
+  // Appends one event. Throws SimulationValidationError when the list would exceed
+  // kMaximumWorldEventCount: overflow is a hard simulation failure, never a silent drop, because
+  // a dropped event would convert a failure into a differently wrong tick.
+  void emit(WorldEvent event);
+
+  // Structural equality includes the pending event list. Two committed worlds therefore compare on
+  // their roster and stores alone, because a committed world's list is always empty.
   friend bool operator==(const GameWorld&, const GameWorld&) = default;
 
 private:
+  // The commit phase is the only caller: `emit` and `events()` are the whole system-facing surface
+  // (`docs/architecture/0004-gameplay-architecture.md` § "World events").
+  friend class GameSimulation;
+
+  void clear_events() noexcept { events_.clear(); }
+
   GameWorld(std::vector<EntityId> entities, ComponentStores<ComponentRegistry> stores) noexcept;
 
   std::vector<EntityId> entities_;
   ComponentStores<ComponentRegistry> stores_;
+  std::vector<WorldEvent> events_;
 };
 
 } // namespace blob_royale::simulation

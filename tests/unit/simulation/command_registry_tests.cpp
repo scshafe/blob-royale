@@ -29,8 +29,8 @@ namespace {
 
 [[nodiscard]] simulation::Command thrust_command(const simulation::EntityId::Value entity,
                                                  const double x, const double y) {
-  return simulation::Command{
-      simulation::ThrustCommand{simulation::EntityId::create(entity), simulation::Vector2::create(x, y)}};
+  return simulation::Command{simulation::ThrustCommand{simulation::EntityId::create(entity),
+                                                       simulation::Vector2::create(x, y)}};
 }
 
 } // namespace

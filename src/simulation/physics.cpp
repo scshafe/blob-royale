@@ -4,6 +4,7 @@
 #include "simulation_tolerance.hpp"
 #include "simulation_validation_error.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <string_view>
@@ -143,6 +144,19 @@ Vector2 integrate_accelerated_velocity(const Vector2& velocity, const Vector2& s
       require_finite_result(velocity.y() + (stored_acceleration.y() * delta_seconds),
                             "physics.integrate_accelerated_velocity.y");
   return Vector2::create(accelerated_x, accelerated_y);
+}
+
+Vector2 apply_velocity_drag(const Vector2& accelerated_velocity, const double drag_per_second,
+                            const FixedDelta fixed_delta) {
+  if (!std::isfinite(drag_per_second) || drag_per_second < 0.0) {
+    throw SimulationValidationError{SimulationValidationCode::kPhysicalScalarOutOfRange,
+                                    "physics.apply_velocity_drag.drag_per_second",
+                                    "drag must be finite and greater than or equal to zero"};
+  }
+  const double delta_seconds = fixed_delta.seconds();
+  const double drag_factor = require_finite_result(
+      std::max(0.0, 1.0 - (drag_per_second * delta_seconds)), "physics.apply_velocity_drag.factor");
+  return accelerated_velocity * drag_factor;
 }
 
 Vector2 integrate_position(const Vector2& position, const Vector2& tick_displacement) {

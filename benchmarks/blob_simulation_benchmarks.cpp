@@ -3,6 +3,7 @@
 #include "fixed_delta.hpp"
 #include "game_simulation.hpp"
 #include "game_world.hpp"
+#include "input_batch.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
 #include "protocol_json_encoding.hpp"
@@ -55,6 +56,7 @@ using simulation::EntityId;
 using simulation::FixedDelta;
 using simulation::GameSimulation;
 using simulation::GameWorld;
+using simulation::InputBatch;
 using simulation::PhysicsBody;
 using EntitySeed = simulation::GameWorld::EntitySeed;
 using simulation::SimulationConfig;
@@ -332,7 +334,7 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
   std::vector<std::shared_ptr<const WorldSnapshot>> snapshots;
   snapshots.reserve(kBackpressurePresentationSlotCount);
   for (std::size_t slot = 0; slot < kBackpressurePresentationSlotCount; ++slot) {
-    simulation.step(FixedDelta::canonical());
+    simulation.step(FixedDelta::canonical(), InputBatch::empty());
     snapshots.push_back(lifetime_tracker.track(simulation.snapshot()));
   }
   return snapshots;
@@ -417,7 +419,7 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
   GameSimulation simulation =
       GameSimulation::create(make_configuration(scenario), make_world(scenario));
   for (std::size_t tick = 0; tick < scenario.ticks_per_sample; ++tick) {
-    simulation.step(FixedDelta::canonical());
+    simulation.step(FixedDelta::canonical(), InputBatch::empty());
   }
   return simulation.snapshot();
 }
@@ -528,7 +530,7 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
         GameSimulation::create(make_configuration(scenario), make_world(scenario));
     const auto start = Clock::now();
     for (std::size_t tick = 0; tick < scenario.ticks_per_sample; ++tick) {
-      simulation.step(FixedDelta::canonical());
+      simulation.step(FixedDelta::canonical(), InputBatch::empty());
     }
     const auto end = Clock::now();
 
@@ -581,7 +583,7 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
   GameSimulation simulation =
       GameSimulation::create(make_configuration(scenario), make_world(scenario));
   for (std::size_t tick = 0; tick < scenario.ticks_per_sample; ++tick) {
-    simulation.step(FixedDelta::canonical());
+    simulation.step(FixedDelta::canonical(), InputBatch::empty());
   }
 
   Measurement measurement{.operations_per_sample = scenario.snapshots_per_sample,

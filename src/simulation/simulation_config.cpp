@@ -19,16 +19,34 @@ void require_world_scalar(const double value, const std::string_view context) {
   }
 }
 
+// Drag is finite and non-negative and has no upper bound: the phase 1 clamp at zero keeps the
+// factor total when `drag_per_second * dt` exceeds one, so a large configured drag stops a body
+// rather than reversing it (`docs/architecture/0003-deterministic-simulation-contract.md`
+// § "Canonical tick" phase 1).
+void require_drag_per_second(const double value) {
+  if (!std::isfinite(value)) {
+    throw SimulationValidationError{SimulationValidationCode::kConfigDragNotFinite,
+                                    "simulation.drag_per_second", "value must be finite"};
+  }
+  if (value < 0.0) {
+    throw SimulationValidationError{SimulationValidationCode::kConfigDragOutOfRange,
+                                    "simulation.drag_per_second",
+                                    "value must be greater than or equal to zero"};
+  }
+}
+
 } // namespace
 
 SimulationConfig SimulationConfig::create(const double world_width, const double world_height,
                                           const double player_radius,
                                           const std::uint64_t ticks_per_second,
                                           const std::uint64_t spatial_grid_columns,
-                                          const std::uint64_t spatial_grid_rows) {
+                                          const std::uint64_t spatial_grid_rows,
+                                          const double drag_per_second) {
   require_world_scalar(world_width, "world.width_world_units");
   require_world_scalar(world_height, "world.height_world_units");
   require_world_scalar(player_radius, "world.player_radius_world_units");
+  require_drag_per_second(drag_per_second);
 
   if (world_width <= 2.0 * player_radius || world_height <= 2.0 * player_radius) {
     throw SimulationValidationError{
@@ -69,18 +87,18 @@ SimulationConfig SimulationConfig::create(const double world_width, const double
   const auto column_count = static_cast<std::size_t>(spatial_grid_columns);
   const auto row_count = static_cast<std::size_t>(spatial_grid_rows);
   const auto cell_count = static_cast<std::size_t>(spatial_grid_columns * spatial_grid_rows);
-  return SimulationConfig{world_width,  world_height, player_radius,
+  return SimulationConfig{world_width,  world_height, player_radius, drag_per_second,
                           column_count, row_count,    cell_count};
 }
 
 SimulationConfig::SimulationConfig(const double world_width, const double world_height,
-                                   const double player_radius,
+                                   const double player_radius, const double drag_per_second,
                                    const std::size_t spatial_grid_columns,
                                    const std::size_t spatial_grid_rows,
                                    const std::size_t spatial_grid_cell_count) noexcept
     : world_width_(world_width), world_height_(world_height), player_radius_(player_radius),
-      spatial_grid_columns_(spatial_grid_columns), spatial_grid_rows_(spatial_grid_rows),
-      spatial_grid_cell_count_(spatial_grid_cell_count) {}
+      drag_per_second_(drag_per_second), spatial_grid_columns_(spatial_grid_columns),
+      spatial_grid_rows_(spatial_grid_rows), spatial_grid_cell_count_(spatial_grid_cell_count) {}
 
 bool SimulationConfig::contains_player_center(const Vector2& position) const noexcept {
   return position.x() >= player_radius_ && position.x() <= world_width_ - player_radius_ &&

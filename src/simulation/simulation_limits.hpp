@@ -31,6 +31,13 @@ inline constexpr std::size_t kMaximumInputBatchCommandCount = 65'536;
 // than the roster is an allocator defect rather than a large tick.
 inline constexpr std::uint64_t kMaximumEntityIdReservationCount =
     static_cast<std::uint64_t>(kMaximumPlayerCount);
+// One tick's WorldEvent list: sixteen events per world seat. The dominant producer is the contact
+// phase, which emits at most one event per contacting pair, and an equal-radius disc in a
+// non-overlapping arrangement touches at most six coplanar neighbours, so sixteen leaves room for
+// every other producing phase to name an entity once. Overflow is a hard simulation failure rather
+// than a silent drop, because a dropped event converts a failure into a differently wrong tick
+// (`docs/architecture/0004-gameplay-architecture.md` § "World events").
+inline constexpr std::size_t kMaximumWorldEventCount = 16 * kMaximumPlayerCount;
 // A thrust direction component is a unit-interval intent, not a physical quantity: the mode's
 // steering system scales it by its own declared maximum.
 inline constexpr double kMaximumThrustDirectionComponentMagnitude = 1.0;

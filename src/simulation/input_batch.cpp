@@ -54,13 +54,13 @@ void validate_thrust_direction(const ThrustCommand& thrust, const std::size_t su
       within_thrust_direction_range(thrust.direction.y())) {
     return;
   }
-  throw SimulationValidationError(
-      SimulationValidationCode::kInputBatchThrustDirectionOutOfRange,
-      "input_batch.commands.thrust.direction",
-      "thrust direction (" + std::to_string(thrust.direction.x()) + ", " +
-          std::to_string(thrust.direction.y()) + ") for EntityId " +
-          std::to_string(thrust.entity.value()) + " has a component outside [-1, 1]" +
-          command_position(submission_index));
+  throw SimulationValidationError(SimulationValidationCode::kInputBatchThrustDirectionOutOfRange,
+                                  "input_batch.commands.thrust.direction",
+                                  "thrust direction (" + std::to_string(thrust.direction.x()) +
+                                      ", " + std::to_string(thrust.direction.y()) +
+                                      ") for EntityId " + std::to_string(thrust.entity.value()) +
+                                      " has a component outside [-1, 1]" +
+                                      command_position(submission_index));
 }
 
 // A despawn naming an id this batch's reservation would issue is the "spawn and despawn in one
@@ -88,11 +88,11 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
                       const std::size_t submission_index) {
   const CommandKind kind = command_kind_of(command);
   if (!accepted_kinds.contains(kind)) {
-    throw SimulationValidationError(
-        SimulationValidationCode::kInputBatchCommandKindNotAccepted, "input_batch.commands.kind",
-        "command kind " + std::string(command_kind_name_of(kind)) +
-            " is absent from the mode's accepted command kinds" +
-            command_position(submission_index));
+    throw SimulationValidationError(SimulationValidationCode::kInputBatchCommandKindNotAccepted,
+                                    "input_batch.commands.kind",
+                                    "command kind " + std::string(command_kind_name_of(kind)) +
+                                        " is absent from the mode's accepted command kinds" +
+                                        command_position(submission_index));
   }
 
   if (const auto* thrust = std::get_if<ThrustCommand>(&command); thrust != nullptr) {
@@ -108,11 +108,10 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
 InputBatch InputBatch::create(std::vector<Command> commands, const CommandKindMask accepted_kinds,
                               const EntityIdReservation entity_id_reservation) {
   if (commands.size() > kMaximumInputBatchCommandCount) {
-    throw SimulationValidationError(SimulationValidationCode::kInputBatchCommandLimitExceeded,
-                                    "input_batch.commands",
-                                    "submitted command count " + std::to_string(commands.size()) +
-                                        " exceeds the accepted limit " +
-                                        std::to_string(kMaximumInputBatchCommandCount));
+    throw SimulationValidationError(
+        SimulationValidationCode::kInputBatchCommandLimitExceeded, "input_batch.commands",
+        "submitted command count " + std::to_string(commands.size()) +
+            " exceeds the accepted limit " + std::to_string(kMaximumInputBatchCommandCount));
   }
 
   std::vector<OrderedCommand> ordered;

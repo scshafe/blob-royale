@@ -10,6 +10,7 @@ add_library(blob_simulation STATIC
   player_snapshot.cpp
   simulation_config.cpp
   spatial_grid.cpp
+  system_pipeline.cpp
   team_id.cpp
   tick_sequence.cpp
   vector2.cpp

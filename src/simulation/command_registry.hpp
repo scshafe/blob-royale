@@ -54,8 +54,8 @@ enum class CommandKind : std::uint32_t {
 
 // The closed list of kinds in declared order. CommandKindMask::all() and every diagnostic that
 // enumerates kinds reads this, so no caller maintains a second list.
-inline constexpr std::array<CommandKind, 3> kCommandKinds{CommandKind::kSpawn, CommandKind::kDespawn,
-                                                          CommandKind::kThrust};
+inline constexpr std::array<CommandKind, 3> kCommandKinds{
+    CommandKind::kSpawn, CommandKind::kDespawn, CommandKind::kThrust};
 
 inline constexpr std::size_t kCommandKindCount = kCommandKinds.size();
 
@@ -133,7 +133,8 @@ template <> struct CommandKindOf<ThrustCommand> {
 // canonicalizes to this rank so phase 0 is one forward pass that neither sorts nor regroups.
 //
 // A new kind that has no reason to run before the others takes the next rank after kThrust.
-[[nodiscard]] constexpr std::uint32_t command_kind_application_rank(const CommandKind kind) noexcept {
+[[nodiscard]] constexpr std::uint32_t
+command_kind_application_rank(const CommandKind kind) noexcept {
   switch (kind) {
   case CommandKind::kDespawn:
     return 0;

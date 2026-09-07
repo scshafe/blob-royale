@@ -77,6 +77,21 @@ public:
   }
   [[nodiscard]] const Component* find(EntityId entity) const&& = delete;
 
+  // The mutable twins of `entries()` and `find`, so a phase or a system can rewrite a component in
+  // place instead of copying it out and assigning it back. Neither may change an `Entry::entity`:
+  // strict ascending EntityId order is the invariant every phase's ordering rests on, and
+  // `insert_or_assign` and `erase` remain the only operations that may change which ids the store
+  // holds.
+  [[nodiscard]] std::span<Entry> mutable_entries() noexcept { return entries_; }
+
+  [[nodiscard]] Component* mutable_find(const EntityId entity) noexcept {
+    const auto match = lower_bound(entries_, entity);
+    if (match == entries_.cend() || match->entity != entity) {
+      return nullptr;
+    }
+    return &entries_[static_cast<std::size_t>(match - entries_.cbegin())].value;
+  }
+
   [[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
   [[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
 

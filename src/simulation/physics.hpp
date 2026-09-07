@@ -124,6 +124,16 @@ private:
                                                      const Vector2& stored_acceleration,
                                                      FixedDelta fixed_delta);
 
+// Scales one accelerated velocity by the phase 1 drag factor `max(0, 1 - drag_per_second * dt)`,
+// in the written operation order of
+// `docs/architecture/0003-deterministic-simulation-contract.md` § "Canonical tick" phase 1.
+// `drag_per_second` must be finite and non-negative; the clamp at zero keeps the factor total when
+// `drag_per_second * dt` exceeds one, so a large configured drag stops a body rather than
+// reversing it. At `drag_per_second = 0` the factor is exactly 1.0 and the result is the argument.
+// Invalid input or an out-of-contract result throws SimulationValidationError.
+[[nodiscard]] Vector2 apply_velocity_drag(const Vector2& accelerated_velocity,
+                                          double drag_per_second, FixedDelta fixed_delta);
+
 // Applies a wall-resolved tick-local displacement to a committed position. An out-of-contract
 // result throws SimulationValidationError.
 [[nodiscard]] Vector2 integrate_position(const Vector2& position, const Vector2& tick_displacement);

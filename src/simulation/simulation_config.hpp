@@ -17,12 +17,24 @@ public:
   static constexpr double kMaximumWorldDimension = blob_royale::simulation::kMaximumWorldDimension;
   static constexpr std::size_t kMaximumSpatialGridCellCount =
       blob_royale::simulation::kMaximumSpatialGridCellCount;
+  // The accepted baseline. At zero the phase 1 drag factor is exactly 1.0 and multiplication by
+  // 1.0 is the identity on every finite binary64 value, so every fixture horizon accepted before
+  // drag existed stays bit-identical
+  // (`docs/architecture/0003-deterministic-simulation-contract.md` § "Canonical tick").
+  static constexpr double kDefaultDragPerSecond = 0.0;
 
   // Creates a complete configuration or throws SimulationValidationError.
+  //
+  // `drag_per_second` is a trailing defaulted parameter rather than a seventh positional argument
+  // on every caller: it is a kernel parameter whose accepted value is zero, every fixture, test,
+  // and benchmark runs at zero, and only the deployment configuration sets a nonzero value, so
+  // defaulting keeps the one meaningful call site -- the configuration loader -- the only place
+  // that has to name it. The `[simulation] drag_per_second` loader key arrives in Step 25.
   [[nodiscard]] static SimulationConfig create(double world_width, double world_height,
                                                double player_radius, std::uint64_t ticks_per_second,
                                                std::uint64_t spatial_grid_columns,
-                                               std::uint64_t spatial_grid_rows);
+                                               std::uint64_t spatial_grid_rows,
+                                               double drag_per_second = kDefaultDragPerSecond);
 
   SimulationConfig(const SimulationConfig&) = default;
   SimulationConfig(SimulationConfig&&) noexcept = default;
@@ -33,6 +45,10 @@ public:
   [[nodiscard]] double world_width() const noexcept { return world_width_; }
   [[nodiscard]] double world_height() const noexcept { return world_height_; }
   [[nodiscard]] double player_radius() const noexcept { return player_radius_; }
+  // The phase 1 velocity decay rate. Drag is kernel mechanism this configuration owns rather than
+  // mode configuration: it applies identically under every mode and no system may reproduce or
+  // bypass it.
+  [[nodiscard]] double drag_per_second() const noexcept { return drag_per_second_; }
   [[nodiscard]] std::uint64_t ticks_per_second() const noexcept { return kRequiredTicksPerSecond; }
   [[nodiscard]] double fixed_delta_seconds() const noexcept { return kFixedDeltaSeconds; }
   [[nodiscard]] std::size_t spatial_grid_columns() const noexcept { return spatial_grid_columns_; }
@@ -48,12 +64,13 @@ public:
 
 private:
   SimulationConfig(double world_width, double world_height, double player_radius,
-                   std::size_t spatial_grid_columns, std::size_t spatial_grid_rows,
-                   std::size_t spatial_grid_cell_count) noexcept;
+                   double drag_per_second, std::size_t spatial_grid_columns,
+                   std::size_t spatial_grid_rows, std::size_t spatial_grid_cell_count) noexcept;
 
   double world_width_;
   double world_height_;
   double player_radius_;
+  double drag_per_second_;
   std::size_t spatial_grid_columns_;
   std::size_t spatial_grid_rows_;
   std::size_t spatial_grid_cell_count_;

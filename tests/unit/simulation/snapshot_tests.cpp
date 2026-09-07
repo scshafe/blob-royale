@@ -9,6 +9,7 @@
 #include "fixed_delta.hpp"
 #include "game_simulation.hpp"
 #include "game_world.hpp"
+#include "input_batch.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
 #include "simulation_config.hpp"
@@ -150,7 +151,7 @@ TEST_CASE("WorldSnapshot remains unchanged after the owning simulation commits a
   simulation::GameSimulation game =
       simulation_from_world(simulation::GameWorld::create({seed_from_fixture(kLowerIdPlayer)}));
   const simulation::WorldSnapshot older_snapshot = game.snapshot();
-  game.step(simulation::FixedDelta::canonical());
+  game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   const simulation::WorldSnapshot newer_snapshot = game.snapshot();
 
   REQUIRE(older_snapshot.players().size() == 1);

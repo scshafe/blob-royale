@@ -1,6 +1,7 @@
 #include "simulation_runtime.hpp"
 
 #include "fixed_delta.hpp"
+#include "input_batch.hpp"
 #include "simulation_runtime_lifecycle_error.hpp"
 
 #include <chrono>
@@ -147,6 +148,10 @@ void SimulationRuntime::rethrow_if_failed() const {
 
 void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
   const simulation::FixedDelta fixed_delta = simulation::FixedDelta::canonical();
+  // The runtime has no command source yet, so every tick reads the no-input batch. The bounded
+  // mailbox that swaps a real batch in once per tick arrives in Step 22; a tick with no commands
+  // is this same call, not a different code path.
+  const simulation::InputBatch empty_input_batch = simulation::InputBatch::empty();
   const Clock::duration tick_duration = fixed_delta.duration();
   std::unique_lock lock(lifecycle_mutex_);
 
@@ -164,7 +169,7 @@ void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
       lock.unlock();
       std::shared_ptr<const simulation::WorldSnapshot> completed_snapshot;
       try {
-        game_simulation_.step(fixed_delta);
+        game_simulation_.step(fixed_delta, empty_input_batch);
         completed_snapshot =
             std::make_shared<const simulation::WorldSnapshot>(game_simulation_.snapshot());
       } catch (...) {

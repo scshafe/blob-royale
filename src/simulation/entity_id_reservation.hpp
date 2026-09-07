@@ -40,11 +40,11 @@ public:
   // reservation never reaches a tick.
   [[nodiscard]] static EntityIdReservation create(const EntityId first, const std::uint64_t count) {
     if (count > kMaximumEntityIdReservationCount) {
-      throw SimulationValidationError(
-          SimulationValidationCode::kEntityIdReservationLimitExceeded,
-          "entity_id_reservation.count",
-          "reservation count " + std::to_string(count) + " exceeds the accepted limit " +
-              std::to_string(kMaximumEntityIdReservationCount));
+      throw SimulationValidationError(SimulationValidationCode::kEntityIdReservationLimitExceeded,
+                                      "entity_id_reservation.count",
+                                      "reservation count " + std::to_string(count) +
+                                          " exceeds the accepted limit " +
+                                          std::to_string(kMaximumEntityIdReservationCount));
     }
     if (count == 0) {
       return none();
@@ -91,7 +91,8 @@ public:
   [[nodiscard]] EntityId draw_next() {
     if (count_ == 0) {
       throw SimulationValidationError(
-          SimulationValidationCode::kEntityIdReservationExhausted, "entity_id_reservation.draw_next",
+          SimulationValidationCode::kEntityIdReservationExhausted,
+          "entity_id_reservation.draw_next",
           "the tick's EntityId reservation is exhausted; no id may be reused or wrapped");
     }
     const EntityId drawn = first_;

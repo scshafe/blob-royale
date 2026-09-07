@@ -5,6 +5,7 @@
 #include "game_api_router.hpp"
 #include "game_simulation.hpp"
 #include "game_world.hpp"
+#include "input_batch.hpp"
 #include "physics_body.hpp"
 #include "server_config.hpp"
 #include "simulation_config.hpp"
@@ -60,7 +61,7 @@ loopback_server_config(std::vector<std::string> allowed_hosts = {"127.0.0.1", "l
 [[nodiscard]] inline simulation::WorldSnapshot snapshot_after_steps(const std::size_t step_count) {
   simulation::GameSimulation simulation = game_simulation();
   for (std::size_t step = 0; step < step_count; ++step) {
-    simulation.step(simulation::FixedDelta::canonical());
+    simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   }
   return simulation.snapshot();
 }

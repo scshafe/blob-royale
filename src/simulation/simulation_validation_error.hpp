@@ -27,11 +27,19 @@ enum class SimulationValidationCode {
   kInputBatchSpawnAndDespawnConflict,
   kGameWorldPlayerLimitExceeded,
   kGameWorldDuplicateEntityId,
+  kGameWorldEventLimitExceeded,
+  kSystemPipelineSystemMissing,
+  kSystemPipelineSystemNameEmpty,
+  kSystemPipelineDuplicateSystemName,
+  kSystemPipelineStageUnknown,
+  kGameSimulationBodyOutOfBounds,
   kTickSequenceOutOfRange,
   kConfigWorldScalarNotFinite,
   kConfigWorldScalarOutOfRange,
   kConfigWorldTooSmallForPlayer,
   kConfigTickRateUnsupported,
+  kConfigDragNotFinite,
+  kConfigDragOutOfRange,
   kConfigSpatialGridDimensionOutOfRange,
   kConfigSpatialGridCellLimitExceeded,
   kCandidatePairDuplicateEntityId,
@@ -83,6 +91,18 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.GAME_WORLD_PLAYER_LIMIT_EXCEEDED";
   case SimulationValidationCode::kGameWorldDuplicateEntityId:
     return "SIMULATION.GAME_WORLD_DUPLICATE_ENTITY_ID";
+  case SimulationValidationCode::kGameWorldEventLimitExceeded:
+    return "SIMULATION.GAME_WORLD_EVENT_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kSystemPipelineSystemMissing:
+    return "SIMULATION.SYSTEM_PIPELINE_SYSTEM_MISSING";
+  case SimulationValidationCode::kSystemPipelineSystemNameEmpty:
+    return "SIMULATION.SYSTEM_PIPELINE_SYSTEM_NAME_EMPTY";
+  case SimulationValidationCode::kSystemPipelineDuplicateSystemName:
+    return "SIMULATION.SYSTEM_PIPELINE_DUPLICATE_SYSTEM_NAME";
+  case SimulationValidationCode::kSystemPipelineStageUnknown:
+    return "SIMULATION.SYSTEM_PIPELINE_STAGE_UNKNOWN";
+  case SimulationValidationCode::kGameSimulationBodyOutOfBounds:
+    return "SIMULATION.GAME_SIMULATION_BODY_OUT_OF_BOUNDS";
   case SimulationValidationCode::kTickSequenceOutOfRange:
     return "SIMULATION.TICK_SEQUENCE_OUT_OF_RANGE";
   case SimulationValidationCode::kConfigWorldScalarNotFinite:
@@ -93,6 +113,10 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.CONFIG.WORLD_TOO_SMALL_FOR_PLAYER";
   case SimulationValidationCode::kConfigTickRateUnsupported:
     return "SIMULATION.CONFIG.TICK_RATE_UNSUPPORTED";
+  case SimulationValidationCode::kConfigDragNotFinite:
+    return "SIMULATION.CONFIG.DRAG_NOT_FINITE";
+  case SimulationValidationCode::kConfigDragOutOfRange:
+    return "SIMULATION.CONFIG.DRAG_OUT_OF_RANGE";
   case SimulationValidationCode::kConfigSpatialGridDimensionOutOfRange:
     return "SIMULATION.CONFIG.SPATIAL_GRID_DIMENSION_OUT_OF_RANGE";
   case SimulationValidationCode::kConfigSpatialGridCellLimitExceeded:

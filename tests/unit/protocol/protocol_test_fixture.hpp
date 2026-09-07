@@ -6,6 +6,7 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "http_error.hpp"
+#include "input_batch.hpp"
 #include "physics_body.hpp"
 #include "protocol_encoding_error.hpp"
 #include "protocol_json_encoding.hpp"
@@ -102,7 +103,7 @@ snapshot_after_steps(simulation::SimulationConfig configuration,
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
       std::move(configuration), simulation::GameWorld::create(std::move(players)));
   for (std::size_t step = 0; step < step_count; ++step) {
-    game_simulation.step(simulation::FixedDelta::canonical());
+    game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   }
   return game_simulation.snapshot();
 }

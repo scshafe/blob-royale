@@ -9,8 +9,12 @@ add_executable(blob_simulation_unit_tests
   simulation/game_simulation_tests.cpp
   simulation/input_batch_tests.cpp
   simulation/physics_tests.cpp
+  simulation/simulation_system_tests.cpp
   simulation/snapshot_tests.cpp
   simulation/spatial_grid_tests.cpp
+  simulation/system_pipeline_tests.cpp
+  simulation/tick_context_tests.cpp
+  simulation/world_event_registry_tests.cpp
   simulation/world_model_tests.cpp
 )
 

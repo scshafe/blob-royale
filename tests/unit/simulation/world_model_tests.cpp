@@ -12,6 +12,7 @@
 #include "simulation_validation_error.hpp"
 #include "team_id.hpp"
 #include "vector2.hpp"
+#include "world_event_registry.hpp"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -284,4 +285,56 @@ TEST_CASE("GameWorld equality is generated over every registered component store
   CHECK(world != expired);
   CHECK(world != recontrolled);
   CHECK(world != extra_entity);
+}
+
+TEST_CASE("GameWorld appends events in production order and publishes them unchanged",
+          "[unit][simulation][game_world][world_event]") {
+  simulation::GameWorld world = simulation::GameWorld::create({seed(2, 2.0), seed(5, 5.0)});
+
+  world.emit(simulation::EliminationEvent{simulation::EntityId::create(2)});
+  world.emit(simulation::ScoreEvent{simulation::EntityId::create(5), 3});
+  world.emit(simulation::DespawnEvent{simulation::EntityId::create(2)});
+
+  REQUIRE(world.events().size() == 3);
+  CHECK(simulation::world_event_kind_of(world.events()[0]) ==
+        simulation::WorldEventKind::kElimination);
+  CHECK(simulation::world_event_kind_of(world.events()[1]) == simulation::WorldEventKind::kScore);
+  CHECK(simulation::world_event_kind_of(world.events()[2]) == simulation::WorldEventKind::kDespawn);
+  CHECK(world.events()[1] ==
+        simulation::WorldEvent{simulation::ScoreEvent{simulation::EntityId::create(5), 3}});
+}
+
+TEST_CASE("GameWorld starts every world with an empty event list",
+          "[unit][simulation][game_world][world_event]") {
+  // Events are tick-local: a world that has committed nothing has produced nothing, and the kernel
+  // clears the list at every commit, so a seeded world and a committed world look alike here.
+  const simulation::GameWorld empty_world = simulation::GameWorld::create({});
+  const simulation::GameWorld seeded_world = simulation::GameWorld::create({seed(1, 1.0)});
+
+  CHECK(empty_world.events().empty());
+  CHECK(seeded_world.events().empty());
+}
+
+TEST_CASE("GameWorld rejects an event past the accepted per-tick limit",
+          "[unit][simulation][game_world][world_event][validation]") {
+  // Overflow is a hard simulation failure, never a silent drop: a dropped event would convert a
+  // failure into a differently wrong tick.
+  simulation::GameWorld world = simulation::GameWorld::create({seed(1, 1.0)});
+  for (std::size_t index = 0; index < simulation::kMaximumWorldEventCount; ++index) {
+    world.emit(simulation::EliminationEvent{simulation::EntityId::create(1)});
+  }
+  REQUIRE(world.events().size() == simulation::kMaximumWorldEventCount);
+
+  CHECK_THROWS_AS(world.emit(simulation::DespawnEvent{simulation::EntityId::create(1)}),
+                  simulation::SimulationValidationError);
+  CHECK(world.events().size() == simulation::kMaximumWorldEventCount);
+}
+
+TEST_CASE("GameWorld equality distinguishes a pending event list",
+          "[unit][simulation][game_world][world_event]") {
+  const simulation::GameWorld world = simulation::GameWorld::create({seed(2, 2.0)});
+  simulation::GameWorld pending = world;
+  pending.emit(simulation::EliminationEvent{simulation::EntityId::create(2)});
+
+  CHECK(world != pending);
 }

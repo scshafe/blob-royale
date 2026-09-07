@@ -17,6 +17,14 @@ enum class SimulationValidationCode {
   kTeamIdOutOfRange,
   kComponentStoreDuplicateEntityId,
   kComponentStoreLimitExceeded,
+  kCommandKindMaskUnknownBit,
+  kEntityIdReservationLimitExceeded,
+  kEntityIdReservationOutOfRange,
+  kEntityIdReservationExhausted,
+  kInputBatchCommandLimitExceeded,
+  kInputBatchCommandKindNotAccepted,
+  kInputBatchThrustDirectionOutOfRange,
+  kInputBatchSpawnAndDespawnConflict,
   kGameWorldPlayerLimitExceeded,
   kGameWorldDuplicateEntityId,
   kTickSequenceOutOfRange,
@@ -55,6 +63,22 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.COMPONENT_STORE_DUPLICATE_ENTITY_ID";
   case SimulationValidationCode::kComponentStoreLimitExceeded:
     return "SIMULATION.COMPONENT_STORE_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kCommandKindMaskUnknownBit:
+    return "SIMULATION.COMMAND_KIND_MASK_UNKNOWN_BIT";
+  case SimulationValidationCode::kEntityIdReservationLimitExceeded:
+    return "SIMULATION.ENTITY_ID_RESERVATION_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kEntityIdReservationOutOfRange:
+    return "SIMULATION.ENTITY_ID_RESERVATION_OUT_OF_RANGE";
+  case SimulationValidationCode::kEntityIdReservationExhausted:
+    return "SIMULATION.ENTITY_ID_RESERVATION_EXHAUSTED";
+  case SimulationValidationCode::kInputBatchCommandLimitExceeded:
+    return "SIMULATION.INPUT_BATCH_COMMAND_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kInputBatchCommandKindNotAccepted:
+    return "SIMULATION.INPUT_BATCH_COMMAND_KIND_NOT_ACCEPTED";
+  case SimulationValidationCode::kInputBatchThrustDirectionOutOfRange:
+    return "SIMULATION.INPUT_BATCH_THRUST_DIRECTION_OUT_OF_RANGE";
+  case SimulationValidationCode::kInputBatchSpawnAndDespawnConflict:
+    return "SIMULATION.INPUT_BATCH_SPAWN_AND_DESPAWN_CONFLICT";
   case SimulationValidationCode::kGameWorldPlayerLimitExceeded:
     return "SIMULATION.GAME_WORLD_PLAYER_LIMIT_EXCEEDED";
   case SimulationValidationCode::kGameWorldDuplicateEntityId:

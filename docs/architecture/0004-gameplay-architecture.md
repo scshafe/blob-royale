@@ -714,8 +714,8 @@ class InputBatch final {
 public:
   // Canonicalizes: ascending EntityId within each kind; the last command of a kind for an entity
   // wins; an entity that both spawns and despawns is a rejection; every component finite and in
-  // range. A command whose kind is absent from accepted_kinds is discarded here, so a kind the
-  // mode does not accept never reaches a tick.
+  // range. A command whose kind is absent from accepted_kinds is rejected here: the sink already
+  // refuses one at submission, so its arrival means the boundary and the engine disagree.
   [[nodiscard]] static InputBatch create(std::vector<Command> commands, CommandKindMask accepted_kinds,
                                          EntityIdReservation entity_id_reservation);
 

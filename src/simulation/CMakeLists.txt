@@ -4,6 +4,7 @@ add_library(blob_simulation STATIC
   entity_id.cpp
   game_simulation.cpp
   game_world.cpp
+  input_batch.cpp
   physics.cpp
   physics_body.cpp
   player_snapshot.cpp

@@ -349,10 +349,12 @@ canonicalizes and rejects; phase 0 repeats neither:
   never reaches `step`.
 * Every component is finite and in range. Non-finite or out-of-range values are rejected at
   creation.
-* A kind absent from the mode's `accepted_command_kinds()` is discarded at creation, so a kind the
-  mode does not accept never reaches a tick.
+* A kind absent from the mode's `accepted_command_kinds()` is **rejected** at creation. The command
+  boundary already refuses an unaccepted kind at submission, so one arriving here means the boundary
+  and the engine disagree about the running mode, which is an internal invariant violation and not a
+  value to drop quietly.
 
-A value that fails these rules is not a simulation failure, because it never becomes an
+A malformed value that fails these rules is not a simulation failure, because it never becomes an
 `InputBatch`. Phase 0 applies exactly what it is handed, in the order § "Canonical tick" states.
 
 **The batch also carries the tick's `EntityIdReservation`.** One monotonic allocator outside the

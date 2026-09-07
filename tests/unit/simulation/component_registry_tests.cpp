@@ -1,3 +1,5 @@
+#include "command_registry.hpp"
+#include "commands/thrust_command.hpp"
 #include "component_kind_name.hpp"
 #include "component_list.hpp"
 #include "component_registry.hpp"
@@ -73,6 +75,20 @@ TEST_CASE("Every registered component kind is a comparable value struct",
         simulation::Team{simulation::TeamId::create(2)});
   CHECK(simulation::Team{simulation::TeamId::create(2)} !=
         simulation::Team{simulation::TeamId::create(3)});
+}
+
+TEST_CASE("Controllable carries this tick's recorded commands and compares on them",
+          "[unit][simulation][component_registry]") {
+  const simulation::Command thrust{simulation::ThrustCommand{
+      simulation::EntityId::create(5), simulation::Vector2::create(1.0, 0.0)}};
+  const simulation::Controllable idle{simulation::ControllerId::create(4), {}};
+  const simulation::Controllable thrusting{simulation::ControllerId::create(4), {thrust}};
+
+  CHECK(idle.commands_this_tick.empty());
+  REQUIRE(thrusting.commands_this_tick.size() == 1);
+  CHECK(thrusting.commands_this_tick[0] == thrust);
+  CHECK(idle != thrusting);
+  CHECK(idle == simulation::Controllable{simulation::ControllerId::create(4)});
 }
 
 TEST_CASE("A component list generates one store per declared kind",

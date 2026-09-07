@@ -32,6 +32,34 @@ read the one common radius from `SimulationConfig`, so radius, mass, the masks, 
 carried but not yet consulted. `ControllerId` is the durable identity of the deciding agent and
 outlives the entities it drives; `Controllable` is the only place the two identity spaces meet.
 
+## The command vocabulary
+
+`command_registry.hpp` is the closed, ordered list of command kinds: the variant
+`Command = SpawnCommand | DespawnCommand | ThrustCommand`, the `CommandKind` bit enumerators, each
+kind's wire name, and each kind's position in phase 0's application order. A command is a value
+struct in its own header under `commands/`. `SpawnCommand` names only a `ControllerId` — the engine
+draws the new `EntityId` from the tick's reservation and the mode seats it — so a spawn addresses its
+controller while every other kind addresses the `EntityId` it names.
+
+`CommandKindMask` is the set of kinds a mode accepts, one integer with `create`, `none`, `all`,
+`contains`, and an immutable `with`.
+
+`InputBatch` is the one validated command value a tick may read, and `InputBatch::empty()` is the
+no-input tick. `InputBatch::create` canonicalizes to phase 0's application order — despawns, then
+spawns, then the remaining kinds, each group ascending by the identity it addresses — keeps the last
+submitted command of a kind for an identity, and rejects an unaccepted kind, a thrust direction
+component outside `[-1, 1]`, a despawn naming an id inside the batch's own reservation, and a
+submitted count above the accepted limit. A thrust direction is carried verbatim: the magnitude clamp
+belongs to the mode's steering system, whose written operation order is the contract
+(`docs/architecture/0005-royale-mode.md` § "Steering").
+
+`EntityIdReservation` is the contiguous half-open block of ids one tick may bring into existence.
+`draw_next` advances it and throws on exhaustion; it never wraps and never reissues a drawn id,
+because a reused id would graft one entity's components onto another.
+
+Nothing reads `Controllable::commands_this_tick` yet. The staged kernel that fills it is the next
+change, and no tick behavior moved with this vocabulary.
+
 ## Ownership and invariants
 
 `GameSimulation` owns one `GameWorld` and one `SpatialGrid`; `step(FixedDelta)` is its only mutable
@@ -58,15 +86,28 @@ a new value-struct header under `components/` declaring its own `ComponentKindNa
 the registry list. `GameWorld`, `GameSimulation`, and existing systems are untouched. Two
 implementations beyond the engine set: `Zone` for the royale safe zone, `Flag` for capture the flag.
 
+`@extension-point command_kind` — `command_registry.hpp`. Adding a command kind is a new value-struct
+header under `commands/`, then one enumerator, one variant alternative, one `CommandKindName`
+specialization, one `CommandKindOf` specialization, one `kCommandKinds` entry, and one application
+rank in `command_registry.hpp`; its value validation and the identity it addresses in
+`input_batch.cpp`; a consuming system in `blob_gameplay`; and its protocol schema, which is a protocol
+minor version. Exactly one existing file in this domain declares the kind, the kernel records
+commands without interpreting them, and a mode that omits the kind from its accepted set never sees
+it. Two implementations beyond `SpawnCommand` and `DespawnCommand`: `ThrustCommand` for steering, and
+a later `UseAbilityCommand` for a dash or a weapon. **Command meaning is a system's job**, so a new
+kind adds a consuming system rather than a new kernel sub-step.
+
 Pure equations in `physics.hpp` are the appropriate seam for a newly specified physical rule.
 Per-entity durable state belongs in a component, never in a new field on `GameWorld`; avoid a generic
 entity hierarchy or a class for each stateless equation. New tick behavior must be placed in the
 explicit phase sequence documented by `docs/architecture/0003-deterministic-simulation-contract.md`
 and proven deterministic before it is wired into `GameSimulation`.
 
-Player commands are not a simulation shortcut. They require a separately specified application and
-protocol boundary that validates identity, ownership, ordering, tick addressing, and authorization
-before producing a deterministic domain input.
+Player commands are not a simulation shortcut. `InputBatch` is the deterministic domain input and
+nothing more: identity, ownership, authorization, tick addressing, rate limiting, and cross-session
+ordering are decided at the application and protocol boundary, before a batch exists. A command
+source stamps the entity it owns, so no controller can command a foreign entity, and the simulation
+never learns whether a command came from a human session or a bot.
 
 ## Verification
 

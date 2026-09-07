@@ -23,6 +23,17 @@ inline constexpr double kMaximumPhysicalComponentMagnitude = 1'000'000'000'000.0
 // One entity is one seat in the world. This bounds the entity roster and every per-kind component
 // store; protocol v1 publishes the same number as the snapshot player limit.
 inline constexpr std::size_t kMaximumPlayerCount = 4'096;
+// One tick's submitted commands, before canonicalization collapses them to at most one of each
+// kind per addressed identity. The runtime's bounded mailbox is the upstream boundary that keeps
+// a batch below this; this is the simulation's own fail-closed ceiling on an unbounded input.
+inline constexpr std::size_t kMaximumInputBatchCommandCount = 65'536;
+// No tick can bring more entities into existence than the world has seats, so a reservation wider
+// than the roster is an allocator defect rather than a large tick.
+inline constexpr std::uint64_t kMaximumEntityIdReservationCount =
+    static_cast<std::uint64_t>(kMaximumPlayerCount);
+// A thrust direction component is a unit-interval intent, not a physical quantity: the mode's
+// steering system scales it by its own declared maximum.
+inline constexpr double kMaximumThrustDirectionComponentMagnitude = 1.0;
 inline constexpr std::uint64_t kSimulationTicksPerSecond = 400;
 inline constexpr std::int64_t kFixedDeltaNanoseconds = 2'500'000;
 inline constexpr double kFixedDeltaSeconds = 1.0 / static_cast<double>(kSimulationTicksPerSecond);

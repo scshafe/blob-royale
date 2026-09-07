@@ -68,7 +68,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
   - Verify: `curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v1/health/live | rg -q '"status":"alive"' && curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/ | rg -q '<script'`
   - Notes: On the host: `sudo tailscale serve --bg --https=8444 --set-path=/api http://127.0.0.1:8000/api` and `sudo tailscale serve --bg --https=8444 /srv/blob-royale/web`. The target path `/api` restores the prefix that `--set-path` strips. Tailnet only; never `tailscale funnel`. Fallback if the proxied path or Host does not match exactly: run `caddy:2-alpine` on `127.0.0.1:8081` with `reverse_proxy /api/* 127.0.0.1:8000` plus `root * /srv/blob-royale/web` and `file_server`, and point one `tailscale serve --https=8444 http://127.0.0.1:8081` at it. Record whichever is used in Step 9's runbook.
 
-- [ ] **Step 9: Confirm the read-only client renders over the tailnet and write the tailnet runbook**
+- [x] **Step 9: Confirm the read-only client renders over the tailnet and write the tailnet runbook**
   - Verify: human review — the page shows "Connected to the read-only snapshot stream." and moving discs on two tailnet devices, and `docs/operations/tailnet.md` documents deploy, rollback (rerun `deploy-tailnet` at the previous commit), logs, and the serve configuration.
   - Notes: Also link the runbook from `README.MD` and `docs/operations/linux.md`.
 
@@ -107,17 +107,17 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 - [ ] ~~**Step 28: Certify the shipped commit**~~ — original step, superseded 2026-09-06 by the gameplay-framework re-plan (Steps 11 to 33 below).
 ### Phase 2 — Accept the gameplay framework and protocol contracts
 
-- [ ] **Step 11: Accept ADR 0004 (gameplay architecture) and the ADR 0002 amendment**
+- [x] **Step 11: Accept ADR 0004 (gameplay architecture) and the ADR 0002 amendment**
   - Verify: human review — `docs/architecture/0004-gameplay-architecture.md` has status `Accepted`; `docs/architecture/0002-simulation-architecture.md` carries an `**Amended 2026-09-06:**` note admitting `blob_gameplay`, `blob_controllers`, component composition, staged systems, `GameMode` inheritance, and controllers; both use the existing names `GameWorld` and `PhysicsBody`.
   - Specialist: `rigorous-architect`
   - Notes: The framework is the owner's stated requirement of 2026-09-06: modes, maps, entity kinds, mechanics, and bots are added by new files plus one registration line, and computer-controlled entities act exactly as users do. The eight `@extension-point` seams (`entity_component`, `simulation_system`, `contact_rule`, `game_mode`, `map_definition`, `command_kind`, `controller`, `entity_renderer`) and the "values live in `blob_simulation`, rules live in `blob_gameplay`" rule are the contract every later step implements.
 
-- [ ] **Step 12: Accept ADR 0005, the Royale mode, expressed on the framework**
+- [x] **Step 12: Accept ADR 0005, the Royale mode, expressed on the framework**
   - Verify: human review — `docs/architecture/0005-royale-mode.md` is titled as ADR 5 with status `Accepted`, expresses thrust, drag, zone, elimination, lifecycle, and ring spawns as a `GameMode` (systems at named stages, a `SpawnPolicy`, a `MatchObjective`), defines the `[royale]` configuration section, and cites ADR 0004 for every interface.
   - Specialist: `rigorous-architect`
   - Notes: Rework the existing draft rather than restarting; its rules and numbers stand. Drag moves to the kernel as `[simulation] drag_per_second` (zero in every fixture and test configuration, `2.0` in deployment), because ADR 0003's phase 1 owns it. Fix the draft's stale citations (`0004-core-loop.md`, ADR 0002 line 88).
 
-- [ ] **Step 13: Amend ADR 0003 for the staged kernel and accepted input**
+- [x] **Step 13: Amend ADR 0003 for the staged kernel and accepted input**
   - Verify: human review and `rg -n '^\*\*Amended 2026-' docs/architecture/0003-deterministic-simulation-contract.md`
   - Specialist: `rigorous-architect`
   - Notes: Redo the in-progress draft: phase 0 applies the `InputBatch` (despawns, spawns through the engine `SpawnSystem` and the mode's `SpawnPolicy`, then commands), phase 1 gains drag, phase 3 evaluates the `ContactRuleTable` (built-in rows reproduce today's elastic and reflect results exactly), and the hook stages `kPreKernel`, `kPostKernel`, `kLifecycle` are where mode systems run; commit clears events. State that zero drag, an empty batch, and a mode with no systems reproduce every accepted fixture bit-for-bit. Cite ADR 0005 for Royale rules (never restate them) and ADR 0004 for interfaces.
@@ -125,7 +125,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 - [ ] **Step 14: Specify protocol v2 with schemas and golden examples**
   - Verify: `cd frontend-react && npm run validate:protocol-examples` covers `docs/protocol/schema/v2/examples/*.json` and human review of the trust-boundary section in `docs/protocol/v2.md`.
   - Specialist: `doddy`
-  - Notes: One route `GET /api/v2/session` with subprotocol `blob-royale.session.v2`; connecting joins, closing leaves. Server messages: `welcome` (`entity_id`, `display_name`, `mode`, `map`) then `snapshot` frames carrying `tick_sequence`, `entities` (each `entity_id` plus components keyed by component kind, one closed schema per kind, ascending ids), and `match` (`mode`, `phase`, `phase_started_tick`, `outcome`, bounded `placements`, and mode state by schema id). Client messages are command envelopes `{kind, payload}` with one closed schema per command kind (`set_thrust` first), 1,024-byte limit, per-session bucket (burst 30, refill 20/s, excess closes `1008 command_rate_exceeded`); the server stamps the session's entity. Adding a component or command kind is a protocol minor version that clients check. Identity: the tailnet authenticates; the connection owns one entity; when the socket peer is in `trusted_proxy_addresses`, the accounting principal is the single canonical `X-Forwarded-For` and `display_name` is a sanitized 64-byte `Tailscale-User-Name`; direct loopback peers keep the socket principal and `player-<entity_id>`. Bots appear as entities whose `Controllable` names their controller kind. State that a loopback trusted proxy lets any local process forge identity, accepted for a single-operator host. v1 stays unchanged.
+  - Notes: One route `GET /api/v2/session` with subprotocol `blob-royale.session.v2`; connecting joins, closing leaves. Server messages: `welcome` (`entity_id`, `display_name`, `mode`, `map`) then `snapshot` frames carrying `tick_sequence`, `entities` (each `entity_id` plus components keyed by component kind, one closed schema per kind, ascending ids), and `match` (`mode`, `phase`, `phase_started_tick`, `outcome`, bounded `placements`, and mode state by schema id). Mode state that is entity-shaped is published as components, never duplicated in `match`: the Royale zone is the `Zone` component of its zone entity (ADR 0005 § "Match section fields"). Client messages are command envelopes `{kind, payload}` with one closed schema per command kind (`set_thrust` first), 1,024-byte limit, per-session bucket (burst 30, refill 20/s, excess closes `1008 command_rate_exceeded`); the server stamps the session's entity. Adding a component or command kind is a protocol minor version that clients check. Identity: the tailnet authenticates; the connection owns one entity; when the socket peer is in `trusted_proxy_addresses`, the accounting principal is the single canonical `X-Forwarded-For` and `display_name` is a sanitized 64-byte `Tailscale-User-Name`; direct loopback peers keep the socket principal and `player-<entity_id>`. Bots appear as entities whose `Controllable` names their controller kind. State that a loopback trusted proxy lets any local process forge identity, accepted for a single-operator host. v1 stays unchanged.
 
 ### Phase 3 — Engine kernel in `blob_simulation`
 
@@ -193,7 +193,7 @@ Two defects to fix early: `config/blob-royale.cfg` has an empty `allowed_origins
 
 - [ ] **Step 29: Add the renderer registry, game renderers, and thrust input**
   - Verify: `cd frontend-react && npm run test:ci && npm run build`
-  - Notes: `entityRendererRegistry` keyed by component kind (`@extension-point entity_renderer`): bodies as discs with `display_name` labels and own-entity highlight, static bodies as obstacles, Royale zone from mode state; HUD for phase, countdown, alive count, placement; overlays for waiting, eliminated, winner, and draw. `useThrustInput` maps WASD and arrows to a unit direction, sends on change at most every 50 ms, sends zero on release, and ignores input while the own entity is absent.
+  - Notes: `entityRendererRegistry` keyed by component kind (`@extension-point entity_renderer`): bodies as discs with `display_name` labels and own-entity highlight, static bodies as obstacles, the Royale zone from its `Zone` component; HUD for phase, countdown, alive count, placement; overlays for waiting, eliminated, winner, and draw. `useThrustInput` maps WASD and arrows to a unit direction, sends on change at most every 50 ms, sends zero on release, and ignores input while the own entity is absent.
 
 - [ ] **Step 30: Add a two-player Chromium end-to-end flow with a bot present**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`

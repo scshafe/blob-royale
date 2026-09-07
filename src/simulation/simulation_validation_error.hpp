@@ -28,6 +28,11 @@ enum class SimulationValidationCode {
   kGameWorldPlayerLimitExceeded,
   kGameWorldDuplicateEntityId,
   kGameWorldEventLimitExceeded,
+  kDeterministicRandomBoundEmpty,
+  kSpawnPolicyIndexOutOfRange,
+  kSpawnPolicyPointOccupied,
+  kMapSpawnPointNotSeatable,
+  kGameSimulationSetupConflict,
   kSystemPipelineSystemMissing,
   kSystemPipelineSystemNameEmpty,
   kSystemPipelineDuplicateSystemName,
@@ -112,6 +117,16 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.GAME_WORLD_DUPLICATE_ENTITY_ID";
   case SimulationValidationCode::kGameWorldEventLimitExceeded:
     return "SIMULATION.GAME_WORLD_EVENT_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kDeterministicRandomBoundEmpty:
+    return "SIMULATION.DETERMINISTIC_RANDOM_BOUND_EMPTY";
+  case SimulationValidationCode::kSpawnPolicyIndexOutOfRange:
+    return "SIMULATION.SPAWN_POLICY_INDEX_OUT_OF_RANGE";
+  case SimulationValidationCode::kSpawnPolicyPointOccupied:
+    return "SIMULATION.SPAWN_POLICY_POINT_OCCUPIED";
+  case SimulationValidationCode::kMapSpawnPointNotSeatable:
+    return "SIMULATION.MAP_SPAWN_POINT_NOT_SEATABLE";
+  case SimulationValidationCode::kGameSimulationSetupConflict:
+    return "SIMULATION.GAME_SIMULATION_SETUP_CONFLICT";
   case SimulationValidationCode::kSystemPipelineSystemMissing:
     return "SIMULATION.SYSTEM_PIPELINE_SYSTEM_MISSING";
   case SimulationValidationCode::kSystemPipelineSystemNameEmpty:

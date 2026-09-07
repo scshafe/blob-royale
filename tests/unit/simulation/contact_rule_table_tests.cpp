@@ -10,6 +10,7 @@
 #include "physics_body.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
+#include "simulation_test_fixture.hpp"
 #include "simulation_validation_error.hpp"
 #include "spatial_grid.hpp"
 #include "tick_context.hpp"
@@ -27,6 +28,7 @@
 #include <vector>
 
 namespace simulation = blob_royale::simulation;
+namespace testing = blob_royale::testing;
 
 namespace {
 
@@ -60,19 +62,22 @@ moving_body(const double x, const double y, const double velocity_x, const doubl
 }
 
 // A world holding one dynamic body at id 1 and one static body at id 2, which is the arrangement
-// every orientation test needs.
+// every orientation test needs. A wall is seated by writing the one component it carries, because
+// the roster is derived from the stores and a wall is driven by nobody.
 [[nodiscard]] simulation::GameWorld dynamic_then_static_world() {
-  return world_of(
-      {simulation::GameWorld::EntitySeed::create(entity(1), moving_body(90.0, 100.0, 1.0, 0.0)),
-       simulation::GameWorld::EntitySeed::create_static(
-           entity(2), simulation::PhysicsBody::create_static(point(105.0, 100.0)))});
+  simulation::GameWorld world = world_of(
+      {simulation::GameWorld::EntitySeed::create(entity(1), moving_body(90.0, 100.0, 1.0, 0.0))});
+  testing::seat_static_body(world, entity(2),
+                            simulation::PhysicsBody::create_static(point(105.0, 100.0)));
+  return world;
 }
 
 [[nodiscard]] simulation::GameWorld static_then_dynamic_world() {
-  return world_of(
-      {simulation::GameWorld::EntitySeed::create_static(
-           entity(1), simulation::PhysicsBody::create_static(point(90.0, 100.0))),
-       simulation::GameWorld::EntitySeed::create(entity(2), moving_body(105.0, 100.0, -1.0, 0.0))});
+  simulation::GameWorld world = world_of(
+      {simulation::GameWorld::EntitySeed::create(entity(2), moving_body(105.0, 100.0, -1.0, 0.0))});
+  testing::seat_static_body(world, entity(1),
+                            simulation::PhysicsBody::create_static(point(90.0, 100.0)));
+  return world;
 }
 
 // A context is what a response reads for the configured common radius. Both the map and the index
@@ -199,11 +204,11 @@ TEST_CASE("a static-then-dynamic pair matches reflect_static in the swapped orie
 TEST_CASE("a static pair matches no built-in row and is therefore unchanged",
           "[unit][simulation][contact_rule_table][orientation]") {
   // The table is total without a default row: an unmatched pair is defined, not an error.
-  const simulation::GameWorld world =
-      world_of({simulation::GameWorld::EntitySeed::create_static(
-                    entity(1), simulation::PhysicsBody::create_static(point(90.0, 100.0))),
-                simulation::GameWorld::EntitySeed::create_static(
-                    entity(2), simulation::PhysicsBody::create_static(point(105.0, 100.0)))});
+  simulation::GameWorld world = world_of({});
+  testing::seat_static_body(world, entity(1),
+                            simulation::PhysicsBody::create_static(point(90.0, 100.0)));
+  testing::seat_static_body(world, entity(2),
+                            simulation::PhysicsBody::create_static(point(105.0, 100.0)));
 
   CHECK_FALSE(simulation::ContactRuleTable::built_in()
                   .first_match(world, entity(1), entity(2))

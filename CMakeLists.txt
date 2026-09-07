@@ -33,6 +33,16 @@ function(blob_royale_configure_first_party_target target_name)
       -Wextra
       -Wpedantic
       -Werror
+      # Floating-point expression contraction is off for every first-party target. The kernel's
+      # drag step is a multiply-subtract, `1 - drag_per_second * dt`, and a compiler permitted to
+      # contract it into one fused multiply-add computes a different binary64 value than one that
+      # does not. Both GCC and Clang default to contraction being allowed, so leaving this
+      # unpinned would make the committed velocity of a dragged body a property of the toolchain
+      # rather than of the accepted physics, which is exactly what
+      # `docs/architecture/0003-deterministic-simulation-contract.md` § "Floating-point contract"
+      # forbids. It is free today because every fixture runs at zero drag; it is not free the day
+      # a nonzero drag ships.
+      -ffp-contract=off
     )
   else()
     message(FATAL_ERROR

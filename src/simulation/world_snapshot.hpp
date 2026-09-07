@@ -4,10 +4,13 @@
 #include "component_registry.hpp"
 #include "component_store.hpp"
 #include "entity_id.hpp"
+#include "match_snapshot.hpp"
 #include "player_snapshot.hpp"
 #include "tick_sequence.hpp"
 
+#include <cstdint>
 #include <span>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -18,13 +21,30 @@ class GameSimulation;
 
 // canonical: world_snapshot -- complete immutable copy of one committed simulation state.
 //
-// The component sections are generated from ComponentRegistry: the snapshot copies the whole
-// store tuple, so a kind added to the registry is published without editing this file, and the
-// snapshot is complete at compile time rather than by convention.
+// The component sections are generated from ComponentRegistry: the snapshot copies every
+// registered store, so a kind added to the registry is published without editing this file, and
+// the snapshot is complete at compile time rather than by convention.
+//
+// **`entities()` is derived from the stores this snapshot holds**, not copied from the world's
+// answer to the same question, so a published component whose entity is missing from
+// `entities()` is not a defect this file has to avoid -- it is unrepresentable (engine review
+// finding 2; `entity_roster.hpp`).
+//
+// **A published component is what its kind declares it publishes**, which is how tick-local state
+// stops at this boundary: `Controllable::commands_this_tick` is this tick's live input for one
+// entity and is stripped here rather than handed to every reader of a snapshot (engine review
+// finding 4; `component_publication.hpp`).
 //
 // `players()` is the protocol v1 projection: the ascending entities carrying both a PhysicsBody
 // and a Controllable. It is materialized once at construction so the encoder walks a contiguous
 // span rather than merging two stores per frame.
+//
+// `match()` is the generic lifecycle section and `random_draw_count()` is the generator's draw
+// count, which is committed in every snapshot so two runs that diverge in how many draws they took
+// diverge visibly at the first differing tick
+// (`docs/architecture/0004-gameplay-architecture.md` § "Snapshots and protocol shape").
+// related: component_publication.hpp -- what each kind publishes.
+// related: match_snapshot.hpp -- the match section this carries.
 class WorldSnapshot final {
 public:
   WorldSnapshot(const WorldSnapshot&) = default;
@@ -50,22 +70,31 @@ public:
   [[nodiscard]] std::span<const PlayerSnapshot> players() const& noexcept { return players_; }
   [[nodiscard]] std::span<const PlayerSnapshot> players() const&& = delete;
 
+  [[nodiscard]] const MatchSnapshot& match() const& noexcept { return match_; }
+  [[nodiscard]] const MatchSnapshot& match() const&& = delete;
+
+  [[nodiscard]] std::uint64_t random_draw_count() const noexcept { return random_draw_count_; }
+
   friend bool operator==(const WorldSnapshot&, const WorldSnapshot&) = default;
 
 private:
   friend class GameSimulation;
 
-  // Copies one state already committed by GameSimulation. The world invariant supplies order.
-  [[nodiscard]] static WorldSnapshot from_world(TickSequence tick_sequence, const GameWorld& world);
+  // Copies one state already committed by GameSimulation, publishing each store through its kind's
+  // ComponentPublication and deriving the roster from the copies it just made.
+  [[nodiscard]] static WorldSnapshot from_world(TickSequence tick_sequence, const GameWorld& world,
+                                                std::string mode_name);
 
   WorldSnapshot(TickSequence tick_sequence, std::vector<EntityId> entities,
-                ComponentStores<ComponentRegistry> stores,
-                std::vector<PlayerSnapshot> players) noexcept;
+                ComponentStores<ComponentRegistry> stores, std::vector<PlayerSnapshot> players,
+                MatchSnapshot match, std::uint64_t random_draw_count) noexcept;
 
   TickSequence tick_sequence_;
   std::vector<EntityId> entities_;
   ComponentStores<ComponentRegistry> stores_;
   std::vector<PlayerSnapshot> players_;
+  MatchSnapshot match_;
+  std::uint64_t random_draw_count_;
 };
 
 } // namespace blob_royale::simulation

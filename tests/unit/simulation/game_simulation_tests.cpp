@@ -14,9 +14,13 @@
 #include "entity_id_reservation.hpp"
 #include "fixed_delta.hpp"
 #include "game_simulation.hpp"
+#include "game_simulation_setup.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
 #include "map_definition.hpp"
+#include "match_lifecycle_system.hpp"
+#include "match_phase.hpp"
+#include "match_snapshot.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
@@ -27,6 +31,7 @@
 #include "simulation_validation_error.hpp"
 #include "spatial_grid.hpp"
 #include "system_pipeline.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 #include "world_event_registry.hpp"
 #include "world_snapshot.hpp"
@@ -415,12 +420,40 @@ staged_game(std::vector<simulation::GameWorld::EntitySeed> players,
             simulation::SimulationConfig simulation_configuration = configuration()) {
   return simulation::GameSimulation::create(
       std::move(simulation_configuration), simulation::GameWorld::create(std::move(players)),
-      simulation::SystemPipeline::create(std::move(declared_systems)));
+      simulation::GameSimulationSetup::engine_defaults().with_systems(
+          simulation::SystemPipeline::create(std::move(declared_systems))));
+}
+
+[[nodiscard]] simulation::MapDefinition arena_map(const double width, const double height) {
+  return simulation::MapDefinition::bare_arena(simulation::ArenaBounds::create(width, height));
+}
+
+// The production shape: every declaration arrives through one setup value, and the mode is
+// injected once. `GameSimulationSetup::of_mode` is the value form of the
+// `create(configuration, map, mode)` the ADR names.
+[[nodiscard]] simulation::GameSimulation
+mode_game(std::vector<simulation::GameWorld::EntitySeed> seeds, simulation::MapDefinition map,
+          testing::TestGameMode::Declaration declaration,
+          simulation::SimulationConfig simulation_configuration = configuration()) {
+  return simulation::GameSimulation::create(
+      std::move(simulation_configuration), simulation::GameWorld::create(std::move(seeds)),
+      simulation::GameSimulationSetup::of_mode(
+          std::move(map), testing::TestGameMode::create(std::move(declaration))));
 }
 
 [[nodiscard]] simulation::InputBatch batch(std::vector<simulation::Command> commands) {
   return simulation::InputBatch::create(std::move(commands), simulation::CommandKindMask::all(),
                                         simulation::EntityIdReservation::none());
+}
+
+// A batch that carries a contiguous EntityIdReservation, which is what a tick needs before
+// anything -- a spawn command or a system -- may create an entity.
+[[nodiscard]] simulation::InputBatch reserved_batch(std::vector<simulation::Command> commands,
+                                                    const simulation::EntityId::Value first,
+                                                    const std::uint64_t count) {
+  return simulation::InputBatch::create(
+      std::move(commands), simulation::CommandKindMask::all(),
+      simulation::EntityIdReservation::create(simulation::EntityId::create(first), count));
 }
 
 [[nodiscard]] simulation::Command thrust_command(const simulation::EntityId::Value entity,
@@ -628,16 +661,23 @@ TEST_CASE("phase 0 despawn erases the entity from the committed spatial index to
 TEST_CASE("phase 0 records this tick's commands into the entity's Controllable without "
           "interpreting them",
           "[unit][simulation][game_simulation][phases][command]") {
+  // The recorded commands are tick-local and are stripped at publication, so the observation point
+  // is a system inside the tick rather than the snapshot: the probe writes the count it saw into
+  // each entity's Score cell.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(
+      testing::staged(simulation::SystemStage::kPreKernel,
+                      std::make_unique<const testing::RecordedCommandProbeSystem>(
+                          "recorded_command_value_probe", thrust_command(1, 0.5, -0.25))));
   simulation::GameSimulation simulation_game =
-      game({player(1, 50.0, 50.0), player(2, 200.0, 50.0)});
+      staged_game({player(1, 50.0, 50.0), player(2, 200.0, 50.0)}, std::move(declared));
 
   simulation_game.step(simulation::FixedDelta::canonical(), batch({thrust_command(1, 0.5, -0.25)}));
   const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
 
-  const simulation::Controllable& recorded = controllable_of(snapshot, 1);
-  REQUIRE(recorded.commands_this_tick.size() == 1);
-  CHECK(recorded.commands_this_tick[0] == thrust_command(1, 0.5, -0.25));
-  CHECK(controllable_of(snapshot, 2).commands_this_tick.empty());
+  // 1 means the entity's single recorded command compared equal to the thrust that was submitted.
+  CHECK(score_of(snapshot, 1) == 1);
+  CHECK(score_of(snapshot, 2) == 0);
   // The kernel records and does not interpret: no acceleration and no velocity moved.
   check_vector(snapshot_player(snapshot, 1).acceleration(), 0.0, 0.0);
   check_vector(snapshot_player(snapshot, 1).velocity(), 0.0, 0.0);
@@ -645,13 +685,48 @@ TEST_CASE("phase 0 records this tick's commands into the entity's Controllable w
 
 TEST_CASE("phase 0 clears the previous tick's recorded commands",
           "[unit][simulation][game_simulation][phases][command]") {
-  simulation::GameSimulation simulation_game = game({player(1, 50.0, 50.0)});
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPreKernel,
+      std::make_unique<const testing::RecordedCommandCountProbeSystem>("recorded_command_probe")));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0)}, std::move(declared));
 
   simulation_game.step(simulation::FixedDelta::canonical(), batch({thrust_command(1, 1.0, 0.0)}));
-  REQUIRE(controllable_of(simulation_game.snapshot(), 1).commands_this_tick.size() == 1);
+  REQUIRE(score_of(simulation_game.snapshot(), 1) == 1);
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
 
-  CHECK(controllable_of(simulation_game.snapshot(), 1).commands_this_tick.empty());
+  CHECK(score_of(simulation_game.snapshot(), 1) == 0);
+}
+
+TEST_CASE("a published snapshot carries no recorded commands",
+          "[unit][simulation][game_simulation][snapshot][command][disclosure]") {
+  // Engine review finding 4. `Controllable::commands_this_tick` is one entity's live input for the
+  // tick being committed. Publishing it would hand every reader of a snapshot -- an in-process bot
+  // at Step 23 above all -- every player's input for the tick it is rendering, which is the field
+  // protocol v2 deliberately withholds from the wire and a break of the human/bot symmetry in the
+  // bot's favour. A system inside the tick still sees it; nothing outside does.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPreKernel,
+      std::make_unique<const testing::RecordedCommandCountProbeSystem>("recorded_command_probe")));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0), player(2, 200.0, 50.0)}, std::move(declared));
+
+  simulation_game.step(simulation::FixedDelta::canonical(),
+                       batch({thrust_command(1, 1.0, 0.0), thrust_command(2, -1.0, 0.0)}));
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  // The tick recorded one command for each entity, and the pre-kernel stage read both.
+  REQUIRE(score_of(snapshot, 1) == 1);
+  REQUIRE(score_of(snapshot, 2) == 1);
+  // The publication carries none of them, for any entity.
+  for (const simulation::ComponentStore<simulation::Controllable>::Entry& entry :
+       snapshot.components<simulation::Controllable>()) {
+    CHECK(entry.value.commands_this_tick.empty());
+  }
+  // The controller link itself is still published, because that is what the component is for.
+  CHECK(controllable_of(snapshot, 1).controller_id.value() == 1);
 }
 
 TEST_CASE("phase 0 ignores a command that disagrees with the committed world",
@@ -659,7 +734,14 @@ TEST_CASE("phase 0 ignores a command that disagrees with the committed world",
   // A despawn for an entity that does not exist and a thrust recorded for an entity that is not
   // live are ignored rather than failing the tick: the command source is a network session, and a
   // hard failure would let one client stop the match.
-  simulation::GameSimulation simulation_game = game({player(1, 50.0, 50.0, 4.0, 0.0)});
+  // The probe is what makes "the live entity recorded nothing" a real assertion: a publication no
+  // longer carries the recorded list, so reading it from the snapshot would assert nothing at all.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPreKernel,
+      std::make_unique<const testing::RecordedCommandCountProbeSystem>("recorded_command_probe")));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0, 4.0, 0.0)}, std::move(declared));
   const simulation::WorldSnapshot before = simulation_game.snapshot();
 
   CHECK_NOTHROW(simulation_game.step(simulation::FixedDelta::canonical(),
@@ -668,28 +750,67 @@ TEST_CASE("phase 0 ignores a command that disagrees with the committed world",
   const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
   CHECK(snapshot.tick_sequence().value() == 1);
   REQUIRE(snapshot.entities().size() == 1);
-  CHECK(controllable_of(snapshot, 1).commands_this_tick.empty());
+  CHECK(score_of(snapshot, 1) == 0);
   check_vector(snapshot_player(snapshot, 1).position(), 50.01, 50.0);
   CHECK(before.entities().size() == 1);
 }
 
-TEST_CASE("a spawn command is a no-op until the Step 19 spawn policy seats it",
+TEST_CASE("a spawn command creates an entity from the tick's reservation and the mode's policy "
+          "seats it",
           "[unit][simulation][game_simulation][phases][command][spawn]") {
-  // Seating an unseated entity needs the map's spawn markers and the mode's SpawnPolicy, which
-  // arrive in Step 19. Until then a spawn is applied as nothing at all rather than seated at a
-  // position no declaration chose, and this test is what turns red the day seating lands without
-  // a horizon being re-examined.
-  simulation::GameSimulation spawning_game = game({player(1, 50.0, 50.0, 4.0, -2.0)});
-  simulation::GameSimulation quiet_game = game({player(1, 50.0, 50.0, 4.0, -2.0)});
+  // Step 17 asserted a spawn command was a no-op, because seating an unseated entity needed the
+  // map's spawn markers and the mode's SpawnPolicy and neither existed. Both exist now: phase 0
+  // draws the id from this tick's EntityIdReservation and writes the Controllable that links it to
+  // the asking controller, and the engine's SpawnSystem then offers it to the mode's policy over
+  // `map.spawn_points()`. The replaced assertion is the point of this step.
+  simulation::GameSimulation spawning_game =
+      mode_game({}, testing::spawn_point_map(2), testing::TestGameMode::Declaration{});
 
   CHECK_NOTHROW(spawning_game.step(simulation::FixedDelta::canonical(),
-                                   batch({spawn_command(7), spawn_command(8)})));
-  quiet_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+                                   reserved_batch({spawn_command(7)}, 100, 4)));
 
   const simulation::WorldSnapshot spawned = spawning_game.snapshot();
-  CHECK(spawned == quiet_game.snapshot());
-  CHECK(spawned.entities().size() == 1);
-  CHECK(controllable_of(spawned, 1).commands_this_tick.empty());
+  REQUIRE(spawned.entities().size() == 1);
+  CHECK(spawned.entities()[0] == simulation::EntityId::create(100));
+  CHECK(controllable_of(spawned, 100).controller_id.value() == 7);
+  // Seated at rest at the first declared spawn point, which is what "at rest" means: a seated
+  // entity moves only once its controller asks it to.
+  check_vector(snapshot_player(spawned, 100).position(), 50.0, 50.0);
+  check_vector(snapshot_player(spawned, 100).velocity(), 0.0, 0.0);
+  check_vector(snapshot_player(spawned, 100).acceleration(), 0.0, 0.0);
+}
+
+TEST_CASE("a spawn command with no spawn point leaves the entity unseated and offers it again",
+          "[unit][simulation][game_simulation][phases][command][spawn]") {
+  // A policy that declines is a deferral, not a failure: the entity exists carrying its controller
+  // link and is offered again, in the same ascending order, on every later tick.
+  simulation::GameSimulation spawning_game =
+      mode_game({}, arena_map(500.0, 500.0), testing::TestGameMode::Declaration{});
+
+  spawning_game.step(simulation::FixedDelta::canonical(),
+                     reserved_batch({spawn_command(7)}, 100, 4));
+
+  const simulation::WorldSnapshot spawned = spawning_game.snapshot();
+  REQUIRE(spawned.entities().size() == 1);
+  CHECK(spawned.components<simulation::PhysicsBody>().empty());
+  CHECK(spawned.players().empty());
+  CHECK(controllable_of(spawned, 100).controller_id.value() == 7);
+}
+
+TEST_CASE("a spawn on an exhausted reservation fails the tick and commits nothing",
+          "[unit][simulation][game_simulation][phases][command][spawn][entity_id_reservation]") {
+  // Exhaustion is a hard simulation failure, never a silent skip: a reused id would graft one
+  // entity's components onto another.
+  simulation::GameSimulation spawning_game =
+      mode_game({}, testing::spawn_point_map(4), testing::TestGameMode::Declaration{});
+  const simulation::WorldSnapshot before = spawning_game.snapshot();
+
+  CHECK_THROWS_AS(spawning_game.step(simulation::FixedDelta::canonical(),
+                                     reserved_batch({spawn_command(7), spawn_command(8)}, 100, 1)),
+                  simulation::SimulationValidationError);
+
+  CHECK(spawning_game.snapshot() == before);
+  CHECK(spawning_game.tick_sequence() == simulation::TickSequence::zero());
 }
 
 TEST_CASE("a kPreKernel system reads the start-of-tick positions",
@@ -952,20 +1073,26 @@ namespace {
   return simulation::Vector2::create(x, y);
 }
 
-// A static body seeded straight into the world. Step 19's `GameWorld::create(configuration, map,
-// seed)` seats `MapDefinition::static_bodies()` itself; until then this is the construction path
-// the kernel tests use, and it is the same value a map declares.
-[[nodiscard]] simulation::GameWorld::EntitySeed
-wall(const simulation::EntityId::Value id, const double x, const double y,
-     const double velocity_x = 0.0, const double velocity_y = 0.0,
-     const double acceleration_x = 0.0, const double acceleration_y = 0.0) {
-  return simulation::GameWorld::EntitySeed::create_static(
-      simulation::EntityId::create(id),
-      simulation::PhysicsBody::create(
-          at(x, y), at(velocity_x, velocity_y), at(acceleration_x, acceleration_y),
-          simulation::PhysicsBody::kDefaultRadius, simulation::PhysicsBody::kDefaultMass,
-          simulation::PhysicsBody::kDefaultCollisionLayer,
-          simulation::PhysicsBody::kDefaultCollisionMask, true));
+// One wall, as the value a map declares it, addressed by the id a kernel test chose. It is seated
+// by `seat_static_body` rather than seeded, because a wall carries a PhysicsBody and nothing else
+// and production static content is seated from the map by
+// `GameWorld::create(configuration, map, seed)`.
+struct SeatedWall final {
+  simulation::EntityId entity;
+  simulation::PhysicsBody body;
+};
+
+[[nodiscard]] SeatedWall wall(const simulation::EntityId::Value id, const double x, const double y,
+                              const double velocity_x = 0.0, const double velocity_y = 0.0,
+                              const double acceleration_x = 0.0,
+                              const double acceleration_y = 0.0) {
+  return SeatedWall{simulation::EntityId::create(id),
+                    simulation::PhysicsBody::create(
+                        at(x, y), at(velocity_x, velocity_y), at(acceleration_x, acceleration_y),
+                        simulation::PhysicsBody::kDefaultRadius,
+                        simulation::PhysicsBody::kDefaultMass,
+                        simulation::PhysicsBody::kDefaultCollisionLayer,
+                        simulation::PhysicsBody::kDefaultCollisionMask, true)};
 }
 
 [[nodiscard]] simulation::GameWorld::EntitySeed
@@ -979,18 +1106,20 @@ masked_player(const simulation::EntityId::Value id, const double x, const double
                                       simulation::PhysicsBody::kDefaultMass, layer, mask, false));
 }
 
-[[nodiscard]] simulation::MapDefinition arena_map(const double width, const double height) {
-  return simulation::MapDefinition::bare_arena(simulation::ArenaBounds::create(width, height));
-}
-
 [[nodiscard]] simulation::GameSimulation
 mapped_game(std::vector<simulation::GameWorld::EntitySeed> seeds, simulation::MapDefinition map,
             simulation::SimulationConfig simulation_configuration,
-            std::vector<simulation::SystemPipeline::StagedSystem> declared_systems = {}) {
+            std::vector<simulation::SystemPipeline::StagedSystem> declared_systems = {},
+            const std::vector<SeatedWall>& walls = {}) {
+  simulation::GameWorld world = simulation::GameWorld::create(std::move(seeds));
+  for (const SeatedWall& seated : walls) {
+    testing::seat_static_body(world, seated.entity, seated.body);
+  }
   return simulation::GameSimulation::create(
-      std::move(simulation_configuration), std::move(map),
-      simulation::GameWorld::create(std::move(seeds)),
-      simulation::SystemPipeline::create(std::move(declared_systems)));
+      std::move(simulation_configuration), std::move(world),
+      simulation::GameSimulationSetup::engine_defaults()
+          .with_map(std::move(map))
+          .with_systems(simulation::SystemPipeline::create(std::move(declared_systems))));
 }
 
 [[nodiscard]] const simulation::PhysicsBody&
@@ -1036,8 +1165,9 @@ TEST_CASE("a static body is never integrated, accelerated, or dragged",
       simulation::PhysicsBody::kDefaultMass, simulation::PhysicsBody::kDefaultCollisionLayer,
       simulation::PhysicsBody::kDefaultCollisionMask, true);
   simulation::GameSimulation simulation_game =
-      mapped_game({wall(1, 50.0, 50.0, 7.0, -3.0, 11.0, 13.0), player(2, 20.0, 20.0, 1.0, 1.0)},
-                  arena_map(100.0, 100.0), dragged_configuration(2.0, 100.0, 100.0, 5.0, 4, 4));
+      mapped_game({player(2, 20.0, 20.0, 1.0, 1.0)}, arena_map(100.0, 100.0),
+                  dragged_configuration(2.0, 100.0, 100.0, 5.0, 4, 4), {},
+                  {wall(1, 50.0, 50.0, 7.0, -3.0, 11.0, 13.0)});
 
   advance(simulation_game, 100);
 
@@ -1051,8 +1181,8 @@ TEST_CASE("a dynamic body reflects off a static one and the static one does not 
   const simulation::PhysicsBody declared_wall =
       simulation::PhysicsBody::create_static(at(50.0, 50.0));
   simulation::GameSimulation simulation_game =
-      mapped_game({player(1, 41.0, 50.0, 1.0, 2.0), wall(2, 50.0, 50.0)}, arena_map(100.0, 100.0),
-                  configuration(100.0, 100.0, 5.0, 4, 4));
+      mapped_game({player(1, 41.0, 50.0, 1.0, 2.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4), {}, {wall(2, 50.0, 50.0)});
 
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
 
@@ -1070,8 +1200,8 @@ TEST_CASE("a static body meeting a dynamic one at the lower id still reflects th
   const simulation::PhysicsBody declared_wall =
       simulation::PhysicsBody::create_static(at(50.0, 50.0));
   simulation::GameSimulation simulation_game =
-      mapped_game({wall(1, 50.0, 50.0), player(2, 59.0, 50.0, -1.0, 0.0)}, arena_map(100.0, 100.0),
-                  configuration(100.0, 100.0, 5.0, 4, 4));
+      mapped_game({player(2, 59.0, 50.0, -1.0, 0.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4), {}, {wall(1, 50.0, 50.0)});
 
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
 
@@ -1088,8 +1218,8 @@ TEST_CASE("a static body on the arena edge is legal content and still reflects",
   // The wall centre at x = 2 is inside the closed arena rectangle and outside the [5, 95] centre
   // interval, which is precisely the case the pre-Step-18 bounds check and index would reject.
   simulation::GameSimulation simulation_game =
-      mapped_game({player(1, 11.0, 50.0, -1.0, 0.0), wall(2, 2.0, 50.0)}, arena_map(100.0, 100.0),
-                  configuration(100.0, 100.0, 5.0, 4, 4));
+      mapped_game({player(1, 11.0, 50.0, -1.0, 0.0)}, arena_map(100.0, 100.0),
+                  configuration(100.0, 100.0, 5.0, 4, 4), {}, {wall(2, 2.0, 50.0)});
   REQUIRE_FALSE(simulation_game.map().bounds().contains_disc_center(at(2.0, 50.0), 5.0));
 
   CHECK_NOTHROW(
@@ -1106,9 +1236,9 @@ TEST_CASE("phase 3 emits one contact event naming the row that matched",
   declared.push_back(testing::staged(
       simulation::SystemStage::kPostKernel,
       std::make_unique<const testing::ContactRuleProbeSystem>("reflect_probe", "reflect_static")));
-  simulation::GameSimulation simulation_game =
-      mapped_game({player(1, 41.0, 50.0, 1.0, 0.0), wall(2, 50.0, 50.0)}, arena_map(100.0, 100.0),
-                  configuration(100.0, 100.0, 5.0, 4, 4), std::move(declared));
+  simulation::GameSimulation simulation_game = mapped_game(
+      {player(1, 41.0, 50.0, 1.0, 0.0)}, arena_map(100.0, 100.0),
+      configuration(100.0, 100.0, 5.0, 4, 4), std::move(declared), {wall(2, 50.0, 50.0)});
 
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
 
@@ -1248,13 +1378,295 @@ TEST_CASE("a mode that declares no contact rule leaves every admitted contact un
   // The table is total without a default row, and the kernel is what has to be total: an empty
   // table means bodies pass through each other rather than failing the tick.
   simulation::GameSimulation simulation_game = simulation::GameSimulation::create(
-      configuration(100.0, 100.0, 5.0, 4, 4), arena_map(100.0, 100.0),
+      configuration(100.0, 100.0, 5.0, 4, 4),
       simulation::GameWorld::create(
           {player(1, 45.0, 50.0, 1.0, 0.0), player(2, 55.0, 50.0, -1.0, 0.0)}),
-      simulation::SystemPipeline::empty(), simulation::ContactRuleTable::empty());
+      simulation::GameSimulationSetup::engine_defaults()
+          .with_map(arena_map(100.0, 100.0))
+          .with_contact_rules(simulation::ContactRuleTable::empty()));
 
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
 
   check_vector(snapshot_player(simulation_game.snapshot(), 1).velocity(), 1.0, 0.0);
   check_vector(snapshot_player(simulation_game.snapshot(), 2).velocity(), -1.0, 0.0);
+}
+
+TEST_CASE("a snapshot's entities cannot disagree with the components it publishes",
+          "[unit][simulation][game_simulation][snapshot][entity_roster]") {
+  // Engine review finding 2. The world used to hold a roster beside its stores, and
+  // `mutable_store<C>()` let either drift from the other, so a stage that wrote a component for an
+  // id the roster did not hold published a component for an entity the same snapshot's
+  // `entities()` omitted. The roster is derived from the stores now, so this is not a case the
+  // snapshot has to get right -- it is a case that cannot be expressed.
+  class ScoreGraftingSystem final : public simulation::SimulationSystem {
+  public:
+    [[nodiscard]] std::string_view name() const noexcept override { return "score_grafter"; }
+    void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+      world.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(77),
+                                                                simulation::Score{5});
+    }
+  };
+
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(simulation::SystemStage::kPostKernel,
+                                     std::make_unique<const ScoreGraftingSystem>()));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0)}, std::move(declared));
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  REQUIRE(snapshot.entities().size() == 2);
+  CHECK(snapshot.entities()[0] == simulation::EntityId::create(1));
+  CHECK(snapshot.entities()[1] == simulation::EntityId::create(77));
+  CHECK(score_of(snapshot, 77) == 5);
+  // Every id any published store holds appears exactly once in the published roster.
+  for (const simulation::ComponentStore<simulation::Score>::Entry& entry :
+       snapshot.components<simulation::Score>()) {
+    CHECK(std::count(snapshot.entities().begin(), snapshot.entities().end(), entry.entity) == 1);
+  }
+}
+
+TEST_CASE("erasing the last component an entity carries removes it from the published roster",
+          "[unit][simulation][game_simulation][snapshot][entity_roster]") {
+  // The other direction of finding 2: a stage that erases from a store used to leave a roster seat
+  // behind, so a snapshot named an entity that published nothing at all.
+  class BodyErasingSystem final : public simulation::SimulationSystem {
+  public:
+    [[nodiscard]] std::string_view name() const noexcept override { return "body_eraser"; }
+    void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+      world.mutable_store<simulation::PhysicsBody>().erase(simulation::EntityId::create(2));
+      world.mutable_store<simulation::Controllable>().erase(simulation::EntityId::create(2));
+    }
+  };
+
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(simulation::SystemStage::kPostKernel,
+                                     std::make_unique<const BodyErasingSystem>()));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0), player(2, 200.0, 50.0)}, std::move(declared));
+
+  CHECK_NOTHROW(
+      simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()));
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  REQUIRE(snapshot.entities().size() == 1);
+  CHECK(snapshot.entities()[0] == simulation::EntityId::create(1));
+  CHECK(snapshot.players().size() == 1);
+}
+
+TEST_CASE("a system creates an entity from the tick's reservation and the tick commits coherently",
+          "[unit][simulation][game_simulation][stages][entity_id_reservation][spatial_grid]") {
+  // Engine review finding 3. `create_entity()` draws from the tick's reservation, so a hook-stage
+  // system can make a projectile, a pickup, or a zone entity. The debug commit invariant asserts
+  // the committed index equals a fresh rebuild of the committed world, so a coherent tick here is
+  // a coherent roster, index, and snapshot together.
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPreKernel,
+      std::make_unique<const testing::ReservedEntityCreatingSystem>(
+          "projectile_maker",
+          simulation::PhysicsBody::create(at(200.0, 200.0), at(4.0, 0.0), at(0.0, 0.0)), 2)));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0)}, std::move(declared));
+
+  CHECK_NOTHROW(
+      simulation_game.step(simulation::FixedDelta::canonical(), reserved_batch({}, 500, 4)));
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  REQUIRE(snapshot.entities().size() == 3);
+  CHECK(snapshot.entities()[1] == simulation::EntityId::create(500));
+  CHECK(snapshot.entities()[2] == simulation::EntityId::create(501));
+  // The ids came out of the reservation in ascending order, which each created entity recorded.
+  CHECK(order_trail_of(snapshot, 500) == 500);
+  CHECK(order_trail_of(snapshot, 501) == 501);
+  // Created before phase 1, so the body integrated on the very tick that created it.
+  check_vector(snapshot_player(snapshot, 500).position(), 200.01, 200.0);
+  CHECK(snapshot.players().size() == 3);
+
+  // The committed index holds the created ids: the next tick builds pairs over them without
+  // failing, which is what a stale index would break. The system creates again from that tick's
+  // own reservation, because a reservation belongs to one tick and is cleared at every commit.
+  CHECK_NOTHROW(
+      simulation_game.step(simulation::FixedDelta::canonical(), reserved_batch({}, 600, 4)));
+  const simulation::WorldSnapshot next_snapshot = simulation_game.snapshot();
+  CHECK(next_snapshot.entities().size() == 5);
+  CHECK(next_snapshot.entities()[1] == simulation::EntityId::create(500));
+  CHECK(next_snapshot.entities()[3] == simulation::EntityId::create(600));
+}
+
+TEST_CASE("a system that exhausts the tick's reservation fails the tick and commits nothing",
+          "[unit][simulation][game_simulation][stages][entity_id_reservation]") {
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(
+      simulation::SystemStage::kPreKernel,
+      std::make_unique<const testing::ReservedEntityCreatingSystem>(
+          "greedy_maker",
+          simulation::PhysicsBody::create(at(200.0, 200.0), at(0.0, 0.0), at(0.0, 0.0)), 3)));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0)}, std::move(declared));
+  const simulation::WorldSnapshot before = simulation_game.snapshot();
+
+  CHECK_THROWS_AS(
+      simulation_game.step(simulation::FixedDelta::canonical(), reserved_batch({}, 500, 2)),
+      simulation::SimulationValidationError);
+
+  CHECK(simulation_game.snapshot() == before);
+  CHECK(simulation_game.tick_sequence() == simulation::TickSequence::zero());
+}
+
+TEST_CASE("an entity pushed out of bounds and marked for despawn is removed rather than stopping "
+          "the match",
+          "[unit][simulation][game_simulation][world_event][validation]") {
+  // Engine review finding 14. The commit used to validate bodies before applying this tick's
+  // DespawnEvent removals, so an entity a system both pushed out of bounds and marked for despawn
+  // stopped the match. Royale's elimination pairs exactly those two: an entity that left the safe
+  // zone is frequently one a contact has just pushed past the arena edge. Removal precedes
+  // validation now, so the question the commit asks is whether the world it is about to *publish*
+  // is legal.
+  class EliminatingSystem final : public simulation::SimulationSystem {
+  public:
+    [[nodiscard]] std::string_view name() const noexcept override { return "eliminator"; }
+    void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+      const simulation::EntityId entity = simulation::EntityId::create(1);
+      const simulation::PhysicsBody* body = world.store<simulation::PhysicsBody>().find(entity);
+      if (body == nullptr) {
+        return;
+      }
+      world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+          entity, body->with_position(at(1.0, 50.0)));
+      world.emit(simulation::DespawnEvent{entity});
+    }
+  };
+
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(simulation::SystemStage::kPostKernel,
+                                     std::make_unique<const EliminatingSystem>()));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0, 4.0, 0.0), player(2, 80.0, 50.0)}, std::move(declared),
+                  configuration(100.0, 100.0, 10.0, 4, 4));
+
+  CHECK_NOTHROW(
+      simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()));
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  CHECK(snapshot.tick_sequence().value() == 1);
+  REQUIRE(snapshot.entities().size() == 1);
+  CHECK(snapshot.entities()[0] == simulation::EntityId::create(2));
+}
+
+TEST_CASE("a surviving body written out of bounds still fails the tick",
+          "[unit][simulation][game_simulation][world_event][validation]") {
+  // The other half of finding 14: reordering removal before validation must not weaken the check
+  // for the bodies that actually survive to publication.
+  class OutOfBoundsSurvivorSystem final : public simulation::SimulationSystem {
+  public:
+    [[nodiscard]] std::string_view name() const noexcept override { return "out_of_bounds_keeper"; }
+    void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+      const simulation::EntityId entity = simulation::EntityId::create(1);
+      const simulation::PhysicsBody* body = world.store<simulation::PhysicsBody>().find(entity);
+      if (body == nullptr) {
+        return;
+      }
+      world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+          entity, body->with_position(at(1.0, 50.0)));
+      world.emit(simulation::DespawnEvent{simulation::EntityId::create(2)});
+    }
+  };
+
+  std::vector<simulation::SystemPipeline::StagedSystem> declared;
+  declared.push_back(testing::staged(simulation::SystemStage::kPostKernel,
+                                     std::make_unique<const OutOfBoundsSurvivorSystem>()));
+  simulation::GameSimulation simulation_game =
+      staged_game({player(1, 50.0, 50.0, 4.0, 0.0), player(2, 80.0, 50.0)}, std::move(declared),
+                  configuration(100.0, 100.0, 10.0, 4, 4));
+  const simulation::WorldSnapshot before = simulation_game.snapshot();
+
+  CHECK_THROWS_AS(
+      simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()),
+      simulation::SimulationValidationError);
+
+  CHECK(simulation_game.snapshot() == before);
+}
+
+TEST_CASE("GameSimulation reads every mode declaration once and publishes the name and kinds",
+          "[unit][simulation][game_simulation][game_mode]") {
+  testing::TestGameMode::Declaration declaration;
+  declaration.name = "arena_brawl";
+  simulation::GameSimulation simulation_game =
+      mode_game({player(1, 50.0, 50.0)}, testing::spawn_point_map(2), std::move(declaration));
+
+  CHECK(simulation_game.mode_name() == "arena_brawl");
+  CHECK(simulation_game.accepted_command_kinds() == simulation::CommandKindMask::all());
+  CHECK(simulation_game.contact_rules().size() == 2);
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  CHECK(snapshot.match().mode_name() == "arena_brawl");
+}
+
+TEST_CASE("a simulation with no declared mode runs the engine's own declarations",
+          "[unit][simulation][game_simulation][game_mode]") {
+  // `create(configuration, world)` is still the accepted seven-phase baseline: the engine declares
+  // a spawn policy that never seats and an objective that never starts a match, so the match stays
+  // in `lobby` and no phase transition is ever committed.
+  simulation::GameSimulation simulation_game = game({player(1, 50.0, 50.0)});
+
+  advance(simulation_game, 4);
+
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+  CHECK(simulation_game.mode_name() == simulation::GameSimulation::kEngineDefaultModeName);
+  CHECK(snapshot.match().phase() == simulation::MatchPhase::kLobby);
+  CHECK(snapshot.match().phase_started_tick() == simulation::TickSequence::zero());
+  CHECK_FALSE(snapshot.match().outcome().is_decided());
+  CHECK(snapshot.random_draw_count() == 0);
+}
+
+TEST_CASE("a setup that declares both a mode and an explicit pipeline is rejected",
+          "[unit][simulation][game_simulation][game_mode][validation]") {
+  // Two declarations of one thing is exactly the ambiguity collapsing the four `create` overloads
+  // into one setup value was meant to remove, so it is a named failure rather than a precedence
+  // rule nobody would remember.
+  CHECK_THROWS_AS(simulation::GameSimulation::create(
+                      configuration(), simulation::GameWorld::create({player(1, 50.0, 50.0)}),
+                      simulation::GameSimulationSetup::of_mode(
+                          testing::spawn_point_map(1),
+                          testing::TestGameMode::create(testing::TestGameMode::Declaration{}))
+                          .with_systems(simulation::SystemPipeline::empty())),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("a mode that cannot play the map rejects it at construction",
+          "[unit][simulation][game_simulation][game_mode][map_definition][validation]") {
+  testing::TestGameMode::Declaration declaration;
+  declaration.required_spawn_point_count = 4;
+
+  CHECK_THROWS_AS(mode_game({}, testing::spawn_point_map(2), std::move(declaration)),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("a mode may not shadow the engine's lifecycle system",
+          "[unit][simulation][game_simulation][game_mode][match_lifecycle]") {
+  // The engine appends its own MatchLifecycleSystem last at kLifecycle and it is not removable, so
+  // a mode declaring that name is rejected when the pipeline is built rather than silently
+  // replacing the match machine.
+  testing::TestGameMode::Declaration declaration;
+  declaration.systems.push_back(testing::staged_no_op(
+      simulation::SystemStage::kLifecycle, simulation::MatchLifecycleSystem::kSystemName));
+
+  CHECK_THROWS_AS(mode_game({}, testing::spawn_point_map(1), std::move(declaration)),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("a map whose spawn point cannot seat the configured disc is rejected at construction",
+          "[unit][simulation][game_simulation][map_definition][spawn][validation]") {
+  // A spawn point is content and a radius is configuration; this is the one place they meet, and
+  // it turns a mid-match bounds failure into a startup rejection with a named cause.
+  std::vector<simulation::MapDefinition::Marker> markers;
+  markers.push_back(simulation::MapDefinition::Marker::spawn(at(2.0, 50.0)));
+  simulation::MapDefinition edge_map = simulation::MapDefinition::create(
+      "edge_spawn_map", simulation::ArenaBounds::create(100.0, 100.0), {}, std::move(markers),
+      simulation::MapMetadata::none());
+
+  CHECK_THROWS_AS(mode_game({}, std::move(edge_map), testing::TestGameMode::Declaration{},
+                            configuration(100.0, 100.0, 10.0, 4, 4)),
+                  simulation::SimulationValidationError);
 }

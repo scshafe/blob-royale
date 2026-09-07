@@ -5,9 +5,15 @@
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
 #include "controller_id.hpp"
+#include "deterministic_random.hpp"
 #include "entity_id.hpp"
+#include "entity_id_reservation.hpp"
 #include "game_world.hpp"
+#include "map_definition.hpp"
+#include "match_phase.hpp"
+#include "match_state.hpp"
 #include "physics_body.hpp"
+#include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 #include "team_id.hpp"
@@ -37,6 +43,11 @@ namespace {
                                                      const double x) {
   return simulation::GameWorld::EntitySeed::create(simulation::EntityId::create(id),
                                                    stationary_body(x, 0.0));
+}
+
+[[nodiscard]] simulation::SimulationConfig configuration() {
+  return simulation::SimulationConfig::create(
+      100.0, 100.0, 5.0, simulation::SimulationConfig::kRequiredTicksPerSecond, 4, 4);
 }
 
 } // namespace
@@ -197,19 +208,37 @@ TEST_CASE("GameWorld seeds an explicit ControllerId when one is supplied",
             ->controller_id.value() == 77);
 }
 
-TEST_CASE("GameWorld create_entity inserts ascending and rejects a duplicate EntityId",
-          "[unit][simulation][game_world]") {
+TEST_CASE("GameWorld derives its roster from the component stores, ascending and distinct",
+          "[unit][simulation][game_world][entity_roster]") {
+  // There is one answer to "which entities exist" and it is the stores: an entity exists exactly
+  // while some registered store holds its id, so writing a component is what creates an entity and
+  // no roster can drift from the components it is supposed to describe.
   simulation::GameWorld world = simulation::GameWorld::create({seed(5, 5.0)});
-  world.create_entity(simulation::EntityId::create(2));
-  world.create_entity(simulation::EntityId::create(9));
+  world.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(9),
+                                                            simulation::Score{1});
+  world.mutable_store<simulation::Team>().insert_or_assign(
+      simulation::EntityId::create(2), simulation::Team{simulation::TeamId::create(4)});
+  // The same entity in two stores appears once.
+  world.mutable_store<simulation::Lifetime>().insert_or_assign(simulation::EntityId::create(9),
+                                                               simulation::Lifetime{3});
 
   REQUIRE(world.entities().size() == 3);
   CHECK(world.entities()[0].value() == 2);
   CHECK(world.entities()[1].value() == 5);
   CHECK(world.entities()[2].value() == 9);
+  CHECK(world.contains(simulation::EntityId::create(9)));
+  CHECK_FALSE(world.contains(simulation::EntityId::create(404)));
   CHECK(world.store<simulation::PhysicsBody>().size() == 1);
-  CHECK_THROWS_AS(world.create_entity(simulation::EntityId::create(5)),
-                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("GameWorld create_entity draws from this tick's reservation and fails when exhausted",
+          "[unit][simulation][game_world][entity_id_reservation]") {
+  // A world outside a tick holds the empty reservation, so nothing but a tick can create. The
+  // kernel installs the tick's reservation; exhaustion is a hard failure and never a silent skip.
+  simulation::GameWorld world = simulation::GameWorld::create({seed(5, 5.0)});
+
+  CHECK_THROWS_AS(static_cast<void>(world.create_entity()), simulation::SimulationValidationError);
+  CHECK(world.entity_id_reservation() == simulation::EntityIdReservation::none());
 }
 
 TEST_CASE("GameWorld rejects duplicate IDs and unsafe entity counts",
@@ -277,7 +306,8 @@ TEST_CASE("GameWorld equality is generated over every registered component store
       simulation::EntityId::create(2),
       simulation::Controllable{simulation::ControllerId::create(8)});
   simulation::GameWorld extra_entity = world;
-  extra_entity.create_entity(simulation::EntityId::create(7));
+  extra_entity.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(7),
+                                                                   simulation::Score{0});
 
   CHECK(world == simulation::GameWorld::create({seed(5, 5.0), seed(2, 2.0)}));
   CHECK(world != scored);
@@ -337,4 +367,56 @@ TEST_CASE("GameWorld equality distinguishes a pending event list",
   pending.emit(simulation::EliminationEvent{simulation::EntityId::create(2)});
 
   CHECK(world != pending);
+}
+
+TEST_CASE("GameWorld seats a map's static bodies with the world's own id policy",
+          "[unit][simulation][game_world][map_definition]") {
+  // The id policy for map content is owned by the world: `kMinimumEntityId + index` in the map's
+  // declared order, so a map's entities are a deterministic function of the map file alone and no
+  // caller can choose them. A wall carries a PhysicsBody and nothing else, which is what keeps it
+  // out of the protocol v1 player projection.
+  std::vector<simulation::PhysicsBody> static_bodies;
+  static_bodies.push_back(
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(10.0, 20.0)));
+  static_bodies.push_back(
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(30.0, 40.0)));
+  const simulation::MapDefinition map = simulation::MapDefinition::create(
+      "walled_map", simulation::ArenaBounds::create(100.0, 100.0), std::move(static_bodies), {},
+      simulation::MapMetadata::none());
+
+  const simulation::GameWorld world = simulation::GameWorld::create(configuration(), map, 4'242);
+
+  REQUIRE(world.entities().size() == 2);
+  CHECK(world.entities()[0].value() == simulation::kMinimumEntityId);
+  CHECK(world.entities()[1].value() == simulation::kMinimumEntityId + 1);
+  REQUIRE(world.store<simulation::PhysicsBody>().size() == 2);
+  CHECK(world.store<simulation::PhysicsBody>().entries()[0].value.position() ==
+        simulation::Vector2::create(10.0, 20.0));
+  CHECK(world.store<simulation::Controllable>().empty());
+  CHECK(world.random().seed() == 4'242);
+  CHECK(world.random().draw_count() == 0);
+}
+
+TEST_CASE("GameWorld rejects a map whose spawn point cannot seat the configured disc",
+          "[unit][simulation][game_world][map_definition][validation]") {
+  // A spawn point is content and a radius is configuration. Checking them together at construction
+  // turns a mid-match bounds failure into a startup rejection with a named cause.
+  std::vector<simulation::MapDefinition::Marker> markers;
+  markers.push_back(
+      simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(2.0, 50.0)));
+  const simulation::MapDefinition map = simulation::MapDefinition::create(
+      "edge_spawn_map", simulation::ArenaBounds::create(100.0, 100.0), {}, std::move(markers),
+      simulation::MapMetadata::none());
+
+  CHECK_THROWS_AS(simulation::GameWorld::create(configuration(), map, 0),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("a seeded GameWorld carries an unusable reservation and a zero-seeded generator",
+          "[unit][simulation][game_world][entity_id_reservation][deterministic_random]") {
+  const simulation::GameWorld world = simulation::GameWorld::create({seed(2, 2.0)});
+
+  CHECK(world.entity_id_reservation().empty());
+  CHECK(world.random().seed() == 0);
+  CHECK(world.match().phase == simulation::MatchPhase::kLobby);
 }

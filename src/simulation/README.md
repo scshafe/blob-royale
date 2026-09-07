@@ -84,16 +84,26 @@ mechanism that no mode may reorder, skip, replace, or add; the stages hold the m
 systems:
 
 ```
-  phase 0            despawns, then this tick's remaining commands recorded per entity
+  phase 0            despawns; spawns draw an id and get a Controllable; the engine SpawnSystem
+                     seats them through the mode's SpawnPolicy; remaining commands recorded
   ---- kPreKernel -- the mode's systems, declared order
   phase 1            stored acceleration, then drag
   phase 2            canonical candidate pairs
   phase 3            admission, narrow phase, then the mode's ContactRuleTable
   phases 4-6         world bounds, integration, spatial reindex
   ---- kPostKernel - the mode's systems, declared order
-  ---- kLifecycle -- the mode's systems, declared order
-  phase 10           validate, apply DespawnEvent removals, reindex survivors, clear events, publish
+  ---- kLifecycle -- the mode's systems, declared order, then the engine MatchLifecycleSystem
+  phase 10           apply DespawnEvent removals, validate the survivors, reindex, clear the
+                     tick-local state, publish
 ```
+
+**Removal precedes validation at the commit**, which deviates from the written order of ADR 0003
+§ "Canonical tick" phase 10 and is deliberate: validating first makes an entity that a system both
+pushed out of bounds and marked for despawn stop the match, and royale's elimination pairs exactly
+those two. The question the commit asks is whether the world it is about to *publish* is legal.
+Everything the original order guaranteed still holds — removal precedes the rebuild, the rebuild
+precedes publication, no committed grid holds a non-live `EntityId`, and no snapshot observes a
+half-applied removal. ADR 0003 owes this reordering an amendment.
 
 A `SimulationSystem` is one interface with `name()` and `apply(GameWorld&, const TickContext&)
 const`. **`apply` is `const` on purpose:** a system holds immutable configuration and nothing else,
@@ -106,7 +116,7 @@ positions, and from `kPostKernel` onward it is this tick's phase 6 rebuild. It n
 reading stage's own writes, so a system that must see those reads the component stores instead.
 
 The kernel has exactly **two policy sockets**, both evaluated at a fixed point against declared
-data: the mode's `SpawnPolicy` in phase 0 (Step 19) and its `ContactRuleTable` in phase 3. There is
+data: the mode's `SpawnPolicy` in phase 0 and its `ContactRuleTable` in phase 3. There is
 no third. Phase 3 applies three gates in a fixed order -- the pure integer collision-admission
 predicate over the two bodies' layers and masks, the narrow phase that rejects non-contacts and
 separating contacts, then the table walked in declared row order with the canonical orientation
@@ -150,18 +160,34 @@ A **static body** takes part in the broad phase and in contact resolution and is
 accelerated, or dragged: phases 1, 4, and 5 skip it. Its centre obeys the closed arena rectangle
 rather than the disc-centre interval a dynamic body is folded into, because a wall legitimately sits
 on or past the arena edge -- and getting that distinction wrong is what would make the obvious
-boundary obstacle unrepresentable. `MapDefinition::static_bodies()` is declared content; seating it
-as entities needs the id policy `GameWorld::create(configuration, map, seed)` owns, which arrives in
-Step 19, so today a caller seats one through `GameWorld::EntitySeed::create_static`.
+boundary obstacle unrepresentable. `MapDefinition::static_bodies()` is declared content, and
+`GameWorld::create(configuration, map, seed)` seats it: the world owns the id policy for map
+content and numbers a map's bodies `kMinimumEntityId + index` in declared order, so a map's
+entities are a deterministic function of the map file alone. That factory also rejects a map whose
+spawn points cannot seat a disc of the configured radius, which is the one place a spawn point
+meets a radius.
 
 ## Ownership and invariants
 
-`GameSimulation` owns one `GameWorld`, one `MapDefinition`, one `SpatialGrid`, one `SystemPipeline`,
-and one `ContactRuleTable`. `GameWorld` owns
-one ascending `entities()` roster, one `ComponentStore` per registered component kind reached
-through `store<C>()` and `mutable_store<C>()`, and the tick's `WorldEvent` list. Grid cells contain
-non-owning `EntityId` values and are rebuilt deterministically after a committed tick. A
-`GameWorld&` exists only inside `step`, so nothing outside a tick can obtain one.
+`GameSimulation` owns one `GameWorld`, one `MapDefinition`, one `SpatialGrid`, one `SystemPipeline`
+with the engine's `MatchLifecycleSystem` appended last at `kLifecycle`, one `ContactRuleTable`, one
+`SpawnSystem` holding the mode's `SpawnPolicy`, and the mode's declared name and accepted command
+kinds. **Every declaration is read exactly once, at construction, and the mode object is then
+destroyed**, so "nothing calls into the mode during a tick" is structural rather than a rule to
+remember; the corresponding obligation on a mode author is that every declaration it returns is
+independently owned.
+
+`GameWorld` owns one `ComponentStore` per registered component kind reached through `store<C>()`
+and `mutable_store<C>()`, `MatchState`, `DeterministicRandom`, the tick's `WorldEvent` list, and the
+tick's `EntityIdReservation`. **`entities()` is derived from the stores, not stored beside them**:
+an entity exists exactly while some registered store holds its id, so "which entities exist" has
+one answer and a store write cannot desynchronize a roster. `create_entity()` draws an id from the
+tick's reservation and the entity comes into existence when its first component is written;
+exhaustion is a hard failure. A world outside a tick holds the empty reservation, so nothing but a
+tick can create.
+
+Grid cells contain non-owning `EntityId` values and are rebuilt deterministically after a committed
+tick. A `GameWorld&` exists only inside `step`, so nothing outside a tick can obtain one.
 
 Constructors and named factories reject invalid values before they enter the world. A tick computes
 against a working copy of the committed world, so if any phase or stage fails, no partial tick
@@ -169,11 +195,16 @@ becomes observable and the previous commit stands unchanged. The numbered phases
 the `PhysicsBody` store and the `Controllable` command lists, so every other registered component
 survives a tick unless a system writes it.
 
-`WorldSnapshot` and `PlayerSnapshot` are immutable, copy-owned publication values. A snapshot carries
-the ascending entity roster, every registered component kind through `components<C>()`, and the
-protocol v1 `players()` projection of the entities carrying both a `PhysicsBody` and a `Controllable`.
-Snapshot creation happens only after a complete tick and retains canonical entity ordering. Older
-snapshots never change when the simulation advances.
+`WorldSnapshot` and `PlayerSnapshot` are immutable, copy-owned publication values. A snapshot
+carries the ascending entity roster, every registered component kind through `components<C>()`, the
+protocol v1 `players()` projection of the entities carrying both a `PhysicsBody` and a
+`Controllable`, the `MatchSnapshot` section, and the generator's `random_draw_count()`. Its roster
+is derived from the stores it just copied, so a published component whose entity is missing from
+`entities()` is unrepresentable rather than merely avoided. **A published component is what its kind
+declares it publishes** (`component_publication.hpp`): `Controllable::commands_this_tick` is
+tick-local live input and is stripped here, so a snapshot never discloses a player's input for the
+tick it is rendering. Snapshot creation happens only after a complete tick and retains canonical
+entity ordering. Older snapshots never change when the simulation advances.
 
 ## Extension points
 
@@ -210,6 +241,21 @@ contains no physics. Row order is the declared precedence, and a mode that wants
 them into its own order, so precedence between mode rows and built-in rows is visible in the mode's
 source. Two implementations beyond `elastic_disc`: `reflect_static` for a dynamic body meeting a
 wall, and a `flag_pickup` pass-through row that changes no body and emits one event.
+
+`@extension-point game_mode` — `game_mode.hpp`, with the mode-state seam in
+`mode_match_state_registry.hpp`. A `GameMode` is the complete declared ruleset of one playable game
+and the one accepted inheritance hierarchy here. Its seven declarations — `name`, `systems`,
+`contact_rules`, `accepted_command_kinds`, `spawn_policy`, `objective`, `validate_map` — are read
+once at construction through `GameSimulationSetup::of_mode(map, mode)`, and the two sub-interfaces a
+mode declares are `SpawnPolicy` (which index into `map.spawn_points()`, or defer) and
+`MatchObjective` (`can_start`, `outcome`, `durations`). Everything else about seating and the match
+machine is engine mechanism: `SpawnSystem` owns iteration, occupancy, the rotation counter, and the
+seating write, and `MatchLifecycleSystem` runs last at `kLifecycle` and commits at most one phase
+transition per tick. A mode's own match-wide state that is genuinely not entity-shaped is one arm of
+`ModeMatchState` plus one registration line — mode state should be a component wherever it can be.
+Two implementations: the engine's own `idle` declarations (`idle_spawn_policy.hpp`,
+`idle_match_objective.hpp`), which never seat and never start a match, and the in-test
+`TestGameMode`; `sandbox` and `royale` follow in `blob_gameplay`.
 
 `@extension-point map_definition` — `map_definition.hpp`. A map is a data directory and one line of
 match configuration: `map.ini` for name, bounds, and metadata, `static_bodies.csv` for obstacles,

@@ -137,14 +137,18 @@ terminates, rather than chaining transitions inside one tick. A committed transi
 and nothing else; a consequence a mode wants from a transition is that mode's own system, ordered
 ahead of the lifecycle system by declaration (ADR 0005 § "Match lifecycle").
 
-10. **Commit.** Reject any non-finite or out-of-bounds result as a hard simulation failure.
-    Otherwise, in this fixed order: canonicalize signed zero to positive zero; apply the roster
-    removals named by this tick's `DespawnEvent`s, destroying each from every component store;
+10. **Commit.** In this fixed order: apply the roster removals named by this tick's `DespawnEvent`s,
+    destroying each from every component store; reject any non-finite or out-of-bounds result among
+    the bodies that survive as a hard simulation failure; canonicalize signed zero to positive zero;
     rebuild the spatial index from the roster and positions that survive; clear the `WorldEvent`
     list; replace the committed world state; increment the tick sequence once; and make that
-    complete tick eligible for snapshot publication. Because validation precedes removal, removal
-    precedes the rebuild, and the rebuild precedes publication, no committed grid holds a non-live
-    `EntityId` and no snapshot observes a half-applied removal. Events are tick-local and never
+    complete tick eligible for snapshot publication. Removal precedes validation because an entity
+    that a system both pushed out of bounds and marked for removal in the same tick is a removal,
+    not a failure: a body eliminated at the arena edge is exactly that pairing, and validating first
+    would stop the match on the tick a mode legitimately deletes the offending body. Validation
+    therefore judges only what the tick actually commits. Because removal precedes validation,
+    validation precedes the rebuild, and the rebuild precedes publication, no committed grid holds a
+    non-live `EntityId` and no snapshot observes a half-applied removal. Events are tick-local and never
     appear in a snapshot (ADR 0004 § "World events"); a consequence that must outlive the tick was
     already written into a component or into `MatchState` by the system that decided it. A rejected
     tick commits nothing at all: the world, the roster, `MatchState`, and the tick sequence remain
@@ -443,6 +447,11 @@ These are seams in the pure-function and phase boundaries, not plugin registries
 * [`../PROJECT_DEEP_DIVE.md`](../PROJECT_DEEP_DIVE.md) — evidence for prototype timing, collision, spatial-index, and fixture defects.
 * [`../../.claude/plans/2026-08-04-feature-ready-foundation.md`](../../.claude/plans/2026-08-04-feature-ready-foundation.md) — accepted migration order and Steps 10–15 requirements.
 * [`../../.claude/plans/2026-09-06-playable-prototype-tailnet.md`](../../.claude/plans/2026-09-06-playable-prototype-tailnet.md) — accepted plan; Step 13 records this amendment and Steps 15 through 19 implement it.
+
+**Amended 2026-09-06:** Phase 10 applies `DespawnEvent` roster removals before it validates, not
+after. An entity that a system both pushes out of bounds and marks for removal in one tick is a
+removal rather than a hard failure, and Royale's elimination at the arena edge is exactly that
+pairing. Validation now judges only the bodies the tick commits.
 
 **Amended 2026-09-06:** The gameplay framework of
 [`0004-gameplay-architecture.md`](0004-gameplay-architecture.md) is accepted, so this contract now

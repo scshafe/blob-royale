@@ -84,6 +84,16 @@ public:
   // accepted seven-phase baseline. This is the stricter of ADR 0003's two bit-identity witnesses.
   [[nodiscard]] static SystemPipeline empty();
 
+  // This pipeline with one more system appended after everything the mode declared at that stage.
+  //
+  // It exists for exactly one caller: the engine appends its own MatchLifecycleSystem last at
+  // kLifecycle when a simulation is constructed, and the ADR is explicit that the lifecycle system
+  // is a SimulationSystem like any other rather than a second kind of tick participant
+  // (`docs/architecture/0004-gameplay-architecture.md` § "Game modes and the match lifecycle").
+  // Appending re-runs `create`'s validation, so a mode that declares a system named
+  // `match_lifecycle` is rejected at construction instead of shadowing the engine's.
+  [[nodiscard]] SystemPipeline with_appended(StagedSystem staged) &&;
+
   SystemPipeline(const SystemPipeline&) = delete;
   SystemPipeline(SystemPipeline&&) noexcept = default;
   SystemPipeline& operator=(const SystemPipeline&) = delete;

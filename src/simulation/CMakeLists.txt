@@ -4,14 +4,17 @@ add_library(blob_simulation STATIC
   controller_id.cpp
   entity_id.cpp
   game_simulation.cpp
+  game_simulation_setup.cpp
   game_world.cpp
   input_batch.cpp
   map_definition.cpp
+  match_lifecycle_system.cpp
   physics.cpp
   physics_body.cpp
   player_snapshot.cpp
   simulation_config.cpp
   spatial_grid.cpp
+  spawn_system.cpp
   system_pipeline.cpp
   team_id.cpp
   tick_sequence.cpp

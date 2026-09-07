@@ -3,8 +3,10 @@
 #include "components/controllable_component.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "spawn_system.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <string>
 #include <utility>
 
@@ -17,17 +19,6 @@ GameWorld::EntitySeed GameWorld::EntitySeed::create(const EntityId entity, Physi
 GameWorld::EntitySeed GameWorld::EntitySeed::create(const EntityId entity, PhysicsBody body,
                                                     const ControllerId controller) {
   return EntitySeed{entity, body, controller};
-}
-
-GameWorld::EntitySeed GameWorld::EntitySeed::create_static(const EntityId entity,
-                                                           PhysicsBody body) {
-  if (!body.is_static()) {
-    throw SimulationValidationError(
-        SimulationValidationCode::kMapStaticBodyNotStatic,
-        "game_world.entities[entity_id=" + std::to_string(entity.value()) + "].is_static",
-        "a seed with no controller must carry a static body");
-  }
-  return EntitySeed{entity, body, std::nullopt};
 }
 
 GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
@@ -50,14 +41,11 @@ GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
         "duplicate EntityId " + std::to_string(duplicate->entity.value()));
   }
 
-  std::vector<EntityId> entities;
-  entities.reserve(seeds.size());
   std::vector<ComponentStore<PhysicsBody>::Entry> bodies;
   bodies.reserve(seeds.size());
   std::vector<ComponentStore<Controllable>::Entry> controllables;
   controllables.reserve(seeds.size());
   for (const EntitySeed& seed : seeds) {
-    entities.push_back(seed.entity);
     bodies.push_back(ComponentStore<PhysicsBody>::Entry{seed.entity, seed.body});
     if (seed.controller.has_value()) {
       controllables.push_back(
@@ -70,26 +58,51 @@ GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
       ComponentStore<PhysicsBody>::create(std::move(bodies));
   std::get<ComponentStore<Controllable>>(stores) =
       ComponentStore<Controllable>::create(std::move(controllables));
-  return GameWorld(std::move(entities), std::move(stores));
+  return GameWorld(std::move(stores), DeterministicRandom::create(0));
 }
 
-bool GameWorld::contains(const EntityId entity) const noexcept {
-  return std::binary_search(entities_.cbegin(), entities_.cend(), entity);
+GameWorld GameWorld::create(const SimulationConfig& configuration, const MapDefinition& map,
+                            const std::uint64_t seed) {
+  // A spawn point that cannot seat a disc of the configured radius would fail the tick that first
+  // seated an entity there, so it is rejected here instead: a map and a configuration that cannot
+  // be played together fail at construction with a named cause.
+  require_spawn_points_are_seatable(configuration, map);
+
+  const std::span<const PhysicsBody> static_bodies = map.static_bodies();
+  if (static_bodies.size() > kMaximumPlayerCount) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameWorldPlayerLimitExceeded, "game_world.entities",
+        "map static body count " + std::to_string(static_bodies.size()) +
+            " exceeds the accepted entity limit");
+  }
+
+  // The id policy: `kMinimumEntityId + index` in the map's declared order. Declared order is the
+  // map file's own order, so the ids a map seats are a function of the file alone.
+  std::vector<ComponentStore<PhysicsBody>::Entry> bodies;
+  bodies.reserve(static_bodies.size());
+  for (std::size_t index = 0; index < static_bodies.size(); ++index) {
+    bodies.push_back(ComponentStore<PhysicsBody>::Entry{
+        EntityId::create(kMinimumEntityId + static_cast<EntityId::Value>(index)),
+        static_bodies[index]});
+  }
+
+  ComponentStores<ComponentRegistry> stores;
+  std::get<ComponentStore<PhysicsBody>>(stores) =
+      ComponentStore<PhysicsBody>::create(std::move(bodies));
+  return GameWorld(std::move(stores), DeterministicRandom::create(seed));
 }
 
-void GameWorld::create_entity(const EntityId entity) {
-  const auto position = std::lower_bound(entities_.cbegin(), entities_.cend(), entity);
-  if (position != entities_.cend() && *position == entity) {
-    throw SimulationValidationError(SimulationValidationCode::kGameWorldDuplicateEntityId,
-                                    "game_world.entities.entity_id",
-                                    "duplicate EntityId " + std::to_string(entity.value()));
+EntityId GameWorld::create_entity() {
+  // Throws SimulationValidationError when exhausted, which is the hard failure the reservation
+  // documents: no id is reused, wrapped, or invented.
+  const EntityId drawn = reservation_.draw_next();
+  if (contains(drawn)) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameWorldDuplicateEntityId, "game_world.entities.entity_id",
+        "the tick's reservation issued EntityId " + std::to_string(drawn.value()) +
+            ", which already names a live entity");
   }
-  if (entities_.size() >= kMaximumPlayerCount) {
-    throw SimulationValidationError(SimulationValidationCode::kGameWorldPlayerLimitExceeded,
-                                    "game_world.entities",
-                                    "entity count exceeds the accepted limit");
-  }
-  entities_.insert(position, entity);
+  return drawn;
 }
 
 void GameWorld::emit(WorldEvent event) {
@@ -104,19 +117,14 @@ void GameWorld::emit(WorldEvent event) {
 }
 
 void GameWorld::destroy_entity(const EntityId entity) noexcept {
-  const auto position = std::lower_bound(entities_.cbegin(), entities_.cend(), entity);
-  if (position != entities_.cend() && *position == entity) {
-    entities_.erase(position);
-  }
-
   // Generated over the registry: a kind added to ComponentRegistry participates here without any
-  // edit to this function.
+  // edit to this function. Erasing from every store is also what removes the entity from the
+  // derived roster, so destruction has exactly one effect to get right.
   ComponentRegistry::for_each_kind(
       [this, entity]<typename Component>() { mutable_store<Component>().erase(entity); });
 }
 
-GameWorld::GameWorld(std::vector<EntityId> entities,
-                     ComponentStores<ComponentRegistry> stores) noexcept
-    : entities_(std::move(entities)), stores_(std::move(stores)) {}
+GameWorld::GameWorld(ComponentStores<ComponentRegistry> stores, DeterministicRandom random) noexcept
+    : stores_(std::move(stores)), random_(random) {}
 
 } // namespace blob_royale::simulation

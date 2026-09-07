@@ -1,3 +1,5 @@
+#include "command_registry.hpp"
+#include "commands/thrust_command.hpp"
 #include "component_registry.hpp"
 #include "component_store.hpp"
 #include "components/controllable_component.hpp"
@@ -10,6 +12,9 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "match_phase.hpp"
+#include "match_snapshot.hpp"
+#include "mode_match_state_registry.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
 #include "simulation_config.hpp"
@@ -240,4 +245,57 @@ TEST_CASE("WorldSnapshot equality covers the tick, the roster, and every compone
         simulation_from_world(simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)}))
             .snapshot());
   CHECK(snapshot != scored_snapshot);
+}
+
+TEST_CASE("WorldSnapshot derives its roster from the stores it publishes",
+          "[unit][simulation][snapshot][entity_roster]") {
+  // The published roster and the published components are two readings of one value: the roster is
+  // computed from the copies the snapshot just made, so an entity that publishes a component and a
+  // roster that omits it is not a case this file has to get right -- it cannot be expressed.
+  simulation::GameWorld world = simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)});
+  world.mutable_store<simulation::Score>().insert_or_assign(simulation::EntityId::create(40),
+                                                            simulation::Score{7});
+  const simulation::WorldSnapshot snapshot = simulation_from_world(std::move(world)).snapshot();
+
+  REQUIRE(snapshot.entities().size() == 2);
+  CHECK(snapshot.entities()[0].value() == 2);
+  CHECK(snapshot.entities()[1].value() == 40);
+  REQUIRE(snapshot.components<simulation::Score>().size() == 1);
+  CHECK(snapshot.components<simulation::Score>()[0].entity.value() == 40);
+}
+
+TEST_CASE("WorldSnapshot publishes the controller link and never the recorded commands",
+          "[unit][simulation][snapshot][command][disclosure]") {
+  // `Controllable::commands_this_tick` is tick-local: it is one entity's live input for the tick
+  // being committed, and publishing it would hand every reader a player's input for the tick it is
+  // rendering. The kind declares what it publishes, so this is stripped at the boundary rather
+  // than remembered at each call site.
+  simulation::GameWorld world = simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)});
+  simulation::Controllable* controllable =
+      world.mutable_store<simulation::Controllable>().mutable_find(simulation::EntityId::create(2));
+  REQUIRE(controllable != nullptr);
+  controllable->commands_this_tick.push_back(simulation::Command{simulation::ThrustCommand{
+      simulation::EntityId::create(2), simulation::Vector2::create(1.0, 0.0)}});
+  const simulation::WorldSnapshot snapshot = simulation_from_world(std::move(world)).snapshot();
+
+  REQUIRE(snapshot.components<simulation::Controllable>().size() == 1);
+  CHECK(snapshot.components<simulation::Controllable>()[0].value.controller_id.value() == 2);
+  CHECK(snapshot.components<simulation::Controllable>()[0].value.commands_this_tick.empty());
+}
+
+TEST_CASE("WorldSnapshot carries the match section and the generator's draw count",
+          "[unit][simulation][snapshot][match_state][deterministic_random]") {
+  const simulation::WorldSnapshot snapshot =
+      simulation_from_world(simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)}))
+          .snapshot();
+
+  CHECK(snapshot.match().mode_name() == simulation::GameSimulation::kEngineDefaultModeName);
+  CHECK(snapshot.match().phase() == simulation::MatchPhase::kLobby);
+  CHECK(snapshot.match().phase_started_tick() == simulation::TickSequence::zero());
+  CHECK(snapshot.match().running_started_tick() == simulation::TickSequence::zero());
+  CHECK_FALSE(snapshot.match().outcome().is_decided());
+  CHECK(simulation::mode_match_state_schema_id_of(snapshot.match().mode_state()) == "none");
+  // A tick that drew nothing publishes a zero draw count, so a run that diverged in how many draws
+  // it took diverges visibly at the first differing tick.
+  CHECK(snapshot.random_draw_count() == 0);
 }

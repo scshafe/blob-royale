@@ -5,6 +5,9 @@
 #include "component_store.hpp"
 #include "components/controllable_component.hpp"
 #include "contact_rule.hpp"
+#include "idle_match_objective.hpp"
+#include "idle_spawn_policy.hpp"
+#include "match_lifecycle_system.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
 #include "simulation_limits.hpp"
@@ -16,6 +19,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -60,11 +64,16 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 // group ascending by the identity it addresses -- so this is one forward pass that neither sorts,
 // de-duplicates, nor range-checks (`input_batch.hpp`).
 //
-// A despawn destroys its entity before any pair is built. A spawn is deliberately a no-op here:
-// seating an unseated entity needs the map's spawn markers and the mode's SpawnPolicy, which
-// arrive in Step 19; until then a spawn command changes nothing at all rather than seating an
-// entity at a position no declaration chose. A command of any remaining kind is recorded into its
-// entity's Controllable and is **not interpreted**, because command meaning is a system's job
+// A despawn destroys its entity before any pair is built. **A spawn draws an EntityId from this
+// tick's reservation and writes the Controllable that links it to the asking controller**, which
+// brings the entity into existence carrying no body: it is *unseated*, and the SpawnSystem that
+// runs immediately after this pass offers it to the mode's SpawnPolicy. Drawing from the tick's
+// reservation is what makes a replayed command log reproduce simulation-created ids exactly, and
+// exhausting the reservation is a hard failure rather than a silent skip
+// (`docs/architecture/0003-deterministic-simulation-contract.md` § "Canonical tick").
+//
+// A command of any remaining kind is recorded into its entity's Controllable and is **not
+// interpreted**, because command meaning is a system's job
 // (`docs/architecture/0004-gameplay-architecture.md` § "Commands").
 //
 // A command that disagrees with committed world state -- a despawn for an entity that does not
@@ -88,9 +97,15 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
       world.destroy_entity(despawn->entity);
       continue;
     }
-    // A spawn command is a no-op in this step and changes nothing at all. Seating an unseated
-    // entity needs the map's spawn markers and the mode's SpawnPolicy, which arrive in Step 19;
-    // until then seating it anywhere would be a position no declaration chose.
+    if (const auto* spawn = std::get_if<SpawnCommand>(&command); spawn != nullptr) {
+      const EntityId created = world.create_entity();
+      world.mutable_store<Controllable>().insert_or_assign(created,
+                                                           Controllable{spawn->controller});
+      continue;
+    }
+    // Total over the closed variant: the only kind that addresses no entity is the spawn handled
+    // above, so this guard is unreachable today and is what keeps the pass correct the day a kind
+    // that addresses something other than an EntityId is registered.
     const std::optional<EntityId> recorded_entity = recorded_entity_of(command);
     if (!recorded_entity.has_value()) {
       continue;
@@ -382,33 +397,69 @@ struct IndexedBody final {
 
 } // namespace
 
-GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld initial_world) {
-  return create(std::move(configuration), std::move(initial_world), SystemPipeline::empty());
-}
-
 GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld initial_world,
-                                      SystemPipeline system_pipeline) {
+                                      GameSimulationSetup setup) {
+  if (setup.has_mode() && (setup.has_systems() || setup.has_contact_rules())) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameSimulationSetupConflict, "game_simulation.setup",
+        "a setup that declares a GameMode may not also declare a system pipeline or a contact "
+        "rule table; the mode declares both");
+  }
+
   // The bare rectangular arena the configuration still publishes. Every caller written before maps
   // existed lands here, which is why no accepted fixture had to change to gain a map.
-  MapDefinition map = MapDefinition::bare_arena(
-      ArenaBounds::create(configuration.world_width(), configuration.world_height()));
-  return create(std::move(configuration), std::move(map), std::move(initial_world),
-                std::move(system_pipeline));
-}
+  MapDefinition map = setup.has_map()
+                          ? std::move(*setup.map_)
+                          : MapDefinition::bare_arena(ArenaBounds::create(
+                                configuration.world_width(), configuration.world_height()));
 
-GameSimulation GameSimulation::create(SimulationConfig configuration, MapDefinition map,
-                                      GameWorld initial_world, SystemPipeline system_pipeline) {
-  return create(std::move(configuration), std::move(map), std::move(initial_world),
-                std::move(system_pipeline), ContactRuleTable::built_in());
-}
+  // Every declaration is read exactly once, here, and the mode is destroyed with `setup` when this
+  // function returns. "Nothing calls into the mode during a tick" is therefore structural: the
+  // kernel holds declarations and never a mode
+  // (`docs/architecture/0004-gameplay-architecture.md` § "Game modes and the match lifecycle").
+  std::string mode_name{GameSimulation::kEngineDefaultModeName};
+  SystemPipeline declared_systems = SystemPipeline::empty();
+  ContactRuleTable contact_rules = ContactRuleTable::built_in();
+  CommandKindMask accepted_command_kinds = CommandKindMask::all();
+  std::unique_ptr<const SpawnPolicy> spawn_policy = std::make_unique<const IdleSpawnPolicy>();
+  std::unique_ptr<const MatchObjective> objective = std::make_unique<const IdleMatchObjective>();
+  if (setup.has_mode()) {
+    const GameMode& mode = *setup.mode_;
+    mode.validate_map(map);
+    mode_name = std::string(mode.name());
+    declared_systems = mode.systems();
+    contact_rules = mode.contact_rules();
+    accepted_command_kinds = mode.accepted_command_kinds();
+    spawn_policy = mode.spawn_policy();
+    objective = mode.objective();
+  } else {
+    if (setup.has_systems()) {
+      declared_systems = std::move(*setup.systems_);
+    }
+    if (setup.has_contact_rules()) {
+      contact_rules = std::move(*setup.contact_rules_);
+    }
+  }
 
-GameSimulation GameSimulation::create(SimulationConfig configuration, MapDefinition map,
-                                      GameWorld initial_world, SystemPipeline system_pipeline,
-                                      ContactRuleTable contact_rules) {
+  // A spawn point that cannot seat a disc of the configured radius is a startup rejection rather
+  // than a bounds failure on the tick that first seated an entity there. The production path has
+  // already run this inside `GameWorld::create(configuration, map, seed)`; running it again here
+  // is what covers every other way a map reaches a simulation.
+  require_spawn_points_are_seatable(configuration, map);
+
+  // The engine's lifecycle system is appended last at kLifecycle and is not removable, so a mode's
+  // own lifecycle systems always run before this tick's phase transition is evaluated.
+  SystemPipeline system_pipeline =
+      std::move(declared_systems)
+          .with_appended(SystemPipeline::StagedSystem{
+              SystemStage::kLifecycle,
+              std::make_unique<const MatchLifecycleSystem>(std::move(objective))});
+
   SpatialGrid initial_grid = SpatialGrid::create(configuration, map.bounds(), initial_world);
   return GameSimulation(configuration, std::move(map), std::move(initial_world),
                         std::move(initial_grid), std::move(system_pipeline),
-                        std::move(contact_rules), TickSequence::zero());
+                        std::move(contact_rules), SpawnSystem(std::move(spawn_policy)),
+                        std::move(mode_name), accepted_command_kinds, TickSequence::zero());
 }
 
 void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_batch) {
@@ -416,8 +467,31 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
 
   // Phase 0. Every phase and stage below reads the working world, so a failure anywhere leaves the
   // committed world, grid, and sequence exactly as the previous commit left them.
+  //
+  // Opening the tick installs the batch's EntityIdReservation on the working world, which is what
+  // makes `GameWorld::create_entity()` succeed for the duration of this tick and nowhere else
+  // (`docs/architecture/0004-gameplay-architecture.md`
+  // § "Determinism obligations for framework code").
   GameWorld next_world = world_;
+  next_world.open_tick(input_batch.entity_id_reservation());
   apply_input_batch(next_world, input_batch);
+
+  // The batch's own index: the bodies the despawns of this batch left, at this tick's
+  // start-of-tick positions. It is derived before seating because the SpawnSystem's policy socket
+  // reads a TickContext, and the index that context must publish is the world as the tick found
+  // it -- a seating cannot observe a seating.
+  std::optional<SpatialGrid> reindexed_batch_grid;
+  if (!indexed_bodies_equal(next_world, world_)) {
+    reindexed_batch_grid = grid_.rebuilt(next_world);
+  }
+  const SpatialGrid& batch_grid = reindexed_batch_grid ? *reindexed_batch_grid : grid_;
+  const TickContext seating_context =
+      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map_, batch_grid);
+
+  // Still phase 0: the engine's SpawnSystem offers every entity awaiting a body to the mode's
+  // SpawnPolicy and performs the seatings it chose. A seated entity is indexed at its marker, so
+  // the intake index is re-derived exactly when something was seated.
+  const std::size_t seated_count = spawn_system_.seat_pending_entities(next_world, seating_context);
 
   // The intake index: the index of the bodies phase 0 left, at this tick's start-of-tick
   // positions. The committed index already is that value whenever phase 0 changed no indexed body,
@@ -429,10 +503,10 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   // `TickContext::spatial_index()` promises a kPreKernel system: the bodies phase 0 left, at
   // positions nothing has moved yet.
   std::optional<SpatialGrid> reindexed_intake_grid;
-  if (!indexed_bodies_equal(next_world, world_)) {
-    reindexed_intake_grid = grid_.rebuilt(next_world);
+  if (seated_count != 0) {
+    reindexed_intake_grid = batch_grid.rebuilt(next_world);
   }
-  const SpatialGrid& intake_grid = reindexed_intake_grid ? *reindexed_intake_grid : grid_;
+  const SpatialGrid& intake_grid = reindexed_intake_grid ? *reindexed_intake_grid : batch_grid;
 
   const TickContext intake_context =
       TickContext::create(next_tick_sequence, fixed_delta, configuration_, map_, intake_grid);
@@ -480,20 +554,30 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   apply_stage(system_pipeline_, SystemStage::kPostKernel, next_world, committed_context);
   apply_stage(system_pipeline_, SystemStage::kLifecycle, next_world, committed_context);
 
-  // Phase 10, in the contract's fixed order: validate, apply this tick's DespawnEvent removals,
-  // rebuild the index from the survivors, clear the event list, replace the committed state, and
-  // increment the sequence once. Because validation precedes removal, removal precedes the
-  // rebuild, and the rebuild precedes publication, no committed grid holds a non-live EntityId and
-  // no snapshot observes a half-applied removal. The contract's signed-zero canonicalization has
-  // no step here because Vector2 performs it at every construction, so no negative zero can reach
-  // a body in the first place.
-  require_committed_bodies_in_bounds(next_world, map_, configuration_);
+  // Phase 10: apply this tick's DespawnEvent removals, validate what survives them, rebuild the
+  // index from the survivors, clear the tick-local state, replace the committed state, and
+  // increment the sequence once. The contract's signed-zero canonicalization has no step here
+  // because Vector2 performs it at every construction, so no negative zero can reach a body in the
+  // first place.
+  //
+  // **Removal precedes validation, which is a deliberate deviation from the written order of
+  // `docs/architecture/0003-deterministic-simulation-contract.md` § "Canonical tick" phase 10**
+  // and closes engine review finding 14. Validating first makes an entity that a system both
+  // pushed out of bounds and marked for despawn stop the match, and royale's elimination pairs
+  // exactly those two: `zone_elimination` names an entity that left the safe zone, which is
+  // frequently an entity a contact has just pushed past the arena edge. Validating what survives
+  // asks the only question that matters -- is the world this tick is about to *publish* legal --
+  // and an entity that is about to be removed has no committed position to be illegal. Everything
+  // the original order guaranteed still holds: removal precedes the rebuild, the rebuild precedes
+  // publication, no committed grid holds a non-live EntityId, and no snapshot observes a
+  // half-applied removal. ADR 0003 owes this reordering an amendment.
   const bool roster_removed = apply_despawn_events(next_world);
+  require_committed_bodies_in_bounds(next_world, map_, configuration_);
   if (roster_removed ||
       (late_stage_declared && !still_indexes(committed_indexed_bodies, next_world))) {
     next_grid = next_grid.rebuilt(next_world);
   }
-  next_world.clear_events();
+  next_world.close_tick();
 
 #ifndef NDEBUG
   // The invariant the predicates above exist to maintain, checked rather than asserted in prose.
@@ -513,15 +597,18 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
 }
 
 WorldSnapshot GameSimulation::snapshot() const {
-  return WorldSnapshot::from_world(tick_sequence_, world_);
+  return WorldSnapshot::from_world(tick_sequence_, world_, mode_name_);
 }
 
 GameSimulation::GameSimulation(SimulationConfig configuration, MapDefinition map, GameWorld world,
                                SpatialGrid grid, SystemPipeline system_pipeline,
-                               ContactRuleTable contact_rules,
+                               ContactRuleTable contact_rules, SpawnSystem spawn_system,
+                               std::string mode_name, const CommandKindMask accepted_command_kinds,
                                const TickSequence tick_sequence) noexcept
     : configuration_(configuration), map_(std::move(map)), world_(std::move(world)),
       grid_(std::move(grid)), system_pipeline_(std::move(system_pipeline)),
-      contact_rules_(std::move(contact_rules)), tick_sequence_(tick_sequence) {}
+      contact_rules_(std::move(contact_rules)), spawn_system_(std::move(spawn_system)),
+      mode_name_(std::move(mode_name)), accepted_command_kinds_(accepted_command_kinds),
+      tick_sequence_(tick_sequence) {}
 
 } // namespace blob_royale::simulation

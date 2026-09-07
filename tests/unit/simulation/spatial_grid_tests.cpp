@@ -7,6 +7,7 @@
 #include "physics_body.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
+#include "simulation_test_fixture.hpp"
 #include "simulation_validation_error.hpp"
 #include "spatial_grid.hpp"
 #include "vector2.hpp"
@@ -23,6 +24,7 @@
 #include <vector>
 
 namespace simulation = blob_royale::simulation;
+namespace testing = blob_royale::testing;
 
 namespace {
 
@@ -320,11 +322,16 @@ TEST_CASE("SpatialGrid rejects unsafe duplicate candidate traversal before pair 
 
 namespace {
 
-[[nodiscard]] simulation::GameWorld::EntitySeed static_body(const simulation::EntityId::Value id,
-                                                            const double x, const double y) {
-  return simulation::GameWorld::EntitySeed::create_static(
-      simulation::EntityId::create(id),
+// A wall carries one component and no controller, so seating it is one component write; the
+// derived roster follows.
+[[nodiscard]] simulation::GameWorld
+world_with_static_body(std::vector<simulation::GameWorld::EntitySeed> seeds,
+                       const simulation::EntityId::Value id, const double x, const double y) {
+  simulation::GameWorld world = simulation::GameWorld::create(std::move(seeds));
+  testing::seat_static_body(
+      world, simulation::EntityId::create(id),
       simulation::PhysicsBody::create_static(simulation::Vector2::create(x, y)));
+  return world;
 }
 
 } // namespace
@@ -368,7 +375,7 @@ TEST_CASE("a static body is indexed and may sit outside the disc-centre interval
   // moving disc is held inside.
   const simulation::ArenaBounds bounds = simulation::ArenaBounds::create(100.0, 100.0);
   const simulation::GameWorld world =
-      simulation::GameWorld::create({stationary_player(1, 14.0, 12.0), static_body(2, 2.0, 12.0)});
+      world_with_static_body({stationary_player(1, 14.0, 12.0)}, 2, 2.0, 12.0);
 
   const simulation::SpatialGrid grid =
       simulation::SpatialGrid::create(grid_configuration(100.0, 100.0, 5.0, 4, 4), bounds, world);
@@ -380,7 +387,7 @@ TEST_CASE("a static body is indexed and may sit outside the disc-centre interval
 
 TEST_CASE("a static body centre outside the arena rectangle is rejected",
           "[unit][simulation][spatial_grid][static_body][validation]") {
-  const simulation::GameWorld world = simulation::GameWorld::create({static_body(1, -1.0, 12.0)});
+  const simulation::GameWorld world = world_with_static_body({}, 1, -1.0, 12.0);
 
   CHECK_THROWS_AS(simulation::SpatialGrid::create(grid_configuration(100.0, 100.0, 5.0, 4, 4),
                                                   simulation::ArenaBounds::create(100.0, 100.0),

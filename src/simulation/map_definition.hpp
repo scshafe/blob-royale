@@ -128,10 +128,10 @@ private:
 // `PublicConfiguration`; the `[simulation]` INI keys retire into the map file in Step 25, when the
 // loader that reads a map directory arrives.
 //
-// **What this step deliberately does not do.** `static_bodies()` is declared content, not seated
-// entities: seating them needs the id policy that `GameWorld::create(configuration, map, seed)`
-// owns, which arrives with the mode in Step 19. Until then a caller seats them itself through
-// `GameWorld::EntitySeed::create_static`, which is exactly what the kernel tests do.
+// **`static_bodies()` is declared content, not seated entities.** Seating them is
+// `GameWorld::create(configuration, map, seed)`, which owns the id policy for map content and
+// numbers a map's bodies `kMinimumEntityId + index` in declared order, so a map's entities are a
+// deterministic function of the map file alone.
 //
 // Adding a map is adding a data directory and naming it in configuration -- no code at all:
 //
@@ -171,8 +171,9 @@ public:
   // count past its accepted limit.
   //
   // A marker's fit for the configured disc radius is deliberately not checked here: a map is
-  // mode- and configuration-independent content, and the radius belongs to SimulationConfig. The
-  // spawn seating of Step 19 is where a spawn point meets a radius.
+  // mode- and configuration-independent content, and the radius belongs to SimulationConfig.
+  // `require_spawn_points_are_seatable` in `spawn_system.hpp` is the one place they meet, and it
+  // runs at construction so a mismatch is a startup rejection rather than a mid-match failure.
   [[nodiscard]] static MapDefinition create(std::string name, ArenaBounds bounds,
                                             std::vector<PhysicsBody> static_bodies,
                                             std::vector<Marker> markers, MapMetadata metadata);

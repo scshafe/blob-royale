@@ -3,6 +3,7 @@
 
 #include "command_registry.hpp"
 #include "component_kind_name.hpp"
+#include "component_publication.hpp"
 #include "controller_id.hpp"
 
 #include <string_view>
@@ -24,9 +25,15 @@ struct Controllable final {
   ControllerId controller_id;
   // This tick's recorded commands for this entity: at most one of each kind, ascending
   // CommandKind. Phase 0 records them and does not interpret them, because command meaning is a
-  // system's job. Nothing reads this field yet; the kernel that fills it arrives with the staged
-  // tick. The default member initializer keeps `Controllable{controller_id}` -- the shape every
-  // existing seating and fixture site uses -- a complete aggregate initialization.
+  // system's job. The default member initializer keeps `Controllable{controller_id}` -- the shape
+  // every existing seating and fixture site uses -- a complete aggregate initialization.
+  //
+  // **This field is tick-local and is never published.** It is one entity's live input for the
+  // tick being committed, so a snapshot carrying it would hand every reader every player's input
+  // for the tick it is rendering -- the field protocol v2 deliberately withholds from the wire,
+  // and a break of the human/bot symmetry in the bot's favour. The ComponentPublication
+  // specialization below is what strips it, so the rule lives with the field rather than in the
+  // snapshot builder (engine review finding 4).
   std::vector<Command> commands_this_tick{};
 
   friend bool operator==(const Controllable&, const Controllable&) = default;
@@ -34,6 +41,16 @@ struct Controllable final {
 
 template <> struct ComponentKindName<Controllable> {
   static constexpr std::string_view value = "controllable";
+};
+
+// A published Controllable is the controller link and nothing else: the recorded commands are
+// tick-local state that leaves with the tick. Discarding rather than copying the vector also
+// removes the per-entity allocation a publication used to pay.
+// related: component_publication.hpp -- why a kind declares this beside its own struct.
+template <> struct ComponentPublication<Controllable> {
+  [[nodiscard]] static Controllable published(Controllable value) {
+    return Controllable{value.controller_id};
+  }
 };
 
 } // namespace blob_royale::simulation

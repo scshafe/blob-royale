@@ -84,6 +84,15 @@ SystemPipeline SystemPipeline::create(std::vector<StagedSystem> declared_systems
 
 SystemPipeline SystemPipeline::empty() { return SystemPipeline({}, StageOffsets{}); }
 
+SystemPipeline SystemPipeline::with_appended(StagedSystem staged) && {
+  // The partitioned vector is already in kernel stage order with declared order preserved inside
+  // each run, so re-declaring from it and appending the new row reproduces the same partition with
+  // the row last within its stage.
+  std::vector<StagedSystem> declared_systems = std::move(staged_systems_);
+  declared_systems.push_back(std::move(staged));
+  return create(std::move(declared_systems));
+}
+
 std::span<const SystemPipeline::StagedSystem>
 SystemPipeline::systems_at(const SystemStage stage) const& noexcept {
   const auto stage_index = static_cast<std::size_t>(stage);

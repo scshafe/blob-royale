@@ -10,8 +10,9 @@ namespace blob_royale::simulation {
 //
 // The event names the id the tick drew from its EntityIdReservation and the controller that asked
 // for a body, which is the pairing a consuming system needs and the one place the two identity
-// spaces meet outside `Controllable`. Phase 0's spawn seating is the producer and arrives with the
-// mode's spawn policy in Step 19; nothing emits one yet.
+// spaces meet outside `Controllable`. Phase 0 creates the entity and the engine's SpawnSystem
+// seats it, and neither emits this event: it has no consumer, and a produced event nothing reads
+// would be structure without a reader. Step 21 is where a mode first consumes one.
 // related: world_event_registry.hpp -- the closed list of event kinds.
 // related: commands/spawn_command.hpp -- the request this event answers.
 struct SpawnEvent final {

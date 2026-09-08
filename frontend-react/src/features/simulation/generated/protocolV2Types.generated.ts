@@ -64,7 +64,7 @@ interface MutableBlobRoyaleProtocolV2HTTPErrorResponse {
   data: null;
   error: MutableError;
   meta: {
-    protocol_version: '2.1';
+    protocol_version: '2.2';
     schema_id: 'blob-royale://protocol/v2/error-response';
     request_id: string;
   };
@@ -113,7 +113,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketSnapshotMessage {
   data: MutableBlobRoyaleProtocolV2WorldSnapshotData;
   error: null;
   meta: {
-    protocol_version: '2.1';
+    protocol_version: '2.2';
     schema_id: 'blob-royale://protocol/v2/snapshot-message';
     request_id: string;
     message_sequence: number;
@@ -240,7 +240,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketWelcomeMessage {
   data: MutableBlobRoyaleProtocolV2WelcomeData;
   error: null;
   meta: {
-    protocol_version: '2.1';
+    protocol_version: '2.2';
     schema_id: 'blob-royale://protocol/v2/welcome-message';
     request_id: string;
     message_sequence: 1;

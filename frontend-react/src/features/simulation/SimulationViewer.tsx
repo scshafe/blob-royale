@@ -7,9 +7,10 @@ import { SimulationHud } from './SimulationHud';
 import {
   countAlivePlayers,
   describeMatchOverlay,
+  eliminationGraceTicks,
   findPlacementForController,
   phaseElapsedSeconds,
-  zoneExposureSeconds,
+  zoneExposureReport,
 } from './sessionSelectors';
 import type { SimulationConnection } from './useSimulationConnection';
 import type { ThrustDirection } from './useThrustInput';
@@ -86,10 +87,11 @@ export function SimulationViewer({
                 connection.configuration.simulation.ticks_per_second,
               )}
               thrust={thrust}
-              zoneExposureSeconds={zoneExposureSeconds(
+              zoneExposure={zoneExposureReport(
                 connection.entities,
                 connection.ownEntityId,
                 connection.configuration.simulation.ticks_per_second,
+                eliminationGraceTicks(connection.match),
               )}
             />
             <p className="SteeringHint">

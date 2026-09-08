@@ -190,7 +190,7 @@ describe('SimulationViewer', () => {
     ).toBeVisible();
   });
 
-  it('shows zone exposure in the HUD only while the own blob is outside', () => {
+  it('counts the remaining grace down in the HUD while the own blob is outside', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const hudRowHeader = () =>
       within(screen.getByRole('table', { name: 'Match status' })).queryByRole(
@@ -207,18 +207,20 @@ describe('SimulationViewer', () => {
     view.rerender(
       <SimulationViewer
         connection={createConnection({
-          entities: entitiesWithOwnExposure(1_200),
+          entities: entitiesWithOwnExposure(200),
         })}
         thrust={zeroThrust}
       />,
     );
 
     expect(hudRowHeader()).toBeVisible();
-    // 1,200 ticks at the published 400 ticks/s. Elapsed, not remaining: the wire carries
-    // `outside_ticks` and no accepted artifact carries `elimination_grace_seconds`.
+    // 200 of the golden frame's published 1,200 grace ticks spent leaves 1,000, which is 2.5 s at
+    // the published 400 ticks/s. Remaining, not elapsed: `elimination_grace_ticks` reaches the
+    // client in the royale mode-state block since protocol 2.2, so the row answers the question the
+    // player actually has.
     const hud = screen.getByRole('table', { name: 'Match status' });
     expect(
-      within(hud).getByRole('row', { name: 'Zone exposure Outside 3.0 s' }),
+      within(hud).getByRole('row', { name: 'Zone exposure 2.5 s left' }),
     ).toBeVisible();
 
     view.rerender(
@@ -229,7 +231,55 @@ describe('SimulationViewer', () => {
     );
 
     expect(hudRowHeader()).toBeNull();
-    expect(screen.queryByText(/Outside/)).toBeNull();
+    expect(screen.queryByText(/left/)).toBeNull();
+  });
+
+  it('falls back to elapsed exposure when the frame publishes no grace', () => {
+    // A mode with no non-entity-shaped state publishes the `none` block and therefore no grace.
+    // The client must not invent a duration; it reports the counter it really was given.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    render(
+      <SimulationViewer
+        connection={createConnection({
+          entities: entitiesWithOwnExposure(1_200),
+          match: {
+            ...snapshot.data.match,
+            mode_state: {
+              schema_id: 'blob-royale://protocol/v2/mode-state/none',
+              value: {},
+            },
+          },
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).getByRole('row', { name: 'Zone exposure Outside 3.0 s' }),
+    ).toBeVisible();
+  });
+
+  it('shows no time left rather than a negative countdown past the grace', () => {
+    // `zone_elimination` eliminates on the tick the counter reaches the bound and the recorder
+    // destroys the entity in the same tick, so a published counter should never exceed it. The
+    // clamp is what keeps a frame that says otherwise from rendering a negative remainder.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    render(
+      <SimulationViewer
+        connection={createConnection({
+          entities: entitiesWithOwnExposure(5_000),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).getByRole('row', { name: 'Zone exposure 0.0 s left' }),
+    ).toBeVisible();
   });
 
   it('does not warn about a peer that is outside the zone', () => {

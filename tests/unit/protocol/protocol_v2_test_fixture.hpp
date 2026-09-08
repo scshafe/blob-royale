@@ -74,6 +74,7 @@ inline constexpr std::uint64_t kSnapshotMessageSequence = 129;
 inline constexpr std::uint64_t kGoldenTickSequence = 12'904;
 inline constexpr std::uint64_t kGoldenPhaseStartedTick = 10'904;
 inline constexpr std::uint64_t kGoldenEliminatedTick = 12'400;
+inline constexpr std::uint64_t kGoldenEliminationGraceTicks = 1'200;
 
 inline constexpr std::uint64_t kWallEntityId = 1;
 inline constexpr std::uint64_t kPlayerEntityId = 7;
@@ -193,11 +194,14 @@ public:
     match.phase_started_tick = simulation::TickSequence::create(kGoldenPhaseStartedTick);
     match.running_started_tick = simulation::TickSequence::create(kGoldenPhaseStartedTick);
     match.outcome = simulation::MatchOutcome::undecided();
+    // The grace is royale's proposed `elimination_grace_seconds = 3.0` at 400 ticks/s, so the
+    // golden publishes a number an operator would recognize rather than a round test value.
     match.mode_state = simulation::RoyalePlacementsModeState{
         {simulation::RoyalePlacement{simulation::EntityId::create(kPlacedEntityId),
                                      simulation::ControllerId::create(kPlacedControllerId), 3,
                                      simulation::TickSequence::create(kGoldenEliminatedTick)}},
-        simulation::MatchPhase::kRunning};
+        simulation::MatchPhase::kRunning,
+        kGoldenEliminationGraceTicks};
   }
 };
 

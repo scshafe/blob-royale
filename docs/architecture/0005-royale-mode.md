@@ -91,8 +91,8 @@ a tick (ADR 0004 § "Game modes and the match lifecycle").
 | Declaration | What `RoyaleMode` returns | Interface |
 |---|---|---|
 | `name()` | `royale` | ADR 0004 § "Game modes and the match lifecycle" |
-| `systems()` | `thrust_steering` at `kPreKernel`; `zone_shrink` then `zone_elimination` at `kPostKernel`; `placement_recorder` at `kLifecycle` | ADR 0004 § "The tick: one fixed kernel, three named stages" |
-| `contact_rules()` | `ContactRuleTable::built_in()`, with no Royale row added | ADR 0004 § "Contact rules" |
+| `systems()` | `thrust_steering` at `kPreKernel`; `zone_shrink` then `zone_elimination` at `kPostKernel`; `placement_recorder`, `lifetime_expiry`, `hazard_spawn` then `elimination_grace_publisher` at `kLifecycle` | ADR 0004 § "The tick: one fixed kernel, three named stages" |
+| `contact_rules()` | `lethal_hazard`, then `ContactRuleTable::built_in()`'s own rows | ADR 0004 § "Contact rules" |
 | `accepted_command_kinds()` | spawn, despawn, thrust | ADR 0004 § "Commands" |
 | `spawn_policy()` | `RotatingRingSpawnPolicy` over the map's spawn markers (§ "Spawning") | ADR 0004 § "Game modes and the match lifecycle" |
 | `objective()` | `RoyaleObjective` (§ "Match lifecycle") | ADR 0004 § "Game modes and the match lifecycle" |
@@ -142,8 +142,10 @@ depends on relative order names the dependency rather than assuming it:
    built-in table, fold walls, integrate, and rebuild the spatial index.
 4. `zone_shrink` then `zone_elimination` at `kPostKernel`, in that declared order: elimination reads
    the radius this tick's `zone_shrink` wrote.
-5. `placement_recorder` at `kLifecycle`, then the engine's `MatchLifecycleSystem`: the transition
-   observes the alive count after this tick's eliminations have left the roster.
+5. `placement_recorder`, `lifetime_expiry`, `hazard_spawn` then `elimination_grace_publisher` at
+   `kLifecycle`, then the engine's `MatchLifecycleSystem`: the transition observes the alive count
+   after this tick's eliminations have left the roster, and the mode-state block a snapshot
+   publishes is what the last of the four left.
 
 Items 4 and 5 are the accepted phases 7, 8, and 9 of ADR 0003 § "Canonical tick", re-expressed as
 declared systems in the same relative order and committing the same values (ADR 0004 § "The tick:
@@ -287,12 +289,22 @@ stages" states, and `MatchState` is for match-wide state. The zone is match-wide
 component, because ADR 0004 § "Snapshots and protocol shape" asks that mode state be components
 wherever it can be and names the zone as the case that proves the model carries its weight.
 
-Royale's mode state in `MatchState` therefore carries only what is not entity-shaped: the ordered
+Royale's mode state in `MatchState` therefore carries what is not entity-shaped: the ordered
 placement list (§ "Elimination and placement") and `previous_phase`, the lifecycle phase this mode
 observed on the previous tick (§ "Match lifecycle"). The engine's own `MatchState` fields — phase,
 phase start tick, running start tick, and the committed `MatchOutcome` — are engine-owned and this
 mode adds nothing to them and restates none of them (ADR 0004 § "Game modes and the match
 lifecycle").
+
+It carries one thing more, and it is a different kind of thing: `elimination_grace_ticks`, which is
+`G` from § "Elimination and placement" copied out of the validated `[royale]` configuration. It is
+not something royale observed; it is something royale was told. It is here because the block is the
+mode's contribution to every published snapshot, and a client already receives every entity's
+`ZoneExposure` counter but has no way to learn the bound that counter is tested against — so the
+elimination rule reads to a player as arbitrary, which is exactly what the 2026-09-07 playtest
+reported. `elimination_grace_publisher` is the one system that writes it, declared last at
+`kLifecycle` so it is the final writer of the block within a tick; **no royale rule reads it back**,
+because `zone_elimination` holds its own copy of the configuration and always will.
 
 ### Steering
 
@@ -425,7 +437,7 @@ zone covers the whole arena during `lobby` and `countdown` (§ "Safe zone"), so 
 incremented before `running`; an eliminated entity's counter dies with the entity; and every entity
 still alive when a match ends is destroyed on the first `lobby` tick (§ "Match lifecycle").
 
-`placement_recorder` is royale's only `kLifecycle` system and runs before the engine's
+`placement_recorder` is the first of royale's `kLifecycle` systems and runs before the engine's
 `MatchLifecycleSystem`. Each tick it performs four steps in this order:
 
 1. When the committed phase is `running` and `previous_phase` is `countdown` — the first tick of a
@@ -674,8 +686,9 @@ does not define a wire encoding. The JSON representation, field names, and schem
   and the current match's `running` began.
 * **outcome** — the committed `MatchOutcome`: undecided, won by entity, or drawn.
 * **mode state**, schema id `royale_placements` — the ordered
-  `(entity_id, placement, elimination_tick)` list bounded by `kMaximumPlayerCount`, and
-  `previous_phase`.
+  `(entity_id, placement, elimination_tick)` list bounded by `kMaximumPlayerCount`,
+  `previous_phase`, and `elimination_grace_ticks`, the bound each published `ZoneExposure` counter
+  is tested against (§ "Where zone and elimination state live").
 
 **Zone center and radius are not `match` fields.** They are the `Zone` component of the zone entity
 and travel in the snapshot's entity list with every other component, encoded by the `Zone` encoder
@@ -825,3 +838,26 @@ discharged by the framework, not by this game.
   — accepted execution constraints, Step 12 which accepts this ADR, Step 21 which implements the
   mode and the replay suite, Step 25 which wires `[match]`, `[royale]`, and the map, and Step 31
   which deploys them.
+
+**Amended 2026-09-07:** Royale declares hazards. It no longer returns
+`ContactRuleTable::built_in()` verbatim: it declares `lethal_hazard` above the built-in rows, and
+that row computes no physics at all — it returns both bodies unchanged and emits one
+`EliminationEvent` — so the mode is still structurally incapable of reaching a different collision
+equation for a pair of ordinary blobs, which is what § "The mode declaration" was really claiming.
+`kLifecycle` gains `lifetime_expiry` and `hazard_spawn` beside `placement_recorder`, both of which
+live in `src/gameplay/shared/` because objects crossing an arena are a mode-agnostic mechanic.
+Nothing above about the zone, elimination, placement, spawning, or the match lifecycle changes, and
+no fixture horizon moved.
+
+**Amended 2026-09-08:** The mode-state block publishes `elimination_grace_ticks`, and royale
+declares a fourth `kLifecycle` system, `elimination_grace_publisher`, whose only effect is to write
+it. The block therefore now carries a value royale was *configured* with beside two it *observed*,
+which is a real widening of § "Where zone and elimination state live" and is argued there rather
+than assumed. The reason is the 2026-09-07 playtest: every snapshot already carries each entity's
+`ZoneExposure` counter, the client had no way to learn the bound it is tested against, and a
+counter without its bound cannot answer "how long do I have", so elimination read as arbitrary. No
+royale rule reads the published value back — `zone_elimination` holds its own copy of the validated
+configuration — and the two cannot drift because `RoyaleMode::systems()` builds both from one
+`RoyaleConfiguration`. Publishing it is protocol minor `2.2` (`docs/protocol/v2.md` § "Versioning
+and fail-closed decoding"); nothing about the elimination rule, the zone, or the placement rules
+changes, and the decision and its `Accepted` status are unchanged.

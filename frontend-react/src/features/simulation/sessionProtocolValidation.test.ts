@@ -176,8 +176,9 @@ describe('validateSessionSnapshotMessage', () => {
 
   it('fails closed on a protocol minor it cannot decode, before shape validation', () => {
     const document = snapshotDocument();
-    // One minor ahead of the supported set; moved 2.1 -> 2.2 when 2.1 became current.
-    document.meta.protocol_version = '2.2';
+    // One minor ahead of the supported set; moved 2.1 -> 2.2 when 2.1 became current, and
+    // 2.2 -> 2.3 when 2.2 did.
+    document.meta.protocol_version = '2.3';
     Reflect.deleteProperty(document.data, 'match');
 
     expect(() =>
@@ -186,7 +187,7 @@ describe('validateSessionSnapshotMessage', () => {
       expect.objectContaining<Partial<SimulationApiError>>({
         code: 'SIMULATION.SESSION_VERSION_UNSUPPORTED',
         context: {
-          protocol_version: '2.2',
+          protocol_version: '2.3',
           supported_protocol_version: SUPPORTED_PROTOCOL_VERSION,
         },
       }),

@@ -75,15 +75,26 @@ template <> struct ModeStateWireEncoding<simulation::NoModeState> {
   static void append_placements(const simulation::NoModeState&, std::vector<ModeStatePlacement>&) {}
 };
 
-// Royale's block carries only `previous_phase`: the zone is the `Zone` component of the zone entity
-// and the ordered ranking travels in the generic `match.placements` array
-// (`docs/architecture/0005-royale-mode.md` § "Match section fields").
+// Royale's block carries `previous_phase` and `elimination_grace_ticks`: the zone is the `Zone`
+// component of the zone entity and the ordered ranking travels in the generic `match.placements`
+// array (`docs/architecture/0005-royale-mode.md` § "Match section fields").
+//
+// `elimination_grace_ticks` is the one member here that is mode *configuration* rather than
+// observed match state, and it is published for a reason the counter it bounds makes plain: every
+// snapshot already carries `zone_exposure.outside_ticks`, and a consecutive-tick counter without
+// its bound cannot be turned into "how long do I have". It rides the snapshot rather than the
+// welcome frame because `welcome-data.schema.json` is mode-agnostic -- it names `mode` and `map`
+// and nothing a mode owns -- and because a value carried per frame is a value a recorded frame
+// still has, which is where a countdown has to keep working.
 template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> {
   static constexpr std::string_view kSchemaId = kRoyaleModeStateSchemaId;
 
+  // Member order is the order `docs/protocol/v2.md` § "Object member order" declares for this
+  // block, which is the order they are written here.
   static void encode_value(const simulation::RoyalePlacementsModeState& mode_state,
                            ComponentObjectSink& sink) {
     sink.set_string("previous_phase", simulation::match_phase_name(mode_state.previous_phase));
+    sink.set_unsigned("elimination_grace_ticks", mode_state.elimination_grace_ticks);
   }
 
   static void append_placements(const simulation::RoyalePlacementsModeState& mode_state,

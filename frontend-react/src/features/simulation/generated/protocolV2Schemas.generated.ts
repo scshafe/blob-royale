@@ -48,14 +48,14 @@ export const protocolV2Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v2/common.schema.json',
     title: 'Blob Royale protocol v2 common definitions',
     description:
-      'Canonical scalar, identifier, vector, kind-name, error, and metadata definitions shared by protocol v2 messages. protocol_version is a const rather than a grammar so a 2.0 decoder fails closed on a 2.1 document instead of silently ignoring an unknown kind.',
+      'Canonical scalar, identifier, vector, kind-name, error, and metadata definitions shared by protocol v2 messages. protocol_version is a const rather than a grammar so an older decoder fails closed on a newer minor instead of silently ignoring an unknown kind or an unread member.',
     'x-status': 'Accepted',
     $defs: {
       protocol_version: {
         type: 'string',
-        const: '2.1',
+        const: '2.2',
         $comment:
-          "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind. A 2.1 client therefore rejects a 2.2 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
+          "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind and 2.2 added elimination_grace_ticks to the royale mode-state block. A 2.2 client therefore rejects a 2.3 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
       },
       request_id: {
         type: 'string',
@@ -708,14 +708,19 @@ export const protocolV2Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v2/royale-mode-state.schema.json',
     title: 'Blob Royale protocol v2 royale mode state',
     description:
-      "The royale mode's non-entity-shaped match state (ADR 0005). Placements are generic and travel in match.placements; the zone is the zone component of its entity. Only previous_phase remains here.",
+      "The royale mode's non-entity-shaped match state (ADR 0005). Placements are generic and travel in match.placements; the zone is the zone component of its entity. What remains is previous_phase, which royale observed, and elimination_grace_ticks, which royale was configured with.",
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
-    required: ['previous_phase'],
+    required: ['previous_phase', 'elimination_grace_ticks'],
     properties: {
       previous_phase: {
         $ref: 'common.schema.json#/$defs/match_phase',
+      },
+      elimination_grace_ticks: {
+        $ref: 'common.schema.json#/$defs/safe_integer',
+        $comment:
+          'Consecutive outside ticks the mode allows before it eliminates: the denominator of zone_exposure.outside_ticks, which every snapshot already carries. Required rather than optional, because a counter published without its bound is what made elimination read as arbitrary; a client that reads one always reads the other. Ticks, not seconds, because the mode stores ticks and nothing else on this wire is expressed in seconds. Zero is legal and means elimination on the first outside tick, so a client dividing by it must guard rather than treat zero as absent. Added in 2.2.',
       },
     },
   },

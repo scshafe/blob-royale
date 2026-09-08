@@ -1,3 +1,4 @@
+import type { ZoneExposureReport } from './sessionSelectors';
 import type {
   SessionMatchSection,
   SessionPlacement,
@@ -12,7 +13,7 @@ export interface SimulationHudProps {
   readonly ownPlacement: SessionPlacement | null;
   readonly phaseElapsedSeconds: number | null;
   readonly thrust: ThrustDirection;
-  readonly zoneExposureSeconds: number | null;
+  readonly zoneExposure: ZoneExposureReport | null;
 }
 
 const AWAITING = 'Awaiting match';
@@ -31,6 +32,18 @@ function formatPlacement(
   return isOwnBodyPresent ? 'In play' : '—';
 }
 
+/**
+ * What the row says while the own blob is outside. The remainder is the answer to the question a
+ * player actually has, so it is shown whenever the frame carries a grace to subtract from; elapsed
+ * exposure is the fallback for a mode that publishes none, and is what this row said for every
+ * frame before protocol 2.2 put `elimination_grace_ticks` on the wire.
+ */
+function formatZoneExposure(exposure: ZoneExposureReport): string {
+  return exposure.remainingSeconds === null
+    ? `Outside ${formatSeconds(exposure.elapsedSeconds)}`
+    : `${formatSeconds(exposure.remainingSeconds)} left`;
+}
+
 function formatThrust(thrust: ThrustDirection): string {
   return thrust.x === 0 && thrust.y === 0
     ? 'idle'
@@ -43,11 +56,13 @@ function formatThrust(thrust: ThrustDirection): string {
  * the wire carries: the mode's configured phase durations are composition-root configuration and
  * are deliberately not published, so this reports elapsed time rather than inventing a remainder.
  *
- * Zone exposure is the same bargain and is stated the same way. The wire carries
- * `zone_exposure.outside_ticks` but not `elimination_grace_seconds`, so the row counts elapsed
- * exposure up rather than counting a fabricated grace down. The row exists only while the own blob
- * is outside: `zoneExposureSeconds` is `null` on the first snapshot after re-entry, so the warning
- * clears with the snapshot that cleared the server's counter and no client timer can disagree.
+ * Zone exposure is no longer the same bargain, and the difference is the point of protocol 2.2. The
+ * wire carries `zone_exposure.outside_ticks` and now also `elimination_grace_ticks`, so the row
+ * counts the real remainder down instead of counting elapsed exposure up; a mode that publishes no
+ * grace still gets the elapsed reading, because the alternative would be inventing a duration. The
+ * row exists only while the own blob is outside: `zoneExposure` is `null` on the first snapshot
+ * after re-entry, so the warning clears with the snapshot that cleared the server's counter and no
+ * client timer can disagree.
  */
 export function SimulationHud({
   aliveCount,
@@ -57,7 +72,7 @@ export function SimulationHud({
   ownPlacement,
   phaseElapsedSeconds,
   thrust,
-  zoneExposureSeconds,
+  zoneExposure,
 }: SimulationHudProps) {
   return (
     <table className="MatchHud">
@@ -75,10 +90,10 @@ export function SimulationHud({
           <th scope="row">Phase elapsed</th>
           <td>{formatSeconds(phaseElapsedSeconds)}</td>
         </tr>
-        {zoneExposureSeconds === null ? null : (
+        {zoneExposure === null ? null : (
           <tr className="MatchHudDanger">
             <th scope="row">Zone exposure</th>
-            <td>Outside {formatSeconds(zoneExposureSeconds)}</td>
+            <td>{formatZoneExposure(zoneExposure)}</td>
           </tr>
         )}
         <tr>

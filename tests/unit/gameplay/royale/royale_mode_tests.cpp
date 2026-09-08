@@ -60,10 +60,10 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
                                              simulation::CommandKind::kThrust}));
 }
 
-TEST_CASE("RoyaleMode declares six systems in the order its rules depend on",
+TEST_CASE("RoyaleMode declares seven systems in the order its rules depend on",
           "[unit][gameplay][royale]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 6);
+  REQUIRE(systems.size() == 7);
 
   REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
@@ -77,16 +77,22 @@ TEST_CASE("RoyaleMode declares six systems in the order its rules depend on",
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() ==
         std::string_view{"zone_elimination"});
 
-  // Remove then add: `placement_recorder` destroys this tick's eliminated entities, then
-  // `lifetime_expiry` emits the despawns for whatever ran out, then `hazard_spawn` draws from the
-  // entity id reservation only after every other creating system has taken what it needs.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 3);
+  // Remove, then add, then publish: `placement_recorder` destroys this tick's eliminated entities,
+  // then `lifetime_expiry` emits the despawns for whatever ran out, then `hazard_spawn` draws from
+  // the entity id reservation only after every other creating system has taken what it needs, and
+  // `elimination_grace_publisher` runs last so it is the final writer of the mode-state block.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 4);
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[1].system->name() ==
         std::string_view{"lifetime_expiry"});
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[2].system->name() ==
         std::string_view{"hazard_spawn"});
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[0].system->name() ==
         std::string_view{"placement_recorder"});
+  // Last, and the position is the rule rather than a preference: `placement_recorder` reads the
+  // whole block out and assigns it back, so a publisher declared ahead of it would be relying on
+  // another system to carry a member it does not know about.
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[3].system->name() ==
+        std::string_view{"elimination_grace_publisher"});
 }
 
 TEST_CASE("RoyaleMode rejects a map with fewer spawn markers than it needs players",
@@ -150,6 +156,33 @@ TEST_CASE("royale's match state is one registered arm of the mode-state seam",
   REQUIRE(held != nullptr);
   CHECK(held->placements.empty());
   CHECK(held->previous_phase == simulation::MatchPhase::kLobby);
+  // Stamped on the very first committed tick, which is the earliest tick any client can receive:
+  // `SnapshotPublication` reports not-ready until one tick has completed. There is no snapshot on
+  // which a client sees a default zero that a later frame corrects.
+  CHECK(held->elimination_grace_ticks ==
+        gameplay::RoyaleConfiguration::defaults().elimination_grace_ticks());
+}
+
+TEST_CASE("the grace royale publishes is the grace royale enforces",
+          "[unit][gameplay][royale][mode_state]") {
+  // `zone_elimination` and `elimination_grace_publisher` are built from one `RoyaleConfiguration`
+  // at one call site, which is what keeps the number on the wire from drifting away from the number
+  // the rule applies. A configured value rather than the default, so a publisher that ignored its
+  // construction and hard-coded the proposed 1,200 would fail here.
+  gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
+  section.elimination_grace_seconds = 0.5;
+  const gameplay::RoyaleConfiguration configuration =
+      gameplay::RoyaleConfiguration::create(section);
+  REQUIRE(configuration.elimination_grace_ticks() == 200);
+
+  testing::SteppedGame driver{testing::gameplay_simulation(
+      gameplay::RoyaleMode::create(configuration), testing::gameplay_map(4, "royale_grace_map"))};
+
+  const simulation::WorldSnapshot snapshot = driver.step();
+  const auto* held =
+      std::get_if<simulation::RoyalePlacementsModeState>(&snapshot.match().mode_state());
+  REQUIRE(held != nullptr);
+  CHECK(held->elimination_grace_ticks == configuration.elimination_grace_ticks());
 }
 
 TEST_CASE("a royale mode built from its own configuration hands it to the systems it declares",

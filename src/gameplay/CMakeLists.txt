@@ -1,5 +1,6 @@
 add_library(blob_gameplay STATIC
   game_mode_registry.cpp
+  royale/elimination_grace_publisher_system.cpp
   royale/placement_recorder_system.cpp
   royale/royale_configuration.cpp
   royale/royale_mode.cpp

@@ -25,7 +25,7 @@ namespace blob_royale::protocol {
 // related: docs/protocol/v2.md -- the accepted contract these values are read from.
 // related: protocol_constants.hpp -- the v1 twin, deliberately not shared.
 
-inline constexpr std::string_view kProtocolV2Version = "2.1";
+inline constexpr std::string_view kProtocolV2Version = "2.2";
 
 inline constexpr std::string_view kWelcomeMessageSchemaId =
     "blob-royale://protocol/v2/welcome-message";

@@ -501,9 +501,10 @@ describe('SimulationApi session lifecycle', () => {
 
     const welcome = welcomeDocument();
     // One minor ahead of whatever the client supports. This moved 2.1 -> 2.2 when the server
-    // published `lethal_on_contact` and bumped the schema set to 2.1, because a test named "a newer
-    // protocol minor" that names the current one stops testing anything.
-    welcome.meta.protocol_version = '2.2';
+    // published `lethal_on_contact`, and 2.2 -> 2.3 when the royale mode-state block gained
+    // `elimination_grace_ticks`, because a test named "a newer protocol minor" that names the
+    // current one stops testing anything.
+    welcome.meta.protocol_version = '2.3';
     socket.receive(JSON.stringify(welcome));
 
     expect(callbacks.onWelcome).not.toHaveBeenCalled();

@@ -14,9 +14,18 @@ namespace blob_royale::simulation {
 // canonical: royale_placements_mode_state -- royale's match-wide state that is not entity-shaped.
 //
 // Everything royale owns that *is* entity-shaped is a component: the safe zone is a `Zone` on its
-// own entity and the grace counter is a `ZoneExposure` per entity. What is left is the two values
-// below, and neither belongs to an entity (`docs/architecture/0005-royale-mode.md` § "Where zone
-// and elimination state live").
+// own entity and the grace counter is a `ZoneExposure` per entity. What is left is the three values
+// below, and none of them belongs to an entity (`docs/architecture/0005-royale-mode.md` § "Where
+// zone and elimination state live").
+//
+// **Two of the three are observations and the third is a declaration**, and that distinction is the
+// only interesting thing about this struct. `placements` and `previous_phase` are things royale
+// *found out* by running; `elimination_grace_ticks` is a number an operator wrote in a
+// configuration file. The reason a declared constant is allowed to sit beside two observations is
+// that the block is not a scratchpad, it is **royale's contribution to every published snapshot**,
+// and a reader of that snapshot cannot interpret `ZoneExposure::outside_ticks` without the bound it
+// is counted against. Publishing the counter and withholding its denominator is what made the
+// elimination rule read as arbitrary to the player who reported it.
 //
 // This is the second arm of the `ModeMatchState` seam, and adding it edited no kernel file: one
 // type in the variant and one `ModeMatchStateSchemaId` specialization, both in
@@ -60,6 +69,25 @@ struct RoyalePlacementsModeState final {
   // the engine's transition, and it is what distinguishes `ended -> lobby` from
   // `countdown -> lobby`.
   MatchPhase previous_phase{MatchPhase::kLobby};
+  // `G`: the consecutive outside ticks `zone_elimination` allows before it names an entity, and the
+  // denominator of the `ZoneExposure::outside_ticks` every snapshot already carries. Ticks rather
+  // than seconds because `RoyaleConfiguration` stores ticks and nothing else on the wire is
+  // expressed in seconds, so a conversion here would be a second unit for a reader to get wrong.
+  //
+  // **No royale rule reads this member.** `zone_elimination` reads its own copy of the validated
+  // configuration and always will; this is the same number travelling to the client, and the two
+  // cannot disagree because `RoyaleMode::systems()` builds both from one `RoyaleConfiguration`.
+  // Naming that asymmetry is the point: it is a *published* value, not a piece of the simulation,
+  // and a future rule that wants the grace must take the configuration rather than read this back.
+  //
+  // Zero is a legal configuration and means "eliminate on the first outside tick", because the
+  // increment precedes the test. It is also the default this struct is born with, which is
+  // deliberately *not* treated as a sentinel: `elimination_grace_publisher` runs last among
+  // royale's `kLifecycle` systems, so every committed tick of a royale match carries the configured
+  // value and no snapshot can publish an unstamped zero. A reader that wants to distinguish "grace
+  // of zero" from "no royale block at all" reads the mode-state schema id, which already answers
+  // it.
+  std::uint64_t elimination_grace_ticks{};
 
   friend bool operator==(const RoyalePlacementsModeState&,
                          const RoyalePlacementsModeState&) = default;

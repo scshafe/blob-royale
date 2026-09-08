@@ -27,12 +27,13 @@ namespace blob_royale::gameplay {
 // @extension-point game_mode
 //
 // The second of the two games in `blob_gameplay`, and **a mode is still a declaration, not
-// machinery**: everything below is seven answers. The rules are four declared systems and two
-// components; none of them is a phase inside `GameSimulation` and none of them is a field on the
-// world (`docs/architecture/0005-royale-mode.md` § "The mode declaration").
+// machinery**: everything below is seven answers. The rules are declared systems, a contact row and
+// two components; none of them is a phase inside `GameSimulation` and none of them is a field on
+// the world (`docs/architecture/0005-royale-mode.md` § "The mode declaration").
 //
 //   systems()               thrust_steering at kPreKernel; zone_shrink then zone_elimination at
-//                           kPostKernel; placement_recorder then hazard_spawn at kLifecycle
+//                           kPostKernel; placement_recorder, lifetime_expiry, hazard_spawn then
+//                           elimination_grace_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
 //   accepted_command_kinds  spawn, despawn, thrust
 //   spawn_policy()          RotatingRingSpawnPolicy
@@ -65,10 +66,14 @@ namespace blob_royale::gameplay {
 // `MatchLifecycleSystem` last at `kLifecycle` and it is not removable, so `placement_recorder`
 // always runs before this tick's phase transition is evaluated.
 //
-// The two `kLifecycle` systems are ordered for the same kind of reason. `placement_recorder` runs
-// first because it *destroys* this tick's eliminated entities, and `hazard_spawn` runs second so it
-// sees the seats that freed and the entity ids that did not. Both create or destroy roster
-// entries, which is what `kLifecycle` is for.
+// The four `kLifecycle` systems are ordered for the same kind of reason, remove then add then
+// publish. `placement_recorder` runs first because it *destroys* this tick's eliminated entities,
+// `lifetime_expiry` despawns whatever ran out, and `hazard_spawn` runs third so it sees the seats
+// that freed and the entity ids that did not; all three create or destroy roster entries, which is
+// what `kLifecycle` is for. `elimination_grace_publisher` runs last because it writes the
+// mode-state block and running after the other writer of that block is what makes the published
+// grace independent of how that writer happens to be implemented
+// (`royale/elimination_grace_publisher_system.hpp`).
 //
 // The mode holds its validated `[royale]` configuration and hands it to the systems and policies it
 // builds, which is the only way configuration reaches a tick. Every declaration returns an

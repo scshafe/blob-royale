@@ -102,22 +102,115 @@ export function phaseElapsedSeconds(
 }
 
 /**
- * Seconds one entity's center has been continuously outside the safe zone, or `null` when it is
- * inside, absent, or unpublished. `zone_exposure.outside_ticks` is a consecutive committed-tick
- * count that `zone_elimination` resets to zero on re-entry (ADR 0005 § "Elimination and placement"),
- * so `null` is exactly "there is nothing to warn about this frame" and the caller needs no timer.
- *
- * This is elapsed exposure, not remaining grace. `elimination_grace_seconds` is `[royale]`
- * composition-root configuration; `GET /api/v1/config` publishes only `world`, `simulation`, and
- * `presentation` and its schema is `additionalProperties: false`, and no v2 frame carries it
- * either. Counting down would mean inventing the denominator, so this counts up from a tick count
- * the wire really does carry, converted by the published `ticks_per_second`.
+ * The one mode-state schema id whose block carries an elimination grace. Typed as the generated
+ * union rather than a bare string, so renaming the id in `common.schema.json` and regenerating
+ * fails this build instead of silently making every royale frame read as an unknown mode.
  */
-export function zoneExposureSeconds(
+const ROYALE_MODE_STATE_SCHEMA_ID: SessionMatchSection['mode_state']['schema_id'] =
+  'blob-royale://protocol/v2/mode-state/royale';
+
+/**
+ * `G`, the consecutive outside ticks the running mode allows before it eliminates, or `null` when
+ * this frame does not say.
+ *
+ * Published in the royale mode-state block since protocol 2.2 (`royale-mode-state.schema.json`) for
+ * exactly one reason: every snapshot already carries `zone_exposure.outside_ticks`, and a
+ * consecutive-tick counter without its bound cannot answer "how long do I have". The schema makes
+ * it `required`, so a frame that validated against a royale block has it; `null` is therefore not a
+ * degraded royale frame but a frame from a mode that has no grace at all — `sandbox` publishes the
+ * `none` block — and the caller's job in that case is to show what it knows rather than to guess a
+ * duration.
+ *
+ * The value is read defensively even though validation guarantees its shape, because the generated
+ * type for `mode_state.value` is the open `{}`: json-schema-to-typescript cannot express the
+ * if/then correlation between the schema id and the value, so the correlation is resolved here, in
+ * one place, instead of at every call site.
+ */
+export function eliminationGraceTicks(
+  match: SessionMatchSection | null,
+): number | null {
+  if (
+    match === null ||
+    match.mode_state.schema_id !== ROYALE_MODE_STATE_SCHEMA_ID
+  ) {
+    return null;
+  }
+  const value: unknown = match.mode_state.value;
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('elimination_grace_ticks' in value)
+  ) {
+    return null;
+  }
+  const graceTicks: unknown = value.elimination_grace_ticks;
+  if (
+    typeof graceTicks !== 'number' ||
+    !Number.isSafeInteger(graceTicks) ||
+    graceTicks < 0
+  ) {
+    return null;
+  }
+  return graceTicks;
+}
+
+/**
+ * How much of the grace an exposure has spent, in `[0, 1]`, or `null` when this frame published no
+ * grace to spend.
+ *
+ * Three cases and each is a decision rather than an accident. **No published grace** is `null`: the
+ * caller must fall back to reporting elapsed exposure rather than ramping against a denominator it
+ * invented. **A grace of zero** is `1`, not a division: zero is a legal `[royale]` value meaning
+ * "eliminate on the first outside tick", so a blob that is outside at all has spent every bit of a
+ * window that never existed. **An overshoot** clamps: `zone_elimination` eliminates when
+ * `outside_ticks` reaches `G` and `placement_recorder` destroys the entity in the same tick, so a
+ * published counter should never reach its bound — but a client must not render a fraction above
+ * one, or a negative remainder, on a frame that says otherwise.
+ */
+export function graceSpentFraction(
+  outsideTicks: number,
+  eliminationGraceTicks: number | null,
+): number | null {
+  if (eliminationGraceTicks === null) {
+    return null;
+  }
+  if (eliminationGraceTicks <= 0) {
+    return 1;
+  }
+  return Math.min(1, Math.max(0, outsideTicks / eliminationGraceTicks));
+}
+
+/** What one entity's zone exposure means this frame, in the units a player is shown. */
+export interface ZoneExposureReport {
+  /** Seconds the center has been continuously outside. Always greater than zero. */
+  readonly elapsedSeconds: number;
+  /** Seconds of grace left, or `null` when this frame published no grace. Never negative. */
+  readonly remainingSeconds: number | null;
+  /** Grace spent, in `[0, 1]`, or `null` when this frame published no grace. */
+  readonly spentFraction: number | null;
+}
+
+/**
+ * One entity's zone exposure, or `null` when it is inside, absent, or unpublished.
+ * `zone_exposure.outside_ticks` is a consecutive committed-tick count that `zone_elimination` resets
+ * to zero on re-entry (ADR 0005 § "Elimination and placement"), so `null` is exactly "there is
+ * nothing to warn about this frame" and the caller needs no timer.
+ *
+ * It reports elapsed *and* remaining because the two have different availability. Elapsed comes from
+ * a counter every royale frame carries and is always known; remaining needs `G`, which arrives in
+ * the mode-state block and is absent for a mode that has no grace. Returning both, with the
+ * remainder nullable, is what lets one caller show the better answer when it exists and the honest
+ * one when it does not, without a second walk of the entity list.
+ *
+ * The remainder is computed as `max(0, G - outside_ticks)` in ticks and converted once, so nothing
+ * ever divides by `G` and an overshoot reads as "no time left" rather than as a negative countdown.
+ */
+export function zoneExposureReport(
   entities: readonly SessionEntitySnapshot[],
   entityId: number | null,
   ticksPerSecond: number,
-): number | null {
+  eliminationGraceTicks: number | null,
+): ZoneExposureReport | null {
   if (ticksPerSecond <= 0) {
     return null;
   }
@@ -126,7 +219,14 @@ export function zoneExposureSeconds(
   if (outsideTicks <= 0) {
     return null;
   }
-  return outsideTicks / ticksPerSecond;
+  return {
+    elapsedSeconds: outsideTicks / ticksPerSecond,
+    remainingSeconds:
+      eliminationGraceTicks === null
+        ? null
+        : Math.max(0, eliminationGraceTicks - outsideTicks) / ticksPerSecond,
+    spentFraction: graceSpentFraction(outsideTicks, eliminationGraceTicks),
+  };
 }
 
 export interface MatchOverlayDescription {

@@ -10,7 +10,7 @@ import type {
   SessionWorldSnapshot,
 } from './simulationProtocolTypes';
 import { visualEntityRenderers } from './rendering/entityRendererRegistry';
-import { countAlivePlayers } from './sessionSelectors';
+import { countAlivePlayers, eliminationGraceTicks } from './sessionSelectors';
 
 export interface SimulationCanvasProps {
   readonly configuration: SimulationConfiguration;
@@ -78,6 +78,9 @@ export function SimulationCanvas({
     }
 
     const frame = {
+      // Resolved once per frame from the match section the snapshot already carries, so every
+      // renderer that draws danger measures it against the same denominator the HUD counts down.
+      eliminationGraceTicks: eliminationGraceTicks(snapshot.match),
       ownEntityId,
       projection: {
         horizontalScale: viewport.width / configuration.world.width_world_units,

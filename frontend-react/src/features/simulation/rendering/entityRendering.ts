@@ -12,6 +12,15 @@ export interface WorldProjection {
 
 /** Everything a renderer may read that is not its own component or its own entity. */
 export interface EntityRenderFrame {
+  /**
+   * `G` from this frame's mode-state block, or `null` when the running mode published no grace.
+   *
+   * It is on the frame rather than reached for by the one renderer that wants it, for the same
+   * reason `ownEntityId` is: a renderer receives what it may read and never goes looking. It is
+   * match-wide, so resolving it once per frame is also the only way a renderer cannot disagree with
+   * the HUD about the same number (`sessionSelectors.eliminationGraceTicks`).
+   */
+  readonly eliminationGraceTicks: number | null;
   readonly ownEntityId: number | null;
   readonly projection: WorldProjection;
   readonly surface: CanvasRenderingContext2D;

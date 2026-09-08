@@ -123,14 +123,15 @@
       "mode_state": {
         "schema_id": "blob-royale://protocol/v2/mode-state/royale",
         "value": {
-          "previous_phase": "running"
+          "previous_phase": "running",
+          "elimination_grace_ticks": 1200
         }
       }
     }
   },
   "error": null,
   "meta": {
-    "protocol_version": "2.1",
+    "protocol_version": "2.2",
     "schema_id": "blob-royale://protocol/v2/snapshot-message",
     "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
     "message_sequence": 129,

@@ -13,7 +13,10 @@ import {
   EXPOSED_PEER_RING_COLOR,
 } from './zoneExposureRenderer';
 
-function createFrame(ownEntityId: number | null = null): {
+function createFrame(
+  ownEntityId: number | null = null,
+  eliminationGraceTicks: number | null = null,
+): {
   readonly arc: ReturnType<typeof vi.fn>;
   readonly arcRadii: readonly number[];
   readonly fillText: ReturnType<typeof vi.fn>;
@@ -61,6 +64,9 @@ function createFrame(ownEntityId: number | null = null): {
     arcRadii,
     fillText,
     frame: {
+      // Defaults to `null`, which is the "this frame published no grace" case, so every test
+      // written before the grace reached the wire keeps asserting the drawing it always asserted.
+      eliminationGraceTicks,
       ownEntityId,
       projection: { horizontalScale: 1, verticalScale: 1 },
       surface,
@@ -87,6 +93,7 @@ function drawHazard(
     );
   }
   registration.drawEntity(entity, {
+    eliminationGraceTicks: null,
     ownEntityId: null,
     projection: { horizontalScale: 1, verticalScale: 1 },
     surface,
@@ -282,6 +289,68 @@ describe('entityRendererRegistry', () => {
     expect(new Set(own.arcRadii).size).toBe(2);
     expect(Math.max(...own.arcRadii)).toBeGreaterThan(
       Math.max(...peer.arcRadii),
+    );
+  });
+
+  it('thickens the exposure ring as the published grace is spent', () => {
+    // The denominator is `elimination_grace_ticks` from the frame's mode-state block. Before
+    // protocol 2.2 published it there was none, and the ring deliberately did not ramp rather than
+    // ramping against a guessed duration.
+    const widths = [1, 600, 1_200].map((outsideTicks) => {
+      const drawn = createFrame(null, 1_200);
+      entityRendererRegistry.zone_exposure.drawEntity(
+        blobEntity(21, outsideTicks),
+        drawn.frame,
+      );
+      return drawn.frame.surface.lineWidth;
+    });
+
+    expect(widths[0]).toBeLessThan(widths[1] ?? 0);
+    expect(widths[1]).toBeLessThan(widths[2] ?? 0);
+  });
+
+  it('draws the flat base ring when the frame publishes no grace to spend', () => {
+    // `sandbox` publishes the `none` mode-state block, so its frames carry no grace at all. A ramp
+    // there would be a guess; the honest drawing is the same fixed ring for every exposure.
+    const brief = createFrame();
+    const long = createFrame();
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 1),
+      brief.frame,
+    );
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 100_000),
+      long.frame,
+    );
+
+    expect(brief.frame.surface.lineWidth).toBe(long.frame.surface.lineWidth);
+  });
+
+  it('saturates the ramp rather than dividing by a grace of zero or passing full', () => {
+    // A grace of zero is a legal `[royale]` value: elimination on the first outside tick. And a
+    // counter past its bound must clamp, not scale past the widest ring.
+    const graceless = createFrame(null, 0);
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 1),
+      graceless.frame,
+    );
+    const spent = createFrame(null, 1_200);
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 1_200),
+      spent.frame,
+    );
+    const overshot = createFrame(null, 1_200);
+    entityRendererRegistry.zone_exposure.drawEntity(
+      blobEntity(21, 99_999),
+      overshot.frame,
+    );
+
+    expect(Number.isFinite(graceless.frame.surface.lineWidth)).toBe(true);
+    expect(graceless.frame.surface.lineWidth).toBe(
+      spent.frame.surface.lineWidth,
+    );
+    expect(overshot.frame.surface.lineWidth).toBe(
+      spent.frame.surface.lineWidth,
     );
   });
 

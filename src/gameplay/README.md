@@ -36,10 +36,11 @@ src/gameplay/
     zone_shrink_system.*        the zone's geometry, and the component it writes each tick
     zone_elimination_system.*   grace against the zone, and who is out
     placement_recorder_system.* ranking, roster removal, and the restart wipe
+    elimination_grace_publisher_system.*  `G` on the wire, so a client can count down
     rotating_ring_spawn_policy.hpp  the next free point, and only between matches
     royale_objective.hpp        ending by attrition, as three total predicates
     royale_roster.hpp           the one definition of "alive" royale's rules read
-    royale_mode_state.hpp       the one read of royale's arm of `ModeMatchState`
+    royale_mode_state.hpp       the one answer to "what if the world holds another arm"
 ```
 
 **`shared/` is where a thing more than one mode uses lives.** ADR 0004 files a mechanic under
@@ -139,17 +140,19 @@ Thrust and drag inside a linearly shrinking circular safe zone, last blob standi
 engine's built-in contact rows unchanged beneath one row of its own, `lethal_hazard`, which computes
 no physics at all, so it is still structurally incapable of reaching a different collision equation
 for a pair of ordinary blobs; declares `thrust_steering` at `kPreKernel`, `zone_shrink` then
-`zone_elimination` at `kPostKernel`, and `placement_recorder`, `lifetime_expiry` then `hazard_spawn`
-at `kLifecycle`; seats joiners on a rotating ring and only between matches; and ends when one blob or
-none is alive.
+`zone_elimination` at `kPostKernel`, and `placement_recorder`, `lifetime_expiry`, `hazard_spawn`
+then `elimination_grace_publisher` at `kLifecycle`; seats joiners on a rotating ring and only between
+matches; and ends when one blob or none is alive.
 
-`RoyaleMode` is **101 lines** — a 52-line class block plus 49 lines of definitions — of which **73
-are code**, against `SandboxMode`'s 89 and 58 measured the same way. The two class blocks are
-exactly the same size, 52 lines and 30 of them code, because every one of the seven declarations is
-still one line in both; the whole difference is in the definitions, which are `systems()`'s four
-rows instead of one and `validate_map`'s two rejections instead of one. That is the seam holding: a
-second, far richer game cost the mode class nothing and its definitions fifteen lines of code, and
-everything else it needed went into new files.
+`RoyaleMode` is **137 lines** — a 69-line class block plus 68 lines of definitions — of which **89
+are code**, against `SandboxMode`'s 89 and 58 measured the same way. Their class blocks are 35 and
+30 lines of code, because every one of the seven declarations is still one line in both and the
+whole of royale's excess there is two extra `create` overloads for its hazard table; the rest of the
+difference is in the definitions, which are `systems()`'s seven rows instead of one and
+`validate_map`'s two rejections instead of one. That is the seam holding: a second, far richer game
+— a shrinking zone, elimination with a published grace, and crossing hazards — cost the mode class
+five lines of code and its definitions twenty-six, and everything else it needed went into new
+files.
 
 What it contributed outside its own directory is two component headers plus one line in
 `component_registry.hpp`, one mode-state header plus one type and one schema id in

@@ -28,11 +28,71 @@ The zone already publishes everything the client needs. `zone_exposure.outside_t
   - Execution note (2026-09-07): Verified at 132 client tests, up from 123, with typecheck, lint, and build green. An exposed blob gets an amber ring and the local player's gets a heavier double red one, so "someone is in trouble" and "I am in trouble" differ at a glance; a safe blob draws exactly as before. The registry entry was replaced rather than the canvas special-cased, which is what the seam is for. The HUD row exists only while exposed and disappears on the same tick the server resets the counter, so no client timer can disagree with the server. Ring intensity is deliberately not ramped, because without the grace duration a ramp is a guess at a denominator; Step 1b removes that excuse. Two assertions changed because the frame genuinely paints one more circle, and both were strengthened to pin the count to a named cause.
   - Notes: The data already arrives. Draw the danger state on an exposed blob (own blob especially) and put the remaining grace in the HUD, counting down from `elimination_grace_seconds`. The grace period is a tick count the wire does not carry, so derive the remaining fraction from `outside_ticks` against a value the client learns from `/api/v1/config` or treats as unknown — decide and say which, and do not invent a duration. Replace the registry's non-visual entry rather than special-casing the canvas. Tests: an exposed blob renders differently from a safe one, the countdown appears only while exposed, and it clears on re-entry.
 
-- [ ] **Step 1b: Publish the grace duration so the countdown is real**
+- [x] **Step 1b: Publish the grace duration so the countdown is real**
   - Verify: `./scripts/verify-focused 'unit.protocol|unit.gameplay'` and `cd frontend-react && npm run generate:protocol:check && npm run test:ci && npm run build`
   - Notes: Step 1 established that the client cannot learn `elimination_grace_seconds`: it is a `[royale]` key held by the mode, and no v1 config block, welcome, match section, or mode-state schema carries it, so the HUD honestly shows elapsed exposure rather than a fabricated remainder. That is a worse answer to the owner's actual complaint, which was not knowing why elimination did or did not happen. Add `elimination_grace_ticks` to `royale-mode-state.schema.json`, which exists precisely for non-entity-shaped mode state and is the documented `snapshot_mode_state` extension point, and bump the protocol minor version. Ticks, not seconds, because the mode already stores ticks and nothing else on the wire is in seconds. Then the HUD counts down and the danger ring can ramp with elapsed grace, which Step 1 deliberately refused to do without a denominator. The counter-argument, that publishing it hands clients a balance number, is about churn rather than secrecy and loses to a player who cannot tell how long they have.
   - Route decided 2026-09-07 after reading all three candidates. The value is mode configuration and the encoder can only see the world, so publishing it means a royale system stamps it into `RoyalePlacementsModeState` beside `previous_phase`. The placement recorder already rewrites that whole block at `kLifecycle`, so no new writer is needed, but the constant must be stamped by a system whose name admits what it does rather than smuggled into the recorder. The welcome frame was rejected: `welcome-data.schema.json` is mode-agnostic and names only `mode` and `map`, so a royale balance number there is a wart every future mode inherits. Publishing per frame also carries the value into replays, which is where a countdown has to keep working. Confirmed low risk: no fixture digest covers `mode_state`, and the only reader of the arm today is `royale_mode_state_of`.
   - Sequencing: this sits behind the hazard work in the owner's priority, because Step 1 already answered the complaint that prompted it. Do it after Step 6 unless a hazard step blocks on it.
+  - Execution note (2026-09-08). Verified at **848 C++ tests on `linux-gcc-debug` and again on
+    `linux-clang-asan-ubsan`** across the full filter (841 before), **142 client tests** through
+    `./scripts/verify-web` including typecheck, lint, generation-drift, schema examples and the
+    production build (134 before), and **4 browser flows passing with 0 retries**.
+    `git diff --stat -- tests/fixtures/replays/ maps/ deploy/` is empty. **Left uncommitted in the
+    working tree** for review; three new files (`elimination_grace_publisher_system.{hpp,cpp}` and
+    its tests) plus 34 modified.
+    - **The value is published by its own system, `elimination_grace_publisher`, declared last at
+      `kLifecycle`.** Folding it into `placement_recorder` would have cost one assignment and a
+      name that stops describing its contents. Last, not first, and the position is the rule:
+      `placement_recorder` reads the whole block out and assigns it back, so a publisher ahead of it
+      would depend on another system preserving a member it does not know about. Running last makes
+      the published value independent of how that system is written.
+    - **No snapshot ever carries an unstamped zero.** `placement_recorder` assigns royale's arm on
+      every tick including the first, this runs after it in the same stage, and
+      `SnapshotPublication` reports not-ready until a tick has completed -- so the first frame a
+      session can receive already carries the configured grace. There is no flip for the client to
+      tolerate, and a test ticks a configured mode once and reads the value back rather than
+      asserting the reasoning.
+    - **`royale_mode_state_in` is the new writer-side half of `royale_mode_state.hpp`**, which was
+      already the one place "what if the world holds another arm" is answered. It returns a
+      reference so a one-member stamp does not copy the placement list a second time per tick and
+      cannot lose a member a future editor forgets to carry.
+    - **The wire went to 2.2**, following the 2.1 procedure exactly. The version rule in
+      `docs/protocol/v2.md` § "Versioning and fail-closed decoding" said only "a component kind, a
+      command kind, or a mode-state schema"; a *member* added to a published block was not named,
+      so the rule was extended in the same commit to say so and to say why -- the schemas are
+      closed, so a 2.1 client fails on the member either way, and the version-first read is what
+      turns that into an explicit close. Both "one minor ahead" rejection cases moved 2.2 -> 2.3,
+      the C++ one in `protocol_v2_json_encoding_tests.cpp` and the two client ones.
+    - **The member is `required`, not optional.** An optional wire member would let the two ends
+      disagree about whether the frame said anything, and every guard the client needs already
+      exists for the case that is genuinely absent: a mode publishing the `none` block.
+    - **The client counts down, and the ring ramps.** `elimination_grace_ticks` resolves once per
+      frame in `sessionSelectors` and reaches the renderer on `EntityRenderFrame`, so the HUD and
+      the canvas cannot measure against different denominators. Zero grace saturates the ramp
+      instead of dividing; an overshoot clamps to "0.0 s left"; a frame with no grace falls back to
+      Step 1's elapsed reading and the flat base ring widths, so a `sandbox` frame draws exactly
+      what it drew before. The ramp is on ring *width*: colour is already spoken for by "whose blob
+      is this" and by the hazard ring, and a `globalAlpha` ramp would have to be restored or it
+      would tint every renderer that ran after it in the same frame.
+    - ADR 0005 gained two dated amendments, not one. The hazard work of Steps 4 through 6 had left
+      its § "The mode declaration" table claiming `contact_rules()` returns the built-in table
+      verbatim and that `placement_recorder` is royale's only `kLifecycle` system, both false since
+      `f3628ba`; that staleness was corrected and recorded as an **Amended 2026-09-07** entry
+      alongside this step's **Amended 2026-09-08**. `src/gameplay/README.md`'s measured line counts
+      for `RoyaleMode` were stale from the same commit and were remeasured by its own stated method.
+    - Known wart, not fixed: `zone_elimination` only runs while `running`, so a survivor who is
+      outside the zone when a match ends keeps a frozen `outside_ticks` for the whole `ended` phase
+      and the row reads as a stopped countdown rather than a stopped stopwatch. It is reachable
+      (a lethal hazard can eliminate the last inside blob), lasts at most `restart_delay_seconds`,
+      and sits behind the win overlay. Fixing it means threading the match phase onto
+      `EntityRenderFrame` for a cosmetic, which did not look worth it; say so if it reads badly in
+      the playtest.
+    - Costs stated rather than hidden: the block now holds a *declared* value beside two *observed*
+      ones, which is a real widening of what `RoyalePlacementsModeState` means and is argued in the
+      struct's own comment rather than slipped in; the number exists twice at run time, in
+      `RoyaleConfiguration` and on the wire, mitigated by both coming from one configuration at one
+      call site and pinned by a test; and a balance change is now a frame-content change, which is
+      churn the owner accepted when the route was chosen.
 
 ### Phase 2 — Per-body physics
 

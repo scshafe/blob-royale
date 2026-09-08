@@ -1,3 +1,4 @@
+import { graceSpentFraction } from '../sessionSelectors';
 import type { EntityRenderInput } from './entityRendering';
 
 /**
@@ -8,11 +9,35 @@ import type { EntityRenderInput } from './entityRendering';
 export const EXPOSED_PEER_RING_COLOR = '#f97316';
 export const EXPOSED_OWN_RING_COLOR = '#dc2626';
 
+/**
+ * Each ring's width at the instant a blob leaves the zone, and its width on the last frame before
+ * the grace runs out. The base values are the ones drawn before the grace was on the wire, so a
+ * frame that publishes no grace draws exactly what it always did.
+ */
 const PEER_RING_WIDTH_PIXELS = 3;
+const PEER_RING_SPENT_WIDTH_PIXELS = 7;
 const OWN_RING_WIDTH_PIXELS = 6;
+const OWN_RING_SPENT_WIDTH_PIXELS = 13;
 const OWN_OUTER_RING_WIDTH_PIXELS = 2;
+const OWN_OUTER_RING_SPENT_WIDTH_PIXELS = 5;
 const RING_GAP_PIXELS = 3;
 const OWN_OUTER_RING_GAP_PIXELS = 12;
+
+/**
+ * Linear between the two widths as the grace is spent. `null` is not zero: it means this frame
+ * published no grace, and the honest drawing then is the fixed base width rather than the thinnest
+ * point of a ramp, which would read as "you have plenty of time" on a frame that says nothing.
+ */
+function ringWidth(
+  basePixels: number,
+  spentPixels: number,
+  spentFraction: number | null,
+): number {
+  if (spentFraction === null) {
+    return basePixels;
+  }
+  return basePixels + (spentPixels - basePixels) * spentFraction;
+}
 
 /**
  * Draws the elimination danger of a blob whose center is outside the safe zone.
@@ -26,10 +51,18 @@ const OWN_OUTER_RING_GAP_PIXELS = 12;
  * exposure carries no geometry. It strokes and never fills: a filled disc here would repaint the
  * blob's own colour, and a stroke outside the body radius leaves the blob legible underneath.
  *
- * The rings are deliberately not scaled by how much grace is left. `elimination_grace_seconds` is
- * composition-root configuration that no accepted wire artifact publishes, so an intensity ramp
- * would be a guess at a duration; the honest signal is binary danger here plus the elapsed exposure
- * the HUD reports.
+ * **The rings thicken as the grace is spent**, which they did not before protocol 2.2. The refusal
+ * to ramp was never about taste: the denominator was not on the wire, so an intensity ramp would
+ * have been a guess at a duration. `elimination_grace_ticks` is now published in the royale
+ * mode-state block and reaches this renderer on the frame, so the ramp measures against the same
+ * number `zone_elimination` enforces. A mode that publishes no grace — `sandbox` publishes the
+ * `none` block — still gets the flat base widths, because "somebody is in danger" is the whole of
+ * what such a frame supports.
+ *
+ * Width rather than colour, deliberately. The two exposure colours already carry "whose blob is
+ * this", and the hazard ring already owns a third colour and the dash pattern; a ramp that moved
+ * hue would collide with both, and a ramp on `globalAlpha` would have to be restored or it would
+ * tint every renderer that ran afterwards in the same frame.
  */
 export function drawZoneExposure({
   component,
@@ -49,7 +82,13 @@ export function drawZoneExposure({
     return;
   }
 
-  const { projection, surface } = frame;
+  const { eliminationGraceTicks, projection, surface } = frame;
+  // The same guard the HUD counts down through, so a zero grace saturates instead of dividing and
+  // a counter past its bound clamps instead of overshooting the ramp.
+  const spentFraction = graceSpentFraction(
+    component.outside_ticks,
+    eliminationGraceTicks,
+  );
   const centerX = body.position.x * projection.horizontalScale;
   const centerY = body.position.y * projection.verticalScale;
   const radiusPixels = Math.max(
@@ -62,8 +101,16 @@ export function drawZoneExposure({
     ? EXPOSED_OWN_RING_COLOR
     : EXPOSED_PEER_RING_COLOR;
   surface.lineWidth = isOwnEntity
-    ? OWN_RING_WIDTH_PIXELS
-    : PEER_RING_WIDTH_PIXELS;
+    ? ringWidth(
+        OWN_RING_WIDTH_PIXELS,
+        OWN_RING_SPENT_WIDTH_PIXELS,
+        spentFraction,
+      )
+    : ringWidth(
+        PEER_RING_WIDTH_PIXELS,
+        PEER_RING_SPENT_WIDTH_PIXELS,
+        spentFraction,
+      );
   surface.beginPath();
   surface.arc(centerX, centerY, radiusPixels + RING_GAP_PIXELS, 0, 2 * Math.PI);
   surface.stroke();
@@ -74,7 +121,11 @@ export function drawZoneExposure({
 
   // The own blob gets a second, detached ring so its danger state is unmistakable at a glance and
   // still readable when the blob is small on screen or crowded by peers.
-  surface.lineWidth = OWN_OUTER_RING_WIDTH_PIXELS;
+  surface.lineWidth = ringWidth(
+    OWN_OUTER_RING_WIDTH_PIXELS,
+    OWN_OUTER_RING_SPENT_WIDTH_PIXELS,
+    spentFraction,
+  );
   surface.beginPath();
   surface.arc(
     centerX,

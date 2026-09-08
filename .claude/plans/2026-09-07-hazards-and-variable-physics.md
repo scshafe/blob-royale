@@ -296,9 +296,13 @@ A reconnaissance pass proved three things the plan had assumed away. All three a
   - `drag_scale` was deliberately kept out of `body_has_baseline_physics`. That predicate gates `variable_impulse`, which is phase 3, and drag is phase 1; including it would have switched the collision equation for the deployed unit-mass comet purely because it coasts. A test pins the exclusion, and the predicate's comment now states the rule for the next per-body property: add it there only if a contact rule reads it.
   - Not published on the wire, so no protocol minor. Nothing draws it.
 
-- [ ] **Step 8: Deploy and playtest the tuned values**
+- [x] **Step 8: Deploy and playtest the tuned values**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet'` then a playtest note under `docs/playtests/`
   - Notes: Ship conservative starting values and expect to change them; `scripts/reconfigure-tailnet` applies a new hazard table in seconds without a rebuild, which is the point of putting archetypes in configuration.
+
+  - Deployed 2026-09-08. Commit `2b7ecd2`, release `release-ed8bf9e1a88167ab6e81d82239be9de7db865c44653bda2972b1e4ac534f932b`, `verification_authority=authoritative`. Confirmed by four independent checks rather than by the script's own report, because the SSH client carrying its output was killed mid-run: the container was replaced and reports ready on the tailnet URL, its `blob-royale.deployed-commit` label is exactly `2b7ecd2f3ab881c4c7074c843898e109a71f6a4c`, the deployed server binary carries `lethal_on_contact` and `elimination_grace_ticks`, the freshly served client bundle carries protocol `2.2` and both new names, and the live mounted configuration declares `[hazard.comet]` and `[hazard.boulder]`. `drag_scale` is deliberately absent from the wire.
+  - The first attempt failed and the second was interrupted, both harmlessly. `snapshot.ubuntu.com` served 502/503 on its archive paths for roughly an hour, which failed the runtime image build on the host **and** two GitHub Actions runs on the same pinned snapshot. `deploy-tailnet` failed closed and left the previous container serving, which is the whole point of it running the release profile before it publishes. Worth noting as a real single point of failure: one pinned mirror gates both CI and deployment, and it took both out at once.
+  - Timing, measured from artifact timestamps: the release profile is roughly an hour and a half, of which the publish tail is under two minutes. It is much heavier than CI's pull-request profile because it adds fuzz campaigns, the runtime image build, SBOM generation and two vulnerability scans.
 
 ## Done criteria
 

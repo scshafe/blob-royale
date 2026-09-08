@@ -1,14 +1,21 @@
+#include "application_config.hpp"
 #include "application_config_loader.hpp"
 #include "game_world.hpp"
+#include "map_loader.hpp"
+#include "match_startup_validation.hpp"
 #include "scenario_loader.hpp"
 #include "server_config.hpp"
+#include "shared/hazard_archetype.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <variant>
+#include <vector>
 
 namespace {
 
@@ -57,4 +64,59 @@ TEST_CASE("deployment scenario for cole-ubuntu-pc loads a populated world",
       *run_request.scenario_path(), run_request.application_config().simulation_config());
 
   CHECK(world.entities().size() == 4);
+}
+
+TEST_CASE("the deployed hazard table is the one intended and fits the snapshot entity bound",
+          "[fixtures][deployment][hazard]") {
+  // The point of this test is that the *shipped* configuration is provably playable, not that some
+  // configuration is. `require_match_fits_snapshot_bound` runs at application startup and would
+  // refuse a table whose standing population could push the published entity count past
+  // `kSnapshotEntityLimit`; running it here means a hazard table that could not be served is a red
+  // build rather than a match that degrades once people are in it.
+  //
+  // The map comes from the repository rather than from `[match] maps_directory`, which names the
+  // container's read-only mount at `/run/blob-royale` and does not exist on a build machine.
+  const ApplicationConfigLoader::Result result = load_deployment_inputs();
+  REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
+  const blob_royale::application::ApplicationConfig& application_config =
+      std::get<ApplicationConfigLoader::RunRequest>(result).application_config();
+  const std::vector<blob_royale::gameplay::HazardArchetype>& hazards =
+      application_config.game_mode_configuration().hazards;
+
+  // Two kinds, and the names are configuration rather than code: no C++ file contains either,
+  // which is the whole acceptance bar for hazards being data. Adding a third is one section in
+  // `deploy/ubuntu-pc/blob-royale.cfg` and one number here.
+  REQUIRE(hazards.size() == 2);
+
+  // Looked up by name rather than by index, because the order the loader returns instances in is
+  // not something a configuration file should have to promise. A test that pins it would fail the
+  // day someone reorders two sections that are, by construction, independent.
+  const auto archetype_named =
+      [&hazards](
+          const std::string_view kind_name) -> const blob_royale::gameplay::HazardArchetype& {
+    const auto found =
+        std::find_if(hazards.cbegin(), hazards.cend(),
+                     [kind_name](const blob_royale::gameplay::HazardArchetype& candidate) {
+                       return candidate.kind_name() == kind_name;
+                     });
+    REQUIRE(found != hazards.cend());
+    return *found;
+  };
+  const blob_royale::gameplay::HazardArchetype& comet = archetype_named("comet");
+  const blob_royale::gameplay::HazardArchetype& boulder = archetype_named("boulder");
+
+  // The lethal one is the small fast one and the heavy one is survivable. Pinning both means a
+  // configuration edit that accidentally makes the 40-mass boulder lethal fails the build rather
+  // than the playtest.
+  CHECK(comet.lethal_on_contact());
+  CHECK_FALSE(boulder.lethal_on_contact());
+  CHECK(comet.mass() == 1.0);
+  CHECK(boulder.mass() == 40.0);
+
+  const blob_royale::simulation::MapDefinition map = blob_royale::application::MapLoader::load(
+      std::filesystem::path{BLOB_ROYALE_MAPS_DIRECTORY} / "arena-960x640");
+  CHECK_NOTHROW(blob_royale::application::require_match_fits_snapshot_bound(
+      application_config.match_configuration(), map, hazards));
+  CHECK_NOTHROW(blob_royale::application::require_map_matches_published_world(
+      application_config.simulation_config(), map));
 }

@@ -92,8 +92,10 @@ TEST_CASE("the shipped arena and the shipped roster fit the snapshot entity boun
       "royale", "arena-960x640", BLOB_ROYALE_MAPS_DIRECTORY, 1,
       application::MatchConfiguration::parse_bot_roster("wanderer:2"));
 
-  // The shipped deployment declares no `[hazard.*]` section, so the hazard term is an empty span
-  // and this stays the exact bound it was before hazards existed.
+  // An empty hazard span, which is the no-hazard case and the exact bound this was before hazards
+  // existed. The shipped deployment *does* declare hazards now, and that the real table fits is
+  // asserted against the real configuration in `deployment_fixture_tests.cpp` rather than against
+  // this hand-built roster, so the two tests cannot disagree about what is deployed.
   CHECK_NOTHROW(application::require_match_fits_snapshot_bound(match, map, {}));
   CHECK_NOTHROW(application::require_map_matches_published_world(shipped_configuration(), map));
 }

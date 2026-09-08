@@ -96,12 +96,17 @@ empty.
 
 1. **Apply stored acceleration and drag.** Visit players in ascending `EntityId` order, calculate
    accelerated velocity with semi-implicit Euler, then scale that velocity by
-   `max(0, 1 - drag_per_second × dt)`, where `dt` is the same `kFixedDeltaSeconds` the acceleration
-   step already uses. `drag_per_second` is a `[simulation]` kernel parameter, not mode
-   configuration: drag is mechanism this contract owns, it applies identically under every mode, and
-   no system may reproduce or bypass it. It must be finite and non-negative, and the clamp at zero
-   keeps the factor total when `drag_per_second × dt` exceeds one, so a large configured drag stops
-   a body rather than reversing it. Positions do not change.
+   `max(0, 1 - drag_per_second × drag_scale × dt)`, where `dt` is the same `kFixedDeltaSeconds` the
+   acceleration step already uses and `drag_scale` is the body's own `PhysicsBody::drag_scale`.
+   `drag_per_second` is a `[simulation]` kernel parameter, not mode configuration: drag is mechanism
+   this contract owns, the kernel applies it here and applies it identically under every mode, at
+   each body's own declared scale, and no system may reproduce or bypass it. The kernel reads that
+   scale from the body exactly as phase 3 reads a mass; a body that declares none carries `1.0`,
+   and multiplication by `1.0` is exact in binary64 for every finite value, so the accepted
+   arithmetic is unchanged. `drag_per_second` and `drag_scale` must each be finite and
+   non-negative, neither is bounded above, and the clamp at zero keeps the factor total when their
+   product with `dt` exceeds one, so a large configured drag stops a body rather than reversing it.
+   Positions do not change.
 2. **Build canonical candidate pairs.** Query the grid, which after phase 0 indexes this tick's
    live roster at its start-of-tick positions. Canonicalize every broad-phase pair as
    `(lower EntityId, higher EntityId)`, remove duplicate keys without dropping equal-distance keys,
@@ -298,7 +303,7 @@ Simulation fixtures are specifications, not recordings of the prototype. Each fi
 | Partition boundary | A touching pair split by an internal edge or corner appears exactly once and resolves identically to the exhaustive all-pairs reference. A non-colliding cell transition changes neither velocity nor continuous position. |
 | High-speed player crossing | When two players do not overlap at either committed pair phase and cross only during integration, the baseline produces no player-pair impulse. This pins the discrete limitation instead of leaving it implementation-dependent. |
 | Thrust integration | A thrust recorded in phase 0 becomes stored acceleration when the mode's `kPreKernel` steering system reads it; the kernel neither writes nor scales it. With no contact the velocity then changes by `a / 400` on every following tick and the acceleration persists until that entity's next thrust command, including across ticks whose batch is empty. Under a mode that scales a unit-clamped direction by a declared maximum, `(1, 1)` yields an acceleration of exactly that magnitude and `(0, 0)` stores zero. |
-| Drag decay | With nonzero `drag_per_second` and zero stored acceleration, velocity is multiplied by `max(0, 1 - drag_per_second / 400)` every tick and decays geometrically. Under a constant stored acceleration `a` the sequence converges to the discrete fixed point `a × (1 - drag_per_second × dt) / drag_per_second`, not to the continuous-limit `a / drag_per_second`. A `drag_per_second × dt` above one stops a body at zero and never reverses it. |
+| Drag decay | With nonzero `drag_per_second`, zero stored acceleration, and a body at the default `drag_scale` of `1.0`, velocity is multiplied by `max(0, 1 - drag_per_second / 400)` every tick and decays geometrically. A body declaring another scale substitutes `drag_per_second × drag_scale`, and one declaring `0.0` keeps its velocity exactly, because the factor is then exactly `1.0`. Under a constant stored acceleration `a` the sequence converges to the discrete fixed point `a × (1 - drag_per_second × dt) / drag_per_second`, not to the continuous-limit `a / drag_per_second`. A `drag_per_second × dt` above one stops a body at zero and never reverses it. |
 | Spawn slot order | The engine `SpawnSystem` seats unseated entities in ascending `EntityId`, each at the marker index the mode's `SpawnPolicy` returns for the world-owned rotation counter and the free-marker set. A policy that returns no index defers that entity and seats nobody in its place. Submitting the same spawns in a different order produces the same seating, because the batch is canonical and seating order is ascending `EntityId` rather than arrival order. |
 | Despawn of a pending pair member | A despawn removes its entity in phase 0, before phase 2 builds the pair list, so no candidate pair in that tick names it. A partner that would otherwise have been in contact receives no impulse on that tick and integrates unchanged. An entity removed instead by a `DespawnEvent` leaves the roster at the commit of the tick that emitted it. In both cases the committed grid holds no removed `EntityId`. |
 | Match transition | At most one `MatchPhase` transition commits per tick. A mode whose durations are all zero advances exactly one phase per tick and terminates instead of chaining `lobby → countdown → running → ended → lobby` inside one tick. The transition observes the tick's final world, after every `kPostKernel` and `kLifecycle` system has run. |
@@ -475,8 +480,9 @@ an empty batch and a mode whose systems write nothing, the accepted baseline is 
 bit-for-bit, so no fixture horizon or expected outcome above is regenerated, and the decision and
 its `Accepted` status are unchanged.
 
-**Amended 2026-09-07:** A body may declare its own mass, restitution, and contact size, and may
-cross the arena bounds instead of folding off them. None of it changes the accepted collision.
+**Amended 2026-09-07:** A body may declare its own mass, restitution, contact size, and share of
+the kernel's drag, and may cross the arena bounds instead of folding off them. None of it changes
+the accepted collision or the accepted drag.
 
 `PhysicsBody` gains `restitution`, defaulting to the perfectly elastic `1.0`, beside the `mass` no
 phase previously read. A `variable_impulse` row is declared **above** `elastic_disc` in
@@ -518,6 +524,45 @@ A static body may now carry zero mass. Nothing divides by it -- neither built-in
 and the general impulse requires a dynamic body on both sides -- and the accepted protocol golden
 already publishes a wall that way against a schema typing mass as non-negative. Requiring otherwise
 would have regenerated an accepted artifact to state an invariant nothing needs.
+
+**Drag becomes per-body by the same argument, and § "Canonical tick" phase 1 is reworded rather
+than deleted.** `PhysicsBody` gains `drag_scale`, defaulting to `1.0`, validated finite and
+non-negative through the same single validating factory `mass` and `restitution` route through.
+Phase 1 forms `drag_per_second × drag_scale` and hands that to the existing equation; the `× dt`,
+the `1.0 -`, the `max(0, …)` clamp, and the componentwise scale are all untouched, and so is the
+order they are evaluated in. Every body that exists carries the default, and multiplication by
+`1.0` is exact in binary64 for every finite value, so `drag_per_second × 1.0` **is**
+`drag_per_second` bit for bit and every committed velocity is the value it always was -- proved the
+way the contact-size change was proved, by an empty diff over `tests/fixtures/replays/`, `maps/`,
+and the published schemas, and by the `AcceptedBaselineTick` oracle passing unmodified.
+
+Phase 1's own sentence used to say `drag_per_second` "applies identically under every mode, and no
+system may reproduce or bypass it". The part that matters stays true and is still written there:
+the kernel owns drag, the kernel applies it in phase 1, and no *system* reproduces or bypasses it.
+What changes is one clause -- it now applies identically under every mode **at each body's own
+declared scale** -- and the mechanism is one the contract already uses, because the kernel reads a
+coefficient off the body exactly as phase 3 reads a mass. Leaving the old clause standing beside
+the new equation would have left a reader holding two sentences that cannot both be true.
+
+`drag_scale` is deliberately **not** part of `body_has_baseline_physics`. That predicate decides
+which *collision* equation phase 3 hands a pair to, and no collision equation reads drag. Including
+it would route a pair to the general impulse because one body coasts, and the general impulse is
+not bit-identical to the accepted exchange -- so a unit-mass, perfectly elastic hazard that declares
+`drag_scale = 0` would silently change the arithmetic of every contact it took part in for a reason
+with nothing to do with contact. The rule the predicate now states for the next per-body property
+is that it belongs there only if a contact rule reads it.
+
+**Raising hazard speed instead was rejected, and it is worth saying why, because it is the obvious
+alternative.** The drag factor is geometric, so a body launched at `v` and never thrusting again
+covers exactly `v / drag_per_second` world units in total. At the deployed `drag_per_second = 2.0`
+on a 960×640 arena, a 260 wu/s object travels 130 wu of the 1,154 wu diagonal and stops -- verified
+in an offline replay rather than reasoned about. Restoring the crossing through speed alone needs
+upward of 2,500 wu/s, which crosses the whole arena in 0.38 s: an object nobody can see, let alone
+dodge, which is not the mechanic. A crossing object is defined by keeping its speed, so it says so.
+
+`drag_scale` is not published. Like `restitution` and the bounds behaviour it joins, no client
+reads it to render a frame, so a protocol minor for a number nothing draws would be churn; the wire
+encoder and `physics-body-component.schema.json` are untouched.
 
 No fixture horizon, accepted snapshot, map, or oracle value changed, and the decision and its
 `Accepted` status are unchanged.

@@ -38,13 +38,26 @@ enum class BoundsBehavior : std::uint8_t {
 // phase only when `(a.collision_mask & b.collision_layer)` and `(b.collision_mask &
 // a.collision_layer)` are both nonzero, which is a pure integer predicate that adds no ordering.
 //
-// `mass_` and `restitution_` are the per-body physics the general impulse rule reads. Both default
-// to the accepted baseline -- unit mass and perfectly elastic -- so a body that names neither is
-// exactly the body ADR 0003 § "Player-pair policy" is written for, and `body_has_baseline_physics`
-// below is the predicate that says so. `restitution_` is the fraction of normal closing speed a
-// contact returns: `1.0` is perfectly elastic and `0.0` leaves the pair with a common normal
-// velocity. Neither is written by any phase, which is what makes both legal for a `ContactRule`
-// predicate to read from the committed world.
+// `mass_` and `restitution_` are the per-body physics **the general impulse rule reads**, which is
+// phase 3. Both default to the accepted baseline -- unit mass and perfectly elastic -- so a body
+// that names neither is exactly the body ADR 0003 § "Player-pair policy" is written for, and
+// `body_has_baseline_physics` below is the predicate that says so. `restitution_` is the fraction
+// of normal closing speed a contact returns: `1.0` is perfectly elastic and `0.0` leaves the pair
+// with a common normal velocity. Neither is written by any phase, which is what makes both legal
+// for a `ContactRule` predicate to read from the committed world.
+//
+// `drag_scale_` is the per-body physics **phase 1 reads**, and the distinction from the two above
+// is load-bearing rather than pedantic. Phase 1 scales an accelerated velocity by
+// `max(0, 1 - drag_per_second * drag_scale * dt)`, so this value says how much of the configured
+// `[simulation] drag_per_second` this body feels: `1.0` is all of it, which is what every body
+// carried before this value existed, and `0.0` is a body that coasts. It exists because the drag
+// factor is geometric and therefore *bounds total travel*: a body launched at `v` and never
+// thrusting again covers exactly `v / drag_per_second` world units before it stops, so at the
+// deployed `drag_per_second = 2.0` a 260 wu/s object sent across a 960 wu arena has a range of
+// 130 wu and stalls into a drifting obstacle. A hazard declares `0.0` and crosses.
+//
+// **It is deliberately not part of `body_has_baseline_physics`.** That predicate gates which
+// *collision* equation a pair takes, and no collision equation reads drag; see the note there.
 //
 // **`radius_` is not read by any accepted phase.** Every phase takes the one common radius from
 // `SimulationConfig::player_radius()`: the pair contact predicate uses `2r`, the wall fold uses
@@ -83,6 +96,15 @@ public:
   static constexpr double kDefaultRestitution = 1.0;
   static constexpr double kMinimumRestitution = 0.0;
   static constexpr double kMaximumRestitution = 1.0;
+  // The whole of the configured drag, which is what phase 1 applied to every dynamic body before
+  // this value existed. Multiplication by `1.0` is exact in binary64 for every finite value, so
+  // `drag_per_second * kDefaultDragScale` **is** `drag_per_second`, bit for bit: a body that names
+  // no scale is dragged by the identical arithmetic it always was.
+  static constexpr double kDefaultDragScale = 1.0;
+  // A body that feels no drag at all. Negative is a rejection rather than a clamp, because it
+  // would make the phase 1 factor exceed one and add energy to the body on every tick -- an
+  // anti-drag no phase bounds, which is the same reason a restitution above one is rejected.
+  static constexpr double kMinimumDragScale = 0.0;
   static constexpr CollisionLayer kDefaultCollisionLayer = 1;
   static constexpr CollisionLayer kDefaultCollisionMask = 1;
   static constexpr BoundsBehavior kDefaultBoundsBehavior = BoundsBehavior::kFold;
@@ -90,10 +112,11 @@ public:
   // The motion-only body: one baseline dynamic disc on the single default collision layer.
   [[nodiscard]] static PhysicsBody create(Vector2 position, Vector2 velocity, Vector2 acceleration);
 
-  // The complete body, including the fields no accepted phase reads yet. Restitution and bounds
-  // behaviour are deliberately absent from this signature: both default here, so every call written
-  // before they existed keeps its exact meaning, and a body that wants either says so with the
-  // named wither rather than by threading two more positional arguments through every call site.
+  // The complete body, including the fields no accepted phase reads yet. Restitution, drag scale,
+  // and bounds behaviour are deliberately absent from this signature: all three default here, so
+  // every call written before they existed keeps its exact meaning, and a body that wants one says
+  // so with the named wither rather than by threading three more positional arguments through
+  // every call site.
   //
   // Throws SimulationValidationError for a mass that is not finite, not within the accepted
   // physical component limit, or not greater than zero on a dynamic body.
@@ -124,6 +147,8 @@ public:
   [[nodiscard]] double radius() const noexcept { return radius_; }
   [[nodiscard]] double mass() const noexcept { return mass_; }
   [[nodiscard]] double restitution() const noexcept { return restitution_; }
+  // The fraction of the configured `drag_per_second` phase 1 applies to this body.
+  [[nodiscard]] double drag_scale() const noexcept { return drag_scale_; }
   [[nodiscard]] CollisionLayer collision_layer() const noexcept { return collision_layer_; }
   [[nodiscard]] CollisionLayer collision_mask() const noexcept { return collision_mask_; }
   [[nodiscard]] bool is_static() const noexcept { return is_static_; }
@@ -147,23 +172,27 @@ public:
   // Throws SimulationValidationError for a restitution that is not finite or lies outside the
   // closed interval [0, 1].
   [[nodiscard]] PhysicsBody with_restitution(double restitution) const;
+  // Throws SimulationValidationError for a drag scale that is not finite or is negative. There is
+  // deliberately no upper bound; see the note in the implementation.
+  [[nodiscard]] PhysicsBody with_drag_scale(double drag_scale) const;
   [[nodiscard]] PhysicsBody with_bounds_behavior(BoundsBehavior bounds_behavior) const;
 
   friend bool operator==(const PhysicsBody&, const PhysicsBody&) = default;
 
 private:
   // The one validating factory. Every public `create` and every wither routes through it, so a
-  // body that exists is a body whose mass and restitution are in range however it was built. The
-  // mass rule depends on `is_static`, which is why it lives here rather than in a scalar helper.
-  [[nodiscard]] static PhysicsBody validated(Vector2 position, Vector2 velocity,
-                                             Vector2 acceleration, double radius, double mass,
-                                             double restitution, CollisionLayer collision_layer,
-                                             CollisionLayer collision_mask, bool is_static,
-                                             BoundsBehavior bounds_behavior);
+  // body that exists is a body whose mass, restitution, and drag scale are in range however it was
+  // built. The mass rule depends on `is_static`, which is why it lives here rather than in a scalar
+  // helper.
+  [[nodiscard]] static PhysicsBody
+  validated(Vector2 position, Vector2 velocity, Vector2 acceleration, double radius, double mass,
+            double restitution, double drag_scale, CollisionLayer collision_layer,
+            CollisionLayer collision_mask, bool is_static, BoundsBehavior bounds_behavior);
 
   PhysicsBody(Vector2 position, Vector2 velocity, Vector2 acceleration, double radius, double mass,
-              double restitution, CollisionLayer collision_layer, CollisionLayer collision_mask,
-              bool is_static, BoundsBehavior bounds_behavior) noexcept;
+              double restitution, double drag_scale, CollisionLayer collision_layer,
+              CollisionLayer collision_mask, bool is_static,
+              BoundsBehavior bounds_behavior) noexcept;
 
   Vector2 position_;
   Vector2 velocity_;
@@ -171,19 +200,32 @@ private:
   double radius_;
   double mass_;
   double restitution_;
+  double drag_scale_;
   CollisionLayer collision_layer_;
   CollisionLayer collision_mask_;
   bool is_static_;
   BoundsBehavior bounds_behavior_;
 };
 
-// canonical: baseline_physics_predicate -- whether a body is the one the accepted equation
-// describes.
+// canonical: baseline_physics_predicate -- whether a body is the one the accepted **collision**
+// equation describes.
 //
 // The accepted narrow phase of `docs/architecture/0003-deterministic-simulation-contract.md`
 // § "Player-pair policy" is defined for equal-radius, equal-**unit-mass**, perfectly elastic discs.
 // This is the predicate that says a body is one of those, and it is what keeps the general impulse
 // row unreachable for ordinary blobs.
+//
+// **"Baseline" here means the defaults the narrow phase depends on, not every default the body
+// carries**, and the distinction is a rule a fourth per-body property will face too. The only
+// question this predicate answers is which collision equation phase 3 hands a pair to, so it reads
+// exactly what a collision equation reads and nothing else: `resolve_player_pair_collision` and
+// `resolve_general_pair_collision` between them consume mass and restitution, and neither consumes
+// drag. `drag_scale` is therefore excluded on purpose. Including it would route a pair to the
+// general impulse because one of the two bodies *coasts*, and the general impulse is deliberately
+// **not** bit-identical to the baseline exchange -- so a unit-mass, perfectly elastic hazard that
+// happens to declare `drag_scale = 0.0` would silently change the arithmetic of every contact it
+// took part in, for a reason with nothing to do with contact. The rule for the next property is
+// the same one: add it here only if a contact rule reads it.
 //
 // **Exact equality on purpose.** This is an identity test against a declared default, not a
 // physical comparison, and ADR 0003 § "Floating-point contract" reserves exact equality for

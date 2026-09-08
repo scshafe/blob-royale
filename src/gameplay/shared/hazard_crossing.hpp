@@ -92,6 +92,12 @@ struct HazardCrossing final {
 // hazard is never removed before it has finished leaving. Derived from a distance and the
 // archetype's own speed; no constant here is a tuned number.
 //
+// **`distance / speed` is a duration only for a body that keeps its speed**, which is why
+// `HazardSpawnSystem` seats every hazard at `PhysicsBody::kMinimumDragScale`: phase 1's drag factor
+// is geometric, so a dragged body would cover `speed / drag_per_second` world units in total and
+// this count would be a lifetime for a crossing it never completes. The two are one decision, not
+// two that happen to agree.
+//
 // At least one tick, so a hazard always exists for the tick it was seated on; and clamped to the
 // protocol-safe integer range, because `Lifetime` publishes the count and an archetype with an
 // absurdly low speed could otherwise produce one no frame can encode.

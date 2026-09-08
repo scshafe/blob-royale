@@ -1930,3 +1930,134 @@ TEST_CASE("a large hazard collides at its own drawn edge through the whole tick"
   check_vector(snapshot_body(baseline_snapshot, 1).velocity(), 400.0, 0.0);
   check_vector(snapshot_body(baseline_snapshot, 2).velocity(), 0.0, 0.0);
 }
+
+TEST_CASE("the default drag scale reproduces the pre-change phase 1 bit-for-bit",
+          "[unit][simulation][game_simulation][phases][drag][drag_scale][determinism]") {
+  // The whole of the argument that a per-body drag coefficient is an *addition*, evaluated rather
+  // than asserted. `reference` below is phase 1 exactly as it stood before a body could name a
+  // scale: it hands `apply_velocity_drag` the configured `drag_per_second` and nothing else. The
+  // kernel now hands it `drag_per_second * body.drag_scale()`, and every body that exists carries
+  // `kDefaultDragScale`, which is `1.0`; multiplication by `1.0` is exact in binary64 for every
+  // finite value, so the two must agree by **exact double equality** on every tick of the horizon.
+  // A tolerance here would hide a real divergence that happened to start small, which is the same
+  // reason `AcceptedBaselineTick` compares exactly.
+  constexpr double drag_per_second = 2.0;
+  constexpr std::size_t horizon = 1'000;
+  const simulation::FixedDelta delta = simulation::FixedDelta::canonical();
+  const simulation::Vector2 stored_acceleration = at(30.0, 15.0);
+  const simulation::Vector2 launch = at(120.0, -80.0);
+  simulation::GameSimulation simulation_game =
+      game({player(1, 250.0, 250.0, launch.x(), launch.y(), stored_acceleration.x(),
+                   stored_acceleration.y())},
+           dragged_configuration(drag_per_second));
+  REQUIRE(snapshot_body(simulation_game.snapshot(), 1).drag_scale() ==
+          simulation::PhysicsBody::kDefaultDragScale);
+
+  simulation::Vector2 reference = launch;
+  std::size_t first_divergent_tick = 0;
+  for (std::size_t tick = 1; tick <= horizon; ++tick) {
+    reference = simulation::apply_velocity_drag(
+        simulation::integrate_accelerated_velocity(reference, stored_acceleration, delta),
+        drag_per_second, delta);
+    simulation_game.step(delta, simulation::InputBatch::empty());
+    const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+    if (first_divergent_tick == 0 && !(snapshot_body(snapshot, 1).velocity() == reference)) {
+      first_divergent_tick = tick;
+    }
+  }
+
+  CHECK(first_divergent_tick == 0);
+  // The horizon is meaningful rather than decorative, and this is the check that says so rather
+  // than trusting the loop count. Two and a half seconds of drag carry the body's x velocity from
+  // its launch of 120 wu/s down the closed-form decay of the phase 1 recurrence,
+  // `v_n = fixed + (v_0 - fixed) * f^n` with `f = 1 - d * dt`, most of the way onto the discrete
+  // fixed point `a * (1 - d * dt) / d` this ADR documents. A scale that had leaked into the
+  // arithmetic anywhere had that whole trajectory to show itself in.
+  const double factor = 1.0 - (drag_per_second * delta.seconds());
+  const double fixed_point = stored_acceleration.x() * factor / drag_per_second;
+  CHECK(fixed_point == Catch::Approx(14.925).margin(simulation::kScalarTolerance));
+  CHECK(reference.x() ==
+        Catch::Approx(fixed_point +
+                      ((launch.x() - fixed_point) * std::pow(factor, static_cast<double>(horizon))))
+            .margin(simulation::kScalarTolerance));
+  CHECK(reference.x() < 0.15 * launch.x());
+  CHECK(simulation_game.tick_sequence().value() == horizon);
+}
+
+TEST_CASE("a body at zero drag scale keeps its velocity exactly and crosses an arena a dragged one "
+          "cannot",
+          "[unit][simulation][game_simulation][phases][drag][drag_scale]") {
+  // Why the value exists at all. Phase 1's drag factor is geometric, so a body launched at `v` and
+  // never thrusting again covers exactly `v / drag_per_second` world units in total -- at a drag of
+  // two, a 400 wu/s object has a range of 200 wu and then parks. The two bodies here differ in
+  // nothing but the declared scale, and they are the mechanic and the defect side by side.
+  //
+  // The coasting body's velocity is checked with exact equality, not a tolerance: at
+  // `drag_scale = 0` the product `drag_per_second * 0.0` is exactly `+0.0`, the factor is exactly
+  // `1.0`, and multiplication by `1.0` is the identity on every finite binary64 value. "Nearly its
+  // launch velocity" would be a different and weaker claim.
+  constexpr double drag_per_second = 2.0;
+  constexpr std::size_t horizon = 1'000;
+  const simulation::Vector2 launch = at(400.0, 0.0);
+  simulation::GameSimulation simulation_game =
+      game({simulation::GameWorld::EntitySeed::create(
+                simulation::EntityId::create(1),
+                simulation::PhysicsBody::create(at(250.0, 100.0), launch, at(0.0, 0.0))
+                    .with_drag_scale(simulation::PhysicsBody::kMinimumDragScale)
+                    .with_bounds_behavior(simulation::BoundsBehavior::kCross)),
+            player(2, 250.0, 400.0, launch.x(), launch.y())},
+           dragged_configuration(drag_per_second));
+
+  std::size_t first_divergent_tick = 0;
+  for (std::size_t tick = 1; tick <= horizon; ++tick) {
+    simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+    const simulation::WorldSnapshot stepped = simulation_game.snapshot();
+    if (first_divergent_tick == 0 && !(snapshot_body(stepped, 1).velocity() == launch)) {
+      first_divergent_tick = tick;
+    }
+  }
+  const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
+
+  CHECK(first_divergent_tick == 0);
+  // Two and a half seconds at a constant 400 wu/s is a thousand world units of travel, so the
+  // coasting body is a long way past the 500 wu arena it was launched into -- which is what a
+  // hazard crossing the screen has to be able to do.
+  CHECK(snapshot_body(snapshot, 1).position().x() > 1'000.0);
+  // The counterfactual, and the defect this value was added to fix. The same launch, the same
+  // configured drag, the same arena: a body at the default scale asymptotes onto `250 + 400 / 2`
+  // and sits there as an obstacle for the rest of its life.
+  CHECK(snapshot_body(snapshot, 2).position().x() < 450.0);
+  CHECK(snapshot_body(snapshot, 2).position().x() > 445.0);
+  CHECK(snapshot_body(snapshot, 2).velocity().x() < 0.01 * launch.x());
+}
+
+TEST_CASE("the drag scale multiplies the configured drag before the factor is formed",
+          "[unit][simulation][game_simulation][phases][drag][drag_scale][determinism]") {
+  // The operation order is the contract, so it is pinned rather than described. `4.0 * 0.5` is
+  // exactly `2.0` in binary64, so a body feeling half of a drag of four must commit bit-identical
+  // velocities to a body feeling all of a drag of two. Forming the factor first and scaling *that*
+  // -- `0.5 * max(0, 1 - 4 * dt)` = 0.495 against `max(0, 1 - 2 * dt)` = 0.995 -- would fail this
+  // on the first tick, which is what makes it a test of the order rather than of the arithmetic.
+  constexpr std::size_t horizon = 400;
+  simulation::GameSimulation halved_game =
+      game({simulation::GameWorld::EntitySeed::create(
+               simulation::EntityId::create(1),
+               simulation::PhysicsBody::create(at(250.0, 250.0), at(120.0, -80.0), at(30.0, 15.0))
+                   .with_drag_scale(0.5))},
+           dragged_configuration(4.0));
+  simulation::GameSimulation whole_game =
+      game({player(1, 250.0, 250.0, 120.0, -80.0, 30.0, 15.0)}, dragged_configuration(2.0));
+
+  advance(halved_game, horizon);
+  advance(whole_game, horizon);
+  const simulation::WorldSnapshot halved_snapshot = halved_game.snapshot();
+  const simulation::WorldSnapshot whole_snapshot = whole_game.snapshot();
+
+  CHECK(snapshot_body(halved_snapshot, 1).velocity() ==
+        snapshot_body(whole_snapshot, 1).velocity());
+  CHECK(snapshot_body(halved_snapshot, 1).position() ==
+        snapshot_body(whole_snapshot, 1).position());
+  // And the two worlds really were dragged: an undragged body would still be at its launch
+  // velocity.
+  CHECK_FALSE(snapshot_body(whole_snapshot, 1).velocity() == at(120.0, -80.0));
+}

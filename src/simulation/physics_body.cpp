@@ -9,8 +9,8 @@ namespace blob_royale::simulation {
 
 PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acceleration) {
   return validated(position, velocity, acceleration, kUndeclaredRadius, kDefaultMass,
-                   kDefaultRestitution, kDefaultCollisionLayer, kDefaultCollisionMask, false,
-                   kDefaultBoundsBehavior);
+                   kDefaultRestitution, kDefaultDragScale, kDefaultCollisionLayer,
+                   kDefaultCollisionMask, false, kDefaultBoundsBehavior);
 }
 
 PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acceleration,
@@ -18,7 +18,8 @@ PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acce
                                 const CollisionLayer collision_layer,
                                 const CollisionLayer collision_mask, const bool is_static) {
   return validated(position, velocity, acceleration, radius, mass, kDefaultRestitution,
-                   collision_layer, collision_mask, is_static, kDefaultBoundsBehavior);
+                   kDefaultDragScale, collision_layer, collision_mask, is_static,
+                   kDefaultBoundsBehavior);
 }
 
 PhysicsBody PhysicsBody::create_static(Vector2 position) {
@@ -28,48 +29,53 @@ PhysicsBody PhysicsBody::create_static(Vector2 position) {
 PhysicsBody PhysicsBody::create_static(Vector2 position, const CollisionLayer collision_layer,
                                        const CollisionLayer collision_mask) {
   return validated(position, Vector2::create(0.0, 0.0), Vector2::create(0.0, 0.0),
-                   kUndeclaredRadius, kDefaultMass, kDefaultRestitution, collision_layer,
-                   collision_mask, true, kDefaultBoundsBehavior);
+                   kUndeclaredRadius, kDefaultMass, kDefaultRestitution, kDefaultDragScale,
+                   collision_layer, collision_mask, true, kDefaultBoundsBehavior);
 }
 
 PhysicsBody PhysicsBody::with_position(Vector2 position) const {
-  return validated(position, velocity_, acceleration_, radius_, mass_, restitution_,
+  return validated(position, velocity_, acceleration_, radius_, mass_, restitution_, drag_scale_,
                    collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_velocity(Vector2 velocity) const {
-  return validated(position_, velocity, acceleration_, radius_, mass_, restitution_,
+  return validated(position_, velocity, acceleration_, radius_, mass_, restitution_, drag_scale_,
                    collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_acceleration(Vector2 acceleration) const {
-  return validated(position_, velocity_, acceleration, radius_, mass_, restitution_,
+  return validated(position_, velocity_, acceleration, radius_, mass_, restitution_, drag_scale_,
                    collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_radius(const double radius) const {
-  return validated(position_, velocity_, acceleration_, radius, mass_, restitution_,
+  return validated(position_, velocity_, acceleration_, radius, mass_, restitution_, drag_scale_,
                    collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_mass(const double mass) const {
-  return validated(position_, velocity_, acceleration_, radius_, mass, restitution_,
+  return validated(position_, velocity_, acceleration_, radius_, mass, restitution_, drag_scale_,
                    collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_restitution(const double restitution) const {
-  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution,
+  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution, drag_scale_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+}
+
+PhysicsBody PhysicsBody::with_drag_scale(const double drag_scale) const {
+  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution_, drag_scale,
                    collision_layer_, collision_mask_, is_static_, bounds_behavior_);
 }
 
 PhysicsBody PhysicsBody::with_bounds_behavior(const BoundsBehavior bounds_behavior) const {
-  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution_,
+  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution_, drag_scale_,
                    collision_layer_, collision_mask_, is_static_, bounds_behavior);
 }
 
 PhysicsBody PhysicsBody::validated(Vector2 position, Vector2 velocity, Vector2 acceleration,
                                    const double radius, const double mass, const double restitution,
-                                   const CollisionLayer collision_layer,
+                                   const double drag_scale, const CollisionLayer collision_layer,
                                    const CollisionLayer collision_mask, const bool is_static,
                                    const BoundsBehavior bounds_behavior) {
   // A **dynamic** body's mass is strictly positive because the general impulse equation divides by
@@ -107,16 +113,44 @@ PhysicsBody PhysicsBody::validated(Vector2 position, Vector2 velocity, Vector2 a
                                     "physics_body.restitution",
                                     "restitution must lie in the closed interval from zero to one");
   }
-  return PhysicsBody(position, velocity, acceleration, radius, mass, restitution, collision_layer,
-                     collision_mask, is_static, bounds_behavior);
+  // The drag scale is a dimensionless multiplier on the configured `[simulation] drag_per_second`,
+  // and it is validated by exactly the rule that parameter is validated by
+  // (`simulation_config.cpp` § `require_drag_per_second`): finite, non-negative, and **not bounded
+  // above**.
+  //
+  // Below zero the phase 1 factor `max(0, 1 - drag_per_second * drag_scale * dt)` exceeds one, so
+  // the body gains speed geometrically on every tick with nothing to stop it. That is not drag at
+  // any magnitude, so it is a rejection rather than a clamp.
+  //
+  // Above, there is nothing to reject. A large scale only drives the factor's subtrahend past one,
+  // and the clamp at zero already makes that total: the body stops on the tick it is applied rather
+  // than reversing. Saturating at "stops immediately" is a meaningful body -- one held still by
+  // drag alone -- and a ceiling here would state an invariant nothing needs while forbidding it,
+  // which is the same argument that leaves `drag_per_second` itself unbounded above. The one
+  // remaining edge is the product `drag_per_second * drag_scale` overflowing to infinity, which
+  // needs a configured drag around 1e300 to reach and which phase 1 fails closed on, because
+  // `apply_velocity_drag` rejects a drag that is not finite.
+  if (!std::isfinite(drag_scale)) {
+    throw SimulationValidationError(SimulationValidationCode::kPhysicsBodyDragScaleOutOfRange,
+                                    "physics_body.drag_scale", "drag scale must be finite");
+  }
+  if (drag_scale < kMinimumDragScale) {
+    throw SimulationValidationError(SimulationValidationCode::kPhysicsBodyDragScaleOutOfRange,
+                                    "physics_body.drag_scale",
+                                    "drag scale must be greater than or equal to zero");
+  }
+  return PhysicsBody(position, velocity, acceleration, radius, mass, restitution, drag_scale,
+                     collision_layer, collision_mask, is_static, bounds_behavior);
 }
 
 PhysicsBody::PhysicsBody(Vector2 position, Vector2 velocity, Vector2 acceleration,
                          const double radius, const double mass, const double restitution,
-                         const CollisionLayer collision_layer, const CollisionLayer collision_mask,
-                         const bool is_static, const BoundsBehavior bounds_behavior) noexcept
+                         const double drag_scale, const CollisionLayer collision_layer,
+                         const CollisionLayer collision_mask, const bool is_static,
+                         const BoundsBehavior bounds_behavior) noexcept
     : position_(position), velocity_(velocity), acceleration_(acceleration), radius_(radius),
-      mass_(mass), restitution_(restitution), collision_layer_(collision_layer),
-      collision_mask_(collision_mask), is_static_(is_static), bounds_behavior_(bounds_behavior) {}
+      mass_(mass), restitution_(restitution), drag_scale_(drag_scale),
+      collision_layer_(collision_layer), collision_mask_(collision_mask), is_static_(is_static),
+      bounds_behavior_(bounds_behavior) {}
 
 } // namespace blob_royale::simulation

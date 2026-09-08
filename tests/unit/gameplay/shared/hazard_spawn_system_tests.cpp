@@ -138,6 +138,11 @@ TEST_CASE("hazard_spawn seats a crossing body carrying the archetype's own physi
     // Without this it would fold off the wall it entered through and rattle around the arena
     // forever instead of leaving.
     CHECK(hazard.crosses_bounds());
+    // And without *this* it would never reach the wall in the first place at any deployed drag:
+    // phase 1's factor is geometric, so a dragged body's total travel is `speed / drag_per_second`
+    // and a hazard would stall into a drifting obstacle a fraction of the way across. The same
+    // constant is what makes `hazard_lifetime_ticks`' `distance / speed` a duration.
+    CHECK(hazard.drag_scale() == simulation::PhysicsBody::kMinimumDragScale);
     // The speed is the archetype's; only the direction was drawn.
     const double speed = std::sqrt((hazard.velocity().x() * hazard.velocity().x()) +
                                    (hazard.velocity().y() * hazard.velocity().y()));

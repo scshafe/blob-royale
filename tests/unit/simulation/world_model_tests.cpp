@@ -130,6 +130,7 @@ TEST_CASE("PhysicsBody replacements preserve value semantics and every unnamed f
   CHECK(moving_body.position() == original_body.position());
   CHECK(moving_body.radius() == 3.0);
   CHECK(moving_body.mass() == 7.0);
+  CHECK(moving_body.drag_scale() == simulation::PhysicsBody::kDefaultDragScale);
   CHECK(moving_body.collision_layer() == 0b10U);
   CHECK(moving_body.collision_mask() == 0b110U);
   CHECK(moving_body.is_static());
@@ -142,6 +143,7 @@ TEST_CASE("PhysicsBody motion-only creation carries the baseline dynamic disc de
   CHECK(body.radius() == simulation::PhysicsBody::kUndeclaredRadius);
   CHECK(body.mass() == simulation::PhysicsBody::kDefaultMass);
   CHECK(body.restitution() == simulation::PhysicsBody::kDefaultRestitution);
+  CHECK(body.drag_scale() == simulation::PhysicsBody::kDefaultDragScale);
   CHECK(body.collision_layer() == simulation::PhysicsBody::kDefaultCollisionLayer);
   CHECK(body.collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);
   CHECK_FALSE(body.is_static());
@@ -152,8 +154,9 @@ TEST_CASE("PhysicsBody motion-only creation carries the baseline dynamic disc de
 TEST_CASE("every PhysicsBody factory defaults to the baseline physics and to folding",
           "[unit][simulation][physics_body]") {
   // The defaults are what keep this an addition: a body built by any route that existed before
-  // restitution and bounds behaviour did is exactly the body ADR 0003's accepted equation
-  // describes, so `body_has_baseline_physics` holds for every one of them.
+  // restitution, drag scale, and bounds behaviour did is exactly the body ADR 0003's accepted
+  // equations describe, so `body_has_baseline_physics` holds for every one of them and phase 1
+  // drags every one of them by the arithmetic it always used.
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
   const simulation::PhysicsBody complete = simulation::PhysicsBody::create(
       simulation::Vector2::create(1.0, 2.0), zero, zero, 3.0, 7.0, 0b10U, 0b110U, false);
@@ -161,9 +164,14 @@ TEST_CASE("every PhysicsBody factory defaults to the baseline physics and to fol
       simulation::PhysicsBody::create_static(simulation::Vector2::create(1.0, 2.0));
 
   CHECK(complete.restitution() == simulation::PhysicsBody::kDefaultRestitution);
+  CHECK(complete.drag_scale() == simulation::PhysicsBody::kDefaultDragScale);
   CHECK_FALSE(complete.crosses_bounds());
   CHECK(wall.restitution() == simulation::PhysicsBody::kDefaultRestitution);
+  CHECK(wall.drag_scale() == simulation::PhysicsBody::kDefaultDragScale);
   CHECK_FALSE(wall.crosses_bounds());
+  // The default is exactly one, which is the whole of the bit-identity argument: `d * 1.0 == d`
+  // for every finite `d` in binary64, so phase 1 forms the identical factor it always did.
+  CHECK(simulation::PhysicsBody::kDefaultDragScale == 1.0);
   CHECK(simulation::body_has_baseline_physics(stationary_body(1.0, 2.0)));
   CHECK(simulation::body_has_baseline_physics(wall));
   // A declared mass of seven is not the baseline, which is exactly what the general impulse row is
@@ -171,17 +179,23 @@ TEST_CASE("every PhysicsBody factory defaults to the baseline physics and to fol
   CHECK_FALSE(simulation::body_has_baseline_physics(complete));
 }
 
-TEST_CASE("PhysicsBody withers preserve restitution and bounds behavior",
+TEST_CASE("PhysicsBody withers preserve restitution, drag scale, and bounds behavior",
           "[unit][simulation][physics_body]") {
   // Every wither routes through the one validating factory, so a value set once survives every
   // later replacement. A wither that dropped one of these would silently return a crossing hazard
-  // to the arena walls on the first tick that changed its velocity.
+  // to the arena walls on the first tick that changed its velocity -- and phase 1 replaces a
+  // dragged body's velocity on *every* tick, so a dropped drag scale would be undone immediately
+  // and permanently.
   const simulation::PhysicsBody hazard =
-      stationary_body(1.0, 2.0).with_mass(40.0).with_restitution(0.25).with_bounds_behavior(
-          simulation::BoundsBehavior::kCross);
+      stationary_body(1.0, 2.0)
+          .with_mass(40.0)
+          .with_restitution(0.25)
+          .with_drag_scale(0.0)
+          .with_bounds_behavior(simulation::BoundsBehavior::kCross);
 
   CHECK(hazard.mass() == 40.0);
   CHECK(hazard.restitution() == 0.25);
+  CHECK(hazard.drag_scale() == 0.0);
   CHECK(hazard.crosses_bounds());
   CHECK_FALSE(simulation::body_has_baseline_physics(hazard));
 
@@ -192,7 +206,26 @@ TEST_CASE("PhysicsBody withers preserve restitution and bounds behavior",
           .with_radius(4.0);
   CHECK(moved.mass() == 40.0);
   CHECK(moved.restitution() == 0.25);
+  CHECK(moved.drag_scale() == 0.0);
   CHECK(moved.crosses_bounds());
+}
+
+TEST_CASE("a declared drag scale is invisible to the collision predicate",
+          "[unit][simulation][physics_body]") {
+  // `body_has_baseline_physics` gates which *collision* equation phase 3 hands a pair to, and no
+  // collision equation reads drag. A unit-mass, perfectly elastic body that merely coasts is still
+  // exactly the body ADR 0003 § "Player-pair policy" is written for, so it must keep taking the
+  // accepted exchange: the general impulse is deliberately not bit-identical to it, and routing a
+  // pair there because one body ignores drag would change contact arithmetic for a reason that has
+  // nothing to do with contact. This is the test that fails if a future property is added to the
+  // predicate by reflex.
+  const simulation::PhysicsBody coasting = stationary_body(1.0, 2.0).with_drag_scale(0.0);
+
+  CHECK(coasting.drag_scale() == 0.0);
+  CHECK(simulation::body_has_baseline_physics(coasting));
+  // And the converse: a body that differs in something a contact rule *does* read is not baseline,
+  // whatever it declares about drag.
+  CHECK_FALSE(simulation::body_has_baseline_physics(coasting.with_mass(200.0)));
 }
 
 TEST_CASE("PhysicsBody rejects a non-positive mass and an out-of-range restitution",
@@ -214,6 +247,18 @@ TEST_CASE("PhysicsBody rejects a non-positive mass and an out-of-range restituti
   CHECK_THROWS_AS(baseline.with_restitution(1.000'001), simulation::SimulationValidationError);
   CHECK_THROWS_AS(baseline.with_restitution(std::numeric_limits<double>::quiet_NaN()),
                   simulation::SimulationValidationError);
+  // A negative drag scale makes the phase 1 factor exceed one, which adds speed on every tick with
+  // nothing to bound it. There is deliberately no ceiling: a large scale only saturates the clamp
+  // at zero, which is a body held still by drag rather than an error, and it is the same rule
+  // `[simulation] drag_per_second` itself obeys.
+  CHECK_THROWS_AS(baseline.with_drag_scale(-0.000'001), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_drag_scale(std::numeric_limits<double>::quiet_NaN()),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(baseline.with_drag_scale(std::numeric_limits<double>::infinity()),
+                  simulation::SimulationValidationError);
+  CHECK(baseline.with_drag_scale(simulation::PhysicsBody::kMinimumDragScale).drag_scale() == 0.0);
+  CHECK(baseline.with_drag_scale(simulation::kMaximumPhysicalComponentMagnitude).drag_scale() ==
+        simulation::kMaximumPhysicalComponentMagnitude);
 
   // The closed interval and the positive mass are accepted at their boundaries.
   CHECK(baseline.with_restitution(simulation::PhysicsBody::kMinimumRestitution).restitution() ==
@@ -249,7 +294,7 @@ TEST_CASE("a static body may carry zero mass, which nothing divides by",
                   simulation::SimulationValidationError);
 }
 
-TEST_CASE("a rejected mass and a rejected restitution each carry their own code",
+TEST_CASE("a rejected mass, restitution, and drag scale each carry their own code",
           "[unit][simulation][physics_body][validation]") {
   try {
     static_cast<void>(stationary_body(1.0, 2.0).with_mass(0.0));
@@ -268,6 +313,15 @@ TEST_CASE("a rejected mass and a rejected restitution each carry their own code"
           simulation::SimulationValidationCode::kPhysicsBodyRestitutionOutOfRange);
     CHECK(error.code() == std::string_view{"SIMULATION.PHYSICS_BODY_RESTITUTION_OUT_OF_RANGE"});
     CHECK(error.context() == "physics_body.restitution");
+  }
+  try {
+    static_cast<void>(stationary_body(1.0, 2.0).with_drag_scale(-1.0));
+    FAIL("a negative drag scale was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kPhysicsBodyDragScaleOutOfRange);
+    CHECK(error.code() == std::string_view{"SIMULATION.PHYSICS_BODY_DRAG_SCALE_OUT_OF_RANGE"});
+    CHECK(error.context() == "physics_body.drag_scale");
   }
 }
 

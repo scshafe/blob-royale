@@ -138,10 +138,23 @@ void apply_stage(const SystemPipeline& system_pipeline, const SystemStage stage,
 }
 
 // Phase 1. Semi-implicit Euler on the stored acceleration, then the drag factor
-// `max(0, 1 - drag_per_second * dt)` on the accelerated velocity, both in ascending EntityId
-// order because a ComponentStore's entries are ascending by construction. At
+// `max(0, 1 - drag_per_second * drag_scale * dt)` on the accelerated velocity, both in ascending
+// EntityId order because a ComponentStore's entries are ascending by construction. At
 // `drag_per_second = 0` the factor is exactly 1.0 and multiplication by 1.0 is the identity on
 // every finite binary64 value, so this reproduces the accepted baseline bit-for-bit.
+//
+// **The body's scale enters before the equation and changes nothing else about it.** The kernel
+// still owns drag, still applies it here, and no system reproduces or bypasses it; it reads a
+// coefficient from the body the way phase 3 already reads a mass
+// (`docs/architecture/0003-deterministic-simulation-contract.md` § "Canonical tick" phase 1, as
+// amended 2026-09-07). The product is formed first and the rest of the operation order --
+// `* dt`, then `1.0 -`, then `max(0, ...)`, then the componentwise scale -- is untouched, which is
+// what makes this an addition rather than a versioned change: every body that exists carries
+// `kDefaultDragScale`, multiplication by `1.0` is exact in binary64 for every finite value, so
+// `drag_per_second * 1.0` **is** `drag_per_second` bit for bit and every committed velocity is the
+// value it always was. A body declaring `0.0` coasts, which is what an object crossing the arena
+// needs: the factor is geometric, so total travel under drag is exactly `speed / drag_per_second`
+// and a hazard would otherwise stall a fraction of the way in.
 //
 // A static body is copied through untouched: a wall is never accelerated and never dragged, so
 // neither equation is evaluated for it at all rather than being evaluated and happening to be an
@@ -162,7 +175,7 @@ apply_stored_acceleration_and_drag(const GameWorld& world, const double drag_per
     const Vector2 accelerated_velocity =
         integrate_accelerated_velocity(body.velocity(), body.acceleration(), fixed_delta);
     const Vector2 dragged_velocity =
-        apply_velocity_drag(accelerated_velocity, drag_per_second, fixed_delta);
+        apply_velocity_drag(accelerated_velocity, drag_per_second * body.drag_scale(), fixed_delta);
     accelerated_bodies.push_back(BodyEntry{entry.entity, body.with_velocity(dragged_velocity)});
   }
   return accelerated_bodies;

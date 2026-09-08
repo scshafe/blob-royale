@@ -163,11 +163,74 @@ A reconnaissance pass proved three things the plan had assumed away. All three a
   - Verify: human review, then whatever the decision implies
   - Notes: Two hazards currently deflect each other through `variable_impulse`, because both carry the default collision layer and mask. It is harmless and never lethal, but comets knock each other off course and a hazard can be batted back out of the arena it just entered. **This is a feel question and the playtest is where it should be answered**, so it is deliberately left open rather than guessed. If they should pass through one another the shape is a hazard collision layer that the player mask includes and the hazard mask excludes — one constant and one line in the spawner — and per-kind layers become an obvious later config key. Recommend playing it first: emergent hazard collisions may be better than the tidy answer.
 
-- [ ] **Step 7: Play it locally, then extend the browser flow**
+- [x] **Step 7: Play it locally, then extend the browser flow**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Notes: Add hazards to the royale end-to-end flow: a lethal hazard eliminates a browser's blob, and a heavy one visibly deflects it without eliminating it. Determinism is the same discipline as the existing flow — a seeded generator makes hazard timing reproducible, so assert on the seeded outcome rather than waiting for a random one.
 
-  - **Prerequisite found during Step 5b:** `require_match_fits_snapshot_bound` does not count standing hazards toward `kSnapshotEntityLimit`, because the archetype table is not reachable from its signature — it takes `MatchConfiguration` and `MapDefinition` while archetypes hang off `GameModeConfiguration`. A deployment authoring many kinds, or very slow ones, therefore exceeds 1,024 live entities at run time instead of being refused at startup. Fix before shipping a hazard table to the tailnet: the failure mode is a match that degrades under load rather than a configuration that fails closed, which is the opposite of how everything else here behaves. The ceiling is a product of each kind's interval and its lifetime, both of which the archetype already carries.
+  - **Prerequisite found during Step 5b:** `require_match_fits_snapshot_bound` does not count standing hazards toward `kSnapshotEntityLimit`, because the archetype table is not reachable from its signature — it takes `MatchConfiguration` and `MapDefinition` while archetypes hang off `GameModeConfiguration`. A deployment authoring many kinds, or very slow ones, therefore exceeds 1,024 live entities at run time instead of being refused at startup. Fix before shipping a hazard table to the tailnet: the failure mode is a match that degrades under load rather than a configuration that fails closed, which is the opposite of how everything else here behaves. The ceiling is a product of each kind's interval and its lifetime, both of which the archetype already carries. **Done, with Step 7, below.**
+
+  - Execution note (2026-09-07), the Step 8 prerequisite and Step 7 together. Verified at **837 unit
+    tests on `linux-gcc-debug` and again on `linux-clang-asan-ubsan`** across the full filter (830
+    before), **134 client tests** unchanged, and **4 browser flows passing on the first attempt with
+    no retries and no flakes**. `git diff --stat -- tests/fixtures/replays/ maps/` is empty and
+    `deploy/ubuntu-pc/blob-royale.cfg` is untouched.
+    - **The bound now counts hazards, and the arithmetic has one home.**
+      `require_match_fits_snapshot_bound` takes a third parameter,
+      `std::span<const gameplay::HazardArchetype>`, which `blob_royale_application.cpp` fills from
+      `game_mode_configuration().hazards`. `blob_application_input` already linked `blob_gameplay`
+      PUBLIC, so no dependency was added. The per-kind term is
+      `ceil(longest_lifetime_ticks / spawn_interval_ticks) + 1`, summed over kinds, and the
+      rejection now names each kind and its own count so an operator can read it back onto a
+      `[hazard.<kind>]` line. A configuration with no hazard section contributes no term and no
+      clause, so its rejection text is byte-identical to what it was.
+    - **`shared/hazard_crossing.{hpp,cpp}` is the new one home.** It owns the edge geometry, the
+      clearance constant, `draw_hazard_crossing`, `longest_hazard_travel_distance`,
+      `hazard_lifetime_ticks` and `maximum_standing_hazard_count`; `hazard_spawn_system.cpp` lost
+      117 lines and now only decides *when* and *what*, never *where* or *how long*. Both callers
+      route through one private `travel_distance_of`, so "how far can a crossing be" has exactly one
+      implementation and the worst case is that same expression at the arena diagonal. The diagonal
+      is spelled `sqrt(w*w + h*h)` rather than `std::hypot`, deliberately: `hypot` is the more
+      accurate of the two and could return a value *below* a drawn length computed the other way,
+      turning a bound into an off-by-one-ulp defect. A gameplay test drives the spawner over four
+      seeds and 720 spawn intervals and asserts no drawn lifetime exceeds the bound and no standing
+      population exceeds the count, which is the agreement test between the two callers.
+    - **The browser flow is a seeded collision, not a wait.** `hazard_spawn` is the only reader of
+      `GameWorld::random()` in the tree and takes exactly three draws per hazard, so the Nth hazard
+      of a match is a pure function of `[match] seed` and N — independent of the tick the match
+      started running on, which browser connect timing makes unpredictable. For `seed=2026` in a
+      1920x1280 arena the first hazard sweeps a known ray; `e2e-hazard-1920x1280` puts one `spawn`
+      marker exactly on it and the other 503 wu clear, so one blob is hit and the other is provably
+      not. The spec reads which browser is where off the canvas rather than assuming the seating
+      order. Falsified rather than asserted: with the seed changed to 2027 the lethal flow fails at
+      the elimination assertion and nowhere else.
+    - **Hazards do not move under nonzero drag, and the deployment has nonzero drag.** Phase 1
+      applies drag to every body, so a body launched at `v` under drag `d` covers exactly `v / d`
+      world units before stopping. The first fixture used the royale flow's `drag_per_second=40`
+      and the comet stalled **14 wu from its entry point**, outside the arena, having touched
+      nothing — observed, not reasoned about. Both hazard fixtures now run at `drag_per_second=0`.
+      **This is Step 8's problem**: `deploy/ubuntu-pc/blob-royale.cfg` sets `drag_per_second=2.0`,
+      which gives a hazard a total range of `speed / 2` wu, so crossing the shipped 960x640 arena
+      needs a speed above ~2,500 wu/s and anything slower stalls mid-arena as a drifting obstacle
+      until its `Lifetime` expires. The startup bound is unaffected (drag only ever shortens a
+      crossing, never lengthens it), but the mechanic is not playable as deployed. It is a design
+      question — should a hazard be exempt from drag? — and belongs to the playtest, not to this
+      step.
+    - Costs stated rather than hidden: the heavy flow's deflected blob keeps its 1194 wu/s and
+      wanders, because zero drag is forced by the point above; replaying that world offline it
+      reaches the second blob 12.8 s after contact, so the spec carries an explicit 8 s
+      `DEFLECTION_ISOLATION_BUDGET` and refuses the "the other blob never moved" claim past it,
+      which is the discipline the royale flow already applies to its bot. And the two hazard
+      fixtures are a third and fourth configuration rather than a table added to the royale one,
+      because that flow pins `4 entities and 3 players` and a hazard is an entity; neither existing
+      spec was touched and no existing expectation changed.
+
+- [ ] **Step 8a: Let a body decide how much drag it feels**
+  - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|fixtures'` with every accepted horizon and the baseline oracle unmodified
+  - Notes: **Without this the feature does not work at the deployed configuration, so it blocks Step 8.** Phase 1 drags every dynamic body, and the drag factor is geometric, so a body launched at speed `v` covers exactly `v / drag_per_second` world units before it stops. The deployment sets `drag_per_second = 2.0` on a 960-wide arena, so a 260 wu/s comet dies 130 units in and a hazard becomes a drifting obstacle that never reaches anyone. Confirmed in an offline replay during Step 7, not reasoned about: at the royale flow's drag the comet stalled 14 wu from its entry point, still outside the arena, having touched nothing.
+  - Raising the speed is not the fix. Crossing 960 wu under drag 2.0 needs upward of 2,500 wu/s, which crosses the arena in 0.38 s — too fast to see, let alone dodge. The mechanic needs the body to keep its speed.
+  - So drag becomes per-body, exactly as mass and restitution did: a `drag_scale` on `PhysicsBody` defaulting to `1.0`, multiplying the configured `drag_per_second` before the existing factor is formed. A hazard declares `0.0` and coasts. This is bit-identical for every body that exists today, because multiplication by `1.0` is exact in binary64 for every finite value and the rest of the operation order is untouched — the same argument mass and restitution used, and it must be proved the same way, with an empty `git diff --stat` over the accepted data rather than an assertion.
+  - It needs an ADR 0003 amendment, because § "Canonical tick" phase 1 says `drag_per_second` "applies identically under every mode, and no system may reproduce or bypass it". That sentence is about a *system* bypassing the kernel and stays true: the kernel still owns drag and still applies it, it just reads a coefficient from the body the way it already reads mass. Say exactly that in the amendment rather than quietly contradicting the old sentence.
+  - Do **not** publish `drag_scale` on the wire. Restitution and bounds behavior are already unpublished per-body values, the client needs none of them to render, and a fourth protocol minor for a number nothing draws would be churn.
 
 - [ ] **Step 8: Deploy and playtest the tuned values**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet'` then a playtest note under `docs/playtests/`
@@ -184,3 +247,5 @@ A reconnaissance pass proved three things the plan had assumed away. All three a
 **Amended 2026-09-07:** Step 1b was added once Step 1 proved the grace duration is not on the wire, then resequenced behind the hazard work because Step 1 already answered the complaint that prompted it. Steps 4 and 5 gained the two decisions that reading the tree settled: hazards are shared rather than royale-owned, and the closed config loader needs one new section-family concept before a hazard kind can cost no C++.
 
 **Amended 2026-09-07 (second):** Reconnaissance for Step 4 found three blockers the plan had assumed away — the component/wire coupling, the one-entity-per-tick system budget, and an inert `Lifetime`. The decisions clearing them are recorded above Step 4; Step 6's wire half folds into Step 4, a new Step 4b makes `Lifetime` real, and the spawner moves to `kLifecycle` rather than raising an entity-id constant that would invalidate six recorded fixtures.
+
+**Amended 2026-09-07 (third):** Step 7's browser work found that hazards stall under the deployed drag, because phase 1 drags every dynamic body and total travel is `speed / drag_per_second`. Step 8a makes drag per-body and blocks the deploy; raising hazard speed instead would need 2,500 wu/s, which crosses the arena faster than a player can react.

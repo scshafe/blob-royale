@@ -6,12 +6,14 @@
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "entity_id.hpp"
+#include "map_definition.hpp"
 #include "match_phase.hpp"
 #include "physics_body.hpp"
 #include "royale/royale_configuration.hpp"
 #include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
 #include "shared/hazard_archetype.hpp"
+#include "shared/hazard_crossing.hpp"
 #include "simulation_limits.hpp"
 #include "system_pipeline.hpp"
 #include "world_snapshot.hpp"
@@ -196,7 +198,7 @@ TEST_CASE("a hazard's Lifetime is derived from its own speed and the arena it mu
   // than copied from the system: a crossing is at most the diagonal plus the clearance at each end,
   // and at least the shorter arena axis. A hardcoded expected number would pass just as well
   // against a hardcoded implementation, which is the failure this avoids.
-  const double clearance = gameplay::HazardSpawnSystem::kEntryClearanceRadii * kHazardRadius;
+  const double clearance = gameplay::kHazardEntryClearanceRadii * kHazardRadius;
   const double longest =
       std::sqrt((kArenaWidth * kArenaWidth) + (kArenaHeight * kArenaHeight)) + (2.0 * clearance);
   const double shortest = kArenaHeight + (2.0 * clearance);
@@ -281,6 +283,54 @@ TEST_CASE("a different seed produces different crossings",
   // The seed is the only difference between these two runs, so this is what says the geometry is
   // genuinely drawn rather than a fixed pattern a player could memorize.
   CHECK_FALSE(left == right);
+}
+
+TEST_CASE("the startup bound is never violated by the crossings the spawner actually draws",
+          "[unit][gameplay][shared][hazard_spawn][hazard_crossing]") {
+  // The agreement test between the two callers of `shared/hazard_crossing.hpp`.
+  // `application/match_startup_validation.cpp` refuses a configuration whose *worst case* standing
+  // population would exceed the published snapshot bound, and it computes that worst case from the
+  // longest crossing this arena admits. That is only a bound if no crossing the spawner draws is
+  // longer and no population it produces is larger, which is what this observes over many drawn
+  // crossings rather than asserting once from the same expression the implementation uses.
+  //
+  // Deliberately not lethal: a kill would leave one blob standing, end the match, and stop the
+  // spawner for a reason that has nothing to do with the bound.
+  const simulation::ArenaBounds bounds = simulation::ArenaBounds::create(kArenaWidth, kArenaHeight);
+  const double seconds_per_tick = 1.0 / static_cast<double>(simulation::kSimulationTicksPerSecond);
+  const gameplay::HazardArchetype archetype_under_test =
+      archetype("velvet_boulder", false, kSpawnIntervalSeconds);
+  const std::uint64_t longest_lifetime = gameplay::hazard_lifetime_ticks(
+      gameplay::longest_hazard_travel_distance(bounds, kHazardRadius), kHazardSpeed,
+      seconds_per_tick);
+  const std::uint64_t standing_bound =
+      gameplay::maximum_standing_hazard_count(archetype_under_test, bounds, seconds_per_tick);
+
+  std::size_t observed_spawns = 0;
+  std::size_t peak_standing = 0;
+  // Several seeds, because a single one exercises one sequence of crossings and the claim is about
+  // every crossing the geometry admits.
+  for (const std::uint64_t seed : {0ULL, 1ULL, 20260907ULL, 999983ULL}) {
+    testing::SteppedGame driver = royale_driver({archetype_under_test}, seed);
+    start_match(driver);
+    for (std::size_t tick = 0; tick < kSpawnIntervalTicks * 30; ++tick) {
+      const simulation::WorldSnapshot snapshot = driver.step();
+      REQUIRE(snapshot.match().phase() == simulation::MatchPhase::kRunning);
+      const std::size_t standing = published_hazards(snapshot).size();
+      peak_standing = standing > peak_standing ? standing : peak_standing;
+      observed_spawns += standing;
+      for (const simulation::ComponentStore<simulation::Lifetime>::Entry& entry :
+           snapshot.components<simulation::Lifetime>()) {
+        // A drawn crossing runs edge to opposite edge, so it can be at most the arena's diagonal
+        // and the lifetime derived from it can be at most the one derived from that diagonal.
+        CHECK(entry.value.ticks_remaining <= longest_lifetime);
+      }
+      CHECK(standing <= standing_bound);
+    }
+  }
+  // Evidence about a spawner that ran rather than one that never seated anything.
+  REQUIRE(observed_spawns > 0);
+  REQUIRE(peak_standing > 0);
 }
 
 TEST_CASE("sandbox declares neither the spawner nor the lethal row",

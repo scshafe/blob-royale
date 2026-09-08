@@ -8,6 +8,7 @@ add_library(blob_gameplay STATIC
   sandbox/sandbox_mode.cpp
   shared/duration_ticks.cpp
   shared/hazard_archetype.cpp
+  shared/hazard_crossing.cpp
   shared/hazard_spawn_system.cpp
   shared/lethal_hazard_contact_rule.cpp
   shared/lifetime_expiry_system.cpp

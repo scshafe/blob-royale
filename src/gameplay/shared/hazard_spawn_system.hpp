@@ -20,7 +20,9 @@ namespace blob_royale::gameplay {
 //
 // **Every geometric choice comes from `GameWorld::random()`, in one fixed order, and nothing else
 // is a randomness source.** Per spawned hazard the draws are exactly three, always in this order:
-// the entry edge, the point along that edge, and the point on the opposite edge it is aimed at. A
+// the entry edge, the point along that edge, and the point on the opposite edge it is aimed at --
+// all three taken by `draw_hazard_crossing` (`shared/hazard_crossing.hpp`), which is the only
+// function in the tree that reads the generator on a mechanic's behalf. A
 // replay of `(map, mode configuration, seed, command log)` therefore reproduces every crossing
 // exactly, which is `docs/architecture/0004-gameplay-architecture.md` § "Determinism obligations
 // for framework code". `draw_count` is committed in every snapshot, so two runs that diverge in how
@@ -62,25 +64,22 @@ namespace blob_royale::gameplay {
 // does not cover -- a very fast spawn interval against a very slow hazard -- and it fails soft
 // because a missing comet is a lesser harm than a stopped match.
 //
+// **It owns no geometry and no arithmetic.** Where a crossing starts, which way it goes, and how
+// long the body lives all come from `shared/hazard_crossing.hpp`, because
+// `application/match_startup_validation.cpp` needs the same two formulas at their worst case to
+// refuse a hazard table whose standing population would exceed the published snapshot bound. A
+// spawner holding a private copy of "how long does this live" would be a bound that agrees with the
+// spawner only until one of the two is edited.
+//
 // It lives in `shared/` and royale declares it; sandbox does not, which is the test that the
 // mechanic is optional rather than ambient.
 // related: hazard_archetype.hpp -- the validated configuration this reads.
+// related: hazard_crossing.hpp -- the geometry and the lifetime this seats a body with.
 // related: lifetime_expiry_system.hpp -- what removes the bodies this creates.
 // related: lethal_hazard_contact_rule.hpp -- the row that reads the marker this attaches.
 class HazardSpawnSystem final : public simulation::SimulationSystem {
 public:
   static constexpr std::string_view kSystemName = "hazard_spawn";
-
-  // The four arena edges a hazard may enter through, in the order the entry draw indexes them.
-  // Closed and ordered, because the draw is `next_below(kEntryEdgeCount)` and the mapping from a
-  // drawn integer to a geometry must be one written thing rather than an arithmetic accident.
-  static constexpr std::uint64_t kEntryEdgeCount = 4;
-
-  // How far outside the arena a hazard's centre starts, as a multiple of its own radius. Two
-  // radii puts the whole disc clear of the edge it enters through, so the body is unambiguously
-  // outside on the tick it is seated and enters under its own velocity rather than starting in
-  // contact with a player standing at the wall.
-  static constexpr double kEntryClearanceRadii = 2.0;
 
   [[nodiscard]] static std::unique_ptr<const simulation::SimulationSystem>
   create(std::vector<HazardArchetype> archetypes);

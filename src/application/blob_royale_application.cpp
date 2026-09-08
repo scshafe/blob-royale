@@ -269,7 +269,10 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
   // The two cross-value rules first, because both are arithmetic over already-validated values and
   // both describe a match that would only fail once it was being played.
   require_map_matches_published_world(application_config.simulation_config(), map);
-  require_match_fits_snapshot_bound(application_config.match_configuration(), map);
+  // The hazard table travels with the other two, because the standing hazard population is part of
+  // the worst case and no one of the three values can see the other two on its own.
+  require_match_fits_snapshot_bound(application_config.match_configuration(), map,
+                                    application_config.game_mode_configuration().hazards);
 
   // The mode is resolved from the registry and handed the validated `[<mode>]` sections. The
   // engine reads its seven declarations once, validates the map through it, and destroys it.

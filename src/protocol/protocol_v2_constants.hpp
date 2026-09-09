@@ -25,7 +25,7 @@ namespace blob_royale::protocol {
 // related: docs/protocol/v2.md -- the accepted contract these values are read from.
 // related: protocol_constants.hpp -- the v1 twin, deliberately not shared.
 
-inline constexpr std::string_view kProtocolV2Version = "2.3";
+inline constexpr std::string_view kProtocolV2Version = "2.4";
 
 inline constexpr std::string_view kWelcomeMessageSchemaId =
     "blob-royale://protocol/v2/welcome-message";
@@ -33,6 +33,10 @@ inline constexpr std::string_view kSnapshotMessageV2SchemaId =
     "blob-royale://protocol/v2/snapshot-message";
 inline constexpr std::string_view kErrorResponseV2SchemaId =
     "blob-royale://protocol/v2/error-response";
+// The body of `GET /api/v2/lobbies`: an HTTP document in the v2 envelope, never a WebSocket frame
+// (`docs/protocol/v2.md` § "The lobby directory"). Added in 2.4.
+inline constexpr std::string_view kLobbyDirectorySchemaId =
+    "blob-royale://protocol/v2/lobby-directory";
 
 // The two registered mode-state blocks. Closed, not a grammar
 // (`common.schema.json#/$defs/mode_state_schema_id`).

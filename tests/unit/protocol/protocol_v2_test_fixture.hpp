@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_TESTS_UNIT_PROTOCOL_PROTOCOL_V2_TEST_FIXTURE_HPP
 
 #include "controller_directory_view.hpp"
+#include "lobby_listing.hpp"
 #include "protocol_encoding_error.hpp"
 #include "protocol_v2_json_encoding.hpp"
 #include "request_id.hpp"
@@ -71,6 +72,9 @@ namespace simulation = blob_royale::simulation;
 // and the world that produces it cannot disagree about what the accepted document says.
 inline constexpr std::string_view kSessionRequestId = "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2";
 inline constexpr std::string_view kWelcomeTimestamp = "2026-09-06T18:04:11.500Z";
+// The golden session's room and its map's seat ceiling: room 1, the 32-marker shipped arena.
+inline constexpr std::uint64_t kGoldenLobbyId = 1;
+inline constexpr std::uint64_t kGoldenSeatCountMaximum = 32;
 inline constexpr std::string_view kSnapshotTimestamp = "2026-09-06T18:04:17.750Z";
 inline constexpr std::uint64_t kSnapshotMessageSequence = 129;
 inline constexpr std::uint64_t kGoldenTickSequence = 12'904;
@@ -350,7 +354,38 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
           {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
            simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
            simulation::CommandKind::kStartMatch}),
-      golden_npc_controller_kinds());
+      golden_npc_controller_kinds(), kGoldenLobbyId, kGoldenSeatCountMaximum);
+}
+
+// The two rooms of the golden directory: room 1 is the golden snapshot's match as the directory
+// would list it -- running since tick 10904, read at tick 12904, a person and a created bot in two
+// of four seats with a third declared and waiting -- and room 2 is a fresh lobby with one bot
+// declared and nobody in it.
+[[nodiscard]] inline std::vector<LobbyListing> golden_lobby_listings() {
+  return {LobbyListing{.lobby_id = 1,
+                       .mode_name = std::string{kGoldenModeName},
+                       .map_name = std::string{kGoldenMapName},
+                       .phase = simulation::MatchPhase::kRunning,
+                       .phase_started_tick = 10'904,
+                       .tick_sequence = kGoldenTickSequence,
+                       .seat_count = 4,
+                       .seat_count_maximum = kGoldenSeatCountMaximum,
+                       .filled_seat_count = 2,
+                       .npc_seat_count = 2,
+                       .session_count = 1,
+                       .healthy = true},
+          LobbyListing{.lobby_id = 2,
+                       .mode_name = std::string{kGoldenModeName},
+                       .map_name = std::string{kGoldenMapName},
+                       .phase = simulation::MatchPhase::kLobby,
+                       .phase_started_tick = 0,
+                       .tick_sequence = kGoldenTickSequence,
+                       .seat_count = 4,
+                       .seat_count_maximum = kGoldenSeatCountMaximum,
+                       .filled_seat_count = 1,
+                       .npc_seat_count = 1,
+                       .session_count = 0,
+                       .healthy = true}};
 }
 
 [[nodiscard]] inline std::string read_v2_golden_example(const std::string_view filename) {

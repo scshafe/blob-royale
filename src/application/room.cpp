@@ -14,6 +14,7 @@ Room::Room(const std::uint64_t lobby_id, simulation::GameSimulation game_simulat
            const MatchConfiguration& match_configuration,
            std::vector<std::string> npc_controller_kinds, observability::StructuredLogger& logger)
     : lobby_id_(lobby_id), seed_(match_configuration.seed() + (lobby_id - 1)),
+      seat_count_maximum_(game_simulation.map().spawn_points().size()),
       runtime_(std::move(game_simulation)),
       host_(runtime_.snapshot_publication(), runtime_.command_sink()),
       // The only capability the network boundary receives for this room, named in full: a
@@ -22,7 +23,7 @@ Room::Room(const std::uint64_t lobby_id, simulation::GameSimulation game_simulat
       // transition.
       match_session_(server::MatchSessionContext::create(
           lobby_id, runtime_.command_sink(), runtime_.controller_directory(),
-          std::string{match_configuration.map_name()}, accepted_command_kinds,
+          std::string{match_configuration.map_name()}, seat_count_maximum_, accepted_command_kinds,
           std::move(npc_controller_kinds))) {
   if (accepted_command_kinds.contains(simulation::CommandKind::kStartMatch)) {
     reconciler_.emplace(runtime_.command_sink(), host_, seed_, lobby_id_, logger);

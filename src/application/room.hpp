@@ -63,6 +63,9 @@ public:
   [[nodiscard]] const server::MatchSessionContext& match_session() const&& = delete;
   // The seed this room's bots and world were built from.
   [[nodiscard]] std::uint64_t seed() const noexcept { return seed_; }
+  // The most seats this room's map can seat: its spawn-marker count, which `welcome` and the lobby
+  // directory both publish as `seat_count_maximum`.
+  [[nodiscard]] std::uint64_t seat_count_maximum() const noexcept { return seat_count_maximum_; }
 
 private:
   void seat_configured_bots(const MatchConfiguration& match_configuration,
@@ -70,6 +73,8 @@ private:
 
   std::uint64_t lobby_id_;
   std::uint64_t seed_;
+  // Declared before `runtime_` because it is read off the simulation the runtime is moved from.
+  std::uint64_t seat_count_maximum_;
   runtime::SimulationRuntime runtime_;
   controllers::ControllerHost host_;
   std::optional<SeatBotReconciler> reconciler_;

@@ -6,6 +6,7 @@
 #include "simulation_limits.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -91,12 +92,12 @@ bool is_accepted_map_name(const std::string_view map_name) noexcept {
   return true;
 }
 
-SessionWelcome SessionWelcome::create(const simulation::EntityId entity,
-                                      const simulation::ControllerId controller,
-                                      std::string display_name, std::string mode_name,
-                                      std::string map_name,
-                                      const simulation::CommandKindMask accepted_command_kinds,
-                                      std::vector<std::string> npc_controller_kinds) {
+SessionWelcome
+SessionWelcome::create(const simulation::EntityId entity, const simulation::ControllerId controller,
+                       std::string display_name, std::string mode_name, std::string map_name,
+                       const simulation::CommandKindMask accepted_command_kinds,
+                       std::vector<std::string> npc_controller_kinds, const std::uint64_t lobby_id,
+                       const std::uint64_t seat_count_maximum) {
   require(entity.value() >= simulation::kMinimumEntityId, "welcome_message.data.entity_id",
           "entity id must be in the inclusive range 1 to 2^53-1");
   require(controller.value() >= simulation::kMinimumControllerId,
@@ -123,23 +124,38 @@ SessionWelcome SessionWelcome::create(const simulation::EntityId entity,
                 " must match the accepted lower snake case kind grammar");
   }
 
+  // The room and the seat ceiling are bounded by protocol constants: a room id past the directory
+  // limit names a room no directory could list, and a ceiling past the seat bound is one no
+  // `set_seat_count` could reach.
+  require(lobby_id >= 1 && lobby_id <= kLobbyDirectoryLimit, "welcome_message.data.lobby_id",
+          "lobby id must be in the inclusive range 1 to " + std::to_string(kLobbyDirectoryLimit));
+  require(seat_count_maximum >= 1 && seat_count_maximum <= kLobbySeatCountMaximum,
+          "welcome_message.data.seat_count_maximum",
+          "seat count maximum must be in the inclusive range 1 to " +
+              std::to_string(kLobbySeatCountMaximum));
+
   return SessionWelcome{entity,
                         controller,
                         std::move(display_name),
                         std::move(mode_name),
                         std::move(map_name),
                         accepted_command_kinds,
-                        std::move(npc_controller_kinds)};
+                        std::move(npc_controller_kinds),
+                        lobby_id,
+                        seat_count_maximum};
 }
 
 SessionWelcome::SessionWelcome(const simulation::EntityId entity,
                                const simulation::ControllerId controller, std::string display_name,
                                std::string mode_name, std::string map_name,
                                const simulation::CommandKindMask accepted_command_kinds,
-                               std::vector<std::string> npc_controller_kinds) noexcept
+                               std::vector<std::string> npc_controller_kinds,
+                               const std::uint64_t lobby_id,
+                               const std::uint64_t seat_count_maximum) noexcept
     : entity_(entity), controller_(controller), display_name_(std::move(display_name)),
       mode_name_(std::move(mode_name)), map_name_(std::move(map_name)),
       accepted_command_kinds_(accepted_command_kinds),
-      npc_controller_kinds_(std::move(npc_controller_kinds)) {}
+      npc_controller_kinds_(std::move(npc_controller_kinds)), lobby_id_(lobby_id),
+      seat_count_maximum_(seat_count_maximum) {}
 
 } // namespace blob_royale::protocol

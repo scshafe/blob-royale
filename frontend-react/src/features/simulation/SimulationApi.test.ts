@@ -502,10 +502,10 @@ describe('SimulationApi session lifecycle', () => {
     const welcome = welcomeDocument();
     // One minor ahead of whatever the client supports. This moved 2.1 -> 2.2 when the server
     // published `lethal_on_contact`, 2.2 -> 2.3 when the royale mode-state block gained
-    // `elimination_grace_ticks`, and 2.3 -> 2.4 when the lobby commands and the match seat roster
-    // landed, because a test named "a newer protocol minor" that names the current one stops
-    // testing anything.
-    welcome.meta.protocol_version = '2.4';
+    // `elimination_grace_ticks`, 2.3 -> 2.4 when the lobby commands and the match seat roster
+    // landed, and 2.4 -> 2.5 when the lobby directory and the welcome's room landed, because a test
+    // named "a newer protocol minor" that names the current one stops testing anything.
+    welcome.meta.protocol_version = '2.5';
     socket.receive(JSON.stringify(welcome));
 
     expect(callbacks.onWelcome).not.toHaveBeenCalled();

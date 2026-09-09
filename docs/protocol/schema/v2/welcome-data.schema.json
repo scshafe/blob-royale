@@ -13,7 +13,9 @@
     "mode",
     "map",
     "accepted_command_kinds",
-    "npc_controller_kinds"
+    "npc_controller_kinds",
+    "lobby_id",
+    "seat_count_maximum"
   ],
   "properties": {
     "entity_id": {
@@ -50,6 +52,14 @@
         "$ref": "common.schema.json#/$defs/controller_kind"
       },
       "$comment": "The exact set of NPC kinds a seat_npc command may name, read from the server's controller registry. maxItems is deliberately NOT the number of registered bots: it is a protocol constant, so registering a bot changes this array's contents and not this schema, which is what makes a new bot appear in every client's seat menu with no client change and no protocol version. Empty is legal and means no bot kind is registered, in which case no seat can be filled with one. Added in 2.3."
+    },
+    "lobby_id": {
+      "$ref": "common.schema.json#/$defs/lobby_id",
+      "$comment": "The room this session was admitted into: room 1 on /api/v2/session, the id in the path on /api/v2/lobbies/<lobby_id>/session. Added in 2.4."
+    },
+    "seat_count_maximum": {
+      "$ref": "common.schema.json#/$defs/seat_count",
+      "$comment": "The most seats this room's map can seat -- its spawn-marker count capped at the seat bound -- so a client can floor its seat-count control without a second round trip. A set_seat_count above it is ignored by the tick. Added in 2.4."
     }
   }
 }

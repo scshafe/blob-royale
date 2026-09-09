@@ -4,12 +4,13 @@
 // nothing and fails on drift; without arguments it deterministically rewrites
 // both generated files. The operation is idempotent.
 //
-// The four roots are v2's four wire documents: the two server frames a session
-// receives, the one client frame it may send, and the HTTP failure envelope of a
-// /api/v2/ target. Every component, match, mode-state, and command payload
-// schema is reachable from those four, so the compiler emits a type for each
-// without this list naming it -- which is what keeps adding a component kind a
-// schema change rather than a generator change.
+// The five roots are v2's five wire documents: the two server frames a session
+// receives, the one client frame it may send, the HTTP failure envelope of a
+// /api/v2/ target, and the lobby directory a client chooses a room from. Every
+// component, match, mode-state, command payload, and lobby-listing schema is
+// reachable from those five, so the compiler emits a type for each without this
+// list naming it -- which is what keeps adding a component kind a schema change
+// rather than a generator change.
 //
 // The pipeline itself lives in ./protocolTypeGeneration.mjs, shared with v1.
 
@@ -38,6 +39,7 @@ await generateProtocolVersion(
     rootSchemaFileNames: Object.freeze([
       'command-envelope.schema.json',
       'error-response.schema.json',
+      'lobby-directory-message.schema.json',
       'snapshot-message.schema.json',
       'welcome-message.schema.json',
     ]),

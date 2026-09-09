@@ -68,23 +68,27 @@ type MutableModeState = {
 interface MutableProtocolV2SchemaTypes {
   command_envelope: MutableBlobRoyaleProtocolV2ClientCommandEnvelope;
   error_response: MutableBlobRoyaleProtocolV2HTTPErrorResponse;
+  lobby_directory_message: MutableBlobRoyaleProtocolV2LobbyDirectoryResponse;
   snapshot_message: MutableBlobRoyaleProtocolV2WebSocketSnapshotMessage;
   welcome_message: MutableBlobRoyaleProtocolV2WebSocketWelcomeMessage;
 }
 /**
- * Failure envelope for every representable HTTP failure on a /api/v2/ target. It is a separate artifact from the v1 envelope rather than a reuse because meta.protocol_version and meta.schema_id are both consts that name the version, and because v2 adds PROTOCOL.INVALID_FORWARDED_CLIENT to the code registry. There is no in-band WebSocket error frame in v2: a session failure is a close code.
+ * Failure envelope for every representable HTTP failure on a /api/v2/ target. It is a separate artifact from the v1 envelope rather than a reuse because meta.protocol_version and meta.schema_id are both consts that name the version, and because v2 adds PROTOCOL.INVALID_FORWARDED_CLIENT and, in 2.4, LOBBY.NOT_FOUND, LOBBY.FULL, and LOBBY.UNAVAILABLE to the code registry. There is no in-band WebSocket error frame in v2: a session failure is a close code.
  */
 interface MutableBlobRoyaleProtocolV2HTTPErrorResponse {
   data: null;
   error: MutableError;
   meta: {
-    protocol_version: '2.3';
+    protocol_version: '2.4';
     schema_id: 'blob-royale://protocol/v2/error-response';
     request_id: string;
   };
 }
 interface MutableError {
   code:
+    | 'LOBBY.FULL'
+    | 'LOBBY.NOT_FOUND'
+    | 'LOBBY.UNAVAILABLE'
     | 'PROTOCOL.CONNECTION_LIMIT_REACHED'
     | 'PROTOCOL.HEADER_TOO_LARGE'
     | 'PROTOCOL.INVALID_FORWARDED_CLIENT'
@@ -105,6 +109,7 @@ interface MutableError {
   details: MutableErrorDetails;
 }
 interface MutableErrorDetails {
+  lobby_id?: number;
   /**
    * @minItems 1
    * @maxItems 4
@@ -121,13 +126,96 @@ interface MutableErrorDetails {
   retry_after_ms?: number;
 }
 /**
+ * The body of a successful GET /api/v2/lobbies: the v2 envelope around lobby-directory-data. An HTTP document rather than a WebSocket frame, so its meta carries no message_sequence and no sent_at_utc; the per-room tick_sequence is its freshness. Added in 2.4.
+ */
+interface MutableBlobRoyaleProtocolV2LobbyDirectoryResponse {
+  data: MutableBlobRoyaleProtocolV2LobbyDirectoryData;
+  error: null;
+  meta: {
+    protocol_version: '2.4';
+    schema_id: 'blob-royale://protocol/v2/lobby-directory';
+    request_id: string;
+  };
+}
+/**
+ * Every room this process runs, in lobby-id order, as a client chooses one to join. It is read from each room's latest published snapshot and its admitted-session count, so it is exactly as current as the newest snapshot and never more: a client that joins on it may still find the room changed by the time it is admitted, which is what the 409 and 503 refusals and the lobby_full close are for. Added in 2.4.
+ */
+interface MutableBlobRoyaleProtocolV2LobbyDirectoryData {
+  /**
+   * @minItems 1
+   * @maxItems 8
+   */
+  lobbies:
+    | [MutableLobbyListing]
+    | [MutableLobbyListing, MutableLobbyListing]
+    | [MutableLobbyListing, MutableLobbyListing, MutableLobbyListing]
+    | [
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+      ]
+    | [
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+      ]
+    | [
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+      ]
+    | [
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+      ]
+    | [
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+        MutableLobbyListing,
+      ];
+}
+/**
+ * This interface was referenced by `MutableBlobRoyaleProtocolV2LobbyDirectoryData`'s JSON-Schema
+ * via the `definition` "lobby_listing".
+ */
+interface MutableLobbyListing {
+  lobby_id: number;
+  mode: string;
+  map: string;
+  phase: 'lobby' | 'countdown' | 'running' | 'ended';
+  phase_started_tick: number;
+  tick_sequence: number;
+  seat_count: number;
+  seat_count_maximum: number;
+  filled_seat_count: number;
+  npc_seat_count: number;
+  session_count: number;
+  healthy: boolean;
+}
+/**
  * A world snapshot frame on an established session. message_sequence starts at 2 because the welcome message is always message 1 of a session.
  */
 interface MutableBlobRoyaleProtocolV2WebSocketSnapshotMessage {
   data: MutableBlobRoyaleProtocolV2WorldSnapshotData;
   error: null;
   meta: {
-    protocol_version: '2.3';
+    protocol_version: '2.4';
     schema_id: 'blob-royale://protocol/v2/snapshot-message';
     request_id: string;
     message_sequence: number;
@@ -259,7 +347,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketWelcomeMessage {
   data: MutableBlobRoyaleProtocolV2WelcomeData;
   error: null;
   meta: {
-    protocol_version: '2.3';
+    protocol_version: '2.4';
     schema_id: 'blob-royale://protocol/v2/welcome-message';
     request_id: string;
     message_sequence: 1;
@@ -397,6 +485,8 @@ interface MutableBlobRoyaleProtocolV2WelcomeData {
    * @maxItems 64
    */
   npc_controller_kinds: string[];
+  lobby_id: number;
+  seat_count_maximum: number;
 }
 
 export type BlobRoyaleProtocolV2ClientCommandEnvelope =
@@ -409,6 +499,11 @@ export type BlobRoyaleProtocolV2HTTPErrorResponse =
   DeepReadonly<MutableBlobRoyaleProtocolV2HTTPErrorResponse>;
 export type Error = DeepReadonly<MutableError>;
 export type ErrorDetails = DeepReadonly<MutableErrorDetails>;
+export type BlobRoyaleProtocolV2LobbyDirectoryResponse =
+  DeepReadonly<MutableBlobRoyaleProtocolV2LobbyDirectoryResponse>;
+export type BlobRoyaleProtocolV2LobbyDirectoryData =
+  DeepReadonly<MutableBlobRoyaleProtocolV2LobbyDirectoryData>;
+export type LobbyListing = DeepReadonly<MutableLobbyListing>;
 export type BlobRoyaleProtocolV2WebSocketSnapshotMessage =
   DeepReadonly<MutableBlobRoyaleProtocolV2WebSocketSnapshotMessage>;
 export type BlobRoyaleProtocolV2WorldSnapshotData =

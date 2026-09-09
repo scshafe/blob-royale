@@ -5,6 +5,7 @@
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 
+#include <cstdint>
 #include <span>
 #include <string>
 #include <string_view>
@@ -49,12 +50,17 @@ class SessionWelcome final {
 public:
   // Validates the complete accepted grammar of every member.
   // Throws ProtocolEncodingError with SESSION_WELCOME_INVALID for any violation.
-  [[nodiscard]] static SessionWelcome create(simulation::EntityId entity,
-                                             simulation::ControllerId controller,
-                                             std::string display_name, std::string mode_name,
-                                             std::string map_name,
-                                             simulation::CommandKindMask accepted_command_kinds,
-                                             std::vector<std::string> npc_controller_kinds);
+  //
+  // `lobby_id` is the room the session was admitted into, `1..kLobbyDirectoryLimit`, and
+  // `seat_count_maximum` is the most seats that room's map can seat, `1..kLobbySeatCountMaximum`;
+  // both are published so a client can name its room and floor its seat-count control without a
+  // second round trip (`docs/protocol/v2.md` § "welcome", 2.4).
+  [[nodiscard]] static SessionWelcome
+  create(simulation::EntityId entity, simulation::ControllerId controller, std::string display_name,
+         std::string mode_name, std::string map_name,
+         simulation::CommandKindMask accepted_command_kinds,
+         std::vector<std::string> npc_controller_kinds, std::uint64_t lobby_id,
+         std::uint64_t seat_count_maximum);
 
   SessionWelcome(const SessionWelcome&) = default;
   SessionWelcome(SessionWelcome&&) noexcept = default;
@@ -81,6 +87,8 @@ public:
     return npc_controller_kinds_;
   }
   [[nodiscard]] std::span<const std::string> npc_controller_kinds() const&& = delete;
+  [[nodiscard]] std::uint64_t lobby_id() const noexcept { return lobby_id_; }
+  [[nodiscard]] std::uint64_t seat_count_maximum() const noexcept { return seat_count_maximum_; }
 
   friend bool operator==(const SessionWelcome&, const SessionWelcome&) = default;
 
@@ -88,7 +96,8 @@ private:
   SessionWelcome(simulation::EntityId entity, simulation::ControllerId controller,
                  std::string display_name, std::string mode_name, std::string map_name,
                  simulation::CommandKindMask accepted_command_kinds,
-                 std::vector<std::string> npc_controller_kinds) noexcept;
+                 std::vector<std::string> npc_controller_kinds, std::uint64_t lobby_id,
+                 std::uint64_t seat_count_maximum) noexcept;
 
   simulation::EntityId entity_;
   simulation::ControllerId controller_;
@@ -97,6 +106,8 @@ private:
   std::string map_name_;
   simulation::CommandKindMask accepted_command_kinds_;
   std::vector<std::string> npc_controller_kinds_;
+  std::uint64_t lobby_id_;
+  std::uint64_t seat_count_maximum_;
 };
 
 // The accepted grammars, exposed because the identity boundary applies the display-name grammar to

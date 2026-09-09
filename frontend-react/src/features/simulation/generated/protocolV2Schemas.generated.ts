@@ -139,9 +139,9 @@ export const protocolV2Schemas = {
     $defs: {
       protocol_version: {
         type: 'string',
-        const: '2.3',
+        const: '2.4',
         $comment:
-          "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, and 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds. A 2.3 client therefore rejects a 2.4 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
+          "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds, and 2.4 added the lobby directory document, welcome.lobby_id and welcome.seat_count_maximum, and the three LOBBY.* error codes. A 2.4 client therefore rejects a 2.5 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
       },
       request_id: {
         type: 'string',
@@ -306,6 +306,13 @@ export const protocolV2Schemas = {
         $comment:
           'The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire. Four of the five operate the pre-match lobby and were added in 2.3; a mode that has no lobby to operate omits them from welcome.accepted_command_kinds rather than accepting a command it cannot honour.',
       },
+      lobby_id: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 8,
+        $comment:
+          "Which room, 1..N in the order the process built them. The maximum is the protocol's directory limit, kLobbyDirectoryLimit, which is also how many rooms one process may run. Added in 2.4.",
+      },
       seat_count: {
         type: 'integer',
         minimum: 1,
@@ -338,6 +345,11 @@ export const protocolV2Schemas = {
         type: 'object',
         additionalProperties: false,
         properties: {
+          lobby_id: {
+            $ref: '#/$defs/lobby_id',
+            $comment:
+              'Present on LOBBY.FULL and LOBBY.UNAVAILABLE, naming the room the request named. Absent on LOBBY.NOT_FOUND, which by definition names no room. Added in 2.4.',
+          },
           allowed_methods: {
             type: 'array',
             minItems: 1,
@@ -383,6 +395,9 @@ export const protocolV2Schemas = {
           code: {
             type: 'string',
             enum: [
+              'LOBBY.FULL',
+              'LOBBY.NOT_FOUND',
+              'LOBBY.UNAVAILABLE',
               'PROTOCOL.CONNECTION_LIMIT_REACHED',
               'PROTOCOL.HEADER_TOO_LARGE',
               'PROTOCOL.INVALID_FORWARDED_CLIENT',
@@ -493,7 +508,7 @@ export const protocolV2Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v2/error-response.schema.json',
     title: 'Blob Royale protocol v2 HTTP error response',
     description:
-      'Failure envelope for every representable HTTP failure on a /api/v2/ target. It is a separate artifact from the v1 envelope rather than a reuse because meta.protocol_version and meta.schema_id are both consts that name the version, and because v2 adds PROTOCOL.INVALID_FORWARDED_CLIENT to the code registry. There is no in-band WebSocket error frame in v2: a session failure is a close code.',
+      'Failure envelope for every representable HTTP failure on a /api/v2/ target. It is a separate artifact from the v1 envelope rather than a reuse because meta.protocol_version and meta.schema_id are both consts that name the version, and because v2 adds PROTOCOL.INVALID_FORWARDED_CLIENT and, in 2.4, LOBBY.NOT_FOUND, LOBBY.FULL, and LOBBY.UNAVAILABLE to the code registry. There is no in-band WebSocket error frame in v2: a session failure is a close code.',
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
@@ -547,6 +562,144 @@ export const protocolV2Schemas = {
     properties: {
       ticks_remaining: {
         $ref: 'common.schema.json#/$defs/safe_integer',
+      },
+    },
+  },
+  lobbyDirectoryData: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-data.schema.json',
+    title: 'Blob Royale protocol v2 lobby directory data',
+    description:
+      "Every room this process runs, in lobby-id order, as a client chooses one to join. It is read from each room's latest published snapshot and its admitted-session count, so it is exactly as current as the newest snapshot and never more: a client that joins on it may still find the room changed by the time it is admitted, which is what the 409 and 503 refusals and the lobby_full close are for. Added in 2.4.",
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['lobbies'],
+    properties: {
+      lobbies: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 8,
+        items: {
+          $ref: '#/$defs/lobby_listing',
+        },
+        $comment:
+          'Rooms are numbered 1..N in the order the process built them and the directory is fixed for the process lifetime, so the i-th entry always has lobby_id i+1. maxItems mirrors kLobbyDirectoryLimit in src/protocol/protocol_v2_constants.hpp, the most rooms one process may run.',
+      },
+    },
+    $defs: {
+      lobby_listing: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'lobby_id',
+          'mode',
+          'map',
+          'phase',
+          'phase_started_tick',
+          'tick_sequence',
+          'seat_count',
+          'seat_count_maximum',
+          'filled_seat_count',
+          'npc_seat_count',
+          'session_count',
+          'healthy',
+        ],
+        properties: {
+          lobby_id: {
+            $ref: 'common.schema.json#/$defs/lobby_id',
+          },
+          mode: {
+            $ref: 'common.schema.json#/$defs/mode_name',
+          },
+          map: {
+            $ref: 'common.schema.json#/$defs/map_name',
+          },
+          phase: {
+            $ref: 'common.schema.json#/$defs/match_phase',
+          },
+          phase_started_tick: {
+            $ref: 'common.schema.json#/$defs/phase_start_tick',
+          },
+          tick_sequence: {
+            $ref: 'common.schema.json#/$defs/safe_integer',
+            $comment:
+              "The committed tick the rest of this entry was read from. Zero means the room has published no tick at all -- its runtime is not ready or has failed -- and every count below is then zero too; a snapshot's own tick_sequence starts at 1.",
+          },
+          seat_count: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 64,
+            $comment:
+              "The lobby's current size, which anyone in it may resize. Zero is a room whose mode declares no lobby and never starts a match.",
+          },
+          seat_count_maximum: {
+            $ref: 'common.schema.json#/$defs/seat_count',
+            $comment:
+              "The most seats this room's map can seat: its spawn-marker count capped at the seat bound. A set_seat_count above it is ignored by the tick, so a client floors its control here.",
+          },
+          filled_seat_count: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 64,
+            $comment:
+              'Seats that hold a controller: a person, or an NPC seat whose bot the server has created. A match starts once this equals seat_count and somebody has pressed Start.',
+          },
+          npc_seat_count: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 64,
+            $comment:
+              'Seats declared for an NPC, whether or not its bot exists yet.',
+          },
+          session_count: {
+            type: 'integer',
+            minimum: 0,
+            maximum: 64,
+            $comment:
+              'Sessions admitted into this room right now, whether or not each holds a seat. A join is refused 409 LOBBY.FULL once this equals seat_count.',
+          },
+          healthy: {
+            type: 'boolean',
+            $comment:
+              "False while the room's runtime has failed or is not publishing, or while its last minute holds a tick overrun; a join to an unhealthy room may be refused 503 LOBBY.UNAVAILABLE.",
+          },
+        },
+      },
+    },
+  },
+  lobbyDirectoryMessage: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-message.schema.json',
+    title: 'Blob Royale protocol v2 lobby directory response',
+    description:
+      'The body of a successful GET /api/v2/lobbies: the v2 envelope around lobby-directory-data. An HTTP document rather than a WebSocket frame, so its meta carries no message_sequence and no sent_at_utc; the per-room tick_sequence is its freshness. Added in 2.4.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['data', 'error', 'meta'],
+    properties: {
+      data: {
+        $ref: 'lobby-directory-data.schema.json',
+      },
+      error: {
+        type: 'null',
+      },
+      meta: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['protocol_version', 'schema_id', 'request_id'],
+        properties: {
+          protocol_version: {
+            $ref: 'common.schema.json#/$defs/protocol_version',
+          },
+          schema_id: {
+            const: 'blob-royale://protocol/v2/lobby-directory',
+          },
+          request_id: {
+            $ref: 'common.schema.json#/$defs/request_id',
+          },
+        },
       },
     },
   },
@@ -1146,6 +1299,8 @@ export const protocolV2Schemas = {
       'map',
       'accepted_command_kinds',
       'npc_controller_kinds',
+      'lobby_id',
+      'seat_count_maximum',
     ],
     properties: {
       entity_id: {
@@ -1186,6 +1341,16 @@ export const protocolV2Schemas = {
         },
         $comment:
           "The exact set of NPC kinds a seat_npc command may name, read from the server's controller registry. maxItems is deliberately NOT the number of registered bots: it is a protocol constant, so registering a bot changes this array's contents and not this schema, which is what makes a new bot appear in every client's seat menu with no client change and no protocol version. Empty is legal and means no bot kind is registered, in which case no seat can be filled with one. Added in 2.3.",
+      },
+      lobby_id: {
+        $ref: 'common.schema.json#/$defs/lobby_id',
+        $comment:
+          'The room this session was admitted into: room 1 on /api/v2/session, the id in the path on /api/v2/lobbies/<lobby_id>/session. Added in 2.4.',
+      },
+      seat_count_maximum: {
+        $ref: 'common.schema.json#/$defs/seat_count',
+        $comment:
+          "The most seats this room's map can seat -- its spawn-marker count capped at the seat bound -- so a client can floor its seat-count control without a second round trip. A set_seat_count above it is ignored by the tick. Added in 2.4.",
       },
     },
   },

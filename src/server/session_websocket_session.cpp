@@ -560,7 +560,8 @@ void SessionWebSocketSession::start_welcome_write(const simulation::EntityId ent
         entity, *controller_, peer_identity_.display_name_for(*session_id_),
         std::string{server_context_->publication().latest()->match().mode_name()},
         match_session.map_name(), match_session.accepted_command_kinds(),
-        std::vector<std::string>{npc_controller_kinds.begin(), npc_controller_kinds.end()});
+        std::vector<std::string>{npc_controller_kinds.begin(), npc_controller_kinds.end()},
+        match_session.lobby_id(), match_session.seat_count_maximum());
     active_write_payload_ = protocol::encode_welcome_message(
         welcome, request_id_, current_utc_timestamp(), active_egress_lease_->owned_byte_count());
   } catch (const protocol::ProtocolEncodingError& error) {

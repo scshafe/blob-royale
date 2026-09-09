@@ -23,6 +23,7 @@ enum class ProtocolEncodingErrorCode {
   kSeatLimitExceeded,
   kMatchModeNameInvalid,
   kComponentValueOutOfRange,
+  kLobbyDirectoryInvalid,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -58,6 +59,8 @@ protocol_encoding_error_code_name(ProtocolEncodingErrorCode error_code) noexcept
     return "PROTOCOL.ENCODING.MATCH_MODE_NAME_INVALID";
   case ProtocolEncodingErrorCode::kComponentValueOutOfRange:
     return "PROTOCOL.ENCODING.COMPONENT_VALUE_OUT_OF_RANGE";
+  case ProtocolEncodingErrorCode::kLobbyDirectoryInvalid:
+    return "PROTOCOL.ENCODING.LOBBY_DIRECTORY_INVALID";
   }
   return "PROTOCOL.ENCODING.ERROR_CODE_INVALID";
 }

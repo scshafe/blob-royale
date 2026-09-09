@@ -484,7 +484,7 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   }
 
   json::object data;
-  data.reserve(7);
+  data.reserve(9);
   data.emplace("entity_id", welcome.entity().value());
   data.emplace("controller_id", welcome.controller().value());
   data.emplace("display_name", welcome.display_name());
@@ -492,6 +492,8 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   data.emplace("map", welcome.map_name());
   data.emplace("accepted_command_kinds", std::move(accepted_command_kinds));
   data.emplace("npc_controller_kinds", std::move(npc_controller_kinds));
+  data.emplace("lobby_id", welcome.lobby_id());
+  data.emplace("seat_count_maximum", welcome.seat_count_maximum());
 
   json::object envelope = encode_envelope_with_data(
       json::value(std::move(data)), encode_message_metadata(kWelcomeMessageSchemaId, request_id,
@@ -576,6 +578,12 @@ std::string encode_error_response_v2(const V2HttpError& error, const RequestId& 
     }
   }
 
+  // A `LOBBY.FULL` or `LOBBY.UNAVAILABLE` row names the room the request named; every other row's
+  // details come off the shared error above or the forwarded-client reason.
+  if (error.lobby_id().has_value()) {
+    details.emplace("lobby_id", *error.lobby_id());
+  }
+
   json::object encoded_error;
   encoded_error.reserve(4);
   encoded_error.emplace("code", error.code());
@@ -596,6 +604,93 @@ std::string encode_error_response_v2(const V2HttpError& error, const RequestId& 
   envelope.emplace("meta", std::move(metadata));
   return serialize_bounded_json(json::value(std::move(envelope)), output_byte_limit,
                                 kHttpJsonResponseMaximumByteCount, "error_response_v2.encoding");
+}
+
+std::string encode_lobby_directory_message(const std::span<const LobbyListing> lobbies,
+                                           const RequestId& request_id,
+                                           const std::size_t output_byte_limit) {
+  const auto require_listing = [](const bool accepted, const std::string_view context,
+                                  const std::string_view detail) {
+    if (!accepted) {
+      throw ProtocolEncodingError{ProtocolEncodingErrorCode::kLobbyDirectoryInvalid,
+                                  std::string{context}, std::string{detail}};
+    }
+  };
+  require_listing(
+      !lobbies.empty() && lobbies.size() <= kLobbyDirectoryLimit, "lobby_directory.data.lobbies",
+      "a directory lists between 1 and " + std::to_string(kLobbyDirectoryLimit) + " rooms");
+
+  json::array encoded_lobbies;
+  encoded_lobbies.reserve(lobbies.size());
+  for (std::size_t index = 0; index < lobbies.size(); ++index) {
+    const LobbyListing& listing = lobbies[index];
+    const std::string context = "lobby_directory.data.lobbies[" + std::to_string(index) + "]";
+    // Rooms are numbered by position, so the id is redundant with the index and is checked
+    // against it rather than trusted: a directory that disagreed with itself would send a client
+    // to the wrong room.
+    require_listing(listing.lobby_id == index + 1, context + ".lobby_id",
+                    "rooms are numbered 1..N in order");
+    require_listing(is_accepted_kind_name(listing.mode_name), context + ".mode",
+                    "mode name must match the accepted lower snake case kind grammar");
+    require_listing(is_accepted_map_name(listing.map_name), context + ".map",
+                    "map name must match the accepted map-name grammar");
+    require_listing(listing.tick_sequence <= kMaximumSafeInteger, context + ".tick_sequence",
+                    "tick sequence must be at most 2^53-1");
+    require_listing(listing.phase_started_tick <= listing.tick_sequence,
+                    context + ".phase_started_tick",
+                    "a phase cannot have started after the tick it is read at");
+    require_listing(listing.seat_count <= kLobbySeatCountMaximum, context + ".seat_count",
+                    "seat count must be at most " + std::to_string(kLobbySeatCountMaximum));
+    require_listing(listing.seat_count_maximum >= 1 &&
+                        listing.seat_count_maximum <= kLobbySeatCountMaximum,
+                    context + ".seat_count_maximum",
+                    "seat count maximum must be in the inclusive range 1 to " +
+                        std::to_string(kLobbySeatCountMaximum));
+    require_listing(listing.seat_count <= listing.seat_count_maximum, context + ".seat_count",
+                    "a room cannot seat more than its map's markers");
+    require_listing(listing.filled_seat_count <= listing.seat_count, context + ".filled_seat_count",
+                    "filled seats cannot outnumber seats");
+    require_listing(listing.npc_seat_count <= listing.seat_count, context + ".npc_seat_count",
+                    "NPC seats cannot outnumber seats");
+    require_listing(listing.session_count <= kLobbySeatCountMaximum, context + ".session_count",
+                    "session count must be at most " + std::to_string(kLobbySeatCountMaximum));
+
+    json::object encoded;
+    encoded.reserve(12);
+    encoded.emplace("lobby_id", listing.lobby_id);
+    encoded.emplace("mode", listing.mode_name);
+    encoded.emplace("map", listing.map_name);
+    encoded.emplace("phase", simulation::match_phase_name(listing.phase));
+    encoded.emplace("phase_started_tick", listing.phase_started_tick);
+    encoded.emplace("tick_sequence", listing.tick_sequence);
+    encoded.emplace("seat_count", listing.seat_count);
+    encoded.emplace("seat_count_maximum", listing.seat_count_maximum);
+    encoded.emplace("filled_seat_count", listing.filled_seat_count);
+    encoded.emplace("npc_seat_count", listing.npc_seat_count);
+    encoded.emplace("session_count", listing.session_count);
+    encoded.emplace("healthy", listing.healthy);
+    encoded_lobbies.emplace_back(std::move(encoded));
+  }
+
+  json::object data;
+  data.reserve(1);
+  data.emplace("lobbies", std::move(encoded_lobbies));
+
+  // An HTTP document, so the metadata is the error envelope's three members and not a frame's five
+  // (`docs/protocol/v2.md` § "The lobby directory").
+  json::object metadata;
+  metadata.reserve(3);
+  metadata.emplace("protocol_version", kProtocolV2Version);
+  metadata.emplace("schema_id", kLobbyDirectorySchemaId);
+  metadata.emplace("request_id", request_id.value());
+
+  json::object envelope;
+  envelope.reserve(3);
+  envelope.emplace("data", std::move(data));
+  envelope.emplace("error", nullptr);
+  envelope.emplace("meta", std::move(metadata));
+  return serialize_bounded_json(json::value(std::move(envelope)), output_byte_limit,
+                                kHttpJsonResponseMaximumByteCount, "lobby_directory.encoding");
 }
 
 } // namespace blob_royale::protocol

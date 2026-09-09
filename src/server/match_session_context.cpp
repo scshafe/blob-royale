@@ -14,21 +14,29 @@ MatchSessionContext::MatchSessionContext(const std::uint64_t lobby_id,
                                          runtime::CommandSink& command_sink,
                                          const runtime::ControllerDirectory& controller_directory,
                                          std::string map_name,
+                                         const std::uint64_t seat_count_maximum,
                                          const simulation::CommandKindMask accepted_command_kinds,
                                          std::vector<std::string> npc_controller_kinds) noexcept
     : lobby_id_(lobby_id), command_sink_(&command_sink), directory_view_(controller_directory),
-      map_name_(std::move(map_name)), accepted_command_kinds_(accepted_command_kinds),
+      map_name_(std::move(map_name)), seat_count_maximum_(seat_count_maximum),
+      accepted_command_kinds_(accepted_command_kinds),
       npc_controller_kinds_(std::move(npc_controller_kinds)) {}
 
 MatchSessionContext
 MatchSessionContext::create(const std::uint64_t lobby_id, runtime::CommandSink& command_sink,
                             const runtime::ControllerDirectory& controller_directory,
-                            std::string map_name,
+                            std::string map_name, const std::uint64_t seat_count_maximum,
                             const simulation::CommandKindMask accepted_command_kinds,
                             std::vector<std::string> npc_controller_kinds) {
   if (lobby_id == 0) {
     throw GameServerError{GameServerErrorCode::kSessionInvariantFailed,
                           "match_session_context.lobby_id", "rooms are numbered from 1"};
+  }
+  if (seat_count_maximum == 0 || seat_count_maximum > protocol::kLobbySeatCountMaximum) {
+    throw GameServerError{GameServerErrorCode::kSessionInvariantFailed,
+                          "match_session_context.seat_count_maximum",
+                          "a map seats between 1 and " +
+                              std::to_string(protocol::kLobbySeatCountMaximum) + " players"};
   }
   if (!protocol::is_accepted_map_name(map_name)) {
     throw GameServerError{
@@ -57,6 +65,7 @@ MatchSessionContext::create(const std::uint64_t lobby_id, runtime::CommandSink& 
           command_sink,
           controller_directory,
           std::move(map_name),
+          seat_count_maximum,
           accepted_command_kinds,
           std::move(npc_controller_kinds)};
 }

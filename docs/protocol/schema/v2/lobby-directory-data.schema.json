@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-data.schema.json",
+  "title": "Blob Royale protocol v2 lobby directory data",
+  "description": "Every room this process runs, in lobby-id order, as a client chooses one to join. It is read from each room's latest published snapshot and its admitted-session count, so it is exactly as current as the newest snapshot and never more: a client that joins on it may still find the room changed by the time it is admitted, which is what the 409 and 503 refusals and the lobby_full close are for. Added in 2.4.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lobbies"],
+  "properties": {
+    "lobbies": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/lobby_listing"
+      },
+      "$comment": "Rooms are numbered 1..N in the order the process built them and the directory is fixed for the process lifetime, so the i-th entry always has lobby_id i+1. maxItems mirrors kLobbyDirectoryLimit in src/protocol/protocol_v2_constants.hpp, the most rooms one process may run."
+    }
+  },
+  "$defs": {
+    "lobby_listing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lobby_id",
+        "mode",
+        "map",
+        "phase",
+        "phase_started_tick",
+        "tick_sequence",
+        "seat_count",
+        "seat_count_maximum",
+        "filled_seat_count",
+        "npc_seat_count",
+        "session_count",
+        "healthy"
+      ],
+      "properties": {
+        "lobby_id": {
+          "$ref": "common.schema.json#/$defs/lobby_id"
+        },
+        "mode": {
+          "$ref": "common.schema.json#/$defs/mode_name"
+        },
+        "map": {
+          "$ref": "common.schema.json#/$defs/map_name"
+        },
+        "phase": {
+          "$ref": "common.schema.json#/$defs/match_phase"
+        },
+        "phase_started_tick": {
+          "$ref": "common.schema.json#/$defs/phase_start_tick"
+        },
+        "tick_sequence": {
+          "$ref": "common.schema.json#/$defs/safe_integer",
+          "$comment": "The committed tick the rest of this entry was read from. Zero means the room has published no tick at all -- its runtime is not ready or has failed -- and every count below is then zero too; a snapshot's own tick_sequence starts at 1."
+        },
+        "seat_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "$comment": "The lobby's current size, which anyone in it may resize. Zero is a room whose mode declares no lobby and never starts a match."
+        },
+        "seat_count_maximum": {
+          "$ref": "common.schema.json#/$defs/seat_count",
+          "$comment": "The most seats this room's map can seat: its spawn-marker count capped at the seat bound. A set_seat_count above it is ignored by the tick, so a client floors its control here."
+        },
+        "filled_seat_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "$comment": "Seats that hold a controller: a person, or an NPC seat whose bot the server has created. A match starts once this equals seat_count and somebody has pressed Start."
+        },
+        "npc_seat_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "$comment": "Seats declared for an NPC, whether or not its bot exists yet."
+        },
+        "session_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "$comment": "Sessions admitted into this room right now, whether or not each holds a seat. A join is refused 409 LOBBY.FULL once this equals seat_count."
+        },
+        "healthy": {
+          "type": "boolean",
+          "$comment": "False while the room's runtime has failed or is not publishing, or while its last minute holds a tick overrun; a join to an unhealthy room may be refused 503 LOBBY.UNAVAILABLE."
+        }
+      }
+    }
+  }
+}

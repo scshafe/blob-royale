@@ -55,10 +55,15 @@ public:
   //
   // `lobby_id` is the room this capability belongs to, `1..N`: every line a session logs carries
   // it, and protocol 2.4's `welcome.lobby_id` publishes it. Zero is refused.
+  //
+  // `seat_count_maximum` is the most seats this room's map can seat -- its spawn-marker count --
+  // which protocol 2.4's `welcome.seat_count_maximum` publishes so a client can bound its seat
+  // control without a second round trip. It is a map fact, so it is carried here once rather than
+  // in every snapshot. Zero and anything above `kLobbySeatCountMaximum` are refused.
   [[nodiscard]] static MatchSessionContext
   create(std::uint64_t lobby_id, runtime::CommandSink& command_sink,
          const runtime::ControllerDirectory& controller_directory, std::string map_name,
-         simulation::CommandKindMask accepted_command_kinds,
+         std::uint64_t seat_count_maximum, simulation::CommandKindMask accepted_command_kinds,
          std::vector<std::string> npc_controller_kinds);
 
   MatchSessionContext(const MatchSessionContext&) = default;
@@ -78,6 +83,8 @@ public:
   [[nodiscard]] const std::string& map_name() const& noexcept { return map_name_; }
   [[nodiscard]] const std::string& map_name() const&& = delete;
 
+  [[nodiscard]] std::uint64_t seat_count_maximum() const noexcept { return seat_count_maximum_; }
+
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept {
     return accepted_command_kinds_;
   }
@@ -91,13 +98,15 @@ public:
 private:
   MatchSessionContext(std::uint64_t lobby_id, runtime::CommandSink& command_sink,
                       const runtime::ControllerDirectory& controller_directory,
-                      std::string map_name, simulation::CommandKindMask accepted_command_kinds,
+                      std::string map_name, std::uint64_t seat_count_maximum,
+                      simulation::CommandKindMask accepted_command_kinds,
                       std::vector<std::string> npc_controller_kinds) noexcept;
 
   std::uint64_t lobby_id_;
   runtime::CommandSink* command_sink_;
   RuntimeControllerDirectoryView directory_view_;
   std::string map_name_;
+  std::uint64_t seat_count_maximum_;
   simulation::CommandKindMask accepted_command_kinds_;
   std::vector<std::string> npc_controller_kinds_;
 };

@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_PROTOCOL_PROTOCOL_V2_JSON_ENCODING_HPP
 
 #include "controller_directory_view.hpp"
+#include "lobby_listing.hpp"
 #include "protocol_constants.hpp"
 #include "protocol_v2_constants.hpp"
 #include "request_id.hpp"
@@ -71,6 +72,16 @@ encode_snapshot_message_v2(const simulation::WorldSnapshot& snapshot,
 [[nodiscard]] std::string
 encode_error_response_v2(const V2HttpError& error, const RequestId& request_id,
                          std::size_t output_byte_limit = kHttpJsonResponseMaximumByteCount);
+
+// Encodes the body of `GET /api/v2/lobbies`: every room in lobby-id order, in the v2 envelope
+// (`lobby-directory-message.schema.json`, 2.4). Fails closed: throws ProtocolEncodingError with
+// `LOBBY_DIRECTORY_INVALID` for no rooms, more than `kLobbyDirectoryLimit`, ids that are not
+// exactly `1..N` in order, a mode or map name outside its grammar, a count outside its bound, a
+// filled or NPC seat count above the seat count, or a phase start past the tick; and for a
+// document above the byte limit.
+[[nodiscard]] std::string
+encode_lobby_directory_message(std::span<const LobbyListing> lobbies, const RequestId& request_id,
+                               std::size_t output_byte_limit = kHttpJsonResponseMaximumByteCount);
 
 // canonical: own_body_resolution -- which entity one controller currently drives.
 //

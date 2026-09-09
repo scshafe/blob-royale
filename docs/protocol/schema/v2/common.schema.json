@@ -7,8 +7,8 @@
   "$defs": {
     "protocol_version": {
       "type": "string",
-      "const": "2.3",
-      "$comment": "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, and 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds. A 2.3 client therefore rejects a 2.4 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
+      "const": "2.4",
+      "$comment": "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds, and 2.4 added the lobby directory document, welcome.lobby_id and welcome.seat_count_maximum, and the three LOBBY.* error codes. A 2.4 client therefore rejects a 2.5 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
     },
     "request_id": {
       "type": "string",
@@ -168,6 +168,12 @@
       ],
       "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire. Four of the five operate the pre-match lobby and were added in 2.3; a mode that has no lobby to operate omits them from welcome.accepted_command_kinds rather than accepting a command it cannot honour."
     },
+    "lobby_id": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "$comment": "Which room, 1..N in the order the process built them. The maximum is the protocol's directory limit, kLobbyDirectoryLimit, which is also how many rooms one process may run. Added in 2.4."
+    },
     "seat_count": {
       "type": "integer",
       "minimum": 1,
@@ -197,6 +203,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "lobby_id": {
+          "$ref": "#/$defs/lobby_id",
+          "$comment": "Present on LOBBY.FULL and LOBBY.UNAVAILABLE, naming the room the request named. Absent on LOBBY.NOT_FOUND, which by definition names no room. Added in 2.4."
+        },
         "allowed_methods": {
           "type": "array",
           "minItems": 1,
@@ -241,6 +251,9 @@
         "code": {
           "type": "string",
           "enum": [
+            "LOBBY.FULL",
+            "LOBBY.NOT_FOUND",
+            "LOBBY.UNAVAILABLE",
             "PROTOCOL.CONNECTION_LIMIT_REACHED",
             "PROTOCOL.HEADER_TOO_LARGE",
             "PROTOCOL.INVALID_FORWARDED_CLIENT",

@@ -34,7 +34,21 @@ forwarded_client_reason_name(const ForwardedClientReason reason) noexcept {
   return "forwarded_client_reason_invalid";
 }
 
+// Which of the three room refusals a `LOBBY.*` row is (`docs/protocol/v2.md` § "Error registry
+// additions", 2.4). A closed enum: the message of each is a constant, and the only value a row
+// carries is the lobby id the request named, which is a bounded integer the router validated.
+enum class LobbyErrorKind : std::uint8_t {
+  kNotFound = 0,
+  kFull = 1,
+  kUnavailable = 2,
+};
+
 // canonical: v2_http_error -- one member of the protocol v2 status/error registry.
+//
+// **v2's registry is v1's fourteen rows plus exactly one, and 2.4 adds three more.** The three
+// `LOBBY.*` rows are the answers to a join into a room that does not exist (`404`), a room whose
+// every seat is taken (`409`), and a room whose runtime is not serving (`503`); the second and
+// third name the room in `details.lobby_id`, the first by definition cannot.
 //
 // **v2's registry is v1's fourteen rows plus exactly one.** The fourteen shared rows are the same
 // statuses, codes, retryability, and details in both versions, so they stay one `HttpError` value
@@ -64,6 +78,22 @@ public:
   // right by being sent again.
   [[nodiscard]] static V2HttpError invalid_forwarded_client(ForwardedClientReason reason);
 
+  static constexpr std::string_view kLobbyNotFoundCode = "LOBBY.NOT_FOUND";
+  static constexpr std::string_view kLobbyFullCode = "LOBBY.FULL";
+  static constexpr std::string_view kLobbyUnavailableCode = "LOBBY.UNAVAILABLE";
+  static constexpr std::string_view kLobbyNotFoundMessage =
+      "No lobby has this id; GET /api/v2/lobbies lists the rooms that exist.";
+  static constexpr std::string_view kLobbyFullMessage =
+      "Every seat in this lobby is taken; read the directory and choose another.";
+  static constexpr std::string_view kLobbyUnavailableMessage =
+      "This lobby's runtime is not serving; choose another room or retry later.";
+
+  // The three 2.4 rows. Not found is never retryable -- an id that names no room will not start
+  // to; full and unavailable are, because a seat frees up and a room comes back.
+  [[nodiscard]] static V2HttpError lobby_not_found();
+  [[nodiscard]] static V2HttpError lobby_full(std::uint64_t lobby_id);
+  [[nodiscard]] static V2HttpError lobby_unavailable(std::uint64_t lobby_id);
+
   V2HttpError(const V2HttpError&) = default;
   V2HttpError(V2HttpError&&) noexcept = default;
   V2HttpError& operator=(const V2HttpError&) = default;
@@ -85,14 +115,22 @@ public:
   [[nodiscard]] std::optional<ForwardedClientReason> forwarded_client_reason() const noexcept {
     return forwarded_client_reason_;
   }
+  // Present exactly on a `LOBBY.*` row.
+  [[nodiscard]] std::optional<LobbyErrorKind> lobby_error() const noexcept { return lobby_error_; }
+  // Present exactly on `LOBBY.FULL` and `LOBBY.UNAVAILABLE`: the room the request named, which the
+  // encoder publishes as `details.lobby_id`.
+  [[nodiscard]] std::optional<std::uint64_t> lobby_id() const noexcept { return lobby_id_; }
 
   friend bool operator==(const V2HttpError&, const V2HttpError&) = default;
 
 private:
   explicit V2HttpError(HttpError shared_error) noexcept;
   explicit V2HttpError(ForwardedClientReason reason) noexcept;
+  V2HttpError(LobbyErrorKind lobby_error, std::optional<std::uint64_t> lobby_id) noexcept;
 
   std::optional<HttpError> shared_error_;
+  std::optional<LobbyErrorKind> lobby_error_;
+  std::optional<std::uint64_t> lobby_id_;
   std::optional<ForwardedClientReason> forwarded_client_reason_;
 };
 

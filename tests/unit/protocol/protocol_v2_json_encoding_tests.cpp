@@ -58,7 +58,7 @@ TEST_CASE("Welcome encoder matches the accepted golden example and canonical byt
   fixture::require_json_matches_v2_golden_example(encoded, "welcome-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"]},"error":null,"meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
+      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32},"error":null,"meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
 }
 
 TEST_CASE("Snapshot v2 encoder matches the accepted golden example",
@@ -80,7 +80,7 @@ TEST_CASE("Snapshot v2 encoder emits canonical bytes for the accepted golden wor
 
   CHECK(
       encoded ==
-      R"({"data":{"tick_sequence":12904,"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
+      R"({"data":{"tick_sequence":12904,"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
 }
 
 TEST_CASE("Error response v2 encoder matches the accepted golden example and canonical bytes",
@@ -93,7 +93,7 @@ TEST_CASE("Error response v2 encoder matches the accepted golden example and can
   fixture::require_json_matches_v2_golden_example(encoded, "error-response.json");
   CHECK(
       encoded ==
-      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
 }
 
 TEST_CASE("Error response v2 encoder carries the fourteen rows v2 shares with v1",
@@ -106,7 +106,7 @@ TEST_CASE("Error response v2 encoder carries the fourteen rows v2 shares with v1
 
   CHECK(encoded.find(R"("code":"PROTOCOL.METHOD_NOT_ALLOWED")") != std::string::npos);
   CHECK(encoded.find(R"("allowed_methods":["GET"])") != std::string::npos);
-  CHECK(encoded.find(R"("protocol_version":"2.3")") != std::string::npos);
+  CHECK(encoded.find(R"("protocol_version":"2.4")") != std::string::npos);
   CHECK(encoded.find(R"("schema_id":"blob-royale://protocol/v2/error-response")") !=
         std::string::npos);
 }
@@ -192,7 +192,7 @@ TEST_CASE("Conformance rejects a frame carrying both data and error",
   constexpr std::string_view kDataAndError =
       R"({"data":{"tick_sequence":1,"entities":[],"match":{}},)"
       R"("error":{"code":"SERVICE.INTERNAL_FAILURE","message":"m","retryable":false,"details":{}},)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kDataAndError) ==
@@ -203,7 +203,7 @@ TEST_CASE("Conformance rejects a frame carrying neither data nor error",
           "[unit][protocol][v2][conformance][rejection]") {
   constexpr std::string_view kNeither =
       R"({"data":null,"error":null,)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kNeither) ==
@@ -218,7 +218,7 @@ TEST_CASE("Conformance rejects a snapshot carrying an unregistered component kin
       R"("phase_started_tick":1,"outcome":{"kind":"none","winner_entity_id":null,)"
       R"("winner_team_id":null},"placements":[],"mode_state":)"
       R"({"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},"error":null,)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kUnknownComponentKind) ==
@@ -235,7 +235,7 @@ TEST_CASE("Conformance rejects a snapshot whose entity ids are not ascending and
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kDescending) ==
@@ -250,7 +250,7 @@ TEST_CASE("Conformance rejects a published entity carrying no component",
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kEmptyComponents) ==
@@ -260,14 +260,15 @@ TEST_CASE("Conformance rejects a published entity carrying no component",
 TEST_CASE("Conformance rejects a frame naming a protocol version this schema set does not pin",
           "[unit][protocol][v2][conformance][rejection]") {
   // One minor ahead of whatever this build pins. It moved 2.1 -> 2.2 when `lethal_on_contact` was
-  // published, 2.2 -> 2.3 when the royale mode-state block gained `elimination_grace_ticks`, and
-  // 2.3 -> 2.4 when the lobby command kinds and the match seat roster landed, because a case named
-  // "a version this schema set does not pin" that names the pinned one tests nothing.
+  // published, 2.2 -> 2.3 when the royale mode-state block gained `elimination_grace_ticks`,
+  // 2.3 -> 2.4 when the lobby command kinds and the match seat roster landed, and 2.4 -> 2.5 when
+  // the lobby directory and the welcome's room landed, because a case named "a version this schema
+  // set does not pin" that names the pinned one tests nothing.
   constexpr std::string_view kMinorAhead =
       R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale",)"
       R"("map":"arena-960x640","accepted_command_kinds":["set_thrust"],)"
-      R"("npc_controller_kinds":[]},"error":null,)"
-      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/welcome-message",)"
+      R"("npc_controller_kinds":[],"lobby_id":1,"seat_count_maximum":32},"error":null,)"
+      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/welcome-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kMinorAhead) ==
@@ -282,7 +283,7 @@ TEST_CASE("Conformance rejects a snapshot delivered as message one",
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kSnapshotAsFirstFrame) ==
@@ -297,7 +298,7 @@ TEST_CASE("Conformance rejects a snapshot naming an unregistered mode-state sche
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/capture","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kUnknownModeState) ==
@@ -450,7 +451,8 @@ TEST_CASE("Welcome value rejects a display name outside the accepted grammar",
           simulation::EntityId::create(7), simulation::ControllerId::create(3), display_name,
           "royale", "arena-960x640",
           simulation::CommandKindMask::create({simulation::CommandKind::kThrust}),
-          fixture::golden_npc_controller_kinds());
+          fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
+          fixture::kGoldenSeatCountMaximum);
     };
   };
 
@@ -469,11 +471,13 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
   const protocol::SessionWelcome every_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
       "royale", "arena-960x640", simulation::CommandKindMask::all(),
-      fixture::golden_npc_controller_kinds());
+      fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
+      fixture::kGoldenSeatCountMaximum);
   const protocol::SessionWelcome no_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
       "sandbox", "arena-960x640", simulation::CommandKindMask::none(),
-      fixture::golden_npc_controller_kinds());
+      fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
+      fixture::kGoldenSeatCountMaximum);
 
   const std::string advertised_all = protocol::encode_welcome_message(
       every_kind, fixture::session_request_id(), fixture::kWelcomeTimestamp);
@@ -498,7 +502,8 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
       simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
                                            simulation::CommandKind::kDespawn,
                                            simulation::CommandKind::kThrust}),
-      fixture::golden_npc_controller_kinds());
+      fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
+      fixture::kGoldenSeatCountMaximum);
   CHECK(protocol::encode_welcome_message(thrust_only, fixture::session_request_id(),
                                          fixture::kWelcomeTimestamp)
             .find(R"("accepted_command_kinds":["set_thrust"])") != std::string::npos);
@@ -514,7 +519,7 @@ TEST_CASE("Welcome publishes the NPC kinds the registry declared, in registry or
     return protocol::SessionWelcome::create(
         simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
         "royale", "arena-960x640", simulation::CommandKindMask::all(),
-        std::move(npc_controller_kinds));
+        std::move(npc_controller_kinds), fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum);
   };
 
   const std::string two_bots =
@@ -551,7 +556,8 @@ TEST_CASE("Welcome refuses a registered controller kind it could not publish",
     return [npc_controller_kinds = std::move(npc_controller_kinds)] {
       return protocol::SessionWelcome::create(
           simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
-          "royale", "arena-960x640", simulation::CommandKindMask::all(), npc_controller_kinds);
+          "royale", "arena-960x640", simulation::CommandKindMask::all(), npc_controller_kinds,
+          fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum);
     };
   };
 
@@ -562,4 +568,124 @@ TEST_CASE("Welcome refuses a registered controller kind it could not publish",
   fixture::require_protocol_error_code(
       welcome_publishing(std::vector<std::string>(protocol::kNpcControllerKindLimit + 1, "a")),
       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+}
+
+TEST_CASE("Welcome refuses a room or a seat ceiling outside the protocol's bounds",
+          "[unit][protocol][v2][welcome][validation]") {
+  const auto welcome_with = [](const std::uint64_t lobby_id,
+                               const std::uint64_t seat_count_maximum) {
+    return [lobby_id, seat_count_maximum] {
+      static_cast<void>(protocol::SessionWelcome::create(
+          simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
+          "royale", "arena-960x640", simulation::CommandKindMask::all(), {}, lobby_id,
+          seat_count_maximum));
+    };
+  };
+  CHECK_NOTHROW(welcome_with(1, 1)());
+  CHECK_NOTHROW(welcome_with(protocol::kLobbyDirectoryLimit, protocol::kLobbySeatCountMaximum)());
+  fixture::require_protocol_error_code(welcome_with(0, 32),
+                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+  fixture::require_protocol_error_code(welcome_with(protocol::kLobbyDirectoryLimit + 1, 32),
+                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+  fixture::require_protocol_error_code(welcome_with(1, 0),
+                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+  fixture::require_protocol_error_code(welcome_with(1, protocol::kLobbySeatCountMaximum + 1),
+                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+}
+
+TEST_CASE("Lobby directory encoder matches the accepted golden example and canonical bytes",
+          "[unit][protocol][v2][encoding][golden][lobbies]") {
+  const std::vector<protocol::LobbyListing> lobbies = fixture::golden_lobby_listings();
+  const std::string encoded =
+      protocol::encode_lobby_directory_message(lobbies, fixture::session_request_id());
+
+  fixture::require_json_matches_v2_golden_example(encoded, "lobby-directory-message.json");
+  CHECK(
+      encoded ==
+      R"({"data":{"lobbies":[{"lobby_id":1,"mode":"royale","map":"arena-960x640","phase":"running","phase_started_tick":10904,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":2,"npc_seat_count":2,"session_count":1,"healthy":true},{"lobby_id":2,"mode":"royale","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":1,"npc_seat_count":1,"session_count":0,"healthy":true}]},"error":null,"meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/lobby-directory","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+}
+
+TEST_CASE("Lobby directory encoder fails closed on a directory it could not publish",
+          "[unit][protocol][v2][encoding][lobbies][validation]") {
+  const auto encode = [](std::vector<protocol::LobbyListing> lobbies) {
+    return [lobbies = std::move(lobbies)] {
+      static_cast<void>(
+          protocol::encode_lobby_directory_message(lobbies, fixture::session_request_id()));
+    };
+  };
+  const auto expect_invalid = [&encode](std::vector<protocol::LobbyListing> lobbies) {
+    fixture::require_protocol_error_code(
+        encode(std::move(lobbies)), protocol::ProtocolEncodingErrorCode::kLobbyDirectoryInvalid);
+  };
+
+  // No rooms, and more rooms than the directory limit.
+  expect_invalid({});
+  std::vector<protocol::LobbyListing> too_many;
+  for (std::uint64_t lobby_id = 1; lobby_id <= protocol::kLobbyDirectoryLimit + 1; ++lobby_id) {
+    protocol::LobbyListing listing = fixture::golden_lobby_listings()[1];
+    listing.lobby_id = lobby_id;
+    too_many.push_back(listing);
+  }
+  expect_invalid(too_many);
+  // Rooms are numbered by position, so a directory that disagrees with itself is refused.
+  std::vector<protocol::LobbyListing> misnumbered = fixture::golden_lobby_listings();
+  misnumbered[1].lobby_id = 3;
+  expect_invalid(misnumbered);
+  // A count no room could have, and a phase that started after the tick it was read at.
+  std::vector<protocol::LobbyListing> overfilled = fixture::golden_lobby_listings();
+  overfilled[0].filled_seat_count = overfilled[0].seat_count + 1;
+  expect_invalid(overfilled);
+  std::vector<protocol::LobbyListing> oversized = fixture::golden_lobby_listings();
+  oversized[0].seat_count = oversized[0].seat_count_maximum + 1;
+  expect_invalid(oversized);
+  std::vector<protocol::LobbyListing> future_phase = fixture::golden_lobby_listings();
+  future_phase[0].phase_started_tick = future_phase[0].tick_sequence + 1;
+  expect_invalid(future_phase);
+  std::vector<protocol::LobbyListing> unnamed = fixture::golden_lobby_listings();
+  unnamed[0].map_name = "Arena";
+  expect_invalid(unnamed);
+
+  // A room that has published nothing lists at tick zero with every count zero, which is legal:
+  // it is how an unready or failed room appears.
+  std::vector<protocol::LobbyListing> unready = fixture::golden_lobby_listings();
+  unready[1].tick_sequence = 0;
+  unready[1].phase_started_tick = 0;
+  unready[1].seat_count = 0;
+  unready[1].filled_seat_count = 0;
+  unready[1].npc_seat_count = 0;
+  unready[1].healthy = false;
+  CHECK_NOTHROW(encode(unready)());
+}
+
+TEST_CASE(
+    "V2 error envelope carries the three lobby rows with their status, retryability, and room",
+    "[unit][protocol][v2][encoding][lobbies]") {
+  const protocol::V2HttpError not_found = protocol::V2HttpError::lobby_not_found();
+  CHECK(not_found.status_code() == 404);
+  CHECK(not_found.code() == "LOBBY.NOT_FOUND");
+  CHECK_FALSE(not_found.retryable());
+  CHECK_FALSE(not_found.lobby_id().has_value());
+  const std::string encoded_not_found =
+      protocol::encode_error_response_v2(not_found, fixture::session_request_id());
+  CHECK(encoded_not_found.find(R"("code":"LOBBY.NOT_FOUND")") != std::string::npos);
+  CHECK(encoded_not_found.find(R"("details":{})") != std::string::npos);
+
+  const protocol::V2HttpError full = protocol::V2HttpError::lobby_full(3);
+  CHECK(full.status_code() == 409);
+  CHECK(full.code() == "LOBBY.FULL");
+  CHECK(full.retryable());
+  CHECK(full.lobby_id() == 3);
+  const std::string encoded_full =
+      protocol::encode_error_response_v2(full, fixture::session_request_id());
+  CHECK(encoded_full.find(R"("retryable":true,"details":{"lobby_id":3})") != std::string::npos);
+
+  const protocol::V2HttpError unavailable = protocol::V2HttpError::lobby_unavailable(2);
+  CHECK(unavailable.status_code() == 503);
+  CHECK(unavailable.code() == "LOBBY.UNAVAILABLE");
+  CHECK(unavailable.retryable());
+  const std::string encoded_unavailable =
+      protocol::encode_error_response_v2(unavailable, fixture::session_request_id());
+  CHECK(encoded_unavailable.find(R"("details":{"lobby_id":2})") != std::string::npos);
+  CHECK(encoded_unavailable.find(R"("schema_id":"blob-royale://protocol/v2/error-response")") !=
+        std::string::npos);
 }

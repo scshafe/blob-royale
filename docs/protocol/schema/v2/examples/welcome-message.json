@@ -12,11 +12,13 @@
       "set_thrust",
       "start_match"
     ],
-    "npc_controller_kinds": ["wanderer", "chaser"]
+    "npc_controller_kinds": ["wanderer", "chaser"],
+    "lobby_id": 1,
+    "seat_count_maximum": 32
   },
   "error": null,
   "meta": {
-    "protocol_version": "2.3",
+    "protocol_version": "2.4",
     "schema_id": "blob-royale://protocol/v2/welcome-message",
     "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
     "message_sequence": 1,

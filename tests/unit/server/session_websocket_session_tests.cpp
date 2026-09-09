@@ -485,8 +485,8 @@ private:
   [[nodiscard]] server::MatchSessionContext match_context() {
     return server::MatchSessionContext::create(
         1, simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
-        std::string{fixture::kFixtureMapName}, simulation::CommandKindMask::all(),
-        std::vector<std::string>{"wanderer"});
+        std::string{fixture::kFixtureMapName}, fixture::kFixtureSeatCountMaximum,
+        simulation::CommandKindMask::all(), std::vector<std::string>{"wanderer"});
   }
 
   [[nodiscard]] static server::ServerConfig server_config(const std::uint16_t port) {

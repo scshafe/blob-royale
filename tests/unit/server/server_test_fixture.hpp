@@ -75,6 +75,9 @@ loopback_server_config(std::vector<std::string> allowed_hosts = {"127.0.0.1", "l
 }
 
 inline constexpr std::string_view kFixtureMapName = "arena-960x640";
+// The seat ceiling the fixture's welcome publishes; the harness world has no map markers to
+// count, so it is the shipped arena's 32.
+inline constexpr std::uint64_t kFixtureSeatCountMaximum = 32;
 
 // Everything `/api/v2/session` requires, owned for the life of one test.
 //
@@ -95,7 +98,7 @@ public:
   [[nodiscard]] MatchSessionContext context(const std::uint64_t lobby_id = 1) const {
     return MatchSessionContext::create(
         lobby_id, simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
-        std::string{kFixtureMapName}, simulation::CommandKindMask::all(),
+        std::string{kFixtureMapName}, kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
         std::vector<std::string>{"wanderer", "chaser"});
   }
 

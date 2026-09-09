@@ -151,6 +151,19 @@ const welcomeMutations: readonly MutationCase<MutableWelcomeDocument>[] = [
       Reflect.set(document.data, 'npc_controller_kinds', ['Wanderer']);
     },
   },
+  {
+    name: 'lobby id outside the directory bound',
+    mutate: (document) => {
+      // Rooms are numbered 1..8; zero names no room and nine names one no directory could list.
+      Reflect.set(document.data, 'lobby_id', 0);
+    },
+  },
+  {
+    name: 'seat count maximum above the seat bound',
+    mutate: (document) => {
+      Reflect.set(document.data, 'seat_count_maximum', 65);
+    },
+  },
 ];
 
 const snapshotMutations: readonly MutationCase<MutableSnapshotDocument>[] = [

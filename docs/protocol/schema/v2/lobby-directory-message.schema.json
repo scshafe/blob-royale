@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-message.schema.json",
+  "title": "Blob Royale protocol v2 lobby directory response",
+  "description": "The body of a successful GET /api/v2/lobbies: the v2 envelope around lobby-directory-data. An HTTP document rather than a WebSocket frame, so its meta carries no message_sequence and no sent_at_utc; the per-room tick_sequence is its freshness. Added in 2.4.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data", "error", "meta"],
+  "properties": {
+    "data": {
+      "$ref": "lobby-directory-data.schema.json"
+    },
+    "error": {
+      "type": "null"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "schema_id", "request_id"],
+      "properties": {
+        "protocol_version": {
+          "$ref": "common.schema.json#/$defs/protocol_version"
+        },
+        "schema_id": {
+          "const": "blob-royale://protocol/v2/lobby-directory"
+        },
+        "request_id": {
+          "$ref": "common.schema.json#/$defs/request_id"
+        }
+      }
+    }
+  }
+}

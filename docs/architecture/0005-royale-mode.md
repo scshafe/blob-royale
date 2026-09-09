@@ -862,3 +862,16 @@ configuration — and the two cannot drift because `RoyaleMode::systems()` build
 `RoyaleConfiguration`. Publishing it is protocol minor `2.2` (`docs/protocol/v2.md` § "Versioning
 and fail-closed decoding"); nothing about the elimination rule, the zone, or the placement rules
 changes, and the decision and its `Accepted` status are unchanged.
+
+**Amended 2026-09-09:** `lethal_hazard` is lethal only while the committed phase is `running`: its
+first predicate reads the phase beside the `LethalOnContact` marker, so outside `running` the pair
+falls through to `variable_impulse` and a comet shoves rather than kills. The row had landed without
+that gate, and because a hazard outlives the phase it was spawned in by its whole `Lifetime` while
+`placement_recorder` ranks every `EliminationEvent` in every phase, a comet in flight at
+`running -> ended` could destroy the committed winner during the restart delay and append it to the
+ranking at placement 1 (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 2).
+§ "Elimination and placement" is true again as written: eliminations occur only during `running`,
+step 3 of the recorder never coincides with step 2, and the winner receives no placement entry. The
+gate is the row's rather than the recorder's so that an event nobody consumes stays a visible
+producer bug and a boulder does not vanish when a match ends. No number, rule, or fixture horizon
+changes, and the decision and its `Accepted` status are unchanged.

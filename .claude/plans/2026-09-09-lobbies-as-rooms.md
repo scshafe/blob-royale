@@ -65,7 +65,7 @@ Facts the executor needs that the code does not say on its face, all verified on
 
 ### Phase 0 — Review fixes that need no new mechanism
 
-- [ ] **Step 1: Gate the lethal row on `running`**
+- [x] **Step 1: Gate the lethal row on `running`**
   - Verify: `./scripts/verify-focused 'unit.gameplay|fixtures' && ./scripts/verify-focused 'unit.gameplay|fixtures' linux-clang-asan-ubsan && ./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Notes: Review finding 2. `body_is_lethal_hazard` (`src/gameplay/shared/lethal_hazard_contact_rule.cpp:15`) also requires `world.match().phase == kRunning`; a predicate may read the world (ADR 0004 § "Contact rules"). The row, not the recorder, because gating `placement_recorder` would leave an `EliminationEvent` nobody consumes, which hides a producer bug, and destroying hazards at `running -> ended` would make a boulder vanish mid-screen. Outside `running` the pair falls through to `variable_impulse`, so a comet shoves during `ended` instead of killing; the test asserts the player survives, no placement is appended, and the impulse row is the one that matched. Turn the review's appendix B into that test. Amend ADR 0005 lines 454 and 476 with a dated note.
 

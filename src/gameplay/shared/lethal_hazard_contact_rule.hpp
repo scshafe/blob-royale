@@ -47,6 +47,19 @@ namespace blob_royale::gameplay {
 // arithmetic; it already sorts and de-duplicates the tick's set, so an entity both rules name on
 // one tick is one elimination and one placement.
 //
+// **A hazard is lethal only while the match is `running`.** The first predicate reads the committed
+// phase beside the marker, so outside `running` the row never matches and the pair falls through
+// to `variable_impulse`: a comet in `ended`, `lobby`, or `countdown` shoves a player and kills
+// nobody. The gate is here rather than in `placement_recorder` or in a hazard wipe at
+// `running -> ended` for two reasons. Gating the recorder would leave an `EliminationEvent` that
+// nothing consumes, which hides a producer bug behind a silent tick; and destroying hazards when a
+// match ends would make a boulder vanish mid-screen. Reading the phase on the hazard's side keeps
+// every other row and every other system exactly as it was, and it restores ADR 0005's rule that
+// eliminations happen only during `running` -- a rule `zone_elimination` kept by construction and
+// this row broke by omission when it landed (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`,
+// finding 2). A `hazard_spawn` that runs only while `running` was never enough on its own, because
+// a hazard outlives the phase it was spawned in by its whole `Lifetime`.
+//
 // It lives in `shared/` for the reason `thrust_steering_system.hpp` states: an object that kills on
 // touch is a mechanic any mode may field, and filing it under `royale/` would make the second mode
 // that wants hazards reach into the first. Royale declares it; sandbox does not, which is the test
@@ -59,9 +72,10 @@ namespace blob_royale::gameplay {
 // against one identity rather than a repeated literal, exactly as the built-in row names are.
 inline constexpr std::string_view kLethalHazardContactRuleName = "lethal_hazard";
 
-// Whether the entity carries `LethalOnContact`. Total: an entity carrying no such component does
-// not satisfy it, so a pair the broad phase could not have produced resolves to "no row matched"
-// rather than to a lookup failure.
+// Whether the entity carries `LethalOnContact` **and the match is `running`**. Total: an entity
+// carrying no such component does not satisfy it, so a pair the broad phase could not have produced
+// resolves to "no row matched" rather than to a lookup failure, and outside `running` no entity
+// satisfies it at all.
 [[nodiscard]] bool body_is_lethal_hazard(const simulation::GameWorld& world,
                                          simulation::EntityId entity);
 

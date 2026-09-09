@@ -24,7 +24,7 @@ src/gameplay/
     duration_ticks.*            the one conversion from an authored duration to tick counts
     hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
     hazard_spawn_system.*       seats a crossing body per archetype whose interval is due
-    lethal_hazard_contact_rule.* touching a lethal hazard eliminates the player
+    lethal_hazard_contact_rule.* touching a lethal hazard eliminates the player, while a match runs
     lifetime_expiry_system.*    decrements `Lifetime` and despawns what runs out
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations

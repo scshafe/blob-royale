@@ -78,30 +78,30 @@ The migration also carries a real risk worth naming in advance. A `start_match` 
 
 ### Phase 3 — NPCs and late arrivals
 
-- [ ] **Step 6: Reconcile bot sessions to the seat roster**
+- [ ] ~~**Step 6: Reconcile bot sessions to the seat roster**~~ *(superseded 2026-09-09: executed as Step 6 of `2026-09-09-lobbies-as-rooms.md`, where bots exist only through seats and a server-issued `join` command fills a declared seat)*
   - Verify: `./scripts/verify-focused 'unit.runtime|unit.application|integration'`
   - Notes: The tick records that seat 3 wants a `chaser`; the runtime observes committed seat state after each tick and opens or closes bot sessions so the live controllers match. This is the only place a controller is constructed, and it stays in the application layer where `ControllerRegistry` lives.
   - The reconciliation must be idempotent and must not thrash: a seat already holding the right kind is left alone. Deleting `seat_configured_bots` and letting `[match] bots` seed the initial roster instead is the likely shape — decide and say which.
 
-- [ ] **Step 7: A human joining a full lobby displaces an NPC**
+- [ ] ~~**Step 7: A human joining a full lobby displaces an NPC**~~ *(superseded 2026-09-09: falls out of the `join` command in Step 6 of `2026-09-09-lobbies-as-rooms.md`; the refusal of a full lobby is that plan's Step 13)*
   - Verify: `./scripts/verify-focused 'unit.runtime|unit.application|integration'`
   - Notes: On session admission with no empty seat, take the lowest-indexed seat holding an NPC, close that bot's session, and seat the human. Lowest-indexed because it must be deterministic and explicable, not because it is fairest. With no NPC seated the lobby is genuinely full and the upgrade is refused with a diagnostic naming the reason.
   - Decide what happens to a human who connects while a match is `running` — this plan does not add spectators, so the honest answer is a refusal with a clear message, and it should say when to come back.
 
 ### Phase 4 — The client
 
-- [ ] **Step 8: Build the lobby view**
+- [ ] ~~**Step 8: Build the lobby view**~~ *(superseded 2026-09-09: Step 15 of `2026-09-09-lobbies-as-rooms.md`, which keeps these notes as its specification)*
   - Verify: `cd frontend-react && npm run typecheck && npm run lint && npm run test:ci && npm run build`
   - Notes: A seat grid rendered from the match section: each seat empty, a named human, or a named NPC, with the session's own seat marked. A seat-count control, and **right-click an empty seat** for a context menu of the NPC kinds the welcome published. Start Game is enabled exactly when every seat is full, and disabled with a reason when it is not.
   - Right-click means `contextmenu`, which must be prevented from opening the browser menu, must be dismissible with Escape and an outside click, and needs a keyboard-reachable equivalent — a context menu that only a mouse can open is a control some people cannot use at all. The arena canvas already owns pointer input; make sure the lobby's handler does not fight it.
 
-- [ ] **Step 9: Prove it in a browser**
+- [ ] ~~**Step 9: Prove it in a browser**~~ *(superseded 2026-09-09: Step 16 of `2026-09-09-lobbies-as-rooms.md`, widened to two rooms)*
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Notes: One flow: two browsers join a four-seat lobby, one right-clicks a seat and fills it with a bot, the second fills the last seat, Start Game becomes enabled, one presses it, and both observe the match reach `running`. Assert that Start is disabled while a seat is empty, because that is the rule most likely to regress silently.
 
 ### Phase 5 — Ship
 
-- [ ] **Step 10: Deploy and playtest**
+- [ ] ~~**Step 10: Deploy and playtest**~~ *(superseded 2026-09-09: Step 18 of `2026-09-09-lobbies-as-rooms.md`; HEAD is not deployable until that plan's Phase 5 passes)*
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && ./scripts/deploy-tailnet'`, then confirm the container, the deployed-commit label, readiness, and the served bundle's protocol version
   - Notes: The release profile takes roughly ninety minutes and refuses to publish anything it has not certified, so a failure leaves the previous arena serving. Record the deployed commit and release id in a playtest note this time.
 
@@ -116,3 +116,5 @@ The migration also carries a real risk worth naming in advance. A `start_match` 
 - The full pull-request profile passes on a native runner.
 
 **Amended 2026-09-08:** Planning found that an explicit Start breaks all seven recorded replays, which cross `lobby_minimum_players` and then rely on the match progressing. That makes this a versioned gameplay change rather than an additive one; a compatibility flag was considered and rejected, and Step 5b migrates the fixtures deliberately ahead of the runtime work.
+
+**Amended 2026-09-09:** The review in `docs/reviews/2026-09-08-lobby-and-hazard-review.md` and the agreed design in `docs/architecture/0006-lobbies-as-rooms.md` moved Steps 6 to 10 into `2026-09-09-lobbies-as-rooms.md`, where bot reconciliation and human seating become one server-issued `join` command beside a `leave` that closes the review's orphan finding. Steps 1 to 5b remain the record of what `ecc8e95` landed.

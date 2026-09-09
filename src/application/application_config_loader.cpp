@@ -50,6 +50,17 @@ enum class ConfigField : std::size_t {
   kRoyaleEliminationGraceSeconds,
   kRoyaleCountdownSeconds,
   kRoyaleRestartDelaySeconds,
+  kKingOfTheHillThrustMaximum,
+  kKingOfTheHillHillRadius,
+  kKingOfTheHillHillDwellSeconds,
+  kKingOfTheHillHillTravelSeconds,
+  kKingOfTheHillPointIntervalSeconds,
+  kKingOfTheHillPointsToWin,
+  kKingOfTheHillContestedHillScores,
+  kKingOfTheHillTimeLimitSeconds,
+  kKingOfTheHillRespawnDelaySeconds,
+  kKingOfTheHillCountdownSeconds,
+  kKingOfTheHillRestartDelaySeconds,
   kLobbiesCount,
   kCount,
 };
@@ -65,13 +76,14 @@ struct ConfigFieldSpec final {
   ConfigValueSyntax value_syntax = ConfigValueSyntax::kSingleValue;
 };
 
-constexpr std::array<std::string_view, 8> kConfigSections = {
-    "server", "presentation", "simulation", "world", "spatial_grid", "match", "royale", "lobbies"};
+constexpr std::array<std::string_view, 9> kConfigSections = {
+    "server", "presentation", "simulation",       "world",  "spatial_grid",
+    "match",  "royale",       "king_of_the_hill", "lobbies"};
 
-// **`[royale]` is required whatever `[match] mode` names.** A mode's balance section is part of
-// this deployment's accepted schema rather than of the game it happens to be running today, so
-// switching `mode=` is a one-line edit that cannot fail at startup for a section that was never
-// written. The values are read only by the mode that owns them
+// **`[royale]` and `[king_of_the_hill]` are required whatever `[match] mode` names.** A mode's
+// balance section is part of this deployment's accepted schema rather than of the game it happens
+// to be running today, so switching `mode=` is a one-line edit that cannot fail at startup for a
+// section that was never written. The values are read only by the mode that owns them
 // (`src/gameplay/game_mode_configuration.hpp`). `[lobbies]` is required for the same reason: `1`
 // is the single-match server, and a deployment that wants more rooms changes one number.
 constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCount)>
@@ -101,6 +113,17 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"royale", "elimination_grace_seconds"},
          {"royale", "countdown_seconds"},
          {"royale", "restart_delay_seconds"},
+         {"king_of_the_hill", "thrust_max_world_units_per_second_squared"},
+         {"king_of_the_hill", "hill_radius_world_units"},
+         {"king_of_the_hill", "hill_dwell_seconds"},
+         {"king_of_the_hill", "hill_travel_seconds"},
+         {"king_of_the_hill", "point_interval_seconds"},
+         {"king_of_the_hill", "points_to_win"},
+         {"king_of_the_hill", "contested_hill_scores"},
+         {"king_of_the_hill", "time_limit_seconds"},
+         {"king_of_the_hill", "respawn_delay_seconds"},
+         {"king_of_the_hill", "countdown_seconds"},
+         {"king_of_the_hill", "restart_delay_seconds"},
          {"lobbies", "count"}}};
 
 // canonical: config_section_family -- the one open name in the configuration schema.
@@ -577,6 +600,11 @@ private:
   return parse_double_value(document.value(field), config_field_context(field));
 }
 
+[[nodiscard]] bool parse_boolean_config_value(const StrictIniDocument& document,
+                                              const ConfigField field) {
+  return parse_boolean_value(document.value(field), config_field_context(field));
+}
+
 [[nodiscard]] double parse_double_family_value(const ConfigSectionFamilyInstance& instance,
                                                const ConfigFamilyField field) {
   return parse_double_value(*instance.values[static_cast<std::size_t>(field)],
@@ -724,10 +752,11 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       MatchConfiguration::parse_bot_roster(document.value(ConfigField::kMatchBots)));
 
   // Validated by the mode that owns the section, so the application never re-derives a balance
-  // rule: the section is authored in seconds and world units and comes back in tick counts. The
-  // hazard table is validated the same way by the mechanic that owns it, and the two are written as
-  // one aggregate initialization so `[royale]` is always resolved before the hazards, whose
-  // rejections would otherwise arrive in an order the standard does not fix.
+  // rule: each section is authored in seconds and world units and comes back in tick counts. The
+  // hazard table is validated the same way by the mechanic that owns it, and the three are written
+  // as one aggregate initialization so `[royale]` is always resolved before `[king_of_the_hill]`
+  // and both before the hazards, whose rejections would otherwise arrive in an order the standard
+  // does not fix.
   gameplay::GameModeConfiguration game_mode_configuration{
       gameplay::RoyaleConfiguration::create(gameplay::RoyaleConfiguration::Section{
           .thrust_max_world_units_per_second_squared =
@@ -742,6 +771,29 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
               parse_double_config_value(document, ConfigField::kRoyaleCountdownSeconds),
           .restart_delay_seconds =
               parse_double_config_value(document, ConfigField::kRoyaleRestartDelaySeconds)}),
+      gameplay::KingOfTheHillConfiguration::create(gameplay::KingOfTheHillConfiguration::Section{
+          .thrust_max_world_units_per_second_squared =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillThrustMaximum),
+          .hill_radius_world_units =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillHillRadius),
+          .hill_dwell_seconds =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillHillDwellSeconds),
+          .hill_travel_seconds =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillHillTravelSeconds),
+          .point_interval_seconds =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillPointIntervalSeconds),
+          .points_to_win =
+              parse_unsigned_config_value(document, ConfigField::kKingOfTheHillPointsToWin),
+          .contested_hill_scores =
+              parse_boolean_config_value(document, ConfigField::kKingOfTheHillContestedHillScores),
+          .time_limit_seconds =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillTimeLimitSeconds),
+          .respawn_delay_seconds =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillRespawnDelaySeconds),
+          .countdown_seconds =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillCountdownSeconds),
+          .restart_delay_seconds =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillRestartDelaySeconds)}),
       parse_hazard_archetypes(document)};
 
   const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(

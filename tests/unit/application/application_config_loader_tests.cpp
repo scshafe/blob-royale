@@ -3,6 +3,7 @@
 #include "application_input_error.hpp"
 #include "game_mode_configuration.hpp"
 #include "gameplay_validation_error.hpp"
+#include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "match_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "server_config.hpp"
@@ -183,6 +184,22 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(royale.elimination_grace_ticks() == 1'200);
   CHECK(royale.countdown_ticks() == 2'000);
   CHECK(royale.restart_delay_ticks() == 3'200);
+
+  // `[king_of_the_hill]` arrives the same way, whatever `[match] mode` names: required, converted
+  // once, and read only by the mode that owns it (ADR 0007 section "King of the hill").
+  const gameplay::KingOfTheHillConfiguration& hill =
+      run_request.application_config().game_mode_configuration().king_of_the_hill;
+  CHECK(hill.thrust_maximum() == 400.0);
+  CHECK(hill.hill_radius() == 90.0);
+  CHECK(hill.hill_dwell_ticks() == 4'800);
+  CHECK(hill.hill_travel_ticks() == 1'600);
+  CHECK(hill.point_interval_ticks() == 400);
+  CHECK(hill.points_to_win() == 30);
+  CHECK_FALSE(hill.contested_hill_scores());
+  CHECK(hill.time_limit_ticks() == 96'000);
+  CHECK(hill.respawn_delay_ticks() == 800);
+  CHECK(hill.countdown_ticks() == 2'000);
+  CHECK(hill.restart_delay_ticks() == 3'200);
 
   // `[lobbies] count` is the one deployment-topology key: one room is the single-match server.
   CHECK(run_request.application_config().lobbies_configuration().count() == 1);
@@ -864,11 +881,11 @@ TEST_CASE("a hazard section that omits any one of its keys is rejected",
 
 TEST_CASE("every fixed section still rejects an unknown key",
           "[unit][application][config][validation]") {
-  // The regression that says opening instance names opened nothing else: each of the seven fixed
+  // The regression that says opening instance names opened nothing else: each of the eight fixed
   // sections refuses a key it does not declare, exactly as it did before families existed.
-  constexpr std::array<std::string_view, 7> section_headers = {
+  constexpr std::array<std::string_view, 8> section_headers = {
       "[server]\n",       "[presentation]\n", "[simulation]\n", "[world]\n",
-      "[spatial_grid]\n", "[match]\n",        "[royale]\n"};
+      "[spatial_grid]\n", "[match]\n",        "[royale]\n",     "[king_of_the_hill]\n"};
 
   TemporaryApplicationInputWorkspace workspace;
   for (const std::string_view section_header : section_headers) {
@@ -879,6 +896,47 @@ TEST_CASE("every fixed section still rejects an unknown key",
 
     require_configuration_load_error(workspace, configuration,
                                      ApplicationInputErrorCode::kConfigurationKeyUnknown);
+  }
+}
+
+TEST_CASE("a configuration without the [king_of_the_hill] section is refused naming its keys",
+          "[unit][application][config][king_of_the_hill][validation]") {
+  // The section is required whatever `[match] mode` names, exactly as `[royale]` is, so switching
+  // a deployment to the hill is one edit that cannot fail on a section nobody wrote. Removing the
+  // whole section is refused as its eleven missing keys, which is how a fixed section's absence
+  // has always been reported.
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration{test_fixture::kValidConfiguration};
+  const std::size_t section_start = configuration.find("[king_of_the_hill]\n");
+  const std::size_t section_end = configuration.find("[lobbies]\n");
+  REQUIRE(section_start != std::string::npos);
+  REQUIRE(section_end != std::string::npos);
+  configuration.erase(section_start, section_end - section_start);
+
+  const std::filesystem::path config_path = workspace.write_file("no-hill.cfg", configuration);
+  try {
+    static_cast<void>(test_fixture::load_application_config(config_path));
+    FAIL("a configuration without [king_of_the_hill] loaded");
+  } catch (const ApplicationInputError& error) {
+    CHECK(error.error_code() == ApplicationInputErrorCode::kConfigurationKeyMissing);
+    CHECK(std::string_view{error.what()}.find("king_of_the_hill.points_to_win") !=
+          std::string_view::npos);
+  }
+}
+
+TEST_CASE("contested_hill_scores is spelled exactly true or false",
+          "[unit][application][config][king_of_the_hill][validation]") {
+  constexpr std::array<std::string_view, 3> refused_spellings = {
+      "contested_hill_scores=0\n", "contested_hill_scores=False\n", "contested_hill_scores=no\n"};
+
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view refused : refused_spellings) {
+    CAPTURE(refused);
+    const std::string configuration = test_fixture::replace_once(
+        std::string{test_fixture::kValidConfiguration}, "contested_hill_scores=false\n", refused);
+
+    require_configuration_load_error(workspace, configuration,
+                                     ApplicationInputErrorCode::kConfigurationValueInvalid);
   }
 }
 

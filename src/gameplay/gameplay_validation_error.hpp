@@ -50,6 +50,10 @@ enum class GameplayValidationCode {
   kRoyaleZoneAbsent,
   kRoyalePlacementLimitExceeded,
   kRoyaleEliminatedEntityWithoutController,
+  kKingOfTheHillScalarNotFinite,
+  kKingOfTheHillScalarOutOfRange,
+  kKingOfTheHillTourWithoutDuration,
+  kKingOfTheHillPointsToWinZero,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -89,6 +93,14 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.ROYALE_PLACEMENT_LIMIT_EXCEEDED";
   case GameplayValidationCode::kRoyaleEliminatedEntityWithoutController:
     return "GAMEPLAY.ROYALE_ELIMINATED_ENTITY_WITHOUT_CONTROLLER";
+  case GameplayValidationCode::kKingOfTheHillScalarNotFinite:
+    return "GAMEPLAY.KING_OF_THE_HILL_SCALAR_NOT_FINITE";
+  case GameplayValidationCode::kKingOfTheHillScalarOutOfRange:
+    return "GAMEPLAY.KING_OF_THE_HILL_SCALAR_OUT_OF_RANGE";
+  case GameplayValidationCode::kKingOfTheHillTourWithoutDuration:
+    return "GAMEPLAY.KING_OF_THE_HILL_TOUR_WITHOUT_DURATION";
+  case GameplayValidationCode::kKingOfTheHillPointsToWinZero:
+    return "GAMEPLAY.KING_OF_THE_HILL_POINTS_TO_WIN_ZERO";
   }
   return "GAMEPLAY.VALIDATION_CODE_INVALID";
 }

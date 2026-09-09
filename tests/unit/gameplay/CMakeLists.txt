@@ -1,5 +1,6 @@
 add_executable(blob_gameplay_unit_tests
   game_mode_registry_tests.cpp
+  king_of_the_hill/king_of_the_hill_configuration_tests.cpp
   royale/elimination_grace_publisher_system_tests.cpp
   royale/placement_recorder_system_tests.cpp
   royale/rotating_ring_spawn_policy_tests.cpp

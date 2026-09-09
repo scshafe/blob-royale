@@ -119,13 +119,14 @@ Facts the executor needs that the code does not say on its face, all verified in
 
 ### Phase 2 -- King of the hill, server
 
-- [ ] **Step 6: Author the `[king_of_the_hill]` section**
+- [x] **Step 6: Author the `[king_of_the_hill]` section**
   - Verify: `./scripts/verify-focused 'unit.gameplay|unit.application' && ./scripts/verify-focused 'unit.gameplay|unit.application' linux-clang-asan-ubsan`
   - Notes: `king_of_the_hill/king_of_the_hill_configuration.{hpp,cpp}` with the eleven keys and the
     rules in ADR 0007's table, `GameModeConfiguration::king_of_the_hill`, the loader's fields, and
     the section added to every configuration file in the tree with the proposed values. A test
     proves a configuration missing the section is refused naming it, and that `dwell + travel`
     converting to zero ticks is refused.
+  - Execution note (2026-09-09): `KingOfTheHillConfiguration` with the eleven keys and the rules of ADR 0007's table, four `GAMEPLAY.KING_OF_THE_HILL_*` codes, the member on `GameModeConfiguration`, the loader's enum entries, spec rows, a fixed-section boolean parser, and the section in every configuration file: the shipped and deployed configurations, five browser fixtures, five fuzz corpus files, and the unit template. The loader tests pin the converted values, that the section is required (refused as its eleven missing keys, which is how a fixed section's absence has always been reported), and that the boolean has one spelling; the configuration tests pin the defaults, every rejection's key, the dwell-plus-travel rule, the hop and the never-stopping glide, and `points_to_win` at least one. Verified at 230 of 230 on both lanes.
 
 - [ ] **Step 7: Add `Hill` and `HillPresence`, and `hill_movement`**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol' linux-clang-asan-ubsan && ./scripts/verify-web`

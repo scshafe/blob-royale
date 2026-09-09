@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_GAMEPLAY_GAME_MODE_CONFIGURATION_HPP
 #define BLOB_ROYALE_GAMEPLAY_GAME_MODE_CONFIGURATION_HPP
 
+#include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "shared/hazard_archetype.hpp"
 
@@ -10,11 +11,12 @@ namespace blob_royale::gameplay {
 
 // canonical: game_mode_configuration -- the validated gameplay sections a registry row is handed.
 //
-// **One member per configured mode, and one per configured mechanic in `shared/`.** `[royale]` is
-// the only mode section today (`docs/architecture/0005-royale-mode.md` § "Mode configuration");
-// `sandbox` declares none and its factory reads nothing from this value. `hazards` is the first
-// member that belongs to no mode at all: hazards are a mode-agnostic mechanic, so any mode may
-// declare the systems that read the table and a mode that declares none simply never reads it,
+// **One member per configured mode, and one per configured mechanic in `shared/`.** `[royale]`
+// (`docs/architecture/0005-royale-mode.md` § "Mode configuration") and `[king_of_the_hill]`
+// (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill") are the mode
+// sections; `sandbox` declares none and its factory reads nothing from this value. `hazards` is the
+// first member that belongs to no mode at all: hazards are a mode-agnostic mechanic, so any mode
+// may declare the systems that read the table and a mode that declares none simply never reads it,
 // which is the same relationship `sandbox` already has with `[royale]`. A mode reads only what it
 // declares, which is what keeps a balance change to one game a change to one member.
 //
@@ -38,6 +40,7 @@ namespace blob_royale::gameplay {
 // related: shared/hazard_archetype.hpp -- one row of the hazard table.
 struct GameModeConfiguration final {
   RoyaleConfiguration royale;
+  KingOfTheHillConfiguration king_of_the_hill;
 
   // Every declared `[hazard.<kind>]` section, validated, in the order the configuration file
   // declares them. **Empty is the ordinary case**: a configuration that names no hazard section
@@ -50,7 +53,8 @@ struct GameModeConfiguration final {
   // `GameModeRegistry::create(name)` builds. Hazards have no defaults to declare because there is
   // no default kind: a kind exists only because a section declared it.
   [[nodiscard]] static GameModeConfiguration defaults() {
-    return GameModeConfiguration{RoyaleConfiguration::defaults(), {}};
+    return GameModeConfiguration{
+        RoyaleConfiguration::defaults(), KingOfTheHillConfiguration::defaults(), {}};
   }
 
   friend bool operator==(const GameModeConfiguration&, const GameModeConfiguration&) = default;

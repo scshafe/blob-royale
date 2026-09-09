@@ -33,6 +33,8 @@ src/gameplay/
     next_free_spawn_point_policy.hpp  the next free point, in every phase but the wipe tick
     respawn_system.*            an elimination erases the body and starts a `RespawnTimer`
     match_reset_system.*        the restart wipe of every participant, on the lobby tick after ended
+  king_of_the_hill/             a hill that tours the map, scored by holding it (ADR 0007)
+    king_of_the_hill_configuration.*  the validated `[king_of_the_hill]` section, in the units systems read
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations

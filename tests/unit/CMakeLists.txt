@@ -19,6 +19,7 @@ add_executable(blob_simulation_unit_tests
   simulation/simulation_system_tests.cpp
   simulation/snapshot_tests.cpp
   simulation/spatial_grid_tests.cpp
+  simulation/spawn_seating_tests.cpp
   simulation/spawn_system_tests.cpp
   simulation/system_pipeline_tests.cpp
   simulation/tick_context_tests.cpp

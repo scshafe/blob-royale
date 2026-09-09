@@ -56,7 +56,8 @@ Facts the executor needs that the code does not say on its face, all verified in
   browser gate through `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`.
 - **Protocol 2.5 is one minor.** The version const moves once, in Step 5, and every later kind and
   block is added under 2.5; the row in `docs/protocol/v2.md` § "Versioning and fail-closed
-  decoding" is written in Step 19 when the minor is complete. Schema examples, generated client
+  decoding" is opened in Step 5 with the first kind, extended by every wire step, and completed
+  in Step 19 when the minor ships, so the document never pins a version its table does not name. Schema examples, generated client
   types, and `npm run generate:protocol:check` are part of every wire step.
 - **Promotions are pure moves.** A file that moves to `shared/` keeps its arithmetic byte for byte;
   the added predicates ADR 0007 names are the only behaviour change and each has a test that fails
@@ -85,11 +86,12 @@ Facts the executor needs that the code does not say on its face, all verified in
     lifecycle" and ADR 0005 § "Where zone and elimination state live".
   - Execution note (2026-09-09): `MatchState::previous_phase`, written at the top of `MatchLifecycleSystem::apply` before the switch; `MatchSnapshot::previous_phase()` exposes it. Royale's ring policy and `placement_recorder` steps 1 and 3 read the engine field; step 4 keeps writing the block's member as a published mirror, and the two tests that set `previous_phase` by hand now set the engine field and leave the block at its default, so a reader that still consulted the mirror would fail. A lifecycle test walks the machine and pins the (phase, previous_phase) pair a declared system sees on each of five ticks. ADR 0004 and ADR 0005 each gained a dated amendment. Verified at 608 of 608 on both lanes with `docs/protocol/schema/` unchanged.
 
-- [ ] **Step 3: Export the seating helpers**
+- [x] **Step 3: Export the seating helpers**
   - Verify: `./scripts/verify-focused 'unit.simulation|fixtures' && ./scripts/verify-focused 'unit.simulation|fixtures' linux-clang-asan-ubsan`
   - Notes: `spawn_seating.{hpp,cpp}` with `point_is_occupied(world, position, radius)` and
     `seat_body_at_rest(world, entity, position, configuration)`; `SpawnSystem` calls them. A
     refactor: the seating write and the predicate keep their expressions.
+  - Execution note (2026-09-09): `spawn_seating.{hpp,cpp}` hold `point_is_occupied(point, bodies, player_radius)` and `seat_body_at_rest(world, entity, position, player_radius)`, moved out of `spawn_system.cpp` with their expressions intact -- the predicate keeps its `std::hypot` and its tolerance call -- and `SpawnSystem` composes them. The signatures take the radius and the body span rather than the configuration and the world the plan sketched, because that is exactly what each reads. Four direct tests pin the contact-range boundary, the empty arena, the at-rest write with an ordinary blob's physics, and replacement of a body the entity already carried. Verified at 412 of 412 on both lanes.
 
 - [ ] **Step 4: Promote the five shared rules**
   - Verify: `./scripts/verify-focused 'unit.gameplay|fixtures' && ./scripts/verify-focused 'unit.gameplay|fixtures' linux-clang-asan-ubsan && test -z "$(ls src/gameplay/royale src/gameplay/sandbox | grep -E 'roster|next_free')"`

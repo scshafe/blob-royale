@@ -14,6 +14,7 @@ add_library(blob_simulation STATIC
   player_snapshot.cpp
   simulation_config.cpp
   spatial_grid.cpp
+  spawn_seating.cpp
   spawn_system.cpp
   system_pipeline.cpp
   team_id.cpp

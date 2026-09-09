@@ -354,9 +354,10 @@ and the one accepted inheritance hierarchy here. Its seven declarations — `nam
 once at construction through `GameSimulationSetup::of_mode(map, mode)`, and the two sub-interfaces a
 mode declares are `SpawnPolicy` (which index into `map.spawn_points()`, or defer) and
 `MatchObjective` (`can_start`, `outcome`, `durations`). Everything else about seating and the match
-machine is engine mechanism: `SpawnSystem` owns iteration, occupancy, the rotation counter, and the
-seating write, and `MatchLifecycleSystem` runs last at `kLifecycle` and commits at most one phase
-transition per tick. A mode's own match-wide state that is genuinely not entity-shaped is one arm of
+machine is engine mechanism: `SpawnSystem` owns iteration, the policy call, and the rotation
+counter, and seats through the occupancy predicate and at-rest write of `spawn_seating.hpp`, which a
+mode system that returns a player to a point of its own uses too; `MatchLifecycleSystem` runs last
+at `kLifecycle` and commits at most one phase transition per tick. A mode's own match-wide state that is genuinely not entity-shaped is one arm of
 `ModeMatchState` plus one registration line — mode state should be a component wherever it can be.
 `validate_map` throws its own library's typed, coded validation error: `SimulationValidationError`
 inside this domain, `GameplayValidationError` for a mode in `blob_gameplay`.

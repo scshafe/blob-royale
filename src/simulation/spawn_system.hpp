@@ -30,7 +30,9 @@ class TickContext;
 //   * **the occupancy test.** A spawn point is occupied when some live body's centre lies within
 //     `2r + kPositionTolerance` of it -- the same predicate `detect_player_pair_contact` applies,
 //     so two entities are never seated in contact. An entity seated earlier in this same phase
-//     occupies its point for every later seating in the same phase.
+//     occupies its point for every later seating in the same phase. The predicate itself and the
+//     at-rest write below are `spawn_seating.hpp`, shared with any mode system that returns a
+//     player to a point of its own; this class owns *when* they are applied and to *whom*.
 //   * **the rotation counter**, which lives in `MatchState` and advances to one past the index a
 //     seating used, so a policy that probes forward from it spreads consecutive joiners.
 //   * **the seating write**: a `PhysicsBody` at rest -- zero velocity and zero stored acceleration

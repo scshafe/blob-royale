@@ -6,12 +6,11 @@
 #include "game_world.hpp"
 #include "physics_body.hpp"
 #include "simulation_limits.hpp"
-#include "simulation_tolerance.hpp"
 #include "simulation_validation_error.hpp"
+#include "spawn_seating.hpp"
 #include "tick_context.hpp"
 #include "vector2.hpp"
 
-#include <cmath>
 #include <memory>
 #include <optional>
 #include <span>
@@ -21,23 +20,6 @@
 
 namespace blob_royale::simulation {
 namespace {
-
-// The occupancy predicate, which is the baseline contact predicate applied to a candidate seat:
-// a point is occupied when some live body's centre is in contact range of a disc placed there.
-[[nodiscard]] bool
-point_is_occupied(const Vector2& point,
-                  const std::span<const ComponentStore<PhysicsBody>::Entry> bodies,
-                  const double player_radius) {
-  const double contact_distance = 2.0 * player_radius;
-  for (const ComponentStore<PhysicsBody>::Entry& entry : bodies) {
-    const double center_distance =
-        std::hypot(entry.value.position().x() - point.x(), entry.value.position().y() - point.y());
-    if (less_than_or_approximately_equal(center_distance, contact_distance, kPositionTolerance)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 // Every entity carrying a Controllable and no PhysicsBody, ascending. The Controllable store is
 // ascending by construction, so this is one forward pass and the order is the contract's.
@@ -99,18 +81,10 @@ std::size_t SpawnSystem::seat_pending_entities(GameWorld& world, const TickConte
           "the mode's spawn policy chose occupied spawn point " + std::to_string(*chosen));
     }
 
-    // At rest: zero velocity and zero stored acceleration, so a seated entity moves only once its
-    // controller asks it to, and carrying the **configured** radius rather than
-    // `PhysicsBody::kUndeclaredRadius`. Every accepted phase measures with
-    // `SimulationConfig::player_radius()` (`physics_body.hpp`), so that is the only radius a seated
-    // body can truthfully publish, and `physics-body-component.schema.json` requires it to be
-    // positive: a seated placeholder made every live match unencodable. `ScenarioLoader` already
-    // seeds this way, so seating and seeding now agree.
-    world.mutable_store<PhysicsBody>().insert_or_assign(
-        entity, PhysicsBody::create(spawn_points[*chosen].position, Vector2::create(0.0, 0.0),
-                                    Vector2::create(0.0, 0.0), player_radius,
-                                    PhysicsBody::kDefaultMass, PhysicsBody::kDefaultCollisionLayer,
-                                    PhysicsBody::kDefaultCollisionMask, false));
+    // The shared at-rest write (`spawn_seating.hpp`): zero velocity, zero stored acceleration, and
+    // the configured radius, which is the only radius a seated body can truthfully publish.
+    // `ScenarioLoader` seeds the same way, so seating and seeding agree.
+    seat_body_at_rest(world, entity, spawn_points[*chosen].position, player_radius);
     point_is_free[*chosen] = false;
     // One past the index just used, so the next entity a forward-probing policy offers starts at
     // the following point rather than re-probing this one.

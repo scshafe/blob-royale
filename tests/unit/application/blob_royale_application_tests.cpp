@@ -112,11 +112,12 @@ match_configuration_fixture(std::vector<MatchConfiguration::BotRosterEntry> bot_
 
 [[nodiscard]] ApplicationConfig
 application_config_fixture(const std::uint16_t port,
-                           std::vector<MatchConfiguration::BotRosterEntry> bot_roster = {}) {
+                           std::vector<MatchConfiguration::BotRosterEntry> bot_roster = {},
+                           const std::uint64_t lobby_count = 1) {
   return ApplicationConfig::create(server_config_fixture(port), simulation_config_fixture(),
                                    match_configuration_fixture(std::move(bot_roster)),
                                    gameplay::GameModeConfiguration::defaults(),
-                                   LobbiesConfiguration::create(1));
+                                   LobbiesConfiguration::create(lobby_count));
 }
 
 [[nodiscard]] simulation::GameWorld empty_world_fixture() {
@@ -190,6 +191,33 @@ TEST_CASE("BlobRoyaleApplication seats one hosted controller per configured bot"
   REQUIRE(seated->detail.has_value());
   CHECK(seated->detail->find("hosted_controller_count=3") != std::string::npos);
   CHECK(seated->detail->find("match_seed=" + std::to_string(kMatchSeed)) != std::string::npos);
+}
+
+TEST_CASE("BlobRoyaleApplication builds one room per configured lobby and seats each roster",
+          "[unit][application][lifecycle][controllers][lobbies]") {
+  // Two rooms are two of everything: two runtimes, two hosts, two rosters seated, each line naming
+  // its room. Sandbox seats its roster at construction, so the rooms are observable before `run`.
+  LogCapture log_capture;
+  BlobRoyaleApplication application = BlobRoyaleApplication::create(
+      application_config_fixture(kUnboundConstructionPort,
+                                 {MatchConfiguration::BotRosterEntry{"wanderer", 2}}, 2),
+      map_fixture(), empty_world_fixture(), log_capture.logger);
+  static_cast<void>(application);
+
+  std::vector<std::uint64_t> seated_rooms;
+  for (const test_support::CapturedStructuredLogEvent& record : log_capture.events()) {
+    if (record.event != "controllers.roster_seated") {
+      continue;
+    }
+    REQUIRE(record.lobby_id.has_value());
+    seated_rooms.push_back(*record.lobby_id);
+    REQUIRE(record.detail.has_value());
+    CHECK(record.detail->find("hosted_controller_count=2") != std::string::npos);
+    // Room 2's bots are seeded one past room 1's, so two rooms never play the same seed.
+    CHECK(record.detail->find("match_seed=" + std::to_string(kMatchSeed + *record.lobby_id - 1)) !=
+          std::string::npos);
+  }
+  CHECK(seated_rooms == std::vector<std::uint64_t>{1, 2});
 }
 
 TEST_CASE("BlobRoyaleApplication seats nothing and logs nothing for an empty roster",

@@ -122,6 +122,9 @@ void append_integer_field(std::string& output, const std::string_view name, cons
   if (event.connection_id.has_value()) {
     append_string_field(encoded, "connection_id", *event.connection_id, truncated);
   }
+  if (event.lobby_id.has_value()) {
+    append_integer_field(encoded, "lobby_id", *event.lobby_id);
+  }
   if (event.tick_sequence.has_value()) {
     append_integer_field(encoded, "tick_sequence", *event.tick_sequence);
   }

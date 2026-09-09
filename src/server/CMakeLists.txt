@@ -31,6 +31,7 @@ add_library(blob_server STATIC
   game_server.cpp
   game_server_error.cpp
   http_session.cpp
+  lobby_directory.cpp
   match_session_context.cpp
   peer_identity.cpp
   peer_traffic_policy.cpp

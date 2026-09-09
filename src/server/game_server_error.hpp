@@ -16,6 +16,7 @@ enum class GameServerErrorCode {
   kHttpResponseEncodingFailed,
   kSnapshotEncodingFailed,
   kSessionInvariantFailed,
+  kLobbyDirectoryInvalid,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -37,6 +38,8 @@ game_server_error_code_name(const GameServerErrorCode error_code) noexcept {
     return "SERVER.WEBSOCKET.SNAPSHOT_ENCODING_FAILED";
   case GameServerErrorCode::kSessionInvariantFailed:
     return "SERVER.SESSION.INVARIANT_FAILED";
+  case GameServerErrorCode::kLobbyDirectoryInvalid:
+    return "SERVER.LOBBY_DIRECTORY_INVALID";
   }
   return "SERVER.ERROR_CODE_INVALID";
 }

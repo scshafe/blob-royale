@@ -91,10 +91,12 @@ constexpr double kArenaHeight = 640.0;
   return ((lifetime_ticks + interval_ticks - 1) / interval_ticks) + 1;
 }
 
-// Everything the worst case counts other than hazards: the admissible session seats and the one
-// entity a mode may create for itself, plus whatever the map and roster contribute.
+// Everything the worst case counts other than hazards and the map: the admissible session seats,
+// the one entity a mode may create for itself, and the bots every seat of a full lobby could hold
+// -- a floor the roster can only raise past the engine's seat bound.
 constexpr std::uint64_t kNonHazardBase = server::ServerLimits::kConcurrentWebSocketMaximumCount +
-                                         simulation::kSystemCreatedEntityHeadroom;
+                                         simulation::kSystemCreatedEntityHeadroom +
+                                         simulation::kMaximumLobbySeatCount;
 
 } // namespace
 
@@ -109,18 +111,28 @@ TEST_CASE("a match whose worst-case population fits the snapshot bound is accept
 TEST_CASE("a match whose static bodies plus roster ceiling exceed the snapshot bound is rejected",
           "[unit][application][match][validation]") {
   // Every published entity counts: the map's static bodies, one entity a mode may create for
-  // itself, every admissible session seat, and every configured bot. The encoder refuses a frame
-  // above 1,024 rather than dropping an entity, so a configuration that could reach it would stop
-  // publishing to every client at once partway through a match.
-  const std::size_t admissible_seats = server::ServerLimits::kConcurrentWebSocketMaximumCount;
-  const std::size_t static_body_count = protocol::kSnapshotEntityLimit - admissible_seats - 1;
+  // itself, every admissible session seat, and a bot in every seat a lobby may declare -- the
+  // roster is a floor on that, not the count, because anyone in the lobby may declare a bot into
+  // any seat. The encoder refuses a frame above 1,024 rather than dropping an entity, so a
+  // configuration that could reach it would stop publishing to every client at once partway
+  // through a match.
+  const std::size_t static_body_count = protocol::kSnapshotEntityLimit - kNonHazardBase;
 
   CHECK_NOTHROW(require_match_fits_snapshot_bound(match_with_bots(""),
                                                   map_with_static_bodies(static_body_count), {}));
+  // A roster inside the seat bound changes nothing: the bound already counts a bot per seat.
+  CHECK_NOTHROW(require_match_fits_snapshot_bound(match_with_bots("wanderer:64"),
+                                                  map_with_static_bodies(static_body_count), {}));
   require_application_input_error_code(
       [&] {
-        require_match_fits_snapshot_bound(match_with_bots("wanderer:1"),
+        require_match_fits_snapshot_bound(match_with_bots("wanderer:65"),
                                           map_with_static_bodies(static_body_count), {});
+      },
+      ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
+  require_application_input_error_code(
+      [&] {
+        require_match_fits_snapshot_bound(match_with_bots(""),
+                                          map_with_static_bodies(static_body_count + 1), {});
       },
       ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
 }

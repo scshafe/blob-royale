@@ -43,6 +43,23 @@ TEST_CASE("structured logger emits one deterministic JSON line", "[unit][observa
       "\n");
 }
 
+TEST_CASE("structured logger names the room a line is about", "[unit][observability]") {
+  // `lobby_id` sits with the other correlation fields, before the tick it is about, so a reader
+  // grouping lines by room finds it in the same place on every room-scoped event.
+  std::ostringstream output;
+  StructuredLogger logger{output, &fixed_timestamp};
+  logger.write(StructuredLogEvent{.severity = LogSeverity::kInfo,
+                                  .event = "match.phase_changed",
+                                  .lobby_id = 3,
+                                  .tick_sequence = 9,
+                                  .detail = "phase=running previous=countdown"});
+
+  CHECK(
+      output.str() ==
+      R"({"timestamp_utc":"2026-08-08T00:04:05.123Z","severity":"info","event":"match.phase_changed","lobby_id":3,"tick_sequence":9,"detail":"phase=running previous=countdown"})"
+      "\n");
+}
+
 TEST_CASE("structured logger explicitly marks bounded field truncation", "[unit][observability]") {
   std::ostringstream output;
   StructuredLogger logger{output, &fixed_timestamp};

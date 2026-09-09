@@ -28,6 +28,7 @@ struct CapturedStructuredLogEvent final {
   std::optional<std::string> error_code;
   std::optional<std::string> detail;
   std::optional<std::uint64_t> close_code;
+  std::optional<std::uint64_t> lobby_id;
 };
 
 // Parses the exact JSON-lines emitted by StructuredLogger so lifecycle tests assert records and
@@ -63,7 +64,8 @@ public:
                         .connection_id = optional_string(object, "connection_id"),
                         .error_code = optional_string(object, "error_code"),
                         .detail = optional_string(object, "detail"),
-                        .close_code = optional_unsigned(object, "close_code")});
+                        .close_code = optional_unsigned(object, "close_code"),
+                        .lobby_id = optional_unsigned(object, "lobby_id")});
     }
     return result;
   }

@@ -746,6 +746,16 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
 
   const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(
       parse_unsigned_config_value(document, ConfigField::kLobbiesCount));
+  // A scenario seeds one specific world -- bodies at named ids and velocities -- and a room is
+  // built per lobby from the map alone, so a scenario and several rooms would be several rooms of
+  // which only the first plays the scenario. That is a fixture that lies about itself; refuse it.
+  if (scenario_path.has_value() && lobbies_configuration.count() > 1) {
+    throw ApplicationInputError{
+        ApplicationInputErrorCode::kLobbiesScenarioRequiresOneLobby, "lobbies.count",
+        "a scenario seeds one world, so a run with --scenario needs [lobbies] count=1 and this "
+        "configuration names " +
+            std::to_string(lobbies_configuration.count())};
+  }
 
   return RunRequest{ApplicationConfig::create(
                         std::move(server_config), simulation_config, std::move(match_configuration),

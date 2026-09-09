@@ -122,7 +122,7 @@ docker logs --since 10m blob-royale
 sudo tailscale serve status
 ```
 
-Index `severity`, `event`, `error_code`, lifecycle state, and request ID as described in
+Index `severity`, `event`, `error_code`, lifecycle state, `lobby_id`, and request ID as described in
 [`linux.md`](linux.md). A repeatable nonzero startup exit is a configuration error to fix, not a
 crash loop for the restart policy to absorb.
 

@@ -41,6 +41,7 @@ using namespace std::chrono_literals;
 using LogCapture = test_support::StructuredLogCapture;
 
 constexpr std::uint64_t kMatchSeed = 7;
+constexpr std::uint64_t kLobbyId = 3;
 constexpr std::size_t kSpawnPointCount = 4;
 constexpr auto kDeadline = 5s;
 
@@ -87,7 +88,7 @@ public:
   explicit ReconcilerHarness(simulation::SeatRoster roster)
       : runtime_(lobby_simulation(std::move(roster))),
         host_(runtime_.snapshot_publication(), runtime_.command_sink()),
-        reconciler_(runtime_.command_sink(), host_, kMatchSeed, log_capture_.logger) {
+        reconciler_(runtime_.command_sink(), host_, kMatchSeed, kLobbyId, log_capture_.logger) {
     runtime_.start();
     const auto deadline = std::chrono::steady_clock::now() + kDeadline;
     while (!runtime_.snapshot_publication().is_ready()) {
@@ -106,6 +107,10 @@ public:
 
   // One control poll: reconcile against the latest committed world.
   void reconcile() { reconciler_.reconcile(*runtime_.snapshot_publication().latest()); }
+  // One control poll on a room nobody is in while its match is under way.
+  void reconcile_abandoned() {
+    reconciler_.reconcile(*runtime_.snapshot_publication().latest(), true);
+  }
 
   // Polls until the predicate holds or the deadline passes, and reports which.
   template <typename Predicate> [[nodiscard]] bool reconcile_until(Predicate predicate) {
@@ -205,6 +210,48 @@ TEST_CASE("SeatBotReconciler creates one bot per declared seat and joins each to
   CHECK(harness.runtime().controller_directory().size() == 2);
   CHECK(harness.count_events("controllers.bot_created") == 2);
   CHECK(harness.count_events("controllers.bot_retired") == 0);
+  // Every line names the room.
+  for (const test_support::CapturedStructuredLogEvent& record : harness.log_capture().events()) {
+    CHECK(record.lobby_id == kLobbyId);
+  }
+}
+
+TEST_CASE("SeatBotReconciler retires every bot of an abandoned room and reseats them once it is "
+          "back in the lobby",
+          "[unit][application][bots][lobby]") {
+  simulation::SeatRoster roster = simulation::SeatRoster::of_size(2);
+  roster.assign_seat(0, declared("wanderer"));
+  roster.assign_seat(1, declared("chaser"));
+  ReconcilerHarness harness{std::move(roster)};
+  const std::uint64_t first_bot = harness.runtime().command_sink().next_controller_id();
+  REQUIRE(harness.reconcile_until([&harness, first_bot] {
+    return harness.seat_at(0) == bot_at("wanderer", first_bot) &&
+           harness.seat_at(1) == bot_at("chaser", first_bot + 1);
+  }));
+
+  // The control loop says nobody is in the room while its match is under way: every bot leaves --
+  // which is what ends the match by attrition -- and none is built in its place.
+  harness.reconcile_abandoned();
+  CHECK(harness.reconciler().hosted_bot_count() == 0);
+  CHECK(harness.host().size() == 0);
+  REQUIRE(harness.count_events("controllers.bot_retired") == 2);
+  CHECK(detail_mentions(*harness.log_capture().find_event("controllers.bot_retired"),
+                        "reason=room_abandoned"));
+  harness.reconcile_abandoned();
+  CHECK(harness.count_events("controllers.bot_created") == 2);
+
+  // The declarations survive the bots, so the first poll that finds the room back in `lobby`
+  // rebuilds both with new identities.
+  REQUIRE(harness.wait_until([&harness] {
+    return harness.seat_at(0) == declared("wanderer") && harness.seat_at(1) == declared("chaser");
+  }));
+  const std::uint64_t replacement = harness.runtime().command_sink().next_controller_id();
+  REQUIRE(harness.reconcile_until([&harness, replacement] {
+    return harness.seat_at(0) == bot_at("wanderer", replacement) &&
+           harness.seat_at(1) == bot_at("chaser", replacement + 1);
+  }));
+  CHECK(replacement > first_bot + 1);
+  CHECK(harness.reconciler().hosted_bot_count() == 2);
 }
 
 TEST_CASE("SeatBotReconciler retires a bot whose seat is cleared and builds one for a seat "

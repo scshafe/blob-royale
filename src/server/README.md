@@ -3,10 +3,12 @@
 # Server domain
 
 `blob_server` owns the one bounded HTTP/1.1 and WebSocket listener for protocol v1 and protocol v2.
-It reads immutable `ServerConfig` and `const SnapshotPublication`, and holds one write capability,
-`MatchSessionContext`, whose entire interface is `CommandSink::open_session`, `submit`, and
-`close_session` plus a read-only presentation directory and the match identities a `welcome`
-announces. It cannot start, pause, stop, step, or otherwise mutate the simulation, and it cannot
+It reads immutable `ServerConfig` and a `LobbyDirectory`: one `LobbyEntry` per room, each a
+`const SnapshotPublication` to read and one write capability, `MatchSessionContext`, whose entire
+interface is `CommandSink::open_session`, `submit`, and `close_session` plus a read-only
+presentation directory and the match identities a `welcome` announces. Every route serves room 1
+until the directory and room routes land (plan Step 13); a session counts itself in and out of its
+room's entry so the application can tell when a room has been abandoned. It cannot start, pause, stop, step, or otherwise mutate the simulation, and it cannot
 read world state through the write path. `GameServer::run()` is a single foreground event loop. The
 application owns process signals and calls the thread-safe, idempotent `GameServer::stop()`, which
 closes acceptance before sessions and enforces a fixed shutdown deadline.
@@ -14,6 +16,8 @@ closes acceptance before sessions and enforces a fixed shutdown deadline.
 ## Public objects
 
 * `GameServer` owns event-loop lifecycle, retained failure, and the listener.
+* `LobbyDirectory` is every room the server can route a session to, numbered `1..N`, fixed for the
+  process lifetime; a `LobbyEntry` is one room's publication, session capability, and session count.
 * `TcpListener` owns one acceptor and rejects peers outside loopback or the exact trusted-proxy set.
 * `HttpSession` owns one bounded parser, at most eight queued responses, and at most 100 requests.
 * `GameApiRouter` is the sole HTTP trust-boundary validator and exposes only the four v1 routes plus

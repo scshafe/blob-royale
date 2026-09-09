@@ -32,6 +32,7 @@ add_library(blob_application STATIC
   application_lifecycle_error.cpp
   blob_royale_application.cpp
   bot_reconciliation.cpp
+  room.cpp
 )
 
 blob_royale_configure_first_party_target(blob_application)

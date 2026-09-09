@@ -162,8 +162,8 @@ even if the supervisor subsequently restarts the process.
 ## Logs and diagnostics
 
 Application logs are newline-delimited JSON on standard error. Collect each line atomically and
-index `severity`, `event`, `error_code`, lifecycle state, request/connection ID, and tick when those
-fields apply. Do not log request bodies, headers, full targets, configuration contents, or scenario
+index `severity`, `event`, `error_code`, lifecycle state, request/connection ID, `lobby_id`, and
+tick when those fields apply. Do not log request bodies, headers, full targets, configuration contents, or scenario
 rows. Protocol request IDs are correlation values, not authenticated identities.
 
 For an incident, retain the process exit code, final structured events, image/toolchain identity,

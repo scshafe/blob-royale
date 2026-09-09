@@ -8,10 +8,12 @@
 #include "game_mode_registry.hpp"
 #include "game_server_state.hpp"
 #include "game_simulation_setup.hpp"
+#include "match_phase.hpp"
 #include "match_startup_validation.hpp"
 #include "seat_roster.hpp"
 #include "simulation_runtime_state.hpp"
 #include "structured_logger.hpp"
+#include "world_snapshot.hpp"
 
 #include <boost/asio/error.hpp>
 #include <boost/asio/io_context.hpp>
@@ -52,30 +54,41 @@ presentation_interval_of(const std::uint64_t snapshots_per_second) noexcept {
 enum class ControlWakeReason {
   kSignal,
   kServerTerminated,
-  kRuntimeFailed,
   kControlWaitFailed,
 };
 
+// What the control loop has already reported about one room, so every line it writes is the rise
+// since the last poll rather than a total, and a phase or a failure is announced exactly once.
+struct RoomWatch final {
+  std::uint64_t reported_dropped_command_count{0};
+  std::uint64_t reported_dropped_entity_lifecycle_command_count{0};
+  std::uint64_t reported_tick_overrun_count{0};
+  std::uint64_t reported_clock_rebase_count{0};
+  std::uint64_t reported_rebased_ticks_behind_total{0};
+  std::uint64_t reported_failed_controller_count{0};
+  std::uint64_t reported_refused_command_count{0};
+  std::optional<simulation::MatchPhase> last_phase;
+  bool failure_reported{false};
+};
+
 // Registers process signals and runs its event loop on the BlobRoyaleApplication::run caller.
-// The timer observes lifecycle state only; simulation cadence remains owned by SimulationRuntime.
+// The timer observes lifecycle state only; simulation cadence remains owned by each room's
+// SimulationRuntime.
 //
-// It is also where a dropped command becomes visible. `blob_runtime` links no logger by contract
-// (`docs/architecture/0002-simulation-architecture.md` § "Ownership and lifecycle":
-// StructuredLogger "never enters simulation, runtime, or protocol values"), so the runtime counts
-// overflow drops and this composition root -- which already polls runtime state on a fixed interval
-// and already owns the logger -- turns a rising count into a structured line. A drop is therefore
-// never silent even when the submitting session ignored its `CommandSubmissionResult`.
+// It is also where a room's counters become log lines. `blob_runtime` and `blob_controllers` link
+// no logger by contract (`docs/architecture/0002-simulation-architecture.md` § "Ownership and
+// lifecycle"), so the runtime counts drops, overruns, and re-bases, the host counts failures, and
+// this composition root -- which already polls every room on a fixed interval and already owns
+// the logger -- turns a rising count into a structured line carrying the room's `lobby_id`.
 class ApplicationControlWait final {
 public:
-  ApplicationControlWait(const runtime::SimulationRuntime& simulation_runtime,
+  ApplicationControlWait(const std::span<const std::unique_ptr<Room>> rooms,
+                         const server::LobbyDirectory& lobbies,
                          const server::GameServer& game_server,
-                         controllers::ControllerHost& controller_host,
-                         SeatBotReconciler* const bot_reconciler,
                          const std::chrono::steady_clock::duration presentation_interval,
                          observability::StructuredLogger& logger)
-      : simulation_runtime_(simulation_runtime), game_server_(game_server),
-        controller_host_(controller_host), bot_reconciler_(bot_reconciler),
-        presentation_interval_(presentation_interval), logger_(logger),
+      : rooms_(rooms), lobbies_(lobbies), game_server_(game_server),
+        presentation_interval_(presentation_interval), logger_(logger), watches_(rooms.size()),
         process_signals_(control_context_, SIGINT, SIGTERM), status_poll_(control_context_),
         controller_pass_(control_context_) {}
 
@@ -126,11 +139,13 @@ private:
     });
   }
 
-  // Drives every hosted bot one decision pass, at presentation cadence, on this same thread.
+  // Drives every room's hosted bots one decision pass, at presentation cadence, on this same
+  // thread.
   //
   // **A bot is not seated when there are none.** `decide_once` on an empty host is a snapshot
   // acquisition and nothing else, so the timer is armed unconditionally and the cost of a roster of
-  // zero is one cheap call per presentation frame.
+  // zero is one cheap call per presentation frame per room. A failed room is skipped: its
+  // publication is not ready and its bots have nothing to decide about.
   //
   // `decide_once` contains every controller failure and every sink refusal by contract
   // (`controller_host.hpp`), so nothing a bot does can reach this loop; what reaches it is the
@@ -145,8 +160,14 @@ private:
         finish(ControlWakeReason::kControlWaitFailed, error);
         return;
       }
-      static_cast<void>(controller_host_.decide_once());
-      observe_controller_host();
+      for (std::size_t index = 0; index < rooms_.size(); ++index) {
+        Room& room = *rooms_[index];
+        if (room.runtime().state() == runtime::SimulationRuntimeState::kFailed) {
+          continue;
+        }
+        static_cast<void>(room.host().decide_once());
+        observe_controller_host(room, watches_[index]);
+      }
       if (!wake_reason_.has_value()) {
         schedule_controller_pass();
       }
@@ -154,30 +175,27 @@ private:
   }
 
   // Reports every controller failure and every refused bot submission since the previous
-  // observation. `blob_controllers` links no logger by contract, exactly as `blob_runtime` does
-  // not, so the host counts and this composition root -- which already owns the logger and already
-  // drives the host -- turns a rising count into a structured line. A bot that throws on every pass
-  // is otherwise invisible: the match keeps running and its blob simply stops moving.
-  void observe_controller_host() noexcept {
-    const controllers::ControllerHost::Statistics statistics = controller_host_.statistics();
-    if (statistics.failed_controller_count == reported_failed_controller_count_ &&
-        statistics.refused_command_count == reported_refused_command_count_) {
+  // observation. A bot that throws on every pass is otherwise invisible: the match keeps running
+  // and its blob simply stops moving.
+  void observe_controller_host(Room& room, RoomWatch& watch) noexcept {
+    const controllers::ControllerHost::Statistics statistics = room.host().statistics();
+    if (statistics.failed_controller_count == watch.reported_failed_controller_count &&
+        statistics.refused_command_count == watch.reported_refused_command_count) {
       return;
     }
     const std::uint64_t newly_failed =
-        statistics.failed_controller_count - reported_failed_controller_count_;
+        statistics.failed_controller_count - watch.reported_failed_controller_count;
     const std::uint64_t newly_refused =
-        statistics.refused_command_count - reported_refused_command_count_;
-    reported_failed_controller_count_ = statistics.failed_controller_count;
-    reported_refused_command_count_ = statistics.refused_command_count;
+        statistics.refused_command_count - watch.reported_refused_command_count;
+    watch.reported_failed_controller_count = statistics.failed_controller_count;
+    watch.reported_refused_command_count = statistics.refused_command_count;
 
     std::string detail =
         "failed_controller_count=" + std::to_string(newly_failed) +
         " refused_command_count=" + std::to_string(newly_refused) +
         " pass_count=" + std::to_string(statistics.pass_count) +
         " decided_command_count=" + std::to_string(statistics.decided_command_count);
-    if (const std::optional<controllers::ControllerFailure>& failure =
-            controller_host_.last_failure();
+    if (const std::optional<controllers::ControllerFailure>& failure = room.host().last_failure();
         failure.has_value()) {
       detail.append(" last_failure_controller_id=" + std::to_string(failure->controller.value()));
       detail.append(" last_failure_controller_kind=" + failure->controller_kind);
@@ -188,6 +206,7 @@ private:
     logger_.write({.severity = newly_failed > 0 ? observability::LogSeverity::kError
                                                 : observability::LogSeverity::kWarning,
                    .event = "controllers.pass_degraded",
+                   .lobby_id = room.lobby_id(),
                    .error_code = newly_failed > 0 ? "CONTROLLERS.CONTROLLER_FAILED"
                                                   : "CONTROLLERS.COMMAND_REFUSED",
                    .detail = detail});
@@ -197,19 +216,19 @@ private:
   // despawn is reported at error severity because the roster itself lost a change -- a disconnected
   // player's body stays in the arena, or a connected one never gets a body -- while a lost thrust
   // is one missed 2.5 ms of steering.
-  void observe_dropped_commands() noexcept {
+  void observe_dropped_commands(Room& room, RoomWatch& watch) noexcept {
     const runtime::CommandMailbox::Statistics statistics =
-        simulation_runtime_.command_mailbox_statistics();
-    if (statistics.dropped_command_count == reported_dropped_command_count_) {
+        room.runtime().command_mailbox_statistics();
+    if (statistics.dropped_command_count == watch.reported_dropped_command_count) {
       return;
     }
     const std::uint64_t newly_dropped =
-        statistics.dropped_command_count - reported_dropped_command_count_;
+        statistics.dropped_command_count - watch.reported_dropped_command_count;
     const std::uint64_t newly_dropped_lifecycle =
         statistics.dropped_entity_lifecycle_command_count -
-        reported_dropped_entity_lifecycle_command_count_;
-    reported_dropped_command_count_ = statistics.dropped_command_count;
-    reported_dropped_entity_lifecycle_command_count_ =
+        watch.reported_dropped_entity_lifecycle_command_count;
+    watch.reported_dropped_command_count = statistics.dropped_command_count;
+    watch.reported_dropped_entity_lifecycle_command_count =
         statistics.dropped_entity_lifecycle_command_count;
 
     const std::string detail =
@@ -219,22 +238,9 @@ private:
     logger_.write({.severity = newly_dropped_lifecycle > 0 ? observability::LogSeverity::kError
                                                            : observability::LogSeverity::kWarning,
                    .event = "runtime.command_dropped",
+                   .lobby_id = room.lobby_id(),
                    .error_code = "RUNTIME.COMMAND_MAILBOX_OVERFLOW",
                    .detail = detail});
-  }
-
-  // Makes the live bots match the committed seat roster, on the same poll that watches everything
-  // else. A mode without a lobby has no reconciler and nothing to match.
-  void reconcile_bots() noexcept {
-    if (bot_reconciler_ == nullptr || !simulation_runtime_.snapshot_publication().is_ready()) {
-      return;
-    }
-    try {
-      bot_reconciler_->reconcile(*simulation_runtime_.snapshot_publication().latest());
-    } catch (...) {
-      // `reconcile` contains every failure it can name; anything else is a process-level condition
-      // the next poll will meet again, and a control poll may not propagate.
-    }
   }
 
   // What the worker's clock did since the last poll, in the same shape as a dropped command: the
@@ -242,12 +248,12 @@ private:
   // due; a re-base is a stall long enough that the runtime chose slow motion over a catch-up burst
   // (`tick_deadline.hpp`). Both are warnings because both are the room asking for less load or more
   // CPU, and neither loses a tick.
-  void observe_tick_statistics() noexcept {
-    const runtime::TickStatistics statistics = simulation_runtime_.tick_statistics();
-    if (statistics.tick_overrun_count != reported_tick_overrun_count_) {
+  void observe_tick_statistics(Room& room, RoomWatch& watch) noexcept {
+    const runtime::TickStatistics statistics = room.runtime().tick_statistics();
+    if (statistics.tick_overrun_count != watch.reported_tick_overrun_count) {
       const std::uint64_t newly_overrun =
-          statistics.tick_overrun_count - reported_tick_overrun_count_;
-      reported_tick_overrun_count_ = statistics.tick_overrun_count;
+          statistics.tick_overrun_count - watch.reported_tick_overrun_count;
+      watch.reported_tick_overrun_count = statistics.tick_overrun_count;
       const std::string detail =
           "tick_overrun_count=" + std::to_string(newly_overrun) +
           " committed_tick_count=" + std::to_string(statistics.committed_tick_count) +
@@ -257,39 +263,110 @@ private:
           std::to_string(statistics.maximum_lateness_nanoseconds);
       logger_.write({.severity = observability::LogSeverity::kWarning,
                      .event = "runtime.tick_overrun",
+                     .lobby_id = room.lobby_id(),
                      .error_code = "RUNTIME.TICK_OVERRUN",
                      .detail = detail});
     }
-    if (statistics.clock_rebase_count != reported_clock_rebase_count_) {
+    if (statistics.clock_rebase_count != watch.reported_clock_rebase_count) {
       const std::uint64_t newly_rebased =
-          statistics.clock_rebase_count - reported_clock_rebase_count_;
+          statistics.clock_rebase_count - watch.reported_clock_rebase_count;
       const std::uint64_t newly_behind =
-          statistics.rebased_ticks_behind_total - reported_rebased_ticks_behind_total_;
-      reported_clock_rebase_count_ = statistics.clock_rebase_count;
-      reported_rebased_ticks_behind_total_ = statistics.rebased_ticks_behind_total;
+          statistics.rebased_ticks_behind_total - watch.reported_rebased_ticks_behind_total;
+      watch.reported_clock_rebase_count = statistics.clock_rebase_count;
+      watch.reported_rebased_ticks_behind_total = statistics.rebased_ticks_behind_total;
       const std::string detail =
           "clock_rebase_count=" + std::to_string(newly_rebased) +
           " ticks_behind=" + std::to_string(newly_behind) +
           " committed_tick_count=" + std::to_string(statistics.committed_tick_count);
       logger_.write({.severity = observability::LogSeverity::kWarning,
                      .event = "runtime.clock_rebased",
+                     .lobby_id = room.lobby_id(),
                      .error_code = "RUNTIME.CLOCK_REBASED",
                      .detail = detail});
     }
   }
 
+  // The committed world, read once per poll: a phase that differs from the last one seen is one
+  // `match.phase_changed` line -- the whole story of a match in four of them -- and the bots are
+  // made to match the seats. **Abandonment is decided here.** A room whose session count is zero
+  // while its match is in `countdown` or `running` has its bots retired rather than reseated, so
+  // the match ends by attrition and the machine walks back to `lobby`, where the next poll reseats
+  // every declared NPC (ADR 0006 § "The lobby lifecycle"). The tick never learns the word "human":
+  // the count is the server's, and the reconciliation only sees a flag.
+  void observe_room_world(Room& room, RoomWatch& watch) noexcept {
+    const runtime::SnapshotPublication& publication = room.runtime().snapshot_publication();
+    if (!publication.is_ready()) {
+      return;
+    }
+    const std::shared_ptr<const simulation::WorldSnapshot> latest = publication.latest();
+    if (latest == nullptr) {
+      return;
+    }
+    const simulation::MatchPhase phase = latest->match().phase();
+    if (!watch.last_phase.has_value() || *watch.last_phase != phase) {
+      const std::string detail = "phase=" + std::string(simulation::match_phase_name(phase)) +
+                                 " previous=" +
+                                 (watch.last_phase.has_value()
+                                      ? std::string(simulation::match_phase_name(*watch.last_phase))
+                                      : std::string("none"));
+      logger_.write({.severity = observability::LogSeverity::kInfo,
+                     .event = "match.phase_changed",
+                     .lobby_id = room.lobby_id(),
+                     .tick_sequence = latest->tick_sequence().value(),
+                     .detail = detail});
+      watch.last_phase = phase;
+    }
+    SeatBotReconciler* const reconciler = room.reconciler();
+    if (reconciler == nullptr) {
+      return;
+    }
+    const bool abandoned =
+        lobbies_.room(room.lobby_id()).session_count() == 0 &&
+        (phase == simulation::MatchPhase::kCountdown || phase == simulation::MatchPhase::kRunning);
+    try {
+      reconciler->reconcile(*latest, abandoned);
+    } catch (...) {
+      // `reconcile` contains every failure it can name; anything else is a process-level condition
+      // the next poll will meet again, and a control poll may not propagate.
+    }
+  }
+
+  // A room whose worker died is announced once, with the exception, and left alone: its publication
+  // is already not ready, so its sessions close themselves, and the rooms that work keep serving.
+  void observe_runtime_failure(Room& room, RoomWatch& watch) noexcept {
+    if (watch.failure_reported ||
+        room.runtime().state() != runtime::SimulationRuntimeState::kFailed) {
+      return;
+    }
+    watch.failure_reported = true;
+    std::string message = "no exception was retained";
+    try {
+      room.runtime().rethrow_if_failed();
+    } catch (const std::exception& failure) {
+      message = failure.what();
+    } catch (...) {
+      message = "non-standard exception";
+    }
+    logger_.write({.severity = observability::LogSeverity::kError,
+                   .event = "runtime.failed",
+                   .lobby_id = room.lobby_id(),
+                   .error_code = "RUNTIME.WORKER_FAILED",
+                   .detail = "message=" + message});
+  }
+
   void observe_component_state() noexcept {
-    observe_dropped_commands();
-    observe_tick_statistics();
-    reconcile_bots();
+    for (std::size_t index = 0; index < rooms_.size(); ++index) {
+      Room& room = *rooms_[index];
+      RoomWatch& watch = watches_[index];
+      observe_dropped_commands(room, watch);
+      observe_tick_statistics(room, watch);
+      observe_room_world(room, watch);
+      observe_runtime_failure(room, watch);
+    }
     const server::GameServerState server_state = game_server_.state();
     if (server_state == server::GameServerState::kStopped ||
         server_state == server::GameServerState::kFailed) {
       finish(ControlWakeReason::kServerTerminated);
-      return;
-    }
-    if (simulation_runtime_.state() == runtime::SimulationRuntimeState::kFailed) {
-      finish(ControlWakeReason::kRuntimeFailed);
     }
   }
 
@@ -307,19 +384,12 @@ private:
     control_context_.stop();
   }
 
-  const runtime::SimulationRuntime& simulation_runtime_;
+  std::span<const std::unique_ptr<Room>> rooms_;
+  const server::LobbyDirectory& lobbies_;
   const server::GameServer& game_server_;
-  controllers::ControllerHost& controller_host_;
-  SeatBotReconciler* bot_reconciler_;
   std::chrono::steady_clock::duration presentation_interval_;
   observability::StructuredLogger& logger_;
-  std::uint64_t reported_dropped_command_count_{0};
-  std::uint64_t reported_dropped_entity_lifecycle_command_count_{0};
-  std::uint64_t reported_tick_overrun_count_{0};
-  std::uint64_t reported_clock_rebase_count_{0};
-  std::uint64_t reported_rebased_ticks_behind_total_{0};
-  std::uint64_t reported_failed_controller_count_{0};
-  std::uint64_t reported_refused_command_count_{0};
+  std::vector<RoomWatch> watches_;
   boost::asio::io_context control_context_{1};
   boost::asio::signal_set process_signals_;
   boost::asio::steady_timer status_poll_;
@@ -334,87 +404,87 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
                                                     simulation::MapDefinition map,
                                                     simulation::GameWorld initial_world,
                                                     observability::StructuredLogger& logger) {
-  // The two cross-value rules first, because both are arithmetic over already-validated values and
-  // both describe a match that would only fail once it was being played.
+  // The cross-value rules first, because each is arithmetic over already-validated values and each
+  // describes a match that would only fail once it was being played. They hold for every room,
+  // because every room plays the same match on the same map.
   require_map_matches_published_world(application_config.simulation_config(), map);
   // The hazard table travels with the other two, because the standing hazard population is part of
   // the worst case and no one of the three values can see the other two on its own.
   require_match_fits_snapshot_bound(application_config.match_configuration(), map,
                                     application_config.game_mode_configuration().hazards);
 
-  // The mode is resolved from the registry and handed the validated `[<mode>]` sections. The
-  // engine reads its seven declarations once, validates the map through it, and destroys it.
-  std::unique_ptr<const simulation::GameMode> mode =
-      gameplay::GameModeRegistry::create(application_config.match_configuration().mode_name(),
-                                         application_config.game_mode_configuration());
+  const MatchConfiguration& match = application_config.match_configuration();
+  const std::uint64_t room_count = application_config.lobbies_configuration().count();
+  std::vector<std::unique_ptr<Room>> rooms;
+  rooms.reserve(room_count);
+  for (std::uint64_t lobby_id = 1; lobby_id <= room_count; ++lobby_id) {
+    // The mode is resolved from the registry once per room and handed the validated `[<mode>]`
+    // sections; each room's engine reads its declarations once, validates the map through it, and
+    // destroys it.
+    std::unique_ptr<const simulation::GameMode> mode = gameplay::GameModeRegistry::create(
+        match.mode_name(), application_config.game_mode_configuration());
+    if (lobby_id == 1) {
+      // The same map for every room, so the marker-per-seat rule is asked once.
+      require_lobby_fits_map(*mode, match.lobby_seat_count(), map);
+    }
 
-  // **The lobby is seeded here, into the world, before the engine ever sees it, and only for a
-  // mode that has one.**
-  //
-  // `MatchState::seats` is engine state -- it is the input to the machine's first transition -- but
-  // its *initial* size is a required configuration key that only a mode's section carries, so the
-  // one place that has both the world and the parsed sections is this composition root. It is the
-  // same relationship the seeded entities already have: the world arrives carrying the state a
-  // match begins with, and `GameSimulation::create` neither invents nor overwrites it
-  // (`src/simulation/seat_roster.hpp`).
-  //
-  // `[match] lobby_seat_count` is a fact about who plays this match, whatever mode plays it;
-  // whether it is *applied* is the mode's declaration. A mode that accepts no `start_match` starts
-  // with no roster, which is the empty array protocol v2 promises for a world that declared no
-  // lobby, and for a mode that does the `[match] bots` roster is the declaration of the first seats
-  // rather than a startup roster (`match_startup_validation.hpp`). A lobby the map could not seat
-  // in full is refused first, naming both counts.
-  require_lobby_fits_map(*mode, application_config.match_configuration().lobby_seat_count(), map);
-  initial_world.mutable_match().seats =
-      initial_seat_roster_for(*mode, application_config.match_configuration().lobby_seat_count(),
-                              application_config.match_configuration().bot_roster());
+    // **Room 1 plays the world the caller built** -- the map plus any scenario -- and every further
+    // room plays the map alone, seeded `seed + (lobby_id - 1)` so two rooms never draw the same
+    // hazards. A scenario with more than one room is refused by the loader, so the two shapes
+    // never mix.
+    simulation::GameWorld world =
+        lobby_id == 1 ? std::move(initial_world)
+                      : simulation::GameWorld::create(application_config.simulation_config(), map,
+                                                      match.seed() + (lobby_id - 1));
 
-  // The accepted command mask is copied out **before** the mode is moved into the engine, which
-  // destroys it once it has read its seven declarations. It is the set a protocol v2 `welcome`
-  // advertises and the set the session boundary enforces, and copying the mode's own declaration
-  // is what keeps the advertised set and the enforced set from being two answers.
-  const simulation::CommandKindMask accepted_command_kinds = mode->accepted_command_kinds();
+    // **The lobby is seeded here, into the world, before the engine ever sees it, and only for a
+    // mode that has one.** `MatchState::seats` is engine state -- it is the input to the machine's
+    // first transition -- and its initial size is `[match] lobby_seat_count`, so the one place that
+    // has both the world and the parsed sections is this composition root. A mode that accepts no
+    // `start_match` starts with no roster, which is the empty array protocol v2 promises for a
+    // world that declared no lobby, and for a mode that does the `[match] bots` roster is the
+    // declaration of the first seats rather than a startup roster (`match_startup_validation.hpp`).
+    world.mutable_match().seats =
+        initial_seat_roster_for(*mode, match.lobby_seat_count(), match.bot_roster());
 
-  simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
-      application_config.simulation_config(), std::move(initial_world),
-      simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));
+    // The accepted command mask is copied out **before** the mode is moved into the engine, which
+    // destroys it once it has read its declarations. It is the set a protocol v2 `welcome`
+    // advertises and the set the session boundary enforces, and copying the mode's own declaration
+    // is what keeps the advertised set and the enforced set from being two answers.
+    const simulation::CommandKindMask accepted_command_kinds = mode->accepted_command_kinds();
+    simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
+        application_config.simulation_config(), std::move(world),
+        simulation::GameSimulationSetup::of_mode(map, std::move(mode)));
+    rooms.push_back(std::make_unique<Room>(lobby_id, std::move(game_simulation),
+                                           accepted_command_kinds, match,
+                                           registered_npc_controller_kinds(), logger));
+  }
 
   // A prvalue, because the composition root is deliberately neither copyable nor movable: the
-  // controller host and the server hold references into the runtime this object owns.
-  return BlobRoyaleApplication{std::move(application_config), std::move(game_simulation),
-                               accepted_command_kinds, logger};
+  // directory and the server hold references into the rooms this object owns.
+  return BlobRoyaleApplication{std::move(application_config), std::move(rooms), logger};
 }
 
-BlobRoyaleApplication::BlobRoyaleApplication(
-    ApplicationConfig application_config, simulation::GameSimulation game_simulation,
-    const simulation::CommandKindMask accepted_command_kinds,
-    observability::StructuredLogger& logger)
-    : logger_(logger), application_config_(std::move(application_config)),
-      simulation_runtime_(std::move(game_simulation)),
-      controller_host_(simulation_runtime_.snapshot_publication(),
-                       simulation_runtime_.command_sink()),
-      // The only new capability the network boundary receives, and it is named in full here: a
-      // write-only command sink, a read-only presentation directory, and the map and accepted-kind
-      // identities a `welcome` announces. The server still receives no simulation, no runtime, and
-      // no lifecycle transition.
-      game_server_(application_config_.server_config(), simulation_runtime_.snapshot_publication(),
-                   server::MatchSessionContext::create(
-                       simulation_runtime_.command_sink(),
-                       simulation_runtime_.controller_directory(),
-                       std::string{application_config_.match_configuration().map_name()},
-                       accepted_command_kinds, registered_npc_controller_kinds()),
-                   logger_) {
-  // A mode with a lobby gets its bots from the reconciler, one per declared seat, on the control
-  // loop's first poll and every poll after; the roster was declared into the seats in `create`. A
-  // mode without one seats its roster here, in the constructor rather than in `create`, because
-  // this class is non-movable and a factory that configured a local could not return it -- every
-  // startup bot therefore exists before any caller can observe the object.
-  if (accepted_command_kinds.contains(simulation::CommandKind::kStartMatch)) {
-    bot_reconciler_.emplace(simulation_runtime_.command_sink(), controller_host_,
-                            application_config_.match_configuration().seed(), logger_);
-  } else {
-    seat_configured_bots();
+BlobRoyaleApplication::BlobRoyaleApplication(ApplicationConfig application_config,
+                                             std::vector<std::unique_ptr<Room>> rooms,
+                                             observability::StructuredLogger& logger)
+    : logger_(logger), application_config_(std::move(application_config)), rooms_(std::move(rooms)),
+      lobby_directory_(directory_of(rooms_)),
+      // The only capability the network boundary receives: every room's read-only publication and
+      // write-only session context, by lobby id. The server still receives no simulation, no
+      // runtime, and no lifecycle transition.
+      game_server_(application_config_.server_config(), lobby_directory_, logger_) {}
+
+server::LobbyDirectory
+BlobRoyaleApplication::directory_of(const std::span<const std::unique_ptr<Room>> rooms) {
+  std::vector<server::LobbyDirectory::Room> entries;
+  entries.reserve(rooms.size());
+  for (const std::unique_ptr<Room>& room : rooms) {
+    entries.push_back({.lobby_id = room->lobby_id(),
+                       .snapshot_publication = room->runtime().snapshot_publication(),
+                       .match_session = room->match_session()});
   }
+  return server::LobbyDirectory::create(std::move(entries));
 }
 
 std::vector<std::string> BlobRoyaleApplication::registered_npc_controller_kinds() {
@@ -439,28 +509,6 @@ std::vector<std::string> BlobRoyaleApplication::registered_npc_controller_kinds(
   return npc_controller_kinds;
 }
 
-void BlobRoyaleApplication::seat_configured_bots() {
-  const MatchConfiguration& match = application_config_.match_configuration();
-  for (const MatchConfiguration::BotRosterEntry& entry : match.bot_roster()) {
-    for (std::uint64_t ordinal = 1; ordinal <= entry.count; ++ordinal) {
-      // A bot opens a session exactly as a browser will, through the same `CommandSink`, and its
-      // display name is derived from the roster rather than supplied by anyone: nothing about a bot
-      // arrives from outside this process.
-      const std::string display_name = entry.controller_kind + " " + std::to_string(ordinal);
-      const simulation::ControllerId controller =
-          simulation_runtime_.command_sink().open_session(entry.controller_kind, display_name);
-      controller_host_.add(
-          controllers::ControllerRegistry::create(entry.controller_kind, controller, match.seed()));
-    }
-  }
-  if (!match.bot_roster().empty()) {
-    logger_.write({.severity = observability::LogSeverity::kInfo,
-                   .event = "controllers.roster_seated",
-                   .detail = "hosted_controller_count=" + std::to_string(controller_host_.size()) +
-                             " match_seed=" + std::to_string(match.seed())});
-  }
-}
-
 BlobRoyaleApplication::~BlobRoyaleApplication() noexcept { stop_owned_components(); }
 
 void BlobRoyaleApplication::run() {
@@ -476,11 +524,12 @@ void BlobRoyaleApplication::run() {
   std::optional<ApplicationControlWait> control_wait;
   try {
     control_wait.emplace(
-        simulation_runtime_, game_server_, controller_host_,
-        bot_reconciler_.has_value() ? &*bot_reconciler_ : nullptr,
+        rooms_, lobby_directory_, game_server_,
         presentation_interval_of(application_config_.server_config().snapshots_per_second()),
         logger_);
-    simulation_runtime_.start();
+    for (const std::unique_ptr<Room>& room : rooms_) {
+      room->runtime().start();
+    }
     start_server_thread();
     if (!game_server_.wait_for_startup_resolution(kServerStartupDeadline)) {
       throw ApplicationLifecycleError{ApplicationLifecycleErrorCode::kServerStartupTimedOut,
@@ -495,7 +544,8 @@ void BlobRoyaleApplication::run() {
     }
     logger_.write({.severity = observability::LogSeverity::kInfo,
                    .event = "application.running",
-                   .lifecycle_state = "running"});
+                   .lifecycle_state = "running",
+                   .detail = "lobby_count=" + std::to_string(rooms_.size())});
     wake_reason = control_wait->wait();
   } catch (...) {
     const std::exception_ptr control_failure = std::current_exception();
@@ -552,12 +602,16 @@ void BlobRoyaleApplication::stop_owned_components() noexcept {
       std::terminate();
     }
   }
-  simulation_runtime_.stop();
+  for (const std::unique_ptr<Room>& room : rooms_) {
+    room->runtime().stop();
+  }
 }
 
 void BlobRoyaleApplication::rethrow_retained_component_failure() const {
   game_server_.rethrow_if_failed();
-  simulation_runtime_.rethrow_if_failed();
+  for (const std::unique_ptr<Room>& room : rooms_) {
+    room->runtime().rethrow_if_failed();
+  }
 }
 
 } // namespace blob_royale::application

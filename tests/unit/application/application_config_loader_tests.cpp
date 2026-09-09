@@ -188,6 +188,30 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(run_request.application_config().lobbies_configuration().count() == 1);
 }
 
+TEST_CASE("application config loader refuses a scenario with more than one lobby",
+          "[unit][application][config][lobbies]") {
+  // A scenario seeds one specific world and a room is built per lobby from the map alone, so a
+  // scenario with several rooms would be several rooms of which only the first plays it.
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string two_lobbies = test_fixture::replace_once(
+      std::string{test_fixture::kValidConfiguration}, "count=1", "count=2");
+  const std::filesystem::path config_path = workspace.write_file("two-lobbies.cfg", two_lobbies);
+  const std::filesystem::path scenario_path = workspace.write_file("valid.csv", "scenario");
+
+  // Two rooms without a scenario is the deployed shape.
+  const ApplicationConfigLoader::Result accepted =
+      test_fixture::load_application_config(config_path);
+  REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(accepted));
+  CHECK(std::get<ApplicationConfigLoader::RunRequest>(accepted)
+            .application_config()
+            .lobbies_configuration()
+            .count() == 2);
+
+  test_fixture::require_application_input_error_code(
+      [&] { static_cast<void>(test_fixture::load_application_config(config_path, scenario_path)); },
+      ApplicationInputErrorCode::kLobbiesScenarioRequiresOneLobby);
+}
+
 TEST_CASE("application config loader accepts a run request with no scenario",
           "[unit][application][config][match]") {
   // A match is fully described by `[match]` and the map it names; a scenario only seeds extra

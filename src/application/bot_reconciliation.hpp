@@ -53,7 +53,8 @@ public:
       simulation::kSimulationTicksPerSecond;
 
   SeatBotReconciler(runtime::CommandSink& sink, controllers::ControllerHost& host,
-                    std::uint64_t match_seed, observability::StructuredLogger& logger) noexcept;
+                    std::uint64_t match_seed, std::uint64_t lobby_id,
+                    observability::StructuredLogger& logger) noexcept;
 
   SeatBotReconciler(const SeatBotReconciler&) = delete;
   SeatBotReconciler(SeatBotReconciler&&) = delete;
@@ -64,7 +65,14 @@ public:
   // One pass over one published snapshot: retire the bots whose seats no longer hold them, then
   // create a bot for every declared seat nobody holds. Never throws; a creation failure is logged
   // and remembered.
-  void reconcile(const simulation::WorldSnapshot& snapshot);
+  //
+  // **An abandoned room gets no bots.** When the control loop says `room_abandoned` -- no session
+  // is in the room while its match is in `countdown` or `running` -- every hosted bot is retired
+  // and none is created, so the match ends by attrition and the machine walks back to `lobby`
+  // (ADR 0006 § "The lobby lifecycle"); the next poll that finds the room in `lobby` reseats every
+  // declared NPC as usual. Retiring rather than pausing is deliberate: a bot's `leave` is what
+  // destroys its body, and a body left standing would hold the match open.
+  void reconcile(const simulation::WorldSnapshot& snapshot, bool room_abandoned = false);
 
   // The bots this reconciler created and has not retired, whether or not their joins have landed.
   [[nodiscard]] std::size_t hosted_bot_count() const noexcept { return bots_.size(); }
@@ -85,6 +93,7 @@ private:
   runtime::CommandSink* sink_;
   controllers::ControllerHost* host_;
   std::uint64_t match_seed_;
+  std::uint64_t lobby_id_;
   observability::StructuredLogger* logger_;
   std::map<simulation::ControllerId, HostedBot> bots_;
   std::map<std::string, std::uint64_t> display_ordinals_;

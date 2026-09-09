@@ -10,6 +10,7 @@
 #include "fixed_delta.hpp"
 #include "seat_roster.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -58,7 +59,11 @@ void require_match_fits_snapshot_bound(
     const std::span<const gameplay::HazardArchetype> hazard_archetypes) {
   const std::uint64_t static_body_count = map.static_bodies().size();
   const std::uint64_t session_seat_count = server::ServerLimits::kConcurrentWebSocketMaximumCount;
-  const std::uint64_t bot_count = match_configuration.total_bot_count();
+  // Since plan Step 6 a bot exists for every declared seat, and anyone in the lobby may declare
+  // one into any seat, so the roster is a floor and the engine's seat bound is the ceiling: a room
+  // can hold `kMaximumLobbySeatCount` bots whatever `[match] bots` says.
+  const std::uint64_t bot_count = std::max<std::uint64_t>(match_configuration.total_bot_count(),
+                                                          simulation::kMaximumLobbySeatCount);
   // The entities a mode's own systems create, which is one per tick by construction
   // (`simulation/simulation_limits.hpp`) and for royale is the zone entity.
   const std::uint64_t mode_created_count = simulation::kSystemCreatedEntityHeadroom;
@@ -87,7 +92,7 @@ void require_match_fits_snapshot_bound(
   throw ApplicationInputError{
       ApplicationInputErrorCode::kMatchEntityBudgetExceeded, "match.entity_budget",
       "map " + std::string{map.name()} + " seats " + std::to_string(static_body_count) +
-          " static bodies, the roster seats " + std::to_string(bot_count) + " bots, " +
+          " static bodies, up to " + std::to_string(bot_count) + " seats may hold bots, " +
           std::to_string(session_seat_count) + " session seats are admissible," + hazard_clause +
           " a mode may create " + std::to_string(mode_created_count) +
           " entity of its own, for a worst case of " + std::to_string(worst_case_entity_count) +

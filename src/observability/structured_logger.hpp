@@ -33,6 +33,9 @@ struct StructuredLogEvent final {
   std::optional<std::string_view> lifecycle_state = std::nullopt;
   std::optional<std::string_view> request_id = std::nullopt;
   std::optional<std::string_view> connection_id = std::nullopt;
+  // The room a line is about, `1..N`, on every room-scoped line: a runtime's counters, a session,
+  // a bot, a phase change. Absent on process-scoped lines.
+  std::optional<std::uint64_t> lobby_id = std::nullopt;
   std::optional<std::uint64_t> tick_sequence = std::nullopt;
   std::optional<unsigned int> http_status = std::nullopt;
   std::optional<std::uint16_t> close_code = std::nullopt;

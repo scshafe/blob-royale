@@ -61,9 +61,10 @@ public:
   SessionHarness()
       : publication_(fixture::initial_publication()),
         acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
+        lobbies_(fixture::single_lobby(publication_, match_session_.context())),
         server_context_(std::make_shared<server::ServerExecutionContext>(
-            server_io_context_, server_config(acceptor_.local_endpoint().port()), publication_,
-            match_session_.context(), log_capture_.logger)),
+            server_io_context_, server_config(acceptor_.local_endpoint().port()), lobbies_,
+            log_capture_.logger)),
         client_socket_(client_io_context_), server_socket_(server_io_context_) {
     client_socket_.connect(acceptor_.local_endpoint());
     acceptor_.accept(server_socket_);
@@ -131,6 +132,7 @@ private:
   fixture::MatchSessionFixture match_session_;
   fixture::LogCapture log_capture_;
   Tcp::acceptor acceptor_;
+  server::LobbyDirectory lobbies_;
   std::shared_ptr<server::ServerExecutionContext> server_context_;
   Tcp::socket client_socket_;
   Tcp::socket server_socket_;
@@ -423,9 +425,11 @@ public:
   explicit LiveRuntimeHarness(simulation::GameSimulation game = fixture::game_simulation())
       : simulation_runtime_(std::move(game)),
         acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
+        lobbies_(
+            fixture::single_lobby(simulation_runtime_.snapshot_publication(), match_context())),
         server_context_(std::make_shared<server::ServerExecutionContext>(
-            server_io_context_, server_config(acceptor_.local_endpoint().port()),
-            simulation_runtime_.snapshot_publication(), match_context(), log_capture_.logger)),
+            server_io_context_, server_config(acceptor_.local_endpoint().port()), lobbies_,
+            log_capture_.logger)),
         client_socket_(client_io_context_), server_socket_(server_io_context_) {
     simulation_runtime_.start();
     client_socket_.connect(acceptor_.local_endpoint());
@@ -474,11 +478,13 @@ public:
     return simulation_runtime_;
   }
   [[nodiscard]] const fixture::LogCapture& log_capture() const noexcept { return log_capture_; }
+  // The one room this harness serves, as the control loop would read it.
+  [[nodiscard]] const server::LobbyEntry& lobby() const { return lobbies_.room(1); }
 
 private:
   [[nodiscard]] server::MatchSessionContext match_context() {
     return server::MatchSessionContext::create(
-        simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
+        1, simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
         std::string{fixture::kFixtureMapName}, simulation::CommandKindMask::all(),
         std::vector<std::string>{"wanderer"});
   }
@@ -494,6 +500,7 @@ private:
   runtime::SimulationRuntime simulation_runtime_;
   fixture::LogCapture log_capture_;
   Tcp::acceptor acceptor_;
+  server::LobbyDirectory lobbies_;
   std::shared_ptr<server::ServerExecutionContext> server_context_;
   Tcp::socket client_socket_;
   Tcp::socket server_socket_;
@@ -567,6 +574,9 @@ TEST_CASE("SessionWebSocketSession asks for a seat it does not hold and leaves i
     return harness.simulation_runtime().controller_directory().size() == 1;
   });
   REQUIRE(harness.simulation_runtime().controller_directory().contains(issued));
+  // Counted into its room the moment it holds a controller, which is what the control loop reads
+  // to know the room is not abandoned.
+  CHECK(harness.lobby().session_count() == 1);
 
   // One slot, two asks: the spawn for the missing body and the join for the missing seat, and one
   // logged seat request whose answer is the sink's acceptance.
@@ -601,6 +611,13 @@ TEST_CASE("SessionWebSocketSession asks for a seat it does not hold and leaves i
   CHECK(latest_seats(harness) == simulation::SeatRoster::of_size(2));
   CHECK_FALSE(harness.simulation_runtime().controller_directory().contains(issued));
   CHECK(count_events(harness, "session.seat_requested") == 1);
+  CHECK(harness.lobby().session_count() == 0);
+  // Every line the session wrote names its room.
+  for (const auto& record : harness.log_capture().events()) {
+    if (record.event.starts_with("session.")) {
+      CHECK(record.lobby_id == 1);
+    }
+  }
 }
 
 TEST_CASE(

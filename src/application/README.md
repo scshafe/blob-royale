@@ -43,14 +43,27 @@ arena against the `[world]` scalars protocol v1 publishes, and the map's `spawn`
 would otherwise only fail once a match was being played. `LobbiesConfiguration` is the validated
 `[lobbies]` section -- how many rooms the process runs, bounded by the protocol's directory limit.
 
-`BlobRoyaleApplication` owns immutable configuration, then `SimulationRuntime`, then
-`ControllerHost`, then `GameServer` in destruction-safe order. It is the only file that knows every
-registry: it resolves the mode, hands the simulation the map and the mode, declares the `[match]
+`BlobRoyaleApplication` owns immutable configuration, then `[lobbies] count` `Room`s, then the
+`LobbyDirectory` the server reads them through, then `GameServer`, in destruction-safe order. A
+`Room` is the single-match server this process used to be -- its `SimulationRuntime` on its own
+thread, its `ControllerHost`, its `SeatBotReconciler`, and the `MatchSessionContext` its sessions
+run on -- numbered `1..N` and seeded `seed + (lobby_id - 1)`; room 1 plays the world the map and
+any scenario produced, and every further room plays the map alone, which is why the loader refuses
+a scenario with more than one room. The application is the only file that knows every registry: it
+resolves the mode once per room, hands each simulation the map and the mode, declares the `[match]
 bots` roster into the first seats of a mode that has a lobby -- or opens one `CommandSink` session
-per configured bot for a mode that has none -- and drives the host one decision pass per
-presentation frame on its own control thread. `SeatBotReconciler` runs on the same control poll and
-makes the live bots match the committed seats: one bot for every declared seat nobody holds, joined
-to exactly that seat, and none for a seat that was cleared, resized away, or taken by a person. `blob_controllers` and `blob_runtime` link no logger by contract, so this is also
+per configured bot for a mode that has none -- and drives every room from one control loop on the
+caller's thread: one decision pass per presentation frame for each host, and on every 25 ms poll
+each room's dropped commands, overruns and re-bases, phase changes (`match.phase_changed`), and bot
+reconciliation, every line carrying the room's `lobby_id`. `SeatBotReconciler` makes the live bots
+match the committed seats: one bot for every declared seat nobody holds, joined to exactly that
+seat, and none for a seat that was cleared, resized away, or taken by a person. **A room nobody is
+in has no bots**: when a room's session count is zero while its match is in `countdown` or
+`running`, the loop tells the reconciliation the room is abandoned, its bots leave, the match ends
+by attrition, and the machine walks back to `lobby`, where the bots are reseated. **A room that
+fails does not stop the process**: the loop logs `runtime.failed` once with the exception, the
+room's sessions close themselves because its publication is not ready, the other rooms keep
+serving, readiness reports room 1, and the failure is rethrown at shutdown. `blob_controllers` and `blob_runtime` link no logger by contract, so this is also
 where a rising dropped-command count, a controller failure, and a refused bot submission become
 structured log lines. It installs process signal handling on the caller thread, starts the runtime,
 runs the server on its owned `std::jthread`, and coordinates idempotent shutdown. Network acceptance

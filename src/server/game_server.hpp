@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SERVER_GAME_SERVER_HPP
 
 #include "game_server_state.hpp"
+#include "lobby_directory.hpp"
 #include "match_session_context.hpp"
 #include "server_config.hpp"
 #include "server_execution_context.hpp"
@@ -29,8 +30,10 @@ namespace blob_royale::server {
 // state through the write path.
 class GameServer final {
 public:
-  GameServer(ServerConfig server_config, const runtime::SnapshotPublication& snapshot_publication,
-             MatchSessionContext match_session_context, observability::StructuredLogger& logger);
+  // `lobbies` is every room the server may route a session to; it outlives the server, exactly as
+  // the one publication used to. Room 1 is what every route serves until plan Step 13.
+  GameServer(ServerConfig server_config, const LobbyDirectory& lobbies,
+             observability::StructuredLogger& logger);
 
   GameServer(const GameServer&) = delete;
   GameServer(GameServer&&) = delete;

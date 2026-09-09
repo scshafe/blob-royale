@@ -39,9 +39,10 @@ public:
   WebSocketSessionHarness()
       : publication_(fixture::initial_publication()),
         acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
+        lobbies_(fixture::single_lobby(publication_, match_session_.context())),
         server_context_(std::make_shared<server::ServerExecutionContext>(
-            server_io_context_, server_config(acceptor_.local_endpoint().port()), publication_,
-            match_session_.context(), log_capture_.logger)),
+            server_io_context_, server_config(acceptor_.local_endpoint().port()), lobbies_,
+            log_capture_.logger)),
         client_socket_(client_io_context_), server_socket_(server_io_context_) {
     client_socket_.connect(acceptor_.local_endpoint());
     acceptor_.accept(server_socket_);
@@ -103,6 +104,7 @@ private:
   fixture::MatchSessionFixture match_session_;
   fixture::LogCapture log_capture_;
   Tcp::acceptor acceptor_;
+  server::LobbyDirectory lobbies_;
   std::shared_ptr<server::ServerExecutionContext> server_context_;
   Tcp::socket client_socket_;
   Tcp::socket server_socket_;

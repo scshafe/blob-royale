@@ -33,13 +33,22 @@ unfilled_declaration(const simulation::Seat& seat) noexcept {
 } // namespace
 
 SeatBotReconciler::SeatBotReconciler(runtime::CommandSink& sink, controllers::ControllerHost& host,
-                                     const std::uint64_t match_seed,
+                                     const std::uint64_t match_seed, const std::uint64_t lobby_id,
                                      observability::StructuredLogger& logger) noexcept
-    : sink_(&sink), host_(&host), match_seed_(match_seed), logger_(&logger) {}
+    : sink_(&sink), host_(&host), match_seed_(match_seed), lobby_id_(lobby_id), logger_(&logger) {}
 
-void SeatBotReconciler::reconcile(const simulation::WorldSnapshot& snapshot) {
+void SeatBotReconciler::reconcile(const simulation::WorldSnapshot& snapshot,
+                                  const bool room_abandoned) {
   const simulation::SeatRoster& seats = snapshot.match().seats();
   const simulation::TickSequence observed = snapshot.tick_sequence();
+
+  if (room_abandoned) {
+    for (auto entry = bots_.begin(); entry != bots_.end();) {
+      retire_bot(entry->first, entry->second, "room_abandoned");
+      entry = bots_.erase(entry);
+    }
+    return;
+  }
 
   // 1. Retire every bot whose seat no longer holds it, once its join has had its budget to land.
   for (auto entry = bots_.begin(); entry != bots_.end();) {
@@ -110,6 +119,7 @@ void SeatBotReconciler::create_bot(const std::string_view kind, const std::size_
     bots_.emplace(controller, HostedBot{std::string(kind), seat_index, observed_tick});
     logger_->write({.severity = observability::LogSeverity::kInfo,
                     .event = "controllers.bot_created",
+                    .lobby_id = lobby_id_,
                     .detail = "controller_id=" + std::to_string(controller.value()) + " kind=" +
                               std::string(kind) + " seat_index=" + std::to_string(seat_index)});
   } catch (const std::exception& failure) {
@@ -119,6 +129,7 @@ void SeatBotReconciler::create_bot(const std::string_view kind, const std::size_
     failed_seat_kinds_[seat_index] = std::string(kind);
     logger_->write({.severity = observability::LogSeverity::kError,
                     .event = "controllers.bot_creation_failed",
+                    .lobby_id = lobby_id_,
                     .error_code = "CONTROLLERS.BOT_CREATION_FAILED",
                     .detail = "kind=" + std::string(kind) + " seat_index=" +
                               std::to_string(seat_index) + " reason=" + failure.what()});
@@ -134,6 +145,7 @@ void SeatBotReconciler::retire_bot(const simulation::ControllerId controller, co
     static_cast<void>(host_->remove(controller));
     logger_->write({.severity = observability::LogSeverity::kInfo,
                     .event = "controllers.bot_retired",
+                    .lobby_id = lobby_id_,
                     .detail = "controller_id=" + std::to_string(controller.value()) + " kind=" +
                               bot.kind + " seat_index=" + std::to_string(bot.seat_index) +
                               " reason=" + std::string(reason)});

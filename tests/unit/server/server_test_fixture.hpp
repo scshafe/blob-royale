@@ -7,6 +7,7 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "lobby_directory.hpp"
 #include "match_session_context.hpp"
 #include "physics_body.hpp"
 #include "server_config.hpp"
@@ -91,9 +92,9 @@ public:
   MatchSessionFixture& operator=(MatchSessionFixture&&) = delete;
   ~MatchSessionFixture() = default;
 
-  [[nodiscard]] MatchSessionContext context() const {
+  [[nodiscard]] MatchSessionContext context(const std::uint64_t lobby_id = 1) const {
     return MatchSessionContext::create(
-        simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
+        lobby_id, simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
         std::string{kFixtureMapName}, simulation::CommandKindMask::all(),
         std::vector<std::string>{"wanderer", "chaser"});
   }
@@ -108,6 +109,16 @@ public:
 private:
   mutable runtime::SimulationRuntime simulation_runtime_;
 };
+
+// The one-room directory every single-match harness serves: what the server received before rooms
+// existed, in the shape it receives now.
+[[nodiscard]] inline LobbyDirectory single_lobby(const runtime::SnapshotPublication& publication,
+                                                 MatchSessionContext context) {
+  std::vector<LobbyDirectory::Room> rooms;
+  rooms.push_back(
+      {.lobby_id = 1, .snapshot_publication = publication, .match_session = std::move(context)});
+  return LobbyDirectory::create(std::move(rooms));
+}
 
 [[nodiscard]] inline GameApiHttpRequest request(const boost::beast::http::verb method,
                                                 const std::string_view target,

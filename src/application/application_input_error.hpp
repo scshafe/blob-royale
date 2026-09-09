@@ -49,6 +49,7 @@ enum class ApplicationInputErrorCode {
   kMatchLobbySeatCountOutOfRange,
   kMatchLobbyExceedsSpawnMarkers,
   kLobbiesCountOutOfRange,
+  kLobbiesScenarioRequiresOneLobby,
   kMapFileMissing,
   kMapPathNotRegularFile,
   kMapFileTooLarge,
@@ -146,6 +147,8 @@ application_input_error_code_name(const ApplicationInputErrorCode code) noexcept
     return "APPLICATION.MATCH.LOBBY_EXCEEDS_SPAWN_MARKERS";
   case ApplicationInputErrorCode::kLobbiesCountOutOfRange:
     return "APPLICATION.LOBBIES.COUNT_OUT_OF_RANGE";
+  case ApplicationInputErrorCode::kLobbiesScenarioRequiresOneLobby:
+    return "APPLICATION.LOBBIES.SCENARIO_REQUIRES_ONE_LOBBY";
   case ApplicationInputErrorCode::kMapFileMissing:
     return "APPLICATION.MAP.FILE_MISSING";
   case ApplicationInputErrorCode::kMapPathNotRegularFile:

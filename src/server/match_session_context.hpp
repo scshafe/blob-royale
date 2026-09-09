@@ -8,6 +8,7 @@
 
 #include "command_kind_mask.hpp"
 
+#include <cstdint>
 #include <span>
 #include <string>
 #include <vector>
@@ -51,8 +52,11 @@ public:
   // Validates the map name and every published NPC controller kind against
   // `common.schema.json#/$defs/kind_name`, because a name the welcome could not encode must fail at
   // startup rather than on every session's first frame.
+  //
+  // `lobby_id` is the room this capability belongs to, `1..N`: every line a session logs carries
+  // it, and protocol 2.4's `welcome.lobby_id` publishes it. Zero is refused.
   [[nodiscard]] static MatchSessionContext
-  create(runtime::CommandSink& command_sink,
+  create(std::uint64_t lobby_id, runtime::CommandSink& command_sink,
          const runtime::ControllerDirectory& controller_directory, std::string map_name,
          simulation::CommandKindMask accepted_command_kinds,
          std::vector<std::string> npc_controller_kinds);
@@ -63,6 +67,7 @@ public:
   MatchSessionContext& operator=(MatchSessionContext&&) noexcept = default;
   ~MatchSessionContext() = default;
 
+  [[nodiscard]] std::uint64_t lobby_id() const noexcept { return lobby_id_; }
   [[nodiscard]] runtime::CommandSink& command_sink() const noexcept { return *command_sink_; }
 
   [[nodiscard]] const protocol::ControllerDirectoryView& directory_view() const& noexcept {
@@ -84,11 +89,12 @@ public:
   [[nodiscard]] std::span<const std::string> npc_controller_kinds() const&& = delete;
 
 private:
-  MatchSessionContext(runtime::CommandSink& command_sink,
+  MatchSessionContext(std::uint64_t lobby_id, runtime::CommandSink& command_sink,
                       const runtime::ControllerDirectory& controller_directory,
                       std::string map_name, simulation::CommandKindMask accepted_command_kinds,
                       std::vector<std::string> npc_controller_kinds) noexcept;
 
+  std::uint64_t lobby_id_;
   runtime::CommandSink* command_sink_;
   RuntimeControllerDirectoryView directory_view_;
   std::string map_name_;

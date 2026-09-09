@@ -126,6 +126,7 @@ void SessionWebSocketSession::accepted(const boost::system::error_code& error) {
                                      .event = "session.handshake_failed",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
+                                     .lobby_id = server_context_->match_session().lobby_id(),
                                      .context = "session.accept",
                                      .detail = error_detail});
     finish();
@@ -147,6 +148,7 @@ void SessionWebSocketSession::accepted(const boost::system::error_code& error) {
                                      .event = "session.join_refused",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
+                                     .lobby_id = server_context_->match_session().lobby_id(),
                                      .error_code = sink_error.code(),
                                      .context = sink_error.context(),
                                      .detail = detail});
@@ -161,7 +163,8 @@ void SessionWebSocketSession::accepted(const boost::system::error_code& error) {
   server_context_->logger().write({.severity = observability::LogSeverity::kInfo,
                                    .event = "session.opened",
                                    .request_id = request_id_.value(),
-                                   .connection_id = request_id_.value()});
+                                   .connection_id = request_id_.value(),
+                                   .lobby_id = server_context_->match_session().lobby_id()});
   read_client_frame();
   schedule_idle_check();
   schedule_presentation_slot();
@@ -186,11 +189,15 @@ void SessionWebSocketSession::open_match_session() {
                                      .event = "session.display_name_fallback",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
+                                     .lobby_id = server_context_->match_session().lobby_id(),
                                      .context = "session.display_name",
                                      .detail = detail});
   }
   controller_ = server_context_->match_session().command_sink().open_session(kSessionControllerKind,
                                                                              display_name);
+  // In the room from the moment it holds a controller: the control loop reads this count to know
+  // whether anybody is still here (`lobby_directory.hpp`).
+  server_context_->lobby().count_session_in();
 }
 
 void SessionWebSocketSession::read_client_frame() {
@@ -345,6 +352,7 @@ void SessionWebSocketSession::log_lobby_command(
                                    .event = "session.lobby_command",
                                    .request_id = request_id_.value(),
                                    .connection_id = request_id_.value(),
+                                   .lobby_id = server_context_->match_session().lobby_id(),
                                    .context = "session.lobby_command",
                                    .detail = detail});
 }
@@ -536,6 +544,7 @@ void SessionWebSocketSession::request_seat_if_absent(
        .event = "session.seat_requested",
        .request_id = request_id_.value(),
        .connection_id = request_id_.value(),
+       .lobby_id = server_context_->match_session().lobby_id(),
        .tick_sequence = observed.value(),
        .context = "session.seat_requested",
        .detail = "result=" + std::string(runtime::command_submission_result_name(result))});
@@ -814,6 +823,7 @@ void SessionWebSocketSession::leave_match() noexcept {
     return;
   }
   left_match_ = true;
+  server_context_->lobby().count_session_out();
   try {
     // **The sink leaves on this session's behalf.** `close_session` enqueues a `leave` for the
     // controller before retiring it, and the tick destroys whatever the controller drove -- a
@@ -845,6 +855,7 @@ void SessionWebSocketSession::finish() noexcept {
                                      .event = "session.closed",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
+                                     .lobby_id = server_context_->match_session().lobby_id(),
                                      .tick_sequence = delivery_state_.last_delivered_tick(),
                                      .close_code = close_code});
   }

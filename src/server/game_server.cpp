@@ -9,13 +9,10 @@
 
 namespace blob_royale::server {
 
-GameServer::GameServer(ServerConfig server_config,
-                       const runtime::SnapshotPublication& snapshot_publication,
-                       MatchSessionContext match_session_context,
+GameServer::GameServer(ServerConfig server_config, const LobbyDirectory& lobbies,
                        observability::StructuredLogger& logger)
     : logger_(logger), server_context_(std::make_shared<ServerExecutionContext>(
-                           io_context_, std::move(server_config), snapshot_publication,
-                           std::move(match_session_context), logger_)) {
+                           io_context_, std::move(server_config), lobbies, logger_)) {
   logger_.write({.severity = observability::LogSeverity::kInfo,
                  .event = "server.ready",
                  .lifecycle_state = "ready"});

@@ -17,6 +17,7 @@
 #include "commands/join_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "controller_id.hpp"
+#include "match_phase.hpp"
 #include "seat_roster.hpp"
 #include "world_snapshot.hpp"
 
@@ -64,14 +65,15 @@ inline constexpr std::string_view kSessionControllerKind = "session";
 
 SessionWebSocketSession::SessionWebSocketSession(
     Tcp::socket socket, std::shared_ptr<ServerExecutionContext> server_context,
-    std::string peer_address, protocol::RequestId request_id, PeerIdentity peer_identity,
-    WebSocketAdmissionLease websocket_lease, TcpAdmissionLease tcp_lease)
+    const LobbyEntry& lobby, std::string peer_address, protocol::RequestId request_id,
+    PeerIdentity peer_identity, WebSocketAdmissionLease websocket_lease,
+    TcpAdmissionLease tcp_lease)
     : websocket_(std::move(socket)),
       read_buffer_(ServerLimits::kInboundWebSocketMessageMaximumByteCount),
-      server_context_(std::move(server_context)), peer_address_(std::move(peer_address)),
-      request_id_(std::move(request_id)), peer_identity_(std::move(peer_identity)),
-      websocket_lease_(std::move(websocket_lease)), tcp_lease_(std::move(tcp_lease)),
-      presentation_timer_(websocket_.get_executor()),
+      server_context_(std::move(server_context)), lobby_(&lobby),
+      peer_address_(std::move(peer_address)), request_id_(std::move(request_id)),
+      peer_identity_(std::move(peer_identity)), websocket_lease_(std::move(websocket_lease)),
+      tcp_lease_(std::move(tcp_lease)), presentation_timer_(websocket_.get_executor()),
       write_deadline_timer_(websocket_.get_executor()), idle_timer_(websocket_.get_executor()),
       pong_timer_(websocket_.get_executor()), control_frame_rate_policy_(Clock::now()),
       command_rate_policy_(Clock::now()), next_presentation_deadline_(Clock::now()),
@@ -126,7 +128,7 @@ void SessionWebSocketSession::accepted(const boost::system::error_code& error) {
                                      .event = "session.handshake_failed",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
-                                     .lobby_id = server_context_->match_session().lobby_id(),
+                                     .lobby_id = lobby_->lobby_id(),
                                      .context = "session.accept",
                                      .detail = error_detail});
     finish();
@@ -148,7 +150,7 @@ void SessionWebSocketSession::accepted(const boost::system::error_code& error) {
                                      .event = "session.join_refused",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
-                                     .lobby_id = server_context_->match_session().lobby_id(),
+                                     .lobby_id = lobby_->lobby_id(),
                                      .error_code = sink_error.code(),
                                      .context = sink_error.context(),
                                      .detail = detail});
@@ -164,7 +166,7 @@ void SessionWebSocketSession::accepted(const boost::system::error_code& error) {
                                    .event = "session.opened",
                                    .request_id = request_id_.value(),
                                    .connection_id = request_id_.value(),
-                                   .lobby_id = server_context_->match_session().lobby_id()});
+                                   .lobby_id = lobby_->lobby_id()});
   read_client_frame();
   schedule_idle_check();
   schedule_presentation_slot();
@@ -189,15 +191,15 @@ void SessionWebSocketSession::open_match_session() {
                                      .event = "session.display_name_fallback",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
-                                     .lobby_id = server_context_->match_session().lobby_id(),
+                                     .lobby_id = lobby_->lobby_id(),
                                      .context = "session.display_name",
                                      .detail = detail});
   }
-  controller_ = server_context_->match_session().command_sink().open_session(kSessionControllerKind,
-                                                                             display_name);
+  controller_ =
+      lobby_->match_session().command_sink().open_session(kSessionControllerKind, display_name);
   // In the room from the moment it holds a controller: the control loop reads this count to know
   // whether anybody is still here (`lobby_directory.hpp`).
-  server_context_->lobby().count_session_in();
+  lobby_->count_session_in();
 }
 
 void SessionWebSocketSession::read_client_frame() {
@@ -271,8 +273,8 @@ void SessionWebSocketSession::admit_client_command(const std::string_view frame)
   const simulation::ControllerId stamped_controller =
       controller_.value_or(simulation::ControllerId::create(1));
   const protocol::CommandDecodeResult decoded = protocol::decode_command_envelope(
-      frame, server_context_->match_session().accepted_command_kinds(), stamped_entity,
-      stamped_controller, server_context_->match_session().npc_controller_kinds());
+      frame, lobby_->match_session().accepted_command_kinds(), stamped_entity, stamped_controller,
+      lobby_->match_session().npc_controller_kinds());
   if (!decoded.is_accepted()) {
     switch (decoded.rejection()) {
     case protocol::CommandDecodeRejection::kMessageTooLarge:
@@ -316,7 +318,7 @@ void SessionWebSocketSession::admit_client_command(const std::string_view frame)
     return;
   }
   const runtime::CommandSubmissionResult result =
-      server_context_->match_session().command_sink().submit(*controller_, *decoded.command());
+      lobby_->match_session().command_sink().submit(*controller_, *decoded.command());
   log_lobby_command(*decoded.command(), result);
 }
 
@@ -352,7 +354,7 @@ void SessionWebSocketSession::log_lobby_command(
                                    .event = "session.lobby_command",
                                    .request_id = request_id_.value(),
                                    .connection_id = request_id_.value(),
-                                   .lobby_id = server_context_->match_session().lobby_id(),
+                                   .lobby_id = lobby_->lobby_id(),
                                    .context = "session.lobby_command",
                                    .detail = detail});
 }
@@ -425,17 +427,22 @@ void SessionWebSocketSession::presentation_slot(const boost::system::error_code&
     advance_presentation_deadline();
   } while (next_presentation_deadline_ <= now);
 
-  if (!server_context_->publication().is_ready()) {
+  if (!lobby_->snapshot_publication().is_ready()) {
     request_close(CloseIntent::kServiceNotReady);
     return;
   }
   try {
     if (!control_write_active_) {
       const std::shared_ptr<const simulation::WorldSnapshot> latest =
-          server_context_->publication().latest();
+          lobby_->snapshot_publication().latest();
       observe_own_entity(*latest);
       request_body_if_absent(latest->tick_sequence());
       request_seat_if_absent(*latest);
+      if (close_requested_) {
+        // The roster had no seat to give: the session is closing `lobby_full` and there is no
+        // welcome to write, because there is no body to name in one.
+        return;
+      }
 
       if (!welcome_delivered_) {
         // The welcome precedes every snapshot, and it cannot be built before this session has a
@@ -501,7 +508,7 @@ void SessionWebSocketSession::request_body_if_absent(
     return;
   }
   last_spawn_request_tick_ = observed;
-  static_cast<void>(server_context_->match_session().command_sink().submit(
+  static_cast<void>(lobby_->match_session().command_sink().submit(
       *controller_, simulation::Command{simulation::SpawnCommand{*controller_}}));
 }
 
@@ -525,6 +532,29 @@ void SessionWebSocketSession::request_seat_if_absent(
       return;
     }
   }
+  // **A join that could change nothing is not submitted; the session is closed.** The roster this
+  // slot observed has no seat a person's join could take -- no empty seat, and no declared bot's
+  // seat to displace while the match has not started -- and this controller sits nowhere in it.
+  // That is the last-seat race lost, or a room joined after its match filled, and it is a total
+  // condition on committed state, so the answer is `1013 lobby_full` now rather than an ask every
+  // tenth of a second until the socket times out. The rule is the tick's own: `first_joinable_seat`
+  // is what `apply_join` seats with, so a session is never closed for a seat the tick would have
+  // given it (`docs/protocol/v2.md` § "The lobby directory").
+  const simulation::MatchPhase phase = snapshot.match().phase();
+  if (!simulation::first_joinable_seat(seats, phase).has_value()) {
+    server_context_->logger().write(
+        {.severity = observability::LogSeverity::kWarning,
+         .event = "session.lobby_full",
+         .request_id = request_id_.value(),
+         .connection_id = request_id_.value(),
+         .lobby_id = lobby_->lobby_id(),
+         .tick_sequence = snapshot.tick_sequence().value(),
+         .context = "session.seat_request",
+         .detail = "seat_count=" + std::to_string(seats.seat_count()) +
+                   " phase=" + std::string{simulation::match_phase_name(phase)}});
+    request_close(CloseIntent::kLobbyFull);
+    return;
+  }
   const simulation::TickSequence observed = snapshot.tick_sequence();
   if (last_seat_request_tick_.has_value() &&
       observed.value() <
@@ -536,15 +566,14 @@ void SessionWebSocketSession::request_seat_if_absent(
   // join that finds nothing to take is the no-op that lets this ask again. Each ask is one `info`
   // line, so a session that keeps asking -- a full lobby with nobody to displace -- is visible as
   // exactly that, ten lines a second, rather than as a player who silently never sat down.
-  const runtime::CommandSubmissionResult result =
-      server_context_->match_session().command_sink().submit(
-          *controller_, simulation::Command{simulation::JoinCommand{*controller_, std::nullopt}});
+  const runtime::CommandSubmissionResult result = lobby_->match_session().command_sink().submit(
+      *controller_, simulation::Command{simulation::JoinCommand{*controller_, std::nullopt}});
   server_context_->logger().write(
       {.severity = observability::LogSeverity::kInfo,
        .event = "session.seat_requested",
        .request_id = request_id_.value(),
        .connection_id = request_id_.value(),
-       .lobby_id = server_context_->match_session().lobby_id(),
+       .lobby_id = lobby_->lobby_id(),
        .tick_sequence = observed.value(),
        .context = "session.seat_requested",
        .detail = "result=" + std::string(runtime::command_submission_result_name(result))});
@@ -553,12 +582,12 @@ void SessionWebSocketSession::request_seat_if_absent(
 void SessionWebSocketSession::start_welcome_write(const simulation::EntityId entity,
                                                   SnapshotEgressLease egress_lease) {
   active_egress_lease_.emplace(std::move(egress_lease));
-  const MatchSessionContext& match_session = server_context_->match_session();
+  const MatchSessionContext& match_session = lobby_->match_session();
   try {
     const std::span<const std::string> npc_controller_kinds = match_session.npc_controller_kinds();
     const protocol::SessionWelcome welcome = protocol::SessionWelcome::create(
         entity, *controller_, peer_identity_.display_name_for(*session_id_),
-        std::string{server_context_->publication().latest()->match().mode_name()},
+        std::string{lobby_->snapshot_publication().latest()->match().mode_name()},
         match_session.map_name(), match_session.accepted_command_kinds(),
         std::vector<std::string>{npc_controller_kinds.begin(), npc_controller_kinds.end()},
         match_session.lobby_id(), match_session.seat_count_maximum());
@@ -619,7 +648,7 @@ void SessionWebSocketSession::start_snapshot_write(SnapshotDelivery delivery,
     // already spent message sequence one, so a snapshot's sequence is its delivery number plus the
     // welcome's. The first snapshot is therefore two, which is what the schema pins.
     active_write_payload_ = protocol::encode_snapshot_message_v2(
-        *delivery.snapshot, server_context_->match_session().directory_view(), request_id_,
+        *delivery.snapshot, lobby_->match_session().directory_view(), request_id_,
         delivery.message_sequence + protocol::kWelcomeMessageSequence, current_utc_timestamp(),
         active_egress_lease_->owned_byte_count());
   } catch (const protocol::ProtocolEncodingError& error) {
@@ -824,7 +853,7 @@ void SessionWebSocketSession::leave_match() noexcept {
     return;
   }
   left_match_ = true;
-  server_context_->lobby().count_session_out();
+  lobby_->count_session_out();
   try {
     // **The sink leaves on this session's behalf.** `close_session` enqueues a `leave` for the
     // controller before retiring it, and the tick destroys whatever the controller drove -- a
@@ -833,7 +862,7 @@ void SessionWebSocketSession::leave_match() noexcept {
     // which is the property a session-side despawn could not have: it despawned only what the last
     // presentation slot had observed, and a spawn submitted at that slot and applied after it left
     // a body nobody owned (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 1).
-    static_cast<void>(server_context_->match_session().command_sink().close_session(*controller_));
+    static_cast<void>(lobby_->match_session().command_sink().close_session(*controller_));
   } catch (...) {
     // The operation does not throw by contract; a terminal path may not propagate regardless.
   }
@@ -856,7 +885,7 @@ void SessionWebSocketSession::finish() noexcept {
                                      .event = "session.closed",
                                      .request_id = request_id_.value(),
                                      .connection_id = request_id_.value(),
-                                     .lobby_id = server_context_->match_session().lobby_id(),
+                                     .lobby_id = lobby_->lobby_id(),
                                      .tick_sequence = delivery_state_.last_delivered_tick(),
                                      .close_code = close_code});
   }
@@ -916,6 +945,7 @@ std::uint16_t SessionWebSocketSession::close_code_for(const CloseIntent close_in
     return static_cast<std::uint16_t>(websocket::close_code::internal_error);
   case CloseIntent::kSlowConsumer:
   case CloseIntent::kServiceNotReady:
+  case CloseIntent::kLobbyFull:
     return 1013;
   }
   return static_cast<std::uint16_t>(websocket::close_code::internal_error);
@@ -967,6 +997,9 @@ websocket::close_reason SessionWebSocketSession::close_reason_for(const CloseInt
     break;
   case CloseIntent::kServiceNotReady:
     result.reason = "service_not_ready";
+    break;
+  case CloseIntent::kLobbyFull:
+    result.reason = "lobby_full";
     break;
   }
   return result;

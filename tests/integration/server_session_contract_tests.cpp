@@ -1,6 +1,10 @@
 #include "integration_test_error.hpp"
+#include "loopback_http_client.hpp"
 #include "server_fixture_state.hpp"
 #include "session_websocket_client.hpp"
+
+#include <boost/beast/http/status.hpp>
+#include <boost/beast/http/verb.hpp>
 
 #include <boost/json/object.hpp>
 #include <boost/json/parse.hpp>
@@ -34,6 +38,32 @@ constexpr auto kTransportOperationTimeout = std::chrono::seconds{5};
 // spawn markers -- so the commanding blob provably moved and provably did not reach anyone else.
 constexpr std::uint64_t kTicksAwaitedAfterCommand = 40;
 constexpr std::uint16_t kPolicyErrorCloseCode = 1'008;
+constexpr std::string_view kRoomTwoTarget = "/api/v2/lobbies/2/session";
+constexpr std::string_view kDirectoryTarget = "/api/v2/lobbies";
+constexpr std::string_view kLobbyDirectorySchemaId = "blob-royale://protocol/v2/lobby-directory";
+constexpr std::string_view kV2ErrorSchemaId = "blob-royale://protocol/v2/error-response";
+// The fixture trusts the loopback proxy, so every client names the address it is forwarding and is
+// accounted to it: six sessions from one test process, none sharing an upgrade bucket.
+constexpr std::string_view kFirstClient = "100.64.0.1";
+constexpr std::string_view kSecondClient = "100.64.0.2";
+constexpr std::string_view kRoomTwoFirstClient = "100.64.0.3";
+constexpr std::string_view kRoomTwoSecondClient = "100.64.0.4";
+constexpr std::string_view kRoomTwoRefusedClient = "100.64.0.5";
+constexpr std::string_view kHttpClient = "100.64.0.6";
+
+// One directory listing, as `lobby-directory-data.schema.json` shapes it and this contract reads
+// it.
+struct PublishedLobby final {
+  std::uint64_t lobby_id;
+  std::string mode;
+  std::string phase;
+  std::uint64_t seat_count;
+  std::uint64_t seat_count_maximum;
+  std::uint64_t filled_seat_count;
+  std::uint64_t npc_seat_count;
+  std::uint64_t session_count;
+  bool healthy;
+};
 
 // One published seat, exactly as `match-data.schema.json` shapes it: every member present, the ones
 // that do not apply null.
@@ -223,6 +253,122 @@ require_body(const std::map<std::uint64_t, PublishedBody>& bodies, const std::ui
 // Reads snapshots until the named entity is published with both components, then returns that
 // frame. A spawn is applied on a later tick than the one that admitted the session, and royale's
 // spawn policy may defer a seat, so waiting is the ordinary case rather than a failure.
+[[nodiscard]] std::uint64_t required_unsigned_member(const json::object& parent,
+                                                     const std::string_view name,
+                                                     const std::string_view operation) {
+  const json::value* const member = parent.if_contains(name);
+  if (member == nullptr || !member->is_number()) {
+    throw_contract_violation(operation, "document is missing a required unsigned member");
+  }
+  return member->to_number<std::uint64_t>();
+}
+
+// `GET /api/v2/lobbies`, validated to the shape the contract asserts over.
+[[nodiscard]] std::vector<PublishedLobby> read_directory(const LoopbackHttpClient& http_client,
+                                                         const std::string_view request_id,
+                                                         const std::string_view origin) {
+  constexpr std::string_view kOperation = "session_contracts.directory";
+  const IntegrationHttpResponse response = http_client.request(
+      boost::beast::http::verb::get, kDirectoryTarget, request_id, origin, kHttpClient);
+  if (response.result() != boost::beast::http::status::ok) {
+    throw_contract_violation(kOperation, "the directory did not answer 200");
+  }
+  if (std::string_view{response.at("X-Request-ID")} != request_id) {
+    throw_contract_violation(kOperation, "the directory did not echo the request id");
+  }
+  const json::value document = json::parse(response.body());
+  if (!document.is_object()) {
+    throw_contract_violation(kOperation, "the directory is not a JSON object");
+  }
+  const json::object& envelope = document.as_object();
+  const json::object& meta = required_object(envelope, "meta", kOperation);
+  if (required_string(meta, "schema_id", kOperation) != kLobbyDirectorySchemaId ||
+      required_string(meta, "protocol_version", kOperation) != "2.4") {
+    throw_contract_violation(kOperation, "the directory named the wrong schema or version");
+  }
+  const json::value* const error = envelope.if_contains("error");
+  if (error == nullptr || !error->is_null()) {
+    throw_contract_violation(kOperation, "a 200 directory carried an error");
+  }
+  const json::object& data = required_object(envelope, "data", kOperation);
+  const json::value* const lobbies = data.if_contains("lobbies");
+  if (lobbies == nullptr || !lobbies->is_array()) {
+    throw_contract_violation(kOperation, "the directory is missing its lobbies array");
+  }
+  std::vector<PublishedLobby> result;
+  for (const json::value& entry : lobbies->as_array()) {
+    if (!entry.is_object()) {
+      throw_contract_violation(kOperation, "a listing is not an object");
+    }
+    const json::object& listing = entry.as_object();
+    const json::value* const healthy = listing.if_contains("healthy");
+    if (healthy == nullptr || !healthy->is_bool()) {
+      throw_contract_violation(kOperation, "a listing is missing healthy");
+    }
+    result.push_back(PublishedLobby{
+        .lobby_id = required_unsigned_member(listing, "lobby_id", kOperation),
+        .mode = required_string(listing, "mode", kOperation),
+        .phase = required_string(listing, "phase", kOperation),
+        .seat_count = required_unsigned_member(listing, "seat_count", kOperation),
+        .seat_count_maximum = required_unsigned_member(listing, "seat_count_maximum", kOperation),
+        .filled_seat_count = required_unsigned_member(listing, "filled_seat_count", kOperation),
+        .npc_seat_count = required_unsigned_member(listing, "npc_seat_count", kOperation),
+        .session_count = required_unsigned_member(listing, "session_count", kOperation),
+        .healthy = healthy->as_bool()});
+  }
+  return result;
+}
+
+// The v2 error envelope of a refused request: its code, and the room it named, if any.
+struct RefusedRequest final {
+  std::uint16_t status;
+  std::string code;
+  bool retryable;
+  std::optional<std::uint64_t> lobby_id;
+};
+
+[[nodiscard]] RefusedRequest
+parse_refusal(const boost::beast::http::response<boost::beast::http::string_body>& response,
+              const std::string_view operation) {
+  const json::value document = json::parse(response.body());
+  if (!document.is_object()) {
+    throw_contract_violation(operation, "the refusal is not a JSON object");
+  }
+  const json::object& envelope = document.as_object();
+  const json::object& meta = required_object(envelope, "meta", operation);
+  if (required_string(meta, "schema_id", operation) != kV2ErrorSchemaId) {
+    throw_contract_violation(operation, "the refusal did not carry the v2 error envelope");
+  }
+  const json::object& error = required_object(envelope, "error", operation);
+  const json::value* const retryable = error.if_contains("retryable");
+  if (retryable == nullptr || !retryable->is_bool()) {
+    throw_contract_violation(operation, "the refusal is missing retryable");
+  }
+  const json::object& details = required_object(error, "details", operation);
+  std::optional<std::uint64_t> lobby_id;
+  if (details.contains("lobby_id")) {
+    lobby_id = required_unsigned_member(details, "lobby_id", operation);
+  }
+  return RefusedRequest{.status = static_cast<std::uint16_t>(response.result_int()),
+                        .code = required_string(error, "code", operation),
+                        .retryable = retryable->as_bool(),
+                        .lobby_id = lobby_id};
+}
+
+// Reads snapshots until the roster publishes exactly `seat_count` seats, then returns that frame.
+[[nodiscard]] std::string await_seat_count(SessionWebSocketClient& client,
+                                           const std::size_t seat_count,
+                                           const std::string_view operation) {
+  for (std::uint64_t attempt = 0; attempt < 600; ++attempt) {
+    std::string frame = client.read_snapshot_message();
+    if (published_seats(frame, operation).size() == seat_count) {
+      return frame;
+    }
+  }
+  throw IntegrationTestError{IntegrationTestErrorCode::kDeadlineExceeded, std::string{operation},
+                             "the lobby never published the requested seat count"};
+}
+
 [[nodiscard]] std::string await_seated_entity(SessionWebSocketClient& client,
                                               const std::uint64_t entity_id,
                                               const std::string_view operation) {
@@ -245,16 +391,29 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   const std::string allowed_origin =
       std::string{"http://127.0.0.1:"}.append(std::to_string(fixture.port()));
 
-  // Two sessions join the same royale match the configured bot is already in.
-  SessionWebSocketClient first{fixture.port(), allowed_origin, "integration.session.first",
-                               kTransportOperationTimeout};
+  // Two sessions join the same royale match the configured bot is already in: room 1, which is
+  // what `/api/v2/session` has always named.
+  SessionWebSocketClient first{fixture.port(),
+                               allowed_origin,
+                               "integration.session.first",
+                               kTransportOperationTimeout,
+                               std::string{kDefaultSessionTarget},
+                               std::string{kFirstClient}};
   static_cast<void>(first.read_welcome_message());
-  SessionWebSocketClient second{fixture.port(), allowed_origin, "integration.session.second",
-                                kTransportOperationTimeout};
+  SessionWebSocketClient second{fixture.port(),
+                                allowed_origin,
+                                "integration.session.second",
+                                kTransportOperationTimeout,
+                                std::string{kDefaultSessionTarget},
+                                std::string{kSecondClient}};
   static_cast<void>(second.read_welcome_message());
 
   if (first.controller_id() == second.controller_id() || first.entity_id() == second.entity_id()) {
     throw_contract_violation("session_contracts.identity", "two sessions were issued one identity");
+  }
+  if (first.lobby_id() != 1 || second.lobby_id() != 1 || first.seat_count_maximum() != 6) {
+    throw_contract_violation("session_contracts.welcome",
+                             "the welcome did not name room 1 and the map's six markers");
   }
   if (first.handshake_response().at("Sec-WebSocket-Protocol") != "blob-royale.session.v2") {
     throw_contract_violation("session_contracts.handshake",
@@ -402,6 +561,100 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   }
   require_running_server_process(fixture.server_process_id());
 
+  // **Two rooms.** The directory lists both: room 1 with the one session still in it, the bot, and
+  // the seat the disconnected session vacated; room 2 fresh, its declared bot built, nobody in it.
+  const LoopbackHttpClient http_client{fixture.port(), kTransportOperationTimeout};
+  const std::vector<PublishedLobby> directory =
+      read_directory(http_client, "integration.session.directory", allowed_origin);
+  if (directory.size() != 2 || directory[0].lobby_id != 1 || directory[1].lobby_id != 2) {
+    throw_contract_violation("session_contracts.directory",
+                             "the directory did not list rooms 1 and 2 in order");
+  }
+  for (const PublishedLobby& room : directory) {
+    if (room.mode != "royale" || room.phase != "lobby" || room.seat_count != 6 ||
+        room.seat_count_maximum != 6 || room.npc_seat_count != 1 || !room.healthy) {
+      throw_contract_violation("session_contracts.directory",
+                               "a room listed a shape the fixture did not configure");
+    }
+  }
+  if (directory[0].session_count != 1 || directory[0].filled_seat_count != 2 ||
+      directory[1].session_count != 0 || directory[1].filled_seat_count != 1) {
+    throw_contract_violation("session_contracts.directory",
+                             "the directory's census disagrees with who is in each room");
+  }
+
+  // A session joins room 2 by its target and is told so in its welcome, with the same map ceiling.
+  SessionWebSocketClient room_two_first{fixture.port(),
+                                        allowed_origin,
+                                        "integration.session.room2.first",
+                                        kTransportOperationTimeout,
+                                        std::string{kRoomTwoTarget},
+                                        std::string{kRoomTwoFirstClient}};
+  static_cast<void>(room_two_first.read_welcome_message());
+  if (room_two_first.lobby_id() != 2 || room_two_first.seat_count_maximum() != 6) {
+    throw_contract_violation("session_contracts.room_target",
+                             "the welcome did not name room 2 and the map's six markers");
+  }
+  static_cast<void>(await_seated_entity(room_two_first, room_two_first.entity_id(),
+                                        "session_contracts.room_target"));
+
+  // Anyone in a lobby may resize it. Two seats: the declared bot's and this session's. The next
+  // person's join displaces the bot before the match starts, and the one after that is refused at
+  // the door -- `409 LOBBY.FULL` naming the room -- because the room's sessions already number its
+  // seats. Nothing about admission depended on the roster being read at the same instant as the
+  // count: both clients were admitted against committed state.
+  room_two_first.send_command(R"({"kind":"set_seat_count","payload":{"seat_count":2}})");
+  static_cast<void>(await_seat_count(room_two_first, 2, "session_contracts.room_resize"));
+  SessionWebSocketClient room_two_second{fixture.port(),
+                                         allowed_origin,
+                                         "integration.session.room2.second",
+                                         kTransportOperationTimeout,
+                                         std::string{kRoomTwoTarget},
+                                         std::string{kRoomTwoSecondClient}};
+  static_cast<void>(room_two_second.read_welcome_message());
+  static_cast<void>(await_seated_entity(room_two_first, room_two_second.entity_id(),
+                                        "session_contracts.room_displacement"));
+  const RefusedRequest full = parse_refusal(
+      declined_session_upgrade(fixture.port(), allowed_origin, "integration.session.room2.refused",
+                               kTransportOperationTimeout, std::string{kRoomTwoTarget},
+                               std::string{kRoomTwoRefusedClient}),
+      "session_contracts.room_full");
+  if (full.status != 409 || full.code != "LOBBY.FULL" || !full.retryable || full.lobby_id != 2) {
+    throw_contract_violation("session_contracts.room_full",
+                             "a join to a full room was not refused 409 LOBBY.FULL naming it");
+  }
+  const std::vector<PublishedLobby> after_fill =
+      read_directory(http_client, "integration.session.directory.full", allowed_origin);
+  if (after_fill.size() != 2 || after_fill[1].session_count != 2 || after_fill[1].seat_count != 2 ||
+      after_fill[1].filled_seat_count != 2 || after_fill[1].npc_seat_count != 0 ||
+      after_fill[0].session_count != 1) {
+    throw_contract_violation("session_contracts.room_full",
+                             "the directory did not show room 2 full and room 1 untouched");
+  }
+
+  // Every string that is not a room is `404 LOBBY.NOT_FOUND`: a well-formed id above the two rooms
+  // that exist, and the classic ways a parametric matcher is written wrong. Each is a plain GET,
+  // because the 404 precedes every upgrade rule.
+  for (const std::string_view target :
+       {"/api/v2/lobbies/3/session", "/api/v2/lobbies/0/session", "/api/v2/lobbies/02/session",
+        "/api/v2/lobbies/1000/session", "/api/v2/lobbies/1/session/", "/api/v2/lobbies/%32/session",
+        "/api/v2/lobbies/2/session?room=2", "/api/v2/lobbies//session", "/api/v2/lobbies/",
+        "/api/v2/lobbies/2"}) {
+    const IntegrationHttpResponse response =
+        http_client.request(boost::beast::http::verb::get, target, "integration.session.not-a-room",
+                            allowed_origin, kHttpClient);
+    const RefusedRequest refused = parse_refusal(response, "session_contracts.not_a_room");
+    if (refused.status != 404 || refused.code != "LOBBY.NOT_FOUND" || refused.retryable ||
+        refused.lobby_id.has_value()) {
+      throw IntegrationTestError{
+          IntegrationTestErrorCode::kContractViolation, "session_contracts.not_a_room",
+          std::string{"target was not refused 404 LOBBY.NOT_FOUND: "}.append(target)};
+    }
+  }
+  require_running_server_process(fixture.server_process_id());
+
+  room_two_second.close_normally();
+  room_two_first.close_normally();
   first.close_normally();
 
   json::object success;
@@ -414,7 +667,9 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   success.emplace("seated_body_count", seated.size());
   success.emplace("thrust_tick_sequence", thrust_tick);
   success.emplace("disconnect_tick_sequence", disconnect_tick);
-  success.emplace("validated_session_contracts", 5);
+  success.emplace("directory_room_count", directory.size());
+  success.emplace("room_two_full_status", full.status);
+  success.emplace("validated_session_contracts", 9);
   std::cout << json::serialize(success) << '\n';
   return 0;
 }

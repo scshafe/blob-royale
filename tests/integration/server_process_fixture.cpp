@@ -52,6 +52,8 @@ constexpr std::string_view kScenarioFileName = "integration-scenario.csv";
 constexpr std::string_view kServerLogFileName = "server.log";
 constexpr std::string_view kSupervisorLogFileName = "supervisor.log";
 constexpr std::string_view kFixtureReadyRequestId = "integration.fixture-ready";
+// The forwarded address the readiness probe presents to a fixture that trusts the loopback proxy.
+constexpr std::string_view kFixtureProbeAddress = "100.64.0.250";
 constexpr auto kSetupDeadline = 10s;
 constexpr auto kShutdownDeadline = 10s;
 constexpr auto kCleanupResultDeadline = 12s;
@@ -458,7 +460,12 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("port=").append(std::to_string(port)).append("\n");
   configuration.append("allowed_hosts=").append(authority).append("\n");
   configuration.append("allowed_origins=http://").append(authority).append("\n");
-  configuration.append("trusted_proxy_addresses=\n\n");
+  // The session workload is the deployed shape: the loopback proxy is trusted, so every connection
+  // must present exactly one `X-Forwarded-For` and is accounted to that address rather than to
+  // 127.0.0.1. That is what lets one test process open the sessions the room contracts need
+  // without sharing one upgrade bucket between them.
+  configuration.append(session_workload ? "trusted_proxy_addresses=127.0.0.1\n\n"
+                                        : "trusted_proxy_addresses=\n\n");
   configuration.append("[presentation]\n");
   configuration.append("snapshots_per_second=").append(backpressure_workload ? "60\n\n" : "20\n\n");
   configuration.append("[simulation]\n");
@@ -499,8 +506,10 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("elimination_grace_seconds=3\n");
   configuration.append("countdown_seconds=5\n");
   configuration.append("restart_delay_seconds=8\n");
+  // Two rooms for the session workload, so the directory lists more than the room every other
+  // route serves and a room target can name one that `/api/v2/session` does not.
   configuration.append("\n[lobbies]\n");
-  configuration.append("count=1\n");
+  configuration.append(session_workload ? "count=2\n" : "count=1\n");
   write_fixture_text_file_atomically(fixture_directory / kConfigurationFileName, configuration,
                                      "server_fixture.write_configuration");
 
@@ -606,7 +615,8 @@ void redirect_supervisor_output(const std::filesystem::path& log_path) {
 
 [[nodiscard]] pid_t launch_server_process(const std::filesystem::path& server_executable,
                                           const std::filesystem::path& fixture_directory,
-                                          const sigset_t& blocked_signals) {
+                                          const sigset_t& blocked_signals,
+                                          const FixtureWorkload workload) {
   const std::filesystem::path log_path = fixture_directory / kServerLogFileName;
   const int log_descriptor = ::open(log_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
   if (log_descriptor < 0) {
@@ -633,11 +643,17 @@ void redirect_supervisor_output(const std::filesystem::path& log_path) {
     const std::string executable_text = server_executable.string();
     const std::string configuration_text = (fixture_directory / kConfigurationFileName).string();
     const std::string scenario_text = (fixture_directory / kScenarioFileName).string();
+    // The session workload seeds nothing and runs two rooms, and a scenario seeds exactly one
+    // world, so the server is started without one: `--scenario` with `[lobbies] count=2` is the
+    // configuration the loader refuses as a fixture that lies about itself.
     std::array<char*, 6> child_arguments = {
         const_cast<char*>(executable_text.c_str()),    const_cast<char*>("--config"),
         const_cast<char*>(configuration_text.c_str()), const_cast<char*>("--scenario"),
         const_cast<char*>(scenario_text.c_str()),      nullptr,
     };
+    if (workload == FixtureWorkload::kSession) {
+      child_arguments[3] = nullptr;
+    }
     ::execv(executable_text.c_str(), child_arguments.data());
     _exit(127);
   }
@@ -645,8 +661,13 @@ void redirect_supervisor_output(const std::filesystem::path& log_path) {
   return process_id;
 }
 
-void wait_until_ready(ManagedServerProcess& server_process, const std::uint16_t port) {
+void wait_until_ready(ManagedServerProcess& server_process, const std::uint16_t port,
+                      const FixtureWorkload workload) {
   LoopbackHttpClient http_client{port, kTransportOperationTimeout};
+  // The session workload trusts the loopback proxy, so the probe must say who it is forwarding.
+  const std::optional<std::string_view> forwarded_client =
+      workload == FixtureWorkload::kSession ? std::optional<std::string_view>{kFixtureProbeAddress}
+                                            : std::nullopt;
   const auto deadline = std::chrono::steady_clock::now() + kSetupDeadline;
   while (std::chrono::steady_clock::now() < deadline) {
     if (server_process.poll_exited()) {
@@ -660,7 +681,8 @@ void wait_until_ready(ManagedServerProcess& server_process, const std::uint16_t 
     }
     try {
       const IntegrationHttpResponse response =
-          http_client.request(http::verb::get, "/api/v1/health/ready", kFixtureReadyRequestId);
+          http_client.request(http::verb::get, "/api/v1/health/ready", kFixtureReadyRequestId,
+                              std::nullopt, forwarded_client);
       if (response.result() == http::status::ok) {
         validate_readiness_response(response, kFixtureReadyRequestId);
         return;
@@ -729,11 +751,11 @@ int supervise_server(const std::filesystem::path& server_executable,
       port = port_reservation.port();
       write_fixture_inputs(fixture_directory, port, workload);
       server_process_id =
-          launch_server_process(server_executable, fixture_directory, blocked_signals);
+          launch_server_process(server_executable, fixture_directory, blocked_signals, workload);
     }
     auto candidate = std::make_unique<ManagedServerProcess>(server_process_id);
     try {
-      wait_until_ready(*candidate, port);
+      wait_until_ready(*candidate, port, workload);
       server_process = std::move(candidate);
       break;
     } catch (const IntegrationTestError&) {

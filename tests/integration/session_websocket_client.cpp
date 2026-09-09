@@ -29,7 +29,6 @@ namespace json = boost::json;
 namespace websocket = boost::beast::websocket;
 using Tcp = boost::asio::ip::tcp;
 
-constexpr std::string_view kSessionTarget = "/api/v2/session";
 constexpr std::string_view kSessionSubprotocol = "blob-royale.session.v2";
 constexpr std::size_t kMaximumSessionFrameBytes = 2'097'152;
 constexpr std::size_t kMaximumFramesBeforeClose = 8;
@@ -61,9 +60,10 @@ constexpr std::size_t kMaximumSnapshotFramesAwaited = 4'096;
 
 SessionWebSocketClient::SessionWebSocketClient(const std::uint16_t port, std::string origin,
                                                std::string request_id,
-                                               const std::chrono::milliseconds operation_timeout)
+                                               const std::chrono::milliseconds operation_timeout,
+                                               std::string target, std::string forwarded_client)
     : operation_timeout_(operation_timeout), websocket_(io_context_) {
-  if (port == 0 || origin.empty() || request_id.empty() ||
+  if (port == 0 || origin.empty() || request_id.empty() || target.empty() ||
       operation_timeout <= std::chrono::milliseconds::zero() ||
       operation_timeout > std::chrono::minutes{1}) {
     throw IntegrationTestError{IntegrationTestErrorCode::kArgumentInvalid, "session.construct",
@@ -85,20 +85,74 @@ SessionWebSocketClient::SessionWebSocketClient(const std::uint16_t port, std::st
 
   const std::string host_authority = std::string{"127.0.0.1:"}.append(std::to_string(port));
   websocket_.set_option(websocket::stream_base::decorator(
-      [origin = std::move(origin),
-       request_id = std::move(request_id)](websocket::request_type& request) {
+      [origin = std::move(origin), request_id = std::move(request_id),
+       forwarded_client = std::move(forwarded_client)](websocket::request_type& request) {
         request.set(boost::beast::http::field::origin, origin);
         request.set(boost::beast::http::field::sec_websocket_protocol, kSessionSubprotocol);
         request.set("X-Request-ID", request_id);
         request.set(boost::beast::http::field::user_agent, "blob-royale-native-integration");
+        if (!forwarded_client.empty()) {
+          request.set("X-Forwarded-For", forwarded_client);
+        }
       }));
   websocket_.read_message_max(kMaximumSessionFrameBytes);
   websocket_.auto_fragment(false);
   websocket_.next_layer().expires_after(operation_timeout_);
-  websocket_.handshake(handshake_response_, host_authority, kSessionTarget, operation_error);
+  websocket_.handshake(handshake_response_, host_authority, target, operation_error);
   if (operation_error) {
     throw_transport_error("session.handshake", operation_error);
   }
+}
+
+boost::beast::http::response<boost::beast::http::string_body>
+declined_session_upgrade(const std::uint16_t port, std::string origin, std::string request_id,
+                         const std::chrono::milliseconds operation_timeout, std::string target,
+                         std::string forwarded_client) {
+  if (port == 0 || origin.empty() || request_id.empty() || target.empty() ||
+      operation_timeout <= std::chrono::milliseconds::zero() ||
+      operation_timeout > std::chrono::minutes{1}) {
+    throw IntegrationTestError{IntegrationTestErrorCode::kArgumentInvalid,
+                               "session.declined_upgrade", "connection input is invalid"};
+  }
+  boost::asio::io_context io_context{1};
+  websocket::stream<boost::beast::tcp_stream> stream{io_context};
+  boost::system::error_code operation_error;
+  stream.next_layer().socket().open(Tcp::v4(), operation_error);
+  if (operation_error) {
+    throw_transport_error("session.declined_upgrade.open", operation_error);
+  }
+  stream.next_layer().expires_after(operation_timeout);
+  stream.next_layer().connect(Tcp::endpoint{boost::asio::ip::address_v4::loopback(), port},
+                              operation_error);
+  if (operation_error) {
+    throw_transport_error("session.declined_upgrade.connect", operation_error);
+  }
+  const std::string host_authority = std::string{"127.0.0.1:"}.append(std::to_string(port));
+  stream.set_option(websocket::stream_base::decorator(
+      [origin = std::move(origin), request_id = std::move(request_id),
+       forwarded_client = std::move(forwarded_client)](websocket::request_type& request) {
+        request.set(boost::beast::http::field::origin, origin);
+        request.set(boost::beast::http::field::sec_websocket_protocol, kSessionSubprotocol);
+        request.set("X-Request-ID", request_id);
+        request.set(boost::beast::http::field::user_agent, "blob-royale-native-integration");
+        if (!forwarded_client.empty()) {
+          request.set("X-Forwarded-For", forwarded_client);
+        }
+      }));
+  boost::beast::http::response<boost::beast::http::string_body> response;
+  stream.next_layer().expires_after(operation_timeout);
+  stream.handshake(response, host_authority, target, operation_error);
+  boost::system::error_code ignored;
+  stream.next_layer().socket().shutdown(Tcp::socket::shutdown_both, ignored);
+  stream.next_layer().socket().close(ignored);
+  if (operation_error != websocket::error::upgrade_declined) {
+    if (operation_error) {
+      throw_transport_error("session.declined_upgrade.handshake", operation_error);
+    }
+    throw_contract_violation("session.declined_upgrade",
+                             "the server admitted an upgrade the contract expected it to refuse");
+  }
+  return response;
 }
 
 SessionWebSocketClient::~SessionWebSocketClient() noexcept {
@@ -127,6 +181,9 @@ std::string SessionWebSocketClient::read_welcome_message() {
   }
   entity_id_ = required_unsigned(data->as_object(), "entity_id", "session.welcome");
   controller_id_ = required_unsigned(data->as_object(), "controller_id", "session.welcome");
+  lobby_id_ = required_unsigned(data->as_object(), "lobby_id", "session.welcome");
+  seat_count_maximum_ =
+      required_unsigned(data->as_object(), "seat_count_maximum", "session.welcome");
   const json::value* const display_name = data->as_object().if_contains("display_name");
   if (display_name == nullptr || !display_name->is_string()) {
     throw_contract_violation("session.welcome", "welcome frame is missing a display name");

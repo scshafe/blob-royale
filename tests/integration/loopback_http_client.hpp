@@ -21,9 +21,12 @@ class LoopbackHttpClient final {
 public:
   LoopbackHttpClient(std::uint16_t port, std::chrono::milliseconds operation_timeout);
 
+  // `forwarded_client`, when given, is sent as `X-Forwarded-For`: the principal a server that
+  // trusts the loopback proxy accounts the request to (`docs/protocol/v2.md` § "Identity").
   [[nodiscard]] IntegrationHttpResponse
   request(boost::beast::http::verb method, std::string_view target, std::string_view request_id,
-          std::optional<std::string_view> origin = std::nullopt) const;
+          std::optional<std::string_view> origin = std::nullopt,
+          std::optional<std::string_view> forwarded_client = std::nullopt) const;
 
   // Completes each empty TCP connection through the server's EOF path before opening the next.
   void exercise_closed_connection_churn(std::size_t connection_count) const;

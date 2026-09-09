@@ -20,8 +20,7 @@ ServerExecutionContext::ServerExecutionContext(boost::asio::io_context& io_conte
                                                observability::StructuredLogger& logger)
     : io_context_(io_context), server_config_(std::move(server_config)), lobbies_(lobbies),
       lobby_(lobbies.room(1)), logger_(logger),
-      game_api_router_(server_config_, lobby_.snapshot_publication(), peer_traffic_policy_,
-                       request_id_generator_),
+      game_api_router_(server_config_, lobbies_, peer_traffic_policy_, request_id_generator_),
       shutdown_timer_(io_context_) {}
 
 ServerExecutionContext::SessionId

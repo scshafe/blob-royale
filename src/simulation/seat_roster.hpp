@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_SEAT_ROSTER_HPP
 
 #include "controller_id.hpp"
+#include "match_phase.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 #include "snake_case_identity.hpp"
@@ -321,6 +322,33 @@ private:
 // so a throwing move here would be a throwing move of the whole match state.
 static_assert(std::is_nothrow_move_constructible_v<SeatRoster>,
               "SeatRoster is moved with MatchState and must not throw doing it");
+
+// The seat a `join` naming no seat takes, or nullopt when the roster has none to give: the lowest
+// empty seat in any phase, else the lowest declared NPC seat while the match has not started --
+// `lobby` or `countdown` -- because taking a bot's seat out of a running or ended match would
+// retire a bot that is playing. **One rule, two readers.** The tick seats with it
+// (`game_simulation.cpp`, `apply_join`) and a session decides with it whether asking for a seat can
+// change anything (`session_websocket_session.cpp`): a person whose join could take nothing is
+// closed `lobby_full` rather than left asking, and the two must agree or a session would be closed
+// for a seat the tick would have given it.
+[[nodiscard]] inline std::optional<std::size_t>
+first_joinable_seat(const SeatRoster& seats, const MatchPhase phase) noexcept {
+  const std::span<const Seat> roster = seats.seats();
+  for (std::size_t index = 0; index < roster.size(); ++index) {
+    if (std::holds_alternative<EmptySeat>(roster[index])) {
+      return index;
+    }
+  }
+  if (phase != MatchPhase::kLobby && phase != MatchPhase::kCountdown) {
+    return std::nullopt;
+  }
+  for (std::size_t index = 0; index < roster.size(); ++index) {
+    if (std::holds_alternative<NpcSeat>(roster[index])) {
+      return index;
+    }
+  }
+  return std::nullopt;
+}
 
 } // namespace blob_royale::simulation
 

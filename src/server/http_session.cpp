@@ -158,12 +158,13 @@ void HttpSession::route_request() {
     if (response_queue_.empty() && !write_active_) {
       begin_websocket_upgrade(std::move(request), result.request_id(),
                               result.take_websocket_lease(), result.upgrade_route(),
-                              result.peer_identity());
+                              result.peer_identity(), result.lobby_id());
     } else {
       pending_upgrade_request_ = std::move(request);
       pending_upgrade_request_id_ = result.request_id();
       pending_upgrade_route_ = result.upgrade_route();
       pending_peer_identity_ = result.peer_identity();
+      pending_lobby_id_ = result.lobby_id();
       pending_websocket_lease_ = result.take_websocket_lease();
     }
     return;
@@ -244,13 +245,15 @@ void HttpSession::response_written(const std::shared_ptr<GameApiHttpResponse>& r
     WebSocketAdmissionLease websocket_lease = std::move(*pending_websocket_lease_);
     const GameApiUpgradeRoute upgrade_route = *pending_upgrade_route_;
     PeerIdentity peer_identity = std::move(*pending_peer_identity_);
+    const std::uint64_t lobby_id = *pending_lobby_id_;
     pending_upgrade_request_.reset();
     pending_upgrade_request_id_.reset();
     pending_websocket_lease_.reset();
     pending_upgrade_route_.reset();
     pending_peer_identity_.reset();
+    pending_lobby_id_.reset();
     begin_websocket_upgrade(std::move(request), std::move(request_id), std::move(websocket_lease),
-                            upgrade_route, std::move(peer_identity));
+                            upgrade_route, std::move(peer_identity), lobby_id);
     return;
   }
   read_next_request();
@@ -260,14 +263,17 @@ void HttpSession::begin_websocket_upgrade(GameApiHttpRequest request,
                                           protocol::RequestId request_id,
                                           WebSocketAdmissionLease websocket_lease,
                                           const GameApiUpgradeRoute upgrade_route,
-                                          PeerIdentity peer_identity) {
+                                          PeerIdentity peer_identity,
+                                          const std::uint64_t lobby_id) {
   try {
     // Two session classes, chosen by route and never by offered subprotocol: v1's stream accepts no
-    // client data and v2's accepts commands, so the route is what decides which semantics run.
+    // client data and v2's accepts commands, so the route is what decides which semantics run. A
+    // v2 session is bound for its life to the room the router admitted it into.
     if (upgrade_route == GameApiUpgradeRoute::kSessionV2) {
       auto session = std::make_shared<SessionWebSocketSession>(
-          stream_.release_socket(), server_context_, peer_address_, std::move(request_id),
-          std::move(peer_identity), std::move(websocket_lease), std::move(tcp_lease_));
+          stream_.release_socket(), server_context_, server_context_->lobbies().room(lobby_id),
+          peer_address_, std::move(request_id), std::move(peer_identity),
+          std::move(websocket_lease), std::move(tcp_lease_));
       if (session_id_.has_value()) {
         server_context_->unregister_session(*session_id_);
         session_id_.reset();

@@ -11,6 +11,7 @@
 #include <boost/beast/http/parser.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <memory>
 #include <optional>
@@ -51,7 +52,8 @@ private:
   // semantics the connection then runs under cannot disagree.
   void begin_websocket_upgrade(GameApiHttpRequest request, protocol::RequestId request_id,
                                WebSocketAdmissionLease websocket_lease,
-                               GameApiUpgradeRoute upgrade_route, PeerIdentity peer_identity);
+                               GameApiUpgradeRoute upgrade_route, PeerIdentity peer_identity,
+                               std::uint64_t lobby_id);
   void request_stop(SessionStopMode mode) noexcept;
   void finish() noexcept;
   void close_socket() noexcept;
@@ -70,6 +72,7 @@ private:
   std::optional<WebSocketAdmissionLease> pending_websocket_lease_;
   std::optional<GameApiUpgradeRoute> pending_upgrade_route_;
   std::optional<PeerIdentity> pending_peer_identity_;
+  std::optional<std::uint64_t> pending_lobby_id_;
   std::size_t parsed_request_count_{0};
   bool read_active_{false};
   bool write_active_{false};

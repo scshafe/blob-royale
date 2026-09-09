@@ -88,7 +88,7 @@ public:
       throw std::runtime_error{"test session could not reserve admission capacity"};
     }
     return std::make_shared<server::SessionWebSocketSession>(
-        std::move(server_socket_), server_context_, std::string{kPeerAddress},
+        std::move(server_socket_), server_context_, lobbies_.room(1), std::string{kPeerAddress},
         protocol::RequestId::create(std::string{request_id}), std::move(peer_identity),
         std::move(*websocket_reservation.lease), std::move(*tcp_reservation.lease));
   }
@@ -454,7 +454,7 @@ public:
       throw std::runtime_error{"test session could not reserve admission capacity"};
     }
     return std::make_shared<server::SessionWebSocketSession>(
-        std::move(server_socket_), server_context_, std::string{kPeerAddress},
+        std::move(server_socket_), server_context_, lobbies_.room(1), std::string{kPeerAddress},
         protocol::RequestId::create(std::string{request_id}), std::move(peer_identity),
         std::move(*websocket_reservation.lease), std::move(*tcp_reservation.lease));
   }
@@ -540,14 +540,6 @@ void run_until_within(boost::asio::io_context& io_context,
   return false;
 }
 
-// The fixture world with a lobby of `seat_count` empty seats declared on it. No mode, so the phase
-// stays `lobby` and the only thing a join can change is the roster.
-[[nodiscard]] simulation::GameSimulation lobby_game_simulation(const std::size_t seat_count) {
-  simulation::GameWorld world = simulation::GameWorld::create({});
-  world.mutable_match().seats = simulation::SeatRoster::of_size(seat_count);
-  return simulation::GameSimulation::create(fixture::simulation_config(), std::move(world));
-}
-
 [[nodiscard]] simulation::SeatRoster latest_seats(LiveRuntimeHarness& harness) {
   const std::shared_ptr<const simulation::WorldSnapshot> latest =
       harness.simulation_runtime().snapshot_publication().latest();
@@ -562,7 +554,7 @@ TEST_CASE("SessionWebSocketSession asks for a seat it does not hold and leaves i
   // this controller sits nowhere and submits a server-issued join naming no seat, and the tick
   // gives it the lowest empty one. Nothing on the wire chose it.
   constexpr std::string_view kRequestId = "unit.session.seat-request";
-  LiveRuntimeHarness harness{lobby_game_simulation(2)};
+  LiveRuntimeHarness harness{fixture::lobby_game_simulation(2)};
   const simulation::ControllerId issued = simulation::ControllerId::create(
       harness.simulation_runtime().command_sink().next_controller_id());
   const std::shared_ptr<server::SessionWebSocketSession> session =
@@ -663,4 +655,51 @@ TEST_CASE(
   CHECK_FALSE(world_holds_controller(*latest, issued));
   CHECK(statistics.submitted_command_count == 2);
   CHECK(statistics.dropped_command_count == 0);
+}
+
+TEST_CASE("SessionWebSocketSession closes lobby_full when the roster it observes has no seat its "
+          "join could take",
+          "[unit][server][v2][session][lobby][join]") {
+  // The last-seat race, lost: by the time this session's first presentation slot looks, the one
+  // seat belongs to somebody else and the match has not started, so there is no empty seat and no
+  // declared bot to displace. The rule is the tick's own (`first_joinable_seat`), the answer is
+  // `1013 lobby_full` before any welcome, and the session leaves the room it was counted into.
+  constexpr std::string_view kRequestId = "unit.session.lobby-full";
+  const simulation::ControllerId occupant = simulation::ControllerId::create(77);
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_match().seats = simulation::SeatRoster::of_size(1);
+  world.mutable_match().seats.assign_seat(0,
+                                          simulation::Seat{simulation::ControllerSeat{occupant}});
+  LiveRuntimeHarness harness{
+      simulation::GameSimulation::create(fixture::simulation_config(), std::move(world))};
+  const std::shared_ptr<server::SessionWebSocketSession> session =
+      harness.make_session(kRequestId, direct_identity());
+  SessionClient client{std::move(harness.client_socket())};
+
+  session->run(harness.request(kRequestId));
+  run_until_within(harness.server_io_context(), 2s,
+                   [&harness] { return count_events(harness, "session.lobby_full") == 1; });
+  REQUIRE(count_events(harness, "session.lobby_full") == 1);
+  const auto logged = harness.log_capture().find_event("session.lobby_full");
+  REQUIRE(logged.has_value());
+  CHECK(logged->severity == "warning");
+  CHECK(logged->request_id == std::string{kRequestId});
+  CHECK(logged->lobby_id == 1);
+  REQUIRE(logged->detail.has_value());
+  CHECK(*logged->detail == "seat_count=1 phase=lobby");
+  // No join was submitted for a roster that could not take one, the room no longer counts this
+  // session, and the seat still belongs to its occupant.
+  CHECK(count_events(harness, "session.seat_requested") == 0);
+  CHECK(harness.lobby().session_count() == 0);
+  const simulation::SeatRoster seats = latest_seats(harness);
+  CHECK(seats.seats()[0] == simulation::Seat{simulation::ControllerSeat{occupant}});
+
+  // The close frame is on the wire. This passive client answers nothing, so its socket closing is
+  // what completes the close here; the recorded code is the one this session requested.
+  client.stream().next_layer().close();
+  run_until_within(harness.server_io_context(), 2s,
+                   [&harness] { return count_events(harness, "session.closed") == 1; });
+  const auto closed = harness.log_capture().find_event("session.closed");
+  REQUIRE(closed.has_value());
+  CHECK(closed->close_code == 1013);
 }

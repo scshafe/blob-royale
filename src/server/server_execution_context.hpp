@@ -48,9 +48,9 @@ public:
 
   [[nodiscard]] const ServerConfig& config() const& noexcept { return server_config_; }
   [[nodiscard]] const ServerConfig& config() const&& = delete;
-  // Every room, and the one every route serves today. `publication()` and `match_session()` are
-  // room 1's, so nothing that served the single-match server had to learn about rooms to keep
-  // working; plan Step 13 gives a session its own room.
+  // Every room the router can admit a session into, and room 1, which the v1 routes and the v1
+  // stream serve. A v2 session is bound to the room the router resolved for it
+  // (`SessionWebSocketSession`), so nothing here names "the" match session any more.
   [[nodiscard]] const LobbyDirectory& lobbies() const& noexcept { return lobbies_; }
   [[nodiscard]] const LobbyDirectory& lobbies() const&& = delete;
   [[nodiscard]] const LobbyEntry& lobby() const& noexcept { return lobby_; }
@@ -59,14 +59,6 @@ public:
     return lobby_.snapshot_publication();
   }
   [[nodiscard]] const runtime::SnapshotPublication& publication() const&& = delete;
-  // The capability an admitted `/api/v2/session` runs on. It is required rather than optional
-  // because the server serves both protocol versions unconditionally: an optional capability would
-  // create a state in which a v2 upgrade is admitted and has no command sink, which is a remotely
-  // reachable invariant failure that no configuration should be able to produce.
-  [[nodiscard]] const MatchSessionContext& match_session() const& noexcept {
-    return lobby_.match_session();
-  }
-  [[nodiscard]] const MatchSessionContext& match_session() const&& = delete;
   [[nodiscard]] PeerTrafficPolicy& traffic_policy() & noexcept { return peer_traffic_policy_; }
   [[nodiscard]] PeerTrafficPolicy& traffic_policy() && = delete;
   [[nodiscard]] GameApiRouter& router() & noexcept { return game_api_router_; }

@@ -16,7 +16,12 @@
 
 namespace blob_royale::integration_test {
 
-// One `/api/v2/session` connection, exposing only the observations these contracts assert.
+inline constexpr std::string_view kDefaultSessionTarget = "/api/v2/session";
+
+// One protocol v2 session connection, exposing only the observations these contracts assert. The
+// target defaults to `/api/v2/session` (room 1) and may name a room,
+// `/api/v2/lobbies/<lobby_id>/session`; `forwarded_client`, when non-empty, is sent as
+// `X-Forwarded-For` so a fixture that trusts the loopback proxy accounts each client separately.
 //
 // It is a separate client from `SnapshotWebSocketClient` because the two speak different
 // protocols: v1's stream is read-only and closes on any client data, and v2's is bidirectional and
@@ -27,7 +32,9 @@ namespace blob_royale::integration_test {
 class SessionWebSocketClient final {
 public:
   SessionWebSocketClient(std::uint16_t port, std::string origin, std::string request_id,
-                         std::chrono::milliseconds operation_timeout);
+                         std::chrono::milliseconds operation_timeout,
+                         std::string target = std::string{kDefaultSessionTarget},
+                         std::string forwarded_client = {});
 
   SessionWebSocketClient(const SessionWebSocketClient&) = delete;
   SessionWebSocketClient(SessionWebSocketClient&&) = delete;
@@ -55,6 +62,9 @@ public:
 
   [[nodiscard]] std::uint64_t entity_id() const noexcept { return entity_id_; }
   [[nodiscard]] std::uint64_t controller_id() const noexcept { return controller_id_; }
+  // `welcome.lobby_id` and `welcome.seat_count_maximum`, protocol 2.4's two room facts.
+  [[nodiscard]] std::uint64_t lobby_id() const noexcept { return lobby_id_; }
+  [[nodiscard]] std::uint64_t seat_count_maximum() const noexcept { return seat_count_maximum_; }
   [[nodiscard]] const std::string& display_name() const& noexcept { return display_name_; }
   [[nodiscard]] const std::string& display_name() const&& = delete;
 
@@ -76,8 +86,18 @@ private:
   boost::beast::http::response<boost::beast::http::string_body> handshake_response_;
   std::uint64_t entity_id_{0};
   std::uint64_t controller_id_{0};
+  std::uint64_t lobby_id_{0};
+  std::uint64_t seat_count_maximum_{0};
   std::string display_name_;
 };
+
+// Offers a complete, well-formed v2 session upgrade to `target` and returns the HTTP response the
+// server declined it with. Throws unless the server declined: a `101` here is the contract
+// violation, because the caller is asserting a refusal (`409`, `404`, `503`).
+[[nodiscard]] boost::beast::http::response<boost::beast::http::string_body>
+declined_session_upgrade(std::uint16_t port, std::string origin, std::string request_id,
+                         std::chrono::milliseconds operation_timeout, std::string target,
+                         std::string forwarded_client = {});
 
 } // namespace blob_royale::integration_test
 

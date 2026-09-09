@@ -64,8 +64,8 @@ private:
 // Rooms are numbered `1..N` in the order the composition root built them, and the directory is
 // fixed for the process lifetime: rooms are created from `[lobbies] count` at startup and never
 // reaped (ADR 0006 § "The lobby lifecycle"). Room 1 is what `/api/v2/session` and every v1 route
-// serve until the directory and room routes land (plan Step 13); the server holds every room so
-// that step adds routes rather than plumbing.
+// serve; `/api/v2/lobbies/<lobby_id>/session` resolves its segment through `find`, and
+// `GET /api/v2/lobbies` lists every entry (`docs/protocol/v2.md` § "The lobby directory").
 // related: lobby_entry -- one row.
 // related: server_execution_context.hpp -- the holder.
 class LobbyDirectory final {

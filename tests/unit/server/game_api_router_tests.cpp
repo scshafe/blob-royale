@@ -30,10 +30,13 @@ public:
   RouterFixture()
       : config(fixture::loopback_server_config()),
         publication(fixture::game_simulation().snapshot()),
-        router(config, publication, traffic_policy, request_id_generator) {}
+        lobbies(fixture::single_lobby(publication, match_session.context())),
+        router(config, lobbies, traffic_policy, request_id_generator) {}
 
   server::ServerConfig config;
   runtime::SnapshotPublication publication;
+  fixture::MatchSessionFixture match_session;
+  server::LobbyDirectory lobbies;
   server::PeerTrafficPolicy traffic_policy;
   server::RequestIdGenerator request_id_generator;
   server::GameApiRouter router;
@@ -78,8 +81,9 @@ class ReadyRouterFixture final {
 public:
   ReadyRouterFixture()
       : simulation_runtime(fixture::game_simulation()),
-        router(config, simulation_runtime.snapshot_publication(), traffic_policy,
-               request_id_generator) {
+        lobbies(fixture::single_lobby(simulation_runtime.snapshot_publication(),
+                                      fixture::match_session_context_for(simulation_runtime))),
+        router(config, lobbies, traffic_policy, request_id_generator) {
     simulation_runtime.start();
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
     while (!simulation_runtime.snapshot_publication().is_ready() &&
@@ -97,6 +101,7 @@ public:
 
   server::ServerConfig config = fixture::loopback_server_config();
   runtime::SimulationRuntime simulation_runtime;
+  server::LobbyDirectory lobbies;
   server::PeerTrafficPolicy traffic_policy;
   server::RequestIdGenerator request_id_generator;
   server::GameApiRouter router;
@@ -108,8 +113,9 @@ class ProxyRouterFixture final {
 public:
   ProxyRouterFixture()
       : simulation_runtime(fixture::game_simulation()),
-        router(config, simulation_runtime.snapshot_publication(), traffic_policy,
-               request_id_generator) {
+        lobbies(fixture::single_lobby(simulation_runtime.snapshot_publication(),
+                                      fixture::match_session_context_for(simulation_runtime))),
+        router(config, lobbies, traffic_policy, request_id_generator) {
     simulation_runtime.start();
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
     while (!simulation_runtime.snapshot_publication().is_ready() &&
@@ -129,6 +135,7 @@ public:
       {"127.0.0.1", "localhost", "[::1]"}, {"https://game.example.test"},
       {std::string{kTrustedProxyAddress}});
   runtime::SimulationRuntime simulation_runtime;
+  server::LobbyDirectory lobbies;
   server::PeerTrafficPolicy traffic_policy;
   server::RequestIdGenerator request_id_generator;
   server::GameApiRouter router;
@@ -383,10 +390,12 @@ TEST_CASE("GameApiRouter transfers and releases a successful WebSocket admission
   REQUIRE(simulation_runtime.snapshot_publication().is_ready());
 
   const server::ServerConfig config = fixture::loopback_server_config();
+  const server::LobbyDirectory lobbies =
+      fixture::single_lobby(simulation_runtime.snapshot_publication(),
+                            fixture::match_session_context_for(simulation_runtime));
   server::PeerTrafficPolicy traffic_policy;
   server::RequestIdGenerator request_id_generator;
-  server::GameApiRouter router(config, simulation_runtime.snapshot_publication(), traffic_policy,
-                               request_id_generator);
+  server::GameApiRouter router(config, lobbies, traffic_policy, request_id_generator);
   {
     server::GameApiRouteResult result =
         router.route(websocket_request(), "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
@@ -608,4 +617,249 @@ TEST_CASE("GameApiRouter accounts a proxy-forwarded upgrade to the forwarded cli
 
   server::GameApiRouteResult other = proxy.router.route(second, kTrustedProxyAddress, now);
   CHECK(other.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+}
+
+namespace {
+
+// Two rooms, each a two-seat lobby with nobody in it. Room 1 always serves; room 2 serves only when
+// asked to, so one fixture covers the directory's `healthy` column, `503 LOBBY.UNAVAILABLE`, and an
+// upgrade admitted into a room other than 1.
+class TwoRoomRouterFixture final {
+public:
+  explicit TwoRoomRouterFixture(const bool second_room_serves)
+      : first_runtime(fixture::lobby_game_simulation(2)),
+        second_runtime(fixture::lobby_game_simulation(2)),
+        lobbies(server::LobbyDirectory::create(rooms())),
+        router(config, lobbies, traffic_policy, request_id_generator) {
+    first_runtime.start();
+    await_ready(first_runtime);
+    if (second_room_serves) {
+      second_runtime.start();
+      await_ready(second_runtime);
+    }
+  }
+
+  TwoRoomRouterFixture(const TwoRoomRouterFixture&) = delete;
+  TwoRoomRouterFixture(TwoRoomRouterFixture&&) = delete;
+  TwoRoomRouterFixture& operator=(const TwoRoomRouterFixture&) = delete;
+  TwoRoomRouterFixture& operator=(TwoRoomRouterFixture&&) = delete;
+  ~TwoRoomRouterFixture() {
+    first_runtime.stop();
+    second_runtime.stop();
+  }
+
+  // A complete, well-formed v2 session upgrade offered to `target`, from the direct loopback peer.
+  [[nodiscard]] server::GameApiRouteResult upgrade(const std::string_view target) {
+    server::GameApiHttpRequest request = upgrade_request(target);
+    request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+    request.set(http::field::origin, "https://game.example.test");
+    return router.route(request, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
+  }
+
+  [[nodiscard]] server::GameApiHttpResponse refused(const std::string_view target) {
+    server::GameApiRouteResult result = upgrade(target);
+    REQUIRE(result.disposition() == server::GameApiRouteDisposition::kHttpResponse);
+    return result.take_response();
+  }
+
+  server::ServerConfig config = fixture::loopback_server_config();
+  runtime::SimulationRuntime first_runtime;
+  runtime::SimulationRuntime second_runtime;
+  server::LobbyDirectory lobbies;
+  server::PeerTrafficPolicy traffic_policy;
+  server::RequestIdGenerator request_id_generator;
+  server::GameApiRouter router;
+
+private:
+  [[nodiscard]] std::vector<server::LobbyDirectory::Room> rooms() {
+    std::vector<server::LobbyDirectory::Room> result;
+    result.push_back(fixture::room_of(first_runtime, 1));
+    result.push_back(fixture::room_of(second_runtime, 2));
+    return result;
+  }
+
+  static void await_ready(runtime::SimulationRuntime& simulation_runtime) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+    while (!simulation_runtime.snapshot_publication().is_ready() &&
+           std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::yield();
+    }
+    REQUIRE(simulation_runtime.snapshot_publication().is_ready());
+  }
+};
+
+constexpr std::string_view kV2ErrorSchemaId = "blob-royale://protocol/v2/error-response";
+
+[[nodiscard]] server::GameApiHttpResponse response_of(server::GameApiRouteResult result) {
+  REQUIRE(result.disposition() == server::GameApiRouteDisposition::kHttpResponse);
+  return result.take_response();
+}
+
+} // namespace
+
+TEST_CASE("GameApiRouter lists every room in the directory with its census and health",
+          "[unit][server][router][v2][lobbies]") {
+  TwoRoomRouterFixture state{false};
+  state.lobbies.room(1).count_session_in();
+  const server::GameApiHttpResponse response =
+      response_of(state.router.route(fixture::request(http::verb::get, "/api/v2/lobbies"),
+                                     "127.0.0.1", server::PeerTrafficPolicy::Clock::now()));
+  state.lobbies.room(1).count_session_out();
+
+  CHECK(response.result() == http::status::ok);
+  CHECK(response.at(http::field::content_type) == "application/json; charset=utf-8");
+  CHECK(response.at(http::field::cache_control) == "no-store");
+  CHECK(fixture::response_contains(response, R"("error":null)"));
+  CHECK(fixture::response_contains(
+      response,
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/lobby-directory","request_id":"server-test-request-1"})"));
+  // Room 1 is serving, past tick zero, with the one session counted in. Room 2 never started, so it
+  // lists its initial world -- the two seats it was configured with, nobody in them -- at tick zero
+  // and unhealthy, which is exactly what a join to it would be told with `503`.
+  CHECK(fixture::response_contains(
+      response,
+      R"("lobbies":[{"lobby_id":1,"mode":"idle","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":)"));
+  CHECK(fixture::response_contains(
+      response,
+      R"("seat_count":2,"seat_count_maximum":32,"filled_seat_count":0,"npc_seat_count":0,"session_count":1,"healthy":true})"));
+  CHECK_FALSE(fixture::response_contains(
+      response,
+      R"("lobby_id":1,"mode":"idle","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":0,)"));
+  CHECK(fixture::response_contains(
+      response,
+      R"({"lobby_id":2,"mode":"idle","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":0,"seat_count":2,"seat_count_maximum":32,"filled_seat_count":0,"npc_seat_count":0,"session_count":0,"healthy":false}]})"));
+}
+
+TEST_CASE("GameApiRouter answers the directory only to GET, in the v2 envelope",
+          "[unit][server][router][v2][lobbies]") {
+  TwoRoomRouterFixture state{false};
+  const server::GameApiHttpResponse response =
+      response_of(state.router.route(fixture::request(http::verb::post, "/api/v2/lobbies"),
+                                     "127.0.0.1", server::PeerTrafficPolicy::Clock::now()));
+  CHECK(response.result() == http::status::method_not_allowed);
+  CHECK(response.at(http::field::allow) == "GET");
+  CHECK(fixture::response_contains(response, "PROTOCOL.METHOD_NOT_ALLOWED"));
+  CHECK(fixture::response_contains(response, kV2ErrorSchemaId));
+}
+
+TEST_CASE("GameApiRouter matches the room target by grammar and answers everything else "
+          "404 LOBBY.NOT_FOUND",
+          "[unit][server][router][v2][lobbies]") {
+  TwoRoomRouterFixture state{true};
+  // Each offered as a complete upgrade, so the 404 provably precedes every handshake rule and the
+  // upgrade bucket: the classic wrong matcher -- a leading zero, a fourth digit, a trailing slash,
+  // percent-encoding, a query, an empty segment, a neighbour that is not exact -- and the two
+  // well-formed ids the two-room directory does not hold.
+  for (const std::string_view target :
+       {"/api/v2/lobbies/0/session", "/api/v2/lobbies/01/session", "/api/v2/lobbies/1000/session",
+        "/api/v2/lobbies/1/session/", "/api/v2/lobbies/%31/session",
+        "/api/v2/lobbies/1/session?x=1", "/api/v2/lobbies//session", "/api/v2/lobbies/",
+        "/api/v2/lobbies/1", "/api/v2/lobbies/1/sessions", "/api/v2/lobbies/ 1/session",
+        "/api/v2/lobbies/3/session", "/api/v2/lobbies/999/session"}) {
+    INFO(target);
+    const server::GameApiHttpResponse response = state.refused(target);
+    CHECK(response.result() == http::status::not_found);
+    CHECK(fixture::response_contains(response, R"("code":"LOBBY.NOT_FOUND")"));
+    CHECK(fixture::response_contains(response, R"("retryable":false)"));
+    CHECK(fixture::response_contains(response, R"("details":{})"));
+    CHECK(fixture::response_contains(response, kV2ErrorSchemaId));
+  }
+  // Outside the prefix nothing is a lobby: an unrouted v2 target keeps its plain 404.
+  const server::GameApiHttpResponse unrouted = state.refused("/api/v2/lobbiesx");
+  CHECK(unrouted.result() == http::status::not_found);
+  CHECK(fixture::response_contains(unrouted, "PROTOCOL.ROUTE_NOT_FOUND"));
+  // And a room target that exists is a session target like room 1's: an ordinary GET is `426`.
+  const server::GameApiHttpResponse ordinary =
+      response_of(state.router.route(fixture::request(http::verb::get, "/api/v2/lobbies/2/session"),
+                                     "127.0.0.1", server::PeerTrafficPolicy::Clock::now()));
+  CHECK(ordinary.result() == http::status::upgrade_required);
+  CHECK(fixture::response_contains(ordinary, "PROTOCOL.UPGRADE_REQUIRED"));
+}
+
+TEST_CASE("GameApiRouter admits a room target into the named room and /api/v2/session into room 1",
+          "[unit][server][router][v2][lobbies]") {
+  TwoRoomRouterFixture state{true};
+  {
+    server::GameApiRouteResult result = state.upgrade("/api/v2/lobbies/2/session");
+    REQUIRE(result.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+    CHECK(result.upgrade_route() == server::GameApiUpgradeRoute::kSessionV2);
+    CHECK(result.lobby_id() == 2);
+  }
+  {
+    server::GameApiRouteResult result = state.upgrade("/api/v2/session");
+    REQUIRE(result.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+    CHECK(result.upgrade_route() == server::GameApiUpgradeRoute::kSessionV2);
+    CHECK(result.lobby_id() == 1);
+  }
+  {
+    // The v1 stream reads room 1, and says so the same way.
+    server::GameApiRouteResult result = state.router.route(websocket_request(), "127.0.0.1",
+                                                           server::PeerTrafficPolicy::Clock::now());
+    REQUIRE(result.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+    CHECK(result.upgrade_route() == server::GameApiUpgradeRoute::kSnapshotsV1);
+    CHECK(result.lobby_id() == 1);
+  }
+  CHECK(state.traffic_policy.active_websocket_count() == 0);
+}
+
+TEST_CASE("GameApiRouter refuses a room that is not serving with 503 LOBBY.UNAVAILABLE naming it",
+          "[unit][server][router][v2][lobbies]") {
+  TwoRoomRouterFixture state{false};
+  const server::GameApiHttpResponse refused = state.refused("/api/v2/lobbies/2/session");
+  CHECK(refused.result() == http::status::service_unavailable);
+  CHECK(refused.at(http::field::retry_after) == "1");
+  CHECK(fixture::response_contains(refused, R"("code":"LOBBY.UNAVAILABLE")"));
+  CHECK(fixture::response_contains(refused, R"("retryable":true)"));
+  CHECK(fixture::response_contains(refused, R"("details":{"lobby_id":2})"));
+  CHECK(fixture::response_contains(refused, kV2ErrorSchemaId));
+  // A failed or unready room refuses only its own joins.
+  server::GameApiRouteResult admitted = state.upgrade("/api/v2/session");
+  REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+  CHECK(admitted.lobby_id() == 1);
+}
+
+TEST_CASE("GameApiRouter refuses a full room with 409 LOBBY.FULL and admits it again when a "
+          "session leaves",
+          "[unit][server][router][v2][lobbies]") {
+  TwoRoomRouterFixture state{true};
+  state.lobbies.room(1).count_session_in();
+  state.lobbies.room(1).count_session_in();
+
+  const server::GameApiHttpResponse refused = state.refused("/api/v2/session");
+  CHECK(refused.result() == http::status::conflict);
+  CHECK(refused.find(http::field::retry_after) == refused.end());
+  CHECK(fixture::response_contains(refused, R"("code":"LOBBY.FULL")"));
+  CHECK(fixture::response_contains(refused, R"("retryable":true)"));
+  CHECK(fixture::response_contains(refused, R"("details":{"lobby_id":1})"));
+  CHECK(fixture::response_contains(refused, kV2ErrorSchemaId));
+  {
+    // The other room has its two seats free.
+    server::GameApiRouteResult admitted = state.upgrade("/api/v2/lobbies/2/session");
+    REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+    CHECK(admitted.lobby_id() == 2);
+  }
+  state.lobbies.room(1).count_session_out();
+  {
+    server::GameApiRouteResult admitted = state.upgrade("/api/v2/session");
+    REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+    CHECK(admitted.lobby_id() == 1);
+  }
+  state.lobbies.room(1).count_session_out();
+}
+
+TEST_CASE("GameApiRouter never calls a room with no lobby full",
+          "[unit][server][router][v2][lobbies]") {
+  // `sandbox` publishes an empty roster: there is no seat for anybody to be refused from, so the
+  // seat rule does not apply and only the connection caps bound the room.
+  ReadyRouterFixture state;
+  state.lobbies.room(1).count_session_in();
+  state.lobbies.room(1).count_session_in();
+  state.lobbies.room(1).count_session_in();
+  server::GameApiRouteResult admitted = state.router.route(session_websocket_request(), "127.0.0.1",
+                                                           server::PeerTrafficPolicy::Clock::now());
+  REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+  CHECK(admitted.lobby_id() == 1);
+  state.lobbies.room(1).count_session_out();
+  state.lobbies.room(1).count_session_out();
+  state.lobbies.room(1).count_session_out();
 }

@@ -10,6 +10,7 @@
 #include "lobby_directory.hpp"
 #include "match_session_context.hpp"
 #include "physics_body.hpp"
+#include "seat_roster.hpp"
 #include "server_config.hpp"
 #include "simulation_config.hpp"
 #include "simulation_runtime.hpp"
@@ -121,6 +122,34 @@ private:
   rooms.push_back(
       {.lobby_id = 1, .snapshot_publication = publication, .match_session = std::move(context)});
   return LobbyDirectory::create(std::move(rooms));
+}
+
+// The session capability over one runtime, live or never started, as the composition root builds
+// it for a room.
+[[nodiscard]] inline MatchSessionContext
+match_session_context_for(runtime::SimulationRuntime& simulation_runtime,
+                          const std::uint64_t lobby_id = 1) {
+  return MatchSessionContext::create(
+      lobby_id, simulation_runtime.command_sink(), simulation_runtime.controller_directory(),
+      std::string{kFixtureMapName}, kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
+      std::vector<std::string>{"wanderer", "chaser"});
+}
+
+// One directory row over a runtime, for a directory of more than one room.
+[[nodiscard]] inline LobbyDirectory::Room room_of(runtime::SimulationRuntime& simulation_runtime,
+                                                  const std::uint64_t lobby_id) {
+  return {.lobby_id = lobby_id,
+          .snapshot_publication = simulation_runtime.snapshot_publication(),
+          .match_session = match_session_context_for(simulation_runtime, lobby_id)};
+}
+
+// The fixture world with a lobby of `seat_count` empty seats declared on it. No mode, so the phase
+// stays `lobby` and the only thing a join can change is the roster.
+[[nodiscard]] inline simulation::GameSimulation
+lobby_game_simulation(const std::size_t seat_count) {
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_match().seats = simulation::SeatRoster::of_size(seat_count);
+  return simulation::GameSimulation::create(simulation_config(), std::move(world));
 }
 
 [[nodiscard]] inline GameApiHttpRequest request(const boost::beast::http::verb method,

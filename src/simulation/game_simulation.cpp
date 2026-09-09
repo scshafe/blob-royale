@@ -245,21 +245,11 @@ void apply_join(GameWorld& world, const ControllerId controller,
     seats.assign_seat(index, Seat{NpcSeat{kind, controller}});
     return;
   }
-  for (std::size_t index = 0; index < seats.seat_count(); ++index) {
-    if (std::holds_alternative<EmptySeat>(seats.seats()[index])) {
-      seats.assign_seat(index, Seat{ControllerSeat{controller}});
-      return;
-    }
-  }
-  const MatchPhase phase = world.match().phase;
-  if (phase != MatchPhase::kLobby && phase != MatchPhase::kCountdown) {
-    return;
-  }
-  for (std::size_t index = 0; index < seats.seat_count(); ++index) {
-    if (std::holds_alternative<NpcSeat>(seats.seats()[index])) {
-      seats.assign_seat(index, Seat{ControllerSeat{controller}});
-      return;
-    }
+  // The lowest empty seat, else a declared bot's before the match starts, else nothing: the rule
+  // is `first_joinable_seat`'s, shared with the session that decides whether to ask at all.
+  const std::optional<std::size_t> index = first_joinable_seat(seats, world.match().phase);
+  if (index.has_value()) {
+    seats.assign_seat(*index, Seat{ControllerSeat{controller}});
   }
 }
 

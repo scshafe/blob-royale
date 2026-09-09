@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SERVER_SESSION_WEBSOCKET_SESSION_HPP
 
 #include "game_api_router.hpp"
+#include "lobby_directory.hpp"
 #include "peer_identity.hpp"
 #include "peer_traffic_policy.hpp"
 #include "request_id.hpp"
@@ -31,7 +32,7 @@
 
 namespace blob_royale::server {
 
-// canonical: session_websocket_session -- one protocol v2 `/api/v2/session` connection.
+// canonical: session_websocket_session -- one protocol v2 session connection, bound to one room.
 //
 // **It is a controller, filling the same role a bot fills, without deriving from anything.** What
 // the role requires is two capabilities and a command vocabulary, not an interface: a write-only
@@ -64,8 +65,14 @@ namespace blob_royale::server {
 // **A seat is asked for, the way a body is.** Whenever a presentation slot observes a lobby with
 // seats in which this controller sits nowhere, the session submits a server-issued `join` naming no
 // seat, and asks again a tenth of a second later until it observes its seat; the tick chooses the
-// seat, so nothing on the wire can. The ask is logged, because a session that keeps asking is a
-// lobby that is full with nobody to displace, and that is worth seeing.
+// seat, so nothing on the wire can. The ask is logged. A roster the join could not change at all --
+// no empty seat, and no declared bot's seat to take while the match has not started -- is not asked
+// again: it is the last-seat race lost, or a room joined after its match filled, and the session
+// closes `1013 lobby_full` before any welcome (`docs/protocol/v2.md` § "The lobby directory").
+//
+// **The room is the router's decision, made once.** The entry this session is bound to -- its
+// publication, its command sink, its session count -- arrives validated at construction, and every
+// line this session logs names it. Nothing here looks a room up.
 //
 // **Disconnect leaves.** `CommandSink::close_session` enqueues the controller's `leave` before
 // retiring it, and the tick destroys everything the controller drove -- seated, pending, or still
@@ -84,9 +91,9 @@ class SessionWebSocketSession final : public std::enable_shared_from_this<Sessio
 public:
   SessionWebSocketSession(boost::asio::ip::tcp::socket socket,
                           std::shared_ptr<ServerExecutionContext> server_context,
-                          std::string peer_address, protocol::RequestId request_id,
-                          PeerIdentity peer_identity, WebSocketAdmissionLease websocket_lease,
-                          TcpAdmissionLease tcp_lease);
+                          const LobbyEntry& lobby, std::string peer_address,
+                          protocol::RequestId request_id, PeerIdentity peer_identity,
+                          WebSocketAdmissionLease websocket_lease, TcpAdmissionLease tcp_lease);
 
   SessionWebSocketSession(const SessionWebSocketSession&) = delete;
   SessionWebSocketSession(SessionWebSocketSession&&) = delete;
@@ -119,6 +126,10 @@ private:
     kInternalFailure,
     kSlowConsumer,
     kServiceNotReady,
+    // `1013 lobby_full`: admitted, but the roster this session observed has no seat its join could
+    // take and none of the seats is its own. Sent before any welcome, because a welcome names a
+    // body and a session with no seat never gets one.
+    kLobbyFull,
   };
 
   void accepted(const boost::system::error_code& error);
@@ -177,6 +188,9 @@ private:
   WebSocket websocket_;
   boost::beast::flat_buffer read_buffer_;
   std::shared_ptr<ServerExecutionContext> server_context_;
+  // The room this session was admitted into. Owned by the composition root for the process
+  // lifetime, like the execution context that holds the directory it came from.
+  const LobbyEntry* lobby_;
   std::string peer_address_;
   protocol::RequestId request_id_;
   PeerIdentity peer_identity_;

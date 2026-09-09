@@ -96,7 +96,8 @@ LoopbackHttpClient::LoopbackHttpClient(const std::uint16_t port,
 IntegrationHttpResponse
 LoopbackHttpClient::request(const http::verb method, const std::string_view target,
                             const std::string_view request_id,
-                            const std::optional<std::string_view> origin) const {
+                            const std::optional<std::string_view> origin,
+                            const std::optional<std::string_view> forwarded_client) const {
   boost::asio::io_context io_context{1};
   boost::beast::tcp_stream stream{io_context};
   open_and_connect(stream, port_, operation_timeout_, "http");
@@ -108,6 +109,9 @@ LoopbackHttpClient::request(const http::verb method, const std::string_view targ
   request.set("X-Request-ID", request_id);
   if (origin.has_value()) {
     request.set(http::field::origin, *origin);
+  }
+  if (forwarded_client.has_value()) {
+    request.set("X-Forwarded-For", *forwarded_client);
   }
   request.keep_alive(false);
 

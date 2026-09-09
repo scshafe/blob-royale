@@ -41,12 +41,14 @@ inline constexpr std::string_view kErrorResponseV2SchemaId =
 inline constexpr std::string_view kLobbyDirectorySchemaId =
     "blob-royale://protocol/v2/lobby-directory";
 
-// The two registered mode-state blocks. Closed, not a grammar
-// (`common.schema.json#/$defs/mode_state_schema_id`).
+// The three registered mode-state blocks. Closed, not a grammar
+// (`common.schema.json#/$defs/mode_state_schema_id`). The hill's was added in 2.5.
 inline constexpr std::string_view kNoModeStateSchemaId =
     "blob-royale://protocol/v2/mode-state/none";
 inline constexpr std::string_view kRoyaleModeStateSchemaId =
     "blob-royale://protocol/v2/mode-state/royale";
+inline constexpr std::string_view kKingOfTheHillModeStateSchemaId =
+    "blob-royale://protocol/v2/mode-state/king-of-the-hill";
 
 // The welcome is always message 1 and the first snapshot is 2
 // (`docs/protocol/v2.md` § "Server message model").
@@ -129,7 +131,8 @@ inline constexpr std::size_t kNpcControllerKindLimit = 64;
 
 // Whether a name is a registered v2 mode-state schema id.
 [[nodiscard]] constexpr bool is_v2_mode_state_schema_id(const std::string_view schema_id) noexcept {
-  return schema_id == kNoModeStateSchemaId || schema_id == kRoyaleModeStateSchemaId;
+  return schema_id == kNoModeStateSchemaId || schema_id == kRoyaleModeStateSchemaId ||
+         schema_id == kKingOfTheHillModeStateSchemaId;
 }
 
 // The controller kind published for an entity whose controller the directory no longer names.

@@ -57,6 +57,7 @@ enum class GameplayValidationCode {
   kKingOfTheHillMapWithoutHill,
   kKingOfTheHillMapWithoutSpawnPoint,
   kKingOfTheHillHillEntityUnreserved,
+  kKingOfTheHillHillAbsent,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -110,6 +111,8 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.KING_OF_THE_HILL_MAP_WITHOUT_SPAWN_POINT";
   case GameplayValidationCode::kKingOfTheHillHillEntityUnreserved:
     return "GAMEPLAY.KING_OF_THE_HILL_HILL_ENTITY_UNRESERVED";
+  case GameplayValidationCode::kKingOfTheHillHillAbsent:
+    return "GAMEPLAY.KING_OF_THE_HILL_HILL_ABSENT";
   }
   return "GAMEPLAY.VALIDATION_CODE_INVALID";
 }

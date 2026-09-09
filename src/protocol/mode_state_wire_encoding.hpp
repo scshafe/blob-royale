@@ -8,6 +8,7 @@
 #include "entity_id.hpp"
 #include "match_phase.hpp"
 #include "mode_match_state_registry.hpp"
+#include "mode_states/king_of_the_hill_mode_state.hpp"
 #include "mode_states/no_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "tick_sequence.hpp"
@@ -105,6 +106,27 @@ template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> 
                                               placement.placement, placement.elimination_tick});
     }
   }
+};
+
+// King of the hill's block is three declared constants and nothing observed: the denominators a
+// client needs to read the scores, the presence counters, and the clock every frame already
+// carries. Scores are `score` components, the hill is the `hill` component of the hill entity, and
+// nothing of the hill's rides `match.placements`
+// (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "Mode state and the wire"). Added
+// in 2.5.
+template <> struct ModeStateWireEncoding<simulation::KingOfTheHillModeState> {
+  static constexpr std::string_view kSchemaId = kKingOfTheHillModeStateSchemaId;
+
+  // Member order is the order `docs/protocol/v2.md` § "Object member order" declares.
+  static void encode_value(const simulation::KingOfTheHillModeState& mode_state,
+                           ComponentObjectSink& sink) {
+    sink.set_unsigned("points_to_win", mode_state.points_to_win);
+    sink.set_unsigned("point_interval_ticks", mode_state.point_interval_ticks);
+    sink.set_unsigned("time_limit_ticks", mode_state.time_limit_ticks);
+  }
+
+  static void append_placements(const simulation::KingOfTheHillModeState&,
+                                std::vector<ModeStatePlacement>&) {}
 };
 
 // The wire schema id of the held block. Total over the closed variant and generated from the

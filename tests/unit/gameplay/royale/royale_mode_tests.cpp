@@ -142,8 +142,8 @@ TEST_CASE("royale resolves through the one game mode registry",
           "[unit][gameplay][royale][registry]") {
   CHECK(gameplay::GameModeRegistry::contains("royale"));
   CHECK(gameplay::GameModeRegistry::create("royale")->name() == std::string_view{"royale"});
-  CHECK(gameplay::GameModeRegistry::registrations().size() == 2);
-  CHECK(gameplay::GameModeRegistry::registered_names() == "sandbox, royale");
+  CHECK(gameplay::GameModeRegistry::registrations().size() == 3);
+  CHECK(gameplay::GameModeRegistry::registered_names() == "sandbox, royale, king_of_the_hill");
 }
 
 TEST_CASE("royale's match state is one registered arm of the mode-state seam",

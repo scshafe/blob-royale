@@ -306,6 +306,23 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "schema_id": {
+                "const": "blob-royale://protocol/v2/mode-state/king-of-the-hill"
+              }
+            },
+            "required": ["schema_id"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "$ref": "king-of-the-hill-mode-state.schema.json"
+              }
+            }
+          }
         }
       ],
       "$comment": "@extension-point snapshot_mode_state -- a new mode-state block adds one enum member in common.schema.json#/$defs/mode_state_schema_id, one <mode>-mode-state.schema.json file, and one if/then row here, and is a protocol minor version."

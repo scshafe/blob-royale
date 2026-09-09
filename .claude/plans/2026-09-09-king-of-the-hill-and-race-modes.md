@@ -137,7 +137,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     empty reservation exactly as `zone_shrink` does.
   - Execution note (2026-09-09): Both kinds with their schemas, encoders, kind-name entries, the entity-snapshot properties, and the client entries -- `hill` visual at the zone layer with an amber disc, `hill_presence` non-visual -- under the open 2.5. `hill_geometry` holds the tour as a pure function and the marker projection; `hill_movement` creates the hill entity from the reservation and writes `Hill` every tick by the four-row phase table. Its tests pin one marker never moving, the hop, the exact midpoint of a glide, the cycle, the phase table, the empty-reservation rejection, and the missing-marker rejection; the creation path is proven through the mode in Step 8, because a hand-built world holds no reservation. Verified at 623 of 623 on both lanes and 226 of 226 client tests with the registry's kind set and visual order pinned.
 
-- [ ] **Step 8: Declare `king_of_the_hill`**
+- [x] **Step 8: Declare `king_of_the_hill`**
   - Verify: `./scripts/verify-focused 'unit.gameplay|unit.protocol' && ./scripts/verify-focused 'unit.gameplay|unit.protocol' linux-clang-asan-ubsan`
   - Specialist: `rigorous-architect`
   - Notes: `hill_scoring`, `HillObjective`, `hill_rules_publisher`, the `king_of_the_hill`
@@ -146,6 +146,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     `I = 0` scores on the first tick -- and the objective's order: a field of one before the
     scoreboard, a same-tick threshold is a draw, the clock ranks the leader. The mode's line count
     is measured for the README by the README's method.
+  - Execution note (2026-09-09): `hill_scoring`, `HillObjective`, `hill_rules_publisher`, the `king_of_the_hill` block (three declared constants) with its arm, schema id, wire encoding, schema, enum member, and `if/then` row under the open 2.5, `KingOfTheHillMode`, and the registry's third row. The scoring tests pin the table line by line and the hill-absent rejection; the objective tests pin the order (a field of one before the scoreboard, a same-tick threshold is a draw, the clock ranks the leader, participants not bodies); the mode tests pin the eight systems in order, the map rejections, the registry, the hill entity created on the first tick with the block stamped beside it, and a scripted two-seat match decided by the threshold on the derived tick. Two background lanes were killed by host memory pressure at their last objects and were finished incrementally in the foreground. Verified at 644 of 644 on both lanes and 226 of 226 client tests.
 
 - [ ] **Step 9: Map and replay fixtures for the hill**
   - Verify: `./scripts/verify-focused 'fixtures' && ./scripts/verify-focused 'fixtures' linux-clang-asan-ubsan && git diff --quiet -- maps/arena-960x640`

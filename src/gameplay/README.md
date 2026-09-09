@@ -35,8 +35,13 @@ src/gameplay/
     match_reset_system.*        the restart wipe of every participant, on the lobby tick after ended
   king_of_the_hill/             a hill that tours the map, scored by holding it (ADR 0007)
     king_of_the_hill_configuration.*  the validated `[king_of_the_hill]` section, in the units systems read
+    king_of_the_hill_mode.*     the seven declarations
     hill_geometry.*             where the hill is, as a pure function of the map's `hill` markers and one integer
     hill_movement_system.*      creates the hill entity once and writes its `Hill` each tick
+    hill_scoring_system.*       presence toward the next point, and the point itself
+    hill_objective.*            ending by points or by the clock, as three total predicates
+    hill_rules_publisher_system.*  the three denominators on the wire
+    king_of_the_hill_mode_state.hpp  the one answer to "what if the world holds another arm"
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations
@@ -219,6 +224,29 @@ declares it too, right after `placement_recorder`, whose own wipe it replaced; t
 pinned counts proved the two agree on every tick royale has recorded, which is the guard
 `docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "What is deliberately not built" set
 for the adoption.
+
+## `king_of_the_hill`
+
+A hill of configured radius tours the map's `hill` markers -- dwelling, gliding, cycling, as a pure
+function of elapsed running ticks -- and every tick a player's centre is inside it counts toward
+the next point; a contested hill scores nobody unless `contested_hill_scores` says otherwise, and
+the first to `points_to_win`, or the leader when the clock runs out, wins
+(`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill"). It accepts
+royale's nine command kinds; uses the engine's built-in contact rows beneath `lethal_hazard`;
+declares `thrust_steering` at `kPreKernel`, `hill_movement` then `hill_scoring` at `kPostKernel`,
+and `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `hill_rules_publisher` at
+`kLifecycle`; seats joiners at the next free point in every phase, because the field is open; and
+returns a knocked-out player after the configured respawn delay with its score intact.
+
+What it contributed outside its own directory is two component headers plus one line in
+`component_registry.hpp`, one mode-state header plus one type and one schema id in
+`mode_match_state_registry.hpp`, one row in `game_mode_registry.hpp`, one member on
+`GameModeConfiguration`, and the `[king_of_the_hill]` fields in the loader. It added no command
+kind, no contact rule, no world event kind, and no kernel phase, and it is the first mode built on
+the framework amendments of ADR 0007: the objective's tick context for its clock, the engine's
+`previous_phase` through the shared reset, and the shared respawn.
+
+`validate_map` rejects a map with no `hill` marker or no `spawn` marker at startup, naming the map.
 
 ## Steering
 

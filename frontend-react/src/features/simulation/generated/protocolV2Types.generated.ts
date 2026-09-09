@@ -61,7 +61,8 @@ type MutableModeState = {
 } & {
   schema_id:
     | 'blob-royale://protocol/v2/mode-state/none'
-    | 'blob-royale://protocol/v2/mode-state/royale';
+    | 'blob-royale://protocol/v2/mode-state/royale'
+    | 'blob-royale://protocol/v2/mode-state/king-of-the-hill';
   value: {};
 };
 

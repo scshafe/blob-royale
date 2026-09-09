@@ -3,6 +3,7 @@
 
 #include "game_mode.hpp"
 #include "game_mode_configuration.hpp"
+#include "king_of_the_hill/king_of_the_hill_mode.hpp"
 #include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
 
@@ -44,9 +45,11 @@ namespace blob_royale::gameplay {
 // signature rather than one per configured mode is what keeps this the only file that knows which
 // games exist: a caller that had to choose a factory shape per mode would be a second such file.
 //
-// Two implementations of this seam, both registered below: `sandbox` and `royale`.
+// Three implementations of this seam, all registered below: `sandbox`, `royale`, and
+// `king_of_the_hill`.
 // related: sandbox/sandbox_mode.hpp -- the first registered mode.
 // related: royale/royale_mode.hpp -- the second.
+// related: king_of_the_hill/king_of_the_hill_mode.hpp -- the third.
 // related: game_mode.hpp -- the seven declarations a registered factory produces.
 class GameModeRegistry final {
 public:
@@ -89,9 +92,10 @@ public:
 };
 
 // The closed table. One row per game; the row is the whole registration.
-inline constexpr std::array<GameModeRegistry::Registration, 2> kGameModeRegistrations{
+inline constexpr std::array<GameModeRegistry::Registration, 3> kGameModeRegistrations{
     GameModeRegistry::Registration{SandboxMode::kModeName, &SandboxMode::create},
     GameModeRegistry::Registration{RoyaleMode::kModeName, &RoyaleMode::create},
+    GameModeRegistry::Registration{KingOfTheHillMode::kModeName, &KingOfTheHillMode::create},
 };
 
 // A mode name is an identity, so two rows may not claim one. Checked over the whole table rather

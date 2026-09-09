@@ -3,6 +3,7 @@
 #include "application_input_error.hpp"
 #include "application_text_file_reader.hpp"
 #include "game_mode_configuration.hpp"
+#include "lobbies_configuration.hpp"
 #include "match_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "shared/hazard_archetype.hpp"
@@ -41,14 +42,15 @@ enum class ConfigField : std::size_t {
   kMatchMap,
   kMatchMapsDirectory,
   kMatchSeed,
+  kMatchLobbySeatCount,
   kMatchBots,
   kRoyaleThrustMaximum,
   kRoyaleZoneMinimumRadius,
   kRoyaleZoneShrinkSeconds,
   kRoyaleEliminationGraceSeconds,
-  kRoyaleLobbySeatCount,
   kRoyaleCountdownSeconds,
   kRoyaleRestartDelaySeconds,
+  kLobbiesCount,
   kCount,
 };
 
@@ -63,14 +65,15 @@ struct ConfigFieldSpec final {
   ConfigValueSyntax value_syntax = ConfigValueSyntax::kSingleValue;
 };
 
-constexpr std::array<std::string_view, 7> kConfigSections = {
-    "server", "presentation", "simulation", "world", "spatial_grid", "match", "royale"};
+constexpr std::array<std::string_view, 8> kConfigSections = {
+    "server", "presentation", "simulation", "world", "spatial_grid", "match", "royale", "lobbies"};
 
 // **`[royale]` is required whatever `[match] mode` names.** A mode's balance section is part of
 // this deployment's accepted schema rather than of the game it happens to be running today, so
 // switching `mode=` is a one-line edit that cannot fail at startup for a section that was never
 // written. The values are read only by the mode that owns them
-// (`src/gameplay/game_mode_configuration.hpp`).
+// (`src/gameplay/game_mode_configuration.hpp`). `[lobbies]` is required for the same reason: `1`
+// is the single-match server, and a deployment that wants more rooms changes one number.
 constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCount)>
     kConfigFieldSpecs = {
         {{"server", "bind_address"},
@@ -90,14 +93,15 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"match", "map"},
          {"match", "maps_directory"},
          {"match", "seed"},
+         {"match", "lobby_seat_count"},
          {"match", "bots", ConfigValueSyntax::kCommaDelimitedList},
          {"royale", "thrust_max_world_units_per_second_squared"},
          {"royale", "zone_minimum_radius_world_units"},
          {"royale", "zone_shrink_seconds"},
          {"royale", "elimination_grace_seconds"},
-         {"royale", "lobby_seat_count"},
          {"royale", "countdown_seconds"},
-         {"royale", "restart_delay_seconds"}}};
+         {"royale", "restart_delay_seconds"},
+         {"lobbies", "count"}}};
 
 // canonical: config_section_family -- the one open name in the configuration schema.
 //
@@ -716,6 +720,7 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       std::string{document.value(ConfigField::kMatchMap)},
       std::filesystem::path{document.value(ConfigField::kMatchMapsDirectory)},
       parse_unsigned_config_value(document, ConfigField::kMatchSeed),
+      parse_unsigned_config_value(document, ConfigField::kMatchLobbySeatCount),
       MatchConfiguration::parse_bot_roster(document.value(ConfigField::kMatchBots)));
 
   // Validated by the mode that owns the section, so the application never re-derives a balance
@@ -733,17 +738,18 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
               parse_double_config_value(document, ConfigField::kRoyaleZoneShrinkSeconds),
           .elimination_grace_seconds =
               parse_double_config_value(document, ConfigField::kRoyaleEliminationGraceSeconds),
-          .lobby_seat_count =
-              parse_unsigned_config_value(document, ConfigField::kRoyaleLobbySeatCount),
           .countdown_seconds =
               parse_double_config_value(document, ConfigField::kRoyaleCountdownSeconds),
           .restart_delay_seconds =
               parse_double_config_value(document, ConfigField::kRoyaleRestartDelaySeconds)}),
       parse_hazard_archetypes(document)};
 
-  return RunRequest{ApplicationConfig::create(std::move(server_config), simulation_config,
-                                              std::move(match_configuration),
-                                              std::move(game_mode_configuration)),
+  const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(
+      parse_unsigned_config_value(document, ConfigField::kLobbiesCount));
+
+  return RunRequest{ApplicationConfig::create(
+                        std::move(server_config), simulation_config, std::move(match_configuration),
+                        std::move(game_mode_configuration), lobbies_configuration),
                     std::move(scenario_path)};
 }
 

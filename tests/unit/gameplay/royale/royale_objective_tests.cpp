@@ -38,16 +38,14 @@ namespace {
   return simulation::GameWorld::create(std::move(seeds));
 }
 
-[[nodiscard]] gameplay::RoyaleObjective objective_for(const std::uint64_t lobby_seat_count) {
-  gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
-  section.lobby_seat_count = lobby_seat_count;
-  return gameplay::RoyaleObjective{gameplay::RoyaleConfiguration::create(section)};
+// The objective reads the lobby from the world it is asked about; its configuration carries no
+// seat count, because who plays is a `[match]` fact and the roster is world state.
+[[nodiscard]] gameplay::RoyaleObjective royale_objective() {
+  return gameplay::RoyaleObjective{gameplay::RoyaleConfiguration::defaults()};
 }
 
 // A world whose lobby has `seat_count` seats, the first `filled_count` of them held by a
-// controller. The seat contents are irrelevant to the rule under test -- a declared NPC seat fills
-// a seat exactly as a controller does -- so the cheaper arm is used and the NPC arm is covered by
-// its own case below.
+// controller. The NPC arm -- filled only once its bot exists -- is covered by its own case below.
 [[nodiscard]] simulation::GameWorld lobby_world(const std::size_t seat_count,
                                                 const std::size_t filled_count,
                                                 const bool start_requested) {
@@ -71,7 +69,7 @@ TEST_CASE("can_start is a full lobby and a requested start, and needs both",
   // The Step 2 rule. Both conjuncts are load-bearing and the four combinations say so: a full lobby
   // nobody started does not start, a start requested into an incomplete lobby does not start
   // either, and only the two together do.
-  const gameplay::RoyaleObjective objective = objective_for(4);
+  const gameplay::RoyaleObjective objective = royale_objective();
 
   CHECK_FALSE(objective.can_start(lobby_world(4, 4, false)));
   CHECK_FALSE(objective.can_start(lobby_world(4, 3, true)));
@@ -79,7 +77,7 @@ TEST_CASE("can_start is a full lobby and a requested start, and needs both",
   CHECK(objective.can_start(lobby_world(4, 4, true)));
 
   // A one-seat lobby is legal and degenerate rather than a rejection.
-  CHECK(objective_for(1).can_start(lobby_world(1, 1, true)));
+  CHECK(royale_objective().can_start(lobby_world(1, 1, true)));
 }
 
 TEST_CASE("a world with no declared lobby never starts a match",
@@ -88,7 +86,7 @@ TEST_CASE("a world with no declared lobby never starts a match",
   // a lobby onto holds. "Every seat is filled" over an empty roster is vacuously true, so without
   // the roster's own "at least one seat" rule this world would start a match with nobody in it --
   // and it would do it on the first tick, before any session had connected.
-  const gameplay::RoyaleObjective objective = objective_for(4);
+  const gameplay::RoyaleObjective objective = royale_objective();
   simulation::GameWorld world = world_with_alive_entities(3);
   REQUIRE(world.match().seats.seat_count() == 0);
 
@@ -104,7 +102,7 @@ TEST_CASE("a seat declared for an NPC fills that seat only once its bot exists",
   // otherwise start a match with nobody in it
   // (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 4), and the cost of waiting is
   // the one control poll the reconciliation takes.
-  const gameplay::RoyaleObjective objective = objective_for(2);
+  const gameplay::RoyaleObjective objective = royale_objective();
   simulation::GameWorld world = lobby_world(2, 1, true);
   CHECK_FALSE(objective.can_start(world));
 
@@ -133,7 +131,7 @@ TEST_CASE("the alive count no longer decides whether a match may start",
   // The rule this replaced was "the alive count is at or above `lobby_minimum_players`". This is
   // the regression that says it is gone: a field of five live blobs with an empty seat does not
   // start, and an empty arena whose lobby is full and started does.
-  const gameplay::RoyaleObjective objective = objective_for(2);
+  const gameplay::RoyaleObjective objective = royale_objective();
 
   simulation::GameWorld crowded = world_with_alive_entities(5);
   // Bound to a named world first: `GameWorld::match()` is deleted on an rvalue, because a reference
@@ -147,7 +145,7 @@ TEST_CASE("the alive count no longer decides whether a match may start",
 
 TEST_CASE("outcome names the last alive entity, draws an empty field, and is otherwise undecided",
           "[unit][gameplay][royale][objective]") {
-  const gameplay::RoyaleObjective objective = objective_for(2);
+  const gameplay::RoyaleObjective objective = royale_objective();
 
   CHECK(objective.outcome(world_with_alive_entities(0)) == simulation::MatchOutcome::drawn());
   CHECK(objective.outcome(world_with_alive_entities(1)) ==
@@ -163,7 +161,7 @@ TEST_CASE("a pending entity and a body with no controller are not alive",
   // the zone entity owns neither. `can_start` is deliberately not asserted here any more: since
   // Step 2 it reads the seat roster and not this population at all, so an assertion on it would
   // pass for a reason that has nothing to do with what this case is about.
-  const gameplay::RoyaleObjective objective = objective_for(2);
+  const gameplay::RoyaleObjective objective = royale_objective();
   simulation::GameWorld world = world_with_alive_entities(1);
 
   world.mutable_store<simulation::Controllable>().insert_or_assign(
@@ -179,7 +177,7 @@ TEST_CASE("a pending entity and a body with no controller are not alive",
 
 TEST_CASE("the objective's durations are the configured tick counts",
           "[unit][gameplay][royale][objective]") {
-  const gameplay::RoyaleObjective objective = objective_for(2);
+  const gameplay::RoyaleObjective objective = royale_objective();
   CHECK(objective.durations().countdown_ticks == 2'000);
   CHECK(objective.durations().restart_delay_ticks == 3'200);
 }

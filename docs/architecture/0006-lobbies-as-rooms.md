@@ -109,7 +109,7 @@ and one small integer `lobby_id` issued by ordinal from 1. The application owns 
 them, constructed from the `[match]` template with `seed = [match] seed + (lobby_id - 1)` so two
 rooms never replay the same hazard stream, and the same `[royale]` and `[hazard.*]` sections. The
 count is a required key, `[lobbies] count`, validated in `[1, kMaximumLobbyCount]` with
-`kMaximumLobbyCount = 8` in `server_limits.hpp`; the deployed configuration says `4`. Per-room maps
+`kLobbyDirectoryLimit = 8` in `protocol_v2_constants.hpp`, the directory's `maxItems`; the deployed configuration says `4`. Per-room maps
 and modes are not built (§ "What is deliberately not built"); the section-family loader that
 `[hazard.<kind>]` already uses is the obvious home for `[lobby.<ordinal>]` overrides when someone
 wants them.

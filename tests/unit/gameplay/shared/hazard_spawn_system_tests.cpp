@@ -59,7 +59,6 @@ constexpr std::size_t kPromptLobbySeatCount = 2;
 
 [[nodiscard]] gameplay::RoyaleConfiguration prompt_royale() {
   gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
-  section.lobby_seat_count = kPromptLobbySeatCount;
   section.countdown_seconds = 0.01;
   return gameplay::RoyaleConfiguration::create(section);
 }

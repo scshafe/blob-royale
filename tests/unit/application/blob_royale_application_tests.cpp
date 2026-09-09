@@ -6,6 +6,7 @@
 #include "game_mode_configuration.hpp"
 #include "game_server_error.hpp"
 #include "game_world.hpp"
+#include "lobbies_configuration.hpp"
 #include "map_definition.hpp"
 #include "match_configuration.hpp"
 #include "physics_body.hpp"
@@ -92,7 +93,7 @@ private:
 // about process lifecycle and a shrinking zone would change the world under them.
 [[nodiscard]] MatchConfiguration
 match_configuration_fixture(std::vector<MatchConfiguration::BotRosterEntry> bot_roster = {}) {
-  return MatchConfiguration::create("sandbox", std::string{kMapName}, "maps", kMatchSeed,
+  return MatchConfiguration::create("sandbox", std::string{kMapName}, "maps", kMatchSeed, 2,
                                     std::move(bot_roster));
 }
 
@@ -114,7 +115,8 @@ application_config_fixture(const std::uint16_t port,
                            std::vector<MatchConfiguration::BotRosterEntry> bot_roster = {}) {
   return ApplicationConfig::create(server_config_fixture(port), simulation_config_fixture(),
                                    match_configuration_fixture(std::move(bot_roster)),
-                                   gameplay::GameModeConfiguration::defaults());
+                                   gameplay::GameModeConfiguration::defaults(),
+                                   LobbiesConfiguration::create(1));
 }
 
 [[nodiscard]] simulation::GameWorld empty_world_fixture() {

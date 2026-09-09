@@ -86,7 +86,7 @@ gameplay_simulation(std::unique_ptr<const simulation::GameMode> mode, simulation
   const simulation::SimulationConfig configuration = gameplay_configuration();
   simulation::GameWorld world = simulation::GameWorld::create(configuration, map, seed);
   // The lobby is part of the state a match begins in and is seeded onto the initial world, exactly
-  // as `BlobRoyaleApplication::create` seeds it in production from `[royale] lobby_seat_count`.
+  // as `BlobRoyaleApplication::create` seeds it in production from `[match] lobby_seat_count`.
   // The default is no lobby at all, which is what every test that is not about the lifecycle wants:
   // a mode whose `can_start` reads the roster then never leaves `lobby`, and a mode whose
   // `can_start` ignores it -- `sandbox` -- behaves exactly as it always did.

@@ -159,11 +159,12 @@ What it contributed outside its own directory is two component headers plus one 
 `mode_match_state_registry.hpp`, and one row in `game_mode_registry.hpp`. It added no command kind,
 no contact rule, no world event kind, and no kernel phase.
 
-`validate_map` rejects two maps at startup, naming the map and the cause: one with fewer `spawn`
-markers than `lobby_seat_count`, which could not seat a full lobby and would leave joiners pending
-forever; and one whose arena's circumscribed radius is not strictly greater than
-`zone_minimum_radius_world_units`, which would start the zone already at its floor so it never
-contracts and the game never ends.
+`validate_map` rejects one map at startup, naming the map and the cause: one whose arena's
+circumscribed radius is not strictly greater than `zone_minimum_radius_world_units`, which would
+start the zone already at its floor so it never contracts and the game never ends. A map with fewer
+`spawn` markers than the lobby has seats is rejected too, but by the application's
+`require_lobby_fits_map`, because a marker per seat is every lobby mode's rule and the seat count
+is a `[match]` fact rather than royale's.
 
 **Balance is `[royale]` and layout is the map.** `RoyaleConfiguration` is the validated section: it
 converts the four durations to integer tick counts once, at load, so no system ever sees a value in

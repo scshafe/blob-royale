@@ -51,7 +51,7 @@ If the page recovered on its own, say so, because bounded reconnect is meant to 
 
 ## Balance changes to try
 
-The one that decides who a match waits for is `[royale] lobby_seat_count`, the number of seats the
+The one that decides who a match waits for is `[match] lobby_seat_count`, the number of seats the
 lobby is created with; a match starts when every seat is filled and somebody presses Start. Feel is mostly `drag_per_second`, the thrust maximum, and
 the zone shrink. Apply a change in seconds with `./scripts/reconfigure-tailnet` on the host, then
 commit whichever value you keep so the running arena and the repository agree.

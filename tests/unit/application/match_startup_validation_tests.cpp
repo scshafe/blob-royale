@@ -57,7 +57,7 @@ constexpr double kArenaHeight = 640.0;
 }
 
 [[nodiscard]] MatchConfiguration match_with_bots(const std::string& roster) {
-  return MatchConfiguration::create("royale", "budget-arena", "maps", 1,
+  return MatchConfiguration::create("royale", "budget-arena", "maps", 1, 4,
                                     MatchConfiguration::parse_bot_roster(roster));
 }
 
@@ -247,6 +247,30 @@ TEST_CASE("a map whose arena disagrees with the published world scalars is rejec
   require_application_input_error_code(
       [&] { require_map_matches_published_world(configuration(), narrower); },
       ApplicationInputErrorCode::kMatchMapBoundsMismatch);
+}
+
+TEST_CASE("a lobby needs a spawn marker per seat, and only a mode with a lobby is asked",
+          "[unit][application][startup][lobby]") {
+  // Royale accepts `start_match`, so its lobby must fit the map: four seats on a three-marker map
+  // is a full field the arena could never seat, refused at startup naming both counts.
+  const auto map_with_markers = [](const std::size_t marker_count) {
+    std::vector<simulation::MapDefinition::Marker> markers;
+    for (std::size_t index = 0; index < marker_count; ++index) {
+      markers.push_back(simulation::MapDefinition::Marker::spawn(
+          simulation::Vector2::create(100.0 * static_cast<double>(index + 1), 320.0)));
+    }
+    return simulation::MapDefinition::create(
+        "lobby-arena", simulation::ArenaBounds::create(kArenaWidth, kArenaHeight), {},
+        std::move(markers), simulation::MapMetadata::none());
+  };
+  require_application_input_error_code(
+      [&] { require_lobby_fits_map(*gameplay::RoyaleMode::create(), 4, map_with_markers(3)); },
+      ApplicationInputErrorCode::kMatchLobbyExceedsSpawnMarkers);
+  CHECK_NOTHROW(require_lobby_fits_map(*gameplay::RoyaleMode::create(), 4, map_with_markers(4)));
+  CHECK_NOTHROW(require_lobby_fits_map(*gameplay::RoyaleMode::create(), 4, map_with_markers(9)));
+
+  // Sandbox has no lobby, so the seat count is not its business and no map is too small for it.
+  CHECK_NOTHROW(require_lobby_fits_map(*gameplay::SandboxMode::create(), 4, map_with_markers(1)));
 }
 
 TEST_CASE("a mode with a lobby starts with the configured seats and a mode without one starts "

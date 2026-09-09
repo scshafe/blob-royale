@@ -46,6 +46,9 @@ enum class ApplicationInputErrorCode {
   kMatchMapBoundsMismatch,
   kMatchEntityBudgetExceeded,
   kMatchBotsExceedSeats,
+  kMatchLobbySeatCountOutOfRange,
+  kMatchLobbyExceedsSpawnMarkers,
+  kLobbiesCountOutOfRange,
   kMapFileMissing,
   kMapPathNotRegularFile,
   kMapFileTooLarge,
@@ -137,6 +140,12 @@ application_input_error_code_name(const ApplicationInputErrorCode code) noexcept
     return "APPLICATION.MATCH.ENTITY_BUDGET_EXCEEDED";
   case ApplicationInputErrorCode::kMatchBotsExceedSeats:
     return "APPLICATION.MATCH.BOTS_EXCEED_SEATS";
+  case ApplicationInputErrorCode::kMatchLobbySeatCountOutOfRange:
+    return "APPLICATION.MATCH.LOBBY_SEAT_COUNT_OUT_OF_RANGE";
+  case ApplicationInputErrorCode::kMatchLobbyExceedsSpawnMarkers:
+    return "APPLICATION.MATCH.LOBBY_EXCEEDS_SPAWN_MARKERS";
+  case ApplicationInputErrorCode::kLobbiesCountOutOfRange:
+    return "APPLICATION.LOBBIES.COUNT_OUT_OF_RANGE";
   case ApplicationInputErrorCode::kMapFileMissing:
     return "APPLICATION.MAP.FILE_MISSING";
   case ApplicationInputErrorCode::kMapPathNotRegularFile:

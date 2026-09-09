@@ -38,8 +38,8 @@ namespace blob_royale::gameplay {
 //   accepted_command_kinds  spawn, despawn, join, leave, thrust, and the four lobby kinds
 //   spawn_policy()          RotatingRingSpawnPolicy
 //   objective()             RoyaleObjective
-//   validate_map()          at least `lobby_seat_count` spawn markers, and an arena whose
-//                           `R_full` is strictly greater than the configured zone minimum
+//   validate_map()          an arena whose `R_full` is strictly greater than the configured
+//                           zone minimum
 //
 // **Why `contact_rules()` declares one row above the built-in ones.** Royale still changes no
 // collision *equation*: `lethal_hazard` computes no physics at all, returns both bodies verbatim,
@@ -143,12 +143,11 @@ public:
     return std::make_unique<const RoyaleObjective>(configuration_);
   }
 
-  // Rejects a map royale cannot play, at startup, naming the map and the cause. Fewer spawn markers
-  // than `lobby_seat_count` is a lobby whose full field could not all be seated, so a match that
-  // satisfied `can_start` would still leave joiners pending forever; an arena whose `R_full` is not
-  // strictly greater than the configured zone
-  // minimum starts already shrunk to its floor, so the zone would never contract and the game would
-  // never end (`docs/architecture/0005-royale-mode.md` § "Mode configuration").
+  // Rejects a map royale cannot play, at startup, naming the map and the cause: an arena whose
+  // `R_full` is not strictly greater than the configured zone minimum starts already shrunk to its
+  // floor, so the zone would never contract and the game would never end
+  // (`docs/architecture/0005-royale-mode.md` § "Mode configuration"). A spawn marker per lobby seat
+  // is every lobby mode's rule and is the application's (`match_startup_validation.hpp`).
   void validate_map(const simulation::MapDefinition& map) const override;
 
   // Public because `create` hands the mode over as a `std::unique_ptr<const GameMode>` and

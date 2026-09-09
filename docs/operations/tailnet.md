@@ -79,11 +79,13 @@ number stops the container with a diagnostic naming the key rather than serving 
 Restart takes seconds. Commit whatever value you settle on, so the running arena and the repository
 agree.
 
-The number that decides who a match waits for is `[royale] lobby_seat_count`: it is how many seats
+The number that decides who a match waits for is `[match] lobby_seat_count`: it is how many seats
 the pre-match lobby is created with, and a match starts only when every seat is filled and somebody
 presses Start. The shipped value is four seats. `[match] bots` declares NPCs into the first seats of
 that lobby and the server creates a bot for every declared seat, so the roster is part of the field
-the lobby waits for and a person who joins a full lobby takes an NPC's seat.
+the lobby waits for and a person who joins a full lobby takes an NPC's seat. `[lobbies] count` is
+how many rooms the process runs, each playing that match on its own thread with its own seed; the
+shipped value is four, and the directory route that lists them arrives with protocol 2.4.
 
 ## Verify
 
@@ -141,11 +143,19 @@ sudo tailscale serve --https=8444 /srv/blob-royale/web off
 
 ## Limits behind the proxy
 
-Every tailnet client reaches the server from the proxy's loopback address, so today the server
-accounts all players as one loopback principal: at most 8 concurrent WebSocket sessions, 4 upgrades
-per burst refilling one every 5 seconds, and 20 HTTP requests per burst refilling 2 per second. A
-later protocol version will define proxy-supplied per-client accounting. Do not widen the server
-bounds to hide the collapse.
+Every tailnet client reaches the server from the proxy's loopback address. The deployment names that
+proxy in `[server] trusted_proxy_addresses=127.0.0.1`, so the server credits the `X-Forwarded-For`
+that `tailscale serve` adds and accounts each tailnet client as its own principal: at most 8
+concurrent WebSocket sessions, 4 upgrades per burst refilling one every 5 seconds, and 20 HTTP
+requests per burst refilling 2 per second, **per client** rather than shared by everyone. Without
+that line every player would be one loopback principal and a lobby directory that four people poll
+would rate-limit all of them at once.
+
+The residual is the one protocol v2 § "Abuse cases" accepts for a single-operator host: the trusted
+proxy *is* loopback, so any local process on the host can set the same header, mint principals, and
+appear under any name. That is acceptable here because nobody but the operator runs processes on
+this host; it is the reason this protocol is not safe on a shared machine. Do not widen the server
+bounds, and do not add a second address to the trusted list without reading that section.
 
 ## Stop
 

@@ -713,11 +713,6 @@ struct TickStatistics final {
   double maximum;
 };
 
-[[nodiscard]] double ticks_to_seconds(const std::uint64_t ticks) {
-  return static_cast<double>(ticks) /
-         static_cast<double>(SimulationConfig::kRequiredTicksPerSecond);
-}
-
 // Reads the deployed configuration through the production loader and the named map through the
 // production map loader, then widens the lobby to the budgeted seat count and nothing else.
 [[nodiscard]] RoyaleMatch load_royale_match(const RoyaleCaseInputs& inputs) {
@@ -740,25 +735,21 @@ struct TickStatistics final {
   simulation::MapDefinition map =
       application::MapLoader::load(inputs.maps_directory / match.map_name());
 
-  const gameplay::RoyaleConfiguration& deployed = configuration.game_mode_configuration().royale;
-  gameplay::GameModeConfiguration widened = configuration.game_mode_configuration();
-  widened.royale = gameplay::RoyaleConfiguration::create(gameplay::RoyaleConfiguration::Section{
-      .thrust_max_world_units_per_second_squared = deployed.thrust_maximum(),
-      .zone_minimum_radius_world_units = deployed.zone_minimum_radius(),
-      .zone_shrink_seconds = ticks_to_seconds(deployed.zone_shrink_ticks()),
-      .elimination_grace_seconds = ticks_to_seconds(deployed.elimination_grace_ticks()),
-      .lobby_seat_count = kRoyaleSeatCount,
-      .countdown_seconds = ticks_to_seconds(deployed.countdown_ticks()),
-      .restart_delay_seconds = ticks_to_seconds(deployed.restart_delay_ticks())});
-  require(!widened.hazards.empty(), "BENCHMARK.DEPLOYMENT_HAZARDS_MISSING",
+  // The seat count is a `[match]` fact and the lobby is world state, so the widening to eight seats
+  // is done on the initial world's roster in `RoyaleRun` and the mode configuration is the
+  // deployment's own, untouched.
+  gameplay::GameModeConfiguration mode_configuration = configuration.game_mode_configuration();
+  require(!mode_configuration.hazards.empty(), "BENCHMARK.DEPLOYMENT_HAZARDS_MISSING",
           "the royale case expects the deployment to declare at least one hazard kind");
+  require(map.spawn_points().size() >= kRoyaleSeatCount, "BENCHMARK.DEPLOYMENT_MAP_TOO_SMALL",
+          "the royale case needs a spawn marker for each of its eight seats");
 
   return RoyaleMatch{.configuration = configuration.simulation_config(),
                      .map = std::move(map),
-                     .mode_configuration = std::move(widened),
+                     .mode_configuration = std::move(mode_configuration),
                      .mode_name = match.mode_name(),
                      .seed = match.seed(),
-                     .deployed_lobby_seat_count = deployed.lobby_seat_count(),
+                     .deployed_lobby_seat_count = match.lobby_seat_count(),
                      .configuration_path = configuration_path};
 }
 

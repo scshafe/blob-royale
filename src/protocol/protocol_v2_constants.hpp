@@ -91,6 +91,13 @@ inline constexpr std::array<std::string_view, 5> kV2ClientCommandKindNames{
 inline constexpr std::size_t kLobbySeatCountMaximum = 64;
 inline constexpr std::size_t kLobbySeatIndexMaximum = kLobbySeatCountMaximum - 1;
 
+// How many rooms one process may run and list: the `maxItems` of the lobby directory protocol 2.4
+// publishes, and the bound `[lobbies] count` is validated against at startup, because a process
+// may not run more rooms than it can list. Eight is the room count ADR 0006 budgets a two-core
+// host for (`docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision"); the
+// deployment names fewer.
+inline constexpr std::size_t kLobbyDirectoryLimit = 8;
+
 // The published NPC-kind list's bound. It is **not** the number of registered bot kinds, and that
 // is the whole point: `welcome.npc_controller_kinds` is read from `ControllerRegistry` so that
 // registering a bot costs no client change, and a bound that tracked the registry's size would put

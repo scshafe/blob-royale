@@ -28,11 +28,11 @@ namespace gameplay = blob_royale::gameplay;
 // a match is reproducible from that tuple, so that tuple is what a test, a bug report, and a replay
 // viewer all carry. A replay fixture is a directory under `tests/fixtures/replays/`:
 //
-//   match.ini     [match] mode, seed, tick_count
+//   match.ini     [match] mode, seed, tick_count, lobby_seat_count
 //                 [map] name, width_world_units, height_world_units
 //                 [simulation] player_radius_world_units, ticks_per_second, spatial_grid_columns,
 //                              spatial_grid_rows, drag_per_second
-//                 [royale] the seven keys of `docs/architecture/0005-royale-mode.md`
+//                 [royale] the six keys of `docs/architecture/0005-royale-mode.md`
 //                          § "Mode configuration"
 //   markers.csv   marker_kind,position_x_world_units,position_y_world_units
 //   commands.csv  tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,
@@ -98,6 +98,9 @@ public:
   [[nodiscard]] const std::string& mode_name() const noexcept { return mode_name_; }
   [[nodiscard]] std::uint64_t seed() const noexcept { return seed_; }
   [[nodiscard]] std::uint64_t tick_count() const noexcept { return tick_count_; }
+  // How many seats the lobby is created with: `[match] lobby_seat_count`, a fact about who plays
+  // rather than a royale balance value, exactly as the production configuration has it.
+  [[nodiscard]] std::uint64_t lobby_seat_count() const noexcept { return lobby_seat_count_; }
   [[nodiscard]] const simulation::SimulationConfig& configuration() const noexcept {
     return configuration_;
   }
@@ -120,8 +123,9 @@ public:
 
 private:
   ReplayFixture(std::string name, std::string mode_name, std::uint64_t seed,
-                std::uint64_t tick_count, simulation::SimulationConfig configuration,
-                simulation::MapDefinition map, gameplay::RoyaleConfiguration royale,
+                std::uint64_t tick_count, std::uint64_t lobby_seat_count,
+                simulation::SimulationConfig configuration, simulation::MapDefinition map,
+                gameplay::RoyaleConfiguration royale,
                 std::vector<std::vector<simulation::Command>> commands_by_tick,
                 std::vector<std::uint64_t> spawn_count_by_tick);
 
@@ -129,6 +133,7 @@ private:
   std::string mode_name_;
   std::uint64_t seed_;
   std::uint64_t tick_count_;
+  std::uint64_t lobby_seat_count_;
   simulation::SimulationConfig configuration_;
   simulation::MapDefinition map_;
   gameplay::RoyaleConfiguration royale_;

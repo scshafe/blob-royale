@@ -45,7 +45,6 @@ enum class GameplayValidationCode {
   kSandboxMapWithoutSpawnPoint,
   kRoyaleScalarNotFinite,
   kRoyaleScalarOutOfRange,
-  kRoyaleMapWithoutEnoughSpawnPoints,
   kRoyaleMapArenaWithinZoneMinimum,
   kRoyaleZoneEntityUnreserved,
   kRoyaleZoneAbsent,
@@ -80,8 +79,6 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.ROYALE_SCALAR_NOT_FINITE";
   case GameplayValidationCode::kRoyaleScalarOutOfRange:
     return "GAMEPLAY.ROYALE_SCALAR_OUT_OF_RANGE";
-  case GameplayValidationCode::kRoyaleMapWithoutEnoughSpawnPoints:
-    return "GAMEPLAY.ROYALE_MAP_WITHOUT_ENOUGH_SPAWN_POINTS";
   case GameplayValidationCode::kRoyaleMapArenaWithinZoneMinimum:
     return "GAMEPLAY.ROYALE_MAP_ARENA_WITHIN_ZONE_MINIMUM";
   case GameplayValidationCode::kRoyaleZoneEntityUnreserved:

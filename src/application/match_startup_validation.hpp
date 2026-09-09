@@ -66,6 +66,17 @@ void require_match_fits_snapshot_bound(
 void require_map_matches_published_world(const simulation::SimulationConfig& simulation_config,
                                          const simulation::MapDefinition& map);
 
+// Rejects a lobby the map could not seat in full: a mode with a lobby -- one that accepts
+// `start_match` -- needs a `spawn` marker per seat, or a match that satisfied `can_start` would
+// still leave joiners pending forever. A mode without a lobby ignores the seat count and passes.
+// The rule used to be royale's `validate_map`; it is every lobby mode's, and the seat count is a
+// `[match]` fact, so it lives with the other cross-value rules.
+//
+// Throws ApplicationInputError with `APPLICATION.MATCH.LOBBY_EXCEEDS_SPAWN_MARKERS`, naming the map
+// and both counts.
+void require_lobby_fits_map(const simulation::GameMode& mode, std::uint64_t lobby_seat_count,
+                            const simulation::MapDefinition& map);
+
 // The seat roster a match starts with: `lobby_seat_count` seats for a mode that has a lobby, the
 // first of them declared for the `[match] bots` roster in its written order, and no roster at all
 // for a mode that does not.

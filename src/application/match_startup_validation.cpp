@@ -110,6 +110,21 @@ void require_map_matches_published_world(const simulation::SimulationConfig& sim
           " one; the kernel folds against the map and every client draws the published scalars"};
 }
 
+void require_lobby_fits_map(const simulation::GameMode& mode, const std::uint64_t lobby_seat_count,
+                            const simulation::MapDefinition& map) {
+  if (!mode.accepted_command_kinds().contains(simulation::CommandKind::kStartMatch)) {
+    return;
+  }
+  if (map.spawn_points().size() < lobby_seat_count) {
+    throw ApplicationInputError{
+        ApplicationInputErrorCode::kMatchLobbyExceedsSpawnMarkers, "match.lobby_seat_count",
+        "map " + std::string(map.name()) + " declares " +
+            std::to_string(map.spawn_points().size()) + " spawn markers, fewer than the " +
+            std::to_string(lobby_seat_count) +
+            " seats of [match] lobby_seat_count, so a full lobby could never all be seated"};
+  }
+}
+
 simulation::SeatRoster
 initial_seat_roster_for(const simulation::GameMode& mode, const std::uint64_t lobby_seat_count,
                         const std::span<const MatchConfiguration::BotRosterEntry> bot_roster) {
@@ -125,7 +140,7 @@ initial_seat_roster_for(const simulation::GameMode& mode, const std::uint64_t lo
         throw ApplicationInputError{
             ApplicationInputErrorCode::kMatchBotsExceedSeats, "match.bots",
             "[match] bots declares more bots than the " + std::to_string(roster.seat_count()) +
-                " seats of [royale] lobby_seat_count, so the field could never be seated in full"};
+                " seats of [match] lobby_seat_count, so the field could never be seated in full"};
       }
       // The kind was checked against the controller registry when the roster was parsed, and the
       // registry's names satisfy the published kind-name grammar by construction

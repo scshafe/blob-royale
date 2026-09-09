@@ -358,14 +358,16 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
   // match begins with, and `GameSimulation::create` neither invents nor overwrites it
   // (`src/simulation/seat_roster.hpp`).
   //
-  // `[royale]` is required whatever `[match] mode` names (`application_config_loader.cpp`), so the
-  // key is always there to read; whether it is *applied* is the mode's declaration. A mode that
-  // accepts no `start_match` starts with no roster, which is the empty array protocol v2 promises
-  // for a world that declared no lobby, and for a mode that does the `[match] bots` roster is the
-  // declaration of the first seats rather than a startup roster (`match_startup_validation.hpp`).
-  initial_world.mutable_match().seats = initial_seat_roster_for(
-      *mode, application_config.game_mode_configuration().royale.lobby_seat_count(),
-      application_config.match_configuration().bot_roster());
+  // `[match] lobby_seat_count` is a fact about who plays this match, whatever mode plays it;
+  // whether it is *applied* is the mode's declaration. A mode that accepts no `start_match` starts
+  // with no roster, which is the empty array protocol v2 promises for a world that declared no
+  // lobby, and for a mode that does the `[match] bots` roster is the declaration of the first seats
+  // rather than a startup roster (`match_startup_validation.hpp`). A lobby the map could not seat
+  // in full is refused first, naming both counts.
+  require_lobby_fits_map(*mode, application_config.match_configuration().lobby_seat_count(), map);
+  initial_world.mutable_match().seats =
+      initial_seat_roster_for(*mode, application_config.match_configuration().lobby_seat_count(),
+                              application_config.match_configuration().bot_roster());
 
   // The accepted command mask is copied out **before** the mode is moved into the engine, which
   // destroys it once it has read its seven declarations. It is the set a protocol v2 `welcome`

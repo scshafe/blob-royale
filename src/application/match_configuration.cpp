@@ -1,5 +1,7 @@
 #include "match_configuration.hpp"
 
+#include "seat_roster.hpp"
+
 #include "application_input_error.hpp"
 #include "controller_registry.hpp"
 #include "game_mode_registry.hpp"
@@ -128,6 +130,7 @@ MatchConfiguration::parse_bot_roster(const std::string_view value) {
 MatchConfiguration MatchConfiguration::create(std::string mode_name, std::string map_name,
                                               std::filesystem::path maps_directory,
                                               const std::uint64_t seed,
+                                              const std::uint64_t lobby_seat_count,
                                               std::vector<BotRosterEntry> bot_roster) {
   if (!is_wire_kind_name(mode_name)) {
     throw ApplicationInputError{
@@ -153,6 +156,18 @@ MatchConfiguration MatchConfiguration::create(std::string mode_name, std::string
     throw ApplicationInputError{ApplicationInputErrorCode::kMatchMapNameInvalid,
                                 "match.maps_directory", "the maps directory must not be empty"};
   }
+  // The lobby's own bounds, which are properties of the number rather than of the map: a lobby of
+  // no seats cannot be sat in, and the engine's ceiling is the roster it copies into the working
+  // world every tick (`src/simulation/seat_roster.hpp`). The tighter bound -- a spawn marker per
+  // seat -- needs the map and the mode and is `require_lobby_fits_map`'s.
+  if (lobby_seat_count < simulation::SeatRoster::kMinimumSeatCount ||
+      lobby_seat_count > simulation::SeatRoster::kMaximumSeatCount) {
+    throw ApplicationInputError{
+        ApplicationInputErrorCode::kMatchLobbySeatCountOutOfRange, "match.lobby_seat_count",
+        "a lobby has between " + std::to_string(simulation::SeatRoster::kMinimumSeatCount) +
+            " and " + std::to_string(simulation::SeatRoster::kMaximumSeatCount) +
+            " seats, and this configuration names " + std::to_string(lobby_seat_count)};
+  }
 
   std::uint64_t total_bots = 0;
   for (const BotRosterEntry& entry : bot_roster) {
@@ -170,8 +185,9 @@ MatchConfiguration MatchConfiguration::create(std::string mode_name, std::string
     total_bots += entry.count;
   }
 
-  return MatchConfiguration{std::move(mode_name), std::move(map_name), std::move(maps_directory),
-                            seed, std::move(bot_roster)};
+  return MatchConfiguration{std::move(mode_name),      std::move(map_name),
+                            std::move(maps_directory), seed,
+                            lobby_seat_count,          std::move(bot_roster)};
 }
 
 std::uint64_t MatchConfiguration::total_bot_count() const noexcept {
@@ -185,8 +201,10 @@ std::uint64_t MatchConfiguration::total_bot_count() const noexcept {
 MatchConfiguration::MatchConfiguration(std::string mode_name, std::string map_name,
                                        std::filesystem::path maps_directory,
                                        const std::uint64_t seed,
+                                       const std::uint64_t lobby_seat_count,
                                        std::vector<BotRosterEntry> bot_roster) noexcept
     : mode_name_(std::move(mode_name)), map_name_(std::move(map_name)),
-      maps_directory_(std::move(maps_directory)), seed_(seed), bot_roster_(std::move(bot_roster)) {}
+      maps_directory_(std::move(maps_directory)), seed_(seed), lobby_seat_count_(lobby_seat_count),
+      bot_roster_(std::move(bot_roster)) {}
 
 } // namespace blob_royale::application

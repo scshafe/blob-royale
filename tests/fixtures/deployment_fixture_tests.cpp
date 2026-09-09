@@ -1,5 +1,6 @@
 #include "application_config.hpp"
 #include "application_config_loader.hpp"
+#include "game_mode_registry.hpp"
 #include "game_world.hpp"
 #include "map_loader.hpp"
 #include "match_startup_validation.hpp"
@@ -48,7 +49,9 @@ TEST_CASE("deployment configuration for cole-ubuntu-pc loads through the applica
       "https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444")));
   CHECK_FALSE(server_config.allows_origin(blob_royale::server::normalize_serialized_origin(
       "http://cole-ubuntu-pc.colobus-stargazer.ts.net:8444")));
-  CHECK(server_config.trusted_proxy_addresses().empty());
+  // `tailscale serve` is the one proxy, on loopback, so every tailnet client is its own principal.
+  REQUIRE(server_config.trusted_proxy_addresses().size() == 1);
+  CHECK(server_config.trusted_proxy_addresses()[0] == "127.0.0.1");
   CHECK(server_config.snapshots_per_second() == 20);
 }
 
@@ -119,4 +122,12 @@ TEST_CASE("the deployed hazard table is the one intended and fits the snapshot e
       application_config.match_configuration(), map, hazards));
   CHECK_NOTHROW(blob_royale::application::require_map_matches_published_world(
       application_config.simulation_config(), map));
+  // Four seats on the 32-marker arena, and four rooms of it: the values the runbook names.
+  CHECK(application_config.match_configuration().lobby_seat_count() == 4);
+  CHECK(application_config.lobbies_configuration().count() == 4);
+  CHECK_NOTHROW(blob_royale::application::require_lobby_fits_map(
+      *blob_royale::gameplay::GameModeRegistry::create(
+          application_config.match_configuration().mode_name(),
+          application_config.game_mode_configuration()),
+      application_config.match_configuration().lobby_seat_count(), map));
 }

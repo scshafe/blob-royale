@@ -101,20 +101,12 @@ TEST_CASE("RoyaleMode declares seven systems in the order its rules depend on",
         std::string_view{"elimination_grace_publisher"});
 }
 
-TEST_CASE("RoyaleMode rejects a map with fewer spawn markers than its lobby has seats",
+TEST_CASE("RoyaleMode no longer counts a map's spawn markers against a lobby",
           "[unit][gameplay][royale][validation]") {
-  // A map with fewer could not seat a full lobby, so a match that satisfied `can_start` would still
-  // leave joiners pending: it is a startup rejection naming the map rather than a silent stall.
-  try {
-    default_mode().validate_map(testing::gameplay_map(1, "royale_one_point_map"));
-    FAIL("a map with one spawn marker was accepted for a four-seat lobby");
-  } catch (const gameplay::GameplayValidationError& error) {
-    CHECK(error.validation_code() ==
-          gameplay::GameplayValidationCode::kRoyaleMapWithoutEnoughSpawnPoints);
-    CHECK(error.code() == std::string_view{"GAMEPLAY.ROYALE_MAP_WITHOUT_ENOUGH_SPAWN_POINTS"});
-    CHECK(error.detail().find("royale_one_point_map") != std::string::npos);
-  }
-
+  // A spawn marker per seat is every lobby mode's rule and the seat count is a `[match]` fact, so
+  // the check is the application's `require_lobby_fits_map`; a one-marker map is a map royale can
+  // play as far as royale alone can tell.
+  CHECK_NOTHROW(default_mode().validate_map(testing::gameplay_map(1, "royale_one_point_map")));
   CHECK_NOTHROW(default_mode().validate_map(testing::gameplay_map(4, "royale_four_point_map")));
 }
 
@@ -202,11 +194,10 @@ TEST_CASE("a royale mode built from its own configuration hands it to the system
   // two different games played by the same rules.
   gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
   section.thrust_max_world_units_per_second_squared = 1'000.0;
-  section.lobby_seat_count = 3;
+  section.countdown_seconds = 1.0;
   const gameplay::RoyaleMode mode{gameplay::RoyaleConfiguration::create(section)};
 
-  CHECK_THROWS_AS(mode.validate_map(testing::gameplay_map(2, "royale_two_point_map")),
-                  gameplay::GameplayValidationError);
-  CHECK_NOTHROW(mode.validate_map(testing::gameplay_map(3, "royale_three_point_map")));
-  CHECK(mode.objective()->durations() == default_mode().objective()->durations());
+  CHECK(mode.objective()->durations().countdown_ticks == 400);
+  CHECK(mode.objective()->durations().restart_delay_ticks ==
+        default_mode().objective()->durations().restart_delay_ticks);
 }

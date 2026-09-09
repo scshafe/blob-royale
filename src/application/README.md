@@ -37,9 +37,11 @@ the loader refuses only an empty instance name, and `HazardArchetype::create` re
 (`[bot.wanderer]`), which costs one prefix, one enumerator, and its keys — no new structure.
 
 `match_startup_validation.hpp` holds the rules that span two independently validated values: the
-worst-case published population against protocol v2's 1,024-entity snapshot bound, and the map's
-arena against the `[world]` scalars protocol v1 publishes. Neither value can own its rule, and both
-would otherwise only fail once a match was being played.
+worst-case published population against protocol v2's 1,024-entity snapshot bound, the map's
+arena against the `[world]` scalars protocol v1 publishes, and the map's `spawn` markers against
+`[match] lobby_seat_count` for a mode that has a lobby. No one value can own its rule, and each
+would otherwise only fail once a match was being played. `LobbiesConfiguration` is the validated
+`[lobbies]` section -- how many rooms the process runs, bounded by the protocol's directory limit.
 
 `BlobRoyaleApplication` owns immutable configuration, then `SimulationRuntime`, then
 `ControllerHost`, then `GameServer` in destruction-safe order. It is the only file that knows every

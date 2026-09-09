@@ -96,7 +96,7 @@ a tick (ADR 0004 § "Game modes and the match lifecycle").
 | `accepted_command_kinds()` | spawn, despawn, thrust | ADR 0004 § "Commands" |
 | `spawn_policy()` | `RotatingRingSpawnPolicy` over the map's spawn markers (§ "Spawning") | ADR 0004 § "Game modes and the match lifecycle" |
 | `objective()` | `RoyaleObjective` (§ "Match lifecycle") | ADR 0004 § "Game modes and the match lifecycle" |
-| `validate_map()` | rejects a map with fewer than `lobby_seat_count` markers of kind `spawn` | ADR 0004 § "Maps as data" |
+| `validate_map()` | rejects an arena whose `R_full` is not strictly greater than the zone minimum; the spawn-marker-per-seat check moved to the application's `require_lobby_fits_map` on 2026-09-09 (ADR 0006, plan Step 10) | ADR 0004 § "Maps as data" |
 
 The names in the `systems()` row are each system's `name()`, the stable snake_case identity the
 pipeline, diagnostics, and fixtures use and the one ADR 0004 § "Game modes and the match lifecycle"
@@ -174,7 +174,7 @@ rejection, and every value must be finite.
 | `zone_minimum_radius_world_units` | `wu` | finite, `>= 0`; `validate_map` additionally rejects a map whose `R_full` is not strictly greater | `60` |
 | `zone_shrink_seconds` | `s` | finite, `>= 0` | `90` |
 | `elimination_grace_seconds` | `s` | finite, `>= 0` | `3` |
-| `lobby_seat_count` | count | integer, `>= 1` and within the engine's lobby bound; `validate_map` additionally rejects a map with fewer `spawn` markers | `4` |
+| ~~`lobby_seat_count`~~ | count | **Moved to `[match]` on 2026-09-09** (ADR 0006, plan Step 10): who plays is a match fact, not a royale balance number. `MatchConfiguration` bounds it and `require_lobby_fits_map` checks the map's `spawn` markers against it | `4` |
 | `countdown_seconds` | `s` | finite, `>= 0` | `5` |
 | `restart_delay_seconds` | `s` | finite, `>= 0` | `8` |
 
@@ -602,8 +602,9 @@ functions — which ADR 0003 § "Floating-point contract" would only have guaran
 anyway — never arises. A marker outside the arena is a map-load rejection, so the in-bounds property
 is validated as data rather than proved as arithmetic.
 
-`validate_map` requires at least `lobby_seat_count` markers of kind `spawn`, because a map with
-fewer could not seat a full lobby, so a started match would leave joiners pending forever. A map with more
+A match requires at least `lobby_seat_count` markers of kind `spawn`, because a map with fewer
+could not seat a full lobby, so a started match would leave joiners pending forever; since
+2026-09-09 the application's `require_lobby_fits_map` checks it for every lobby mode. A map with more
 than 32 points, or fewer, is valid; the count is data. A layout whose adjacent chord falls below
 `2r` is also valid: the occupancy test simply seats fewer entities per tick and the rest defer.
 
@@ -805,8 +806,8 @@ discharged by the framework, not by this game.
   file (plan Steps 25 and 31). A missing section is a startup rejection, not a default.
 * **Operational:** `maps/arena-960x640` must ship with the 32 `spawn` markers described above so the
   deployed arena reproduces today's geometry (plan Step 25). A map with fewer than
-  `lobby_seat_count` of them is rejected by `validate_map` at startup, naming the map and the
-  cause.
+  `lobby_seat_count` of them is rejected by `require_lobby_fits_map` at startup, naming the map and
+  the cause.
 * **Operational:** Per-tick royale cost is three linear passes over ascending component stores — one
   for thrust, one for elimination, one over this tick's events for placements — plus one pass over
   the map's spawn points per pending entity. No unbounded scan is introduced.

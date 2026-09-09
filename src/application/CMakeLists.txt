@@ -3,6 +3,7 @@ add_library(blob_application_input STATIC
   application_config_loader.cpp
   application_input_error.cpp
   application_text_file_reader.cpp
+  lobbies_configuration.cpp
   map_loader.cpp
   match_configuration.cpp
   match_startup_validation.cpp

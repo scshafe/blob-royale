@@ -482,6 +482,13 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("map=").append(kMapDirectoryName).append("\n");
   configuration.append("maps_directory=").append(fixture_directory.string()).append("\n");
   configuration.append("seed=1\n");
+  // The session workload holds the match in `lobby` forever, and since Step 2 it does so for a
+  // simpler reason than the six-player minimum it used to declare: a royale match leaves `lobby`
+  // only when every seat is filled and somebody presses Start, and nothing in this fixture presses
+  // it. A running royale match would shrink a zone and eliminate the very entities these contracts
+  // assert about, and the mode's systems, spawn policy, and command mask are the same in every
+  // phase. The six seats are kept because the six spawn markers written above are sized for them.
+  configuration.append(session_workload ? "lobby_seat_count=6\n" : "lobby_seat_count=2\n");
   // One bot, so the session contracts can assert that a command from one session moves that
   // session's entity and nothing else -- including an entity nobody on the network drives.
   configuration.append(session_workload ? "bots=wanderer:1\n\n" : "bots=\n\n");
@@ -490,15 +497,10 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("zone_minimum_radius_world_units=10\n");
   configuration.append("zone_shrink_seconds=90\n");
   configuration.append("elimination_grace_seconds=3\n");
-  // The session workload holds the match in `lobby` forever, and since Step 2 it does so for a
-  // simpler reason than the six-player minimum it used to declare: a royale match leaves `lobby`
-  // only when every seat is filled and somebody presses Start, and nothing in this fixture presses
-  // it. A running royale match would shrink a zone and eliminate the very entities these contracts
-  // assert about, and the mode's systems, spawn policy, and command mask are the same in every
-  // phase. The six seats are kept because the six spawn markers written above are sized for them.
-  configuration.append(session_workload ? "lobby_seat_count=6\n" : "lobby_seat_count=2\n");
   configuration.append("countdown_seconds=5\n");
   configuration.append("restart_delay_seconds=8\n");
+  configuration.append("\n[lobbies]\n");
+  configuration.append("count=1\n");
   write_fixture_text_file_atomically(fixture_directory / kConfigurationFileName, configuration,
                                      "server_fixture.write_configuration");
 

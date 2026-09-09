@@ -57,7 +57,7 @@ struct MatchState final {
   // The lobby: an ordered, bounded list of seats and the one-shot start request that goes with it.
   // A default-constructed roster has no seats, which is the honest value for a world nobody
   // declared a lobby for; the caller that builds the initial world sizes it from
-  // `[royale] lobby_seat_count`.
+  // `[match] lobby_seat_count`.
   SeatRoster seats{};
   std::uint64_t spawn_rotation_counter{};
   ModeMatchState mode_state{NoModeState{}};

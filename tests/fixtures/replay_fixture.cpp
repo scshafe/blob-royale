@@ -445,6 +445,7 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
   std::string mode_name = match.value("match", "mode");
   const std::uint64_t seed = match.count("match", "seed");
   const std::uint64_t tick_count = match.count("match", "tick_count");
+  const std::uint64_t lobby_seat_count = match.count("match", "lobby_seat_count");
 
   simulation::MapDefinition map = simulation::MapDefinition::create(
       match.value("map", "name"),
@@ -471,7 +472,6 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
       match.number("royale", "zone_minimum_radius_world_units"),
       match.number("royale", "zone_shrink_seconds"),
       match.number("royale", "elimination_grace_seconds"),
-      match.count("royale", "lobby_seat_count"),
       match.number("royale", "countdown_seconds"),
       match.number("royale", "restart_delay_seconds")};
   const gameplay::RoyaleConfiguration royale =
@@ -488,8 +488,8 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
   }
 
   return ReplayFixture(replay_directory.filename().string(), std::move(mode_name), seed, tick_count,
-                       configuration, std::move(map), royale, std::move(commands_by_tick),
-                       std::move(spawn_count_by_tick));
+                       lobby_seat_count, configuration, std::move(map), royale,
+                       std::move(commands_by_tick), std::move(spawn_count_by_tick));
 }
 
 ReplayFixture ReplayFixture::named(const std::string& fixture_name) {
@@ -497,14 +497,15 @@ ReplayFixture ReplayFixture::named(const std::string& fixture_name) {
 }
 
 ReplayFixture::ReplayFixture(std::string name, std::string mode_name, const std::uint64_t seed,
-                             const std::uint64_t tick_count,
+                             const std::uint64_t tick_count, const std::uint64_t lobby_seat_count,
                              simulation::SimulationConfig configuration,
                              simulation::MapDefinition map, gameplay::RoyaleConfiguration royale,
                              std::vector<std::vector<simulation::Command>> commands_by_tick,
                              std::vector<std::uint64_t> spawn_count_by_tick)
     : name_(std::move(name)), mode_name_(std::move(mode_name)), seed_(seed),
-      tick_count_(tick_count), configuration_(std::move(configuration)), map_(std::move(map)),
-      royale_(std::move(royale)), commands_by_tick_(std::move(commands_by_tick)),
+      tick_count_(tick_count), lobby_seat_count_(lobby_seat_count),
+      configuration_(std::move(configuration)), map_(std::move(map)), royale_(std::move(royale)),
+      commands_by_tick_(std::move(commands_by_tick)),
       spawn_count_by_tick_(std::move(spawn_count_by_tick)) {}
 
 simulation::EntityId
@@ -563,7 +564,7 @@ std::vector<simulation::WorldSnapshot> ReplayFixture::run() const {
   // A `seat_npc` row alone would not do it: a declared seat counts as filled only once a bot holds
   // it, and a replay has no runtime to build one.
   world.mutable_match().seats =
-      simulation::SeatRoster::of_size(static_cast<std::size_t>(royale_.lobby_seat_count()));
+      simulation::SeatRoster::of_size(static_cast<std::size_t>(lobby_seat_count_));
   simulation::GameSimulation game = simulation::GameSimulation::create(
       configuration_, std::move(world),
       simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));

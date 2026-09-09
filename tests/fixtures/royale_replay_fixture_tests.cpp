@@ -133,7 +133,7 @@ TEST_CASE("the replay format reads a directory into a runnable match",
   CHECK(fixture.configuration().drag_per_second() == 0.0);
   CHECK(fixture.map().spawn_points().size() == 3);
   CHECK(fixture.royale().thrust_maximum() == 400.0);
-  CHECK(fixture.royale().lobby_seat_count() == 3);
+  CHECK(fixture.lobby_seat_count() == 3);
 
   const Snapshots snapshots = fixture.run();
   REQUIRE(snapshots.size() == fixture.tick_count());
@@ -469,7 +469,7 @@ TEST_CASE("an all-zero duration configuration advances one phase per tick and cy
       testing::ReplayFixture::named("royale-transition-per-tick");
   REQUIRE(fixture.royale().countdown_ticks() == 0);
   REQUIRE(fixture.royale().restart_delay_ticks() == 0);
-  REQUIRE(fixture.royale().lobby_seat_count() == 1);
+  REQUIRE(fixture.lobby_seat_count() == 1);
   const Snapshots snapshots = fixture.run();
 
   // Three complete cycles of the same five-tick period: one transition per tick through

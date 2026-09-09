@@ -40,7 +40,6 @@ public:
   static constexpr double kDefaultZoneMinimumRadiusWorldUnits = 60.0;
   static constexpr double kDefaultZoneShrinkSeconds = 90.0;
   static constexpr double kDefaultEliminationGraceSeconds = 3.0;
-  static constexpr std::uint64_t kDefaultLobbySeatCount = 4;
   static constexpr double kDefaultCountdownSeconds = 5.0;
   static constexpr double kDefaultRestartDelaySeconds = 8.0;
 
@@ -51,7 +50,6 @@ public:
     double zone_minimum_radius_world_units;
     double zone_shrink_seconds;
     double elimination_grace_seconds;
-    std::uint64_t lobby_seat_count;
     double countdown_seconds;
     double restart_delay_seconds;
 
@@ -87,11 +85,6 @@ public:
   [[nodiscard]] std::uint64_t elimination_grace_ticks() const noexcept {
     return elimination_grace_ticks_;
   }
-  // How many seats the pre-match lobby is created with. It is an *initial* value and not a rule:
-  // the roster it sizes is `MatchState` and a player in the lobby changes it, so nothing below the
-  // factory reads this again once the initial world has been built
-  // (`src/simulation/seat_roster.hpp`).
-  [[nodiscard]] std::uint64_t lobby_seat_count() const noexcept { return lobby_seat_count_; }
   [[nodiscard]] std::uint64_t countdown_ticks() const noexcept { return countdown_ticks_; }
   [[nodiscard]] std::uint64_t restart_delay_ticks() const noexcept { return restart_delay_ticks_; }
 
@@ -100,14 +93,12 @@ public:
 private:
   RoyaleConfiguration(double thrust_maximum, double zone_minimum_radius,
                       std::uint64_t zone_shrink_ticks, std::uint64_t elimination_grace_ticks,
-                      std::uint64_t lobby_seat_count, std::uint64_t countdown_ticks,
-                      std::uint64_t restart_delay_ticks) noexcept;
+                      std::uint64_t countdown_ticks, std::uint64_t restart_delay_ticks) noexcept;
 
   double thrust_maximum_;
   double zone_minimum_radius_;
   std::uint64_t zone_shrink_ticks_;
   std::uint64_t elimination_grace_ticks_;
-  std::uint64_t lobby_seat_count_;
   std::uint64_t countdown_ticks_;
   std::uint64_t restart_delay_ticks_;
 };

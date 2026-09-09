@@ -185,7 +185,7 @@ using Seat = std::variant<EmptySeat, ControllerSeat, NpcSeat>;
 //
 // **The seat count is itself state**, not configuration read once, because a player in the lobby
 // changes it (plan Step 3). Its initial value is a required configuration key --
-// `[royale] lobby_seat_count`, since this tree has no silently defaulted keys -- and the caller
+// `[match] lobby_seat_count`, since this tree has no silently defaulted keys -- and the caller
 // that constructs the initial world seeds the roster from it, exactly as that caller seeds the
 // world's entities. A default-constructed roster has **no seats at all**, which is the only honest
 // value for a world nobody declared a lobby for, and `is_full()` is false for it: a lobby with no

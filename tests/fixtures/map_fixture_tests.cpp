@@ -89,7 +89,7 @@ TEST_CASE("the shipped arena and the shipped roster fit the snapshot entity boun
           "[fixtures][map][match]") {
   const simulation::MapDefinition map = application::MapLoader::load(shipped_map_directory());
   const application::MatchConfiguration match = application::MatchConfiguration::create(
-      "royale", "arena-960x640", BLOB_ROYALE_MAPS_DIRECTORY, 1,
+      "royale", "arena-960x640", BLOB_ROYALE_MAPS_DIRECTORY, 1, 4,
       application::MatchConfiguration::parse_bot_roster("wanderer:2"));
 
   // An empty hazard span, which is the no-hazard case and the exact bound this was before hazards

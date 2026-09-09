@@ -62,10 +62,17 @@ public:
 
   // Validates every field and throws ApplicationInputError naming the one that failed:
   // `APPLICATION.MATCH.MODE_NAME_INVALID`, `MODE_UNKNOWN`, `MAP_NAME_INVALID`,
-  // `BOT_ROSTER_INVALID`, `BOT_KIND_UNKNOWN`, and `BOT_ROSTER_TOO_LARGE`.
+  // `LOBBY_SEAT_COUNT_OUT_OF_RANGE`, `BOT_ROSTER_INVALID`, `BOT_KIND_UNKNOWN`, and
+  // `BOT_ROSTER_TOO_LARGE`.
+  //
+  // `lobby_seat_count` is how many seats the pre-match lobby is created with: a fact about who is
+  // playing this match rather than a mode's balance number, which is why it lives here and not in
+  // `[royale]` (`docs/architecture/0006-lobbies-as-rooms.md` § "Rooms"). It is bounded by the
+  // engine's roster bound here and by the map's spawn markers in `match_startup_validation.hpp`,
+  // and a mode without a lobby ignores it.
   [[nodiscard]] static MatchConfiguration create(std::string mode_name, std::string map_name,
                                                  std::filesystem::path maps_directory,
-                                                 std::uint64_t seed,
+                                                 std::uint64_t seed, std::uint64_t lobby_seat_count,
                                                  std::vector<BotRosterEntry> bot_roster);
 
   // Parses one `bots=` value: comma-separated `kind:count` terms, or the empty string for no bots.
@@ -89,6 +96,9 @@ public:
   }
   [[nodiscard]] const std::filesystem::path& maps_directory() const&& = delete;
   [[nodiscard]] std::uint64_t seed() const noexcept { return seed_; }
+  // An *initial* value and not a rule: the roster it sizes is `MatchState` and a player in the
+  // lobby changes it, so nothing reads this again once the initial world has been built.
+  [[nodiscard]] std::uint64_t lobby_seat_count() const noexcept { return lobby_seat_count_; }
   [[nodiscard]] std::span<const BotRosterEntry> bot_roster() const& noexcept { return bot_roster_; }
   [[nodiscard]] std::span<const BotRosterEntry> bot_roster() const&& = delete;
 
@@ -104,12 +114,14 @@ public:
 private:
   MatchConfiguration(std::string mode_name, std::string map_name,
                      std::filesystem::path maps_directory, std::uint64_t seed,
+                     std::uint64_t lobby_seat_count,
                      std::vector<BotRosterEntry> bot_roster) noexcept;
 
   std::string mode_name_;
   std::string map_name_;
   std::filesystem::path maps_directory_;
   std::uint64_t seed_;
+  std::uint64_t lobby_seat_count_;
   std::vector<BotRosterEntry> bot_roster_;
 };
 

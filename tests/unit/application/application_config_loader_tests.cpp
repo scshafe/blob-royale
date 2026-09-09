@@ -167,6 +167,7 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(match.maps_directory() == std::filesystem::path{"maps"});
   CHECK(match.map_directory() == std::filesystem::path{"maps"} / "arena-960x640");
   CHECK(match.seed() == 1);
+  CHECK(match.lobby_seat_count() == 4);
   REQUIRE(match.bot_roster().size() == 2);
   CHECK(match.bot_roster()[0] == MatchConfiguration::BotRosterEntry{"wanderer", 2});
   CHECK(match.bot_roster()[1] == MatchConfiguration::BotRosterEntry{"chaser", 1});
@@ -180,9 +181,11 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(royale.zone_minimum_radius() == 60.0);
   CHECK(royale.zone_shrink_ticks() == 36'000);
   CHECK(royale.elimination_grace_ticks() == 1'200);
-  CHECK(royale.lobby_seat_count() == 4);
   CHECK(royale.countdown_ticks() == 2'000);
   CHECK(royale.restart_delay_ticks() == 3'200);
+
+  // `[lobbies] count` is the one deployment-topology key: one room is the single-match server.
+  CHECK(run_request.application_config().lobbies_configuration().count() == 1);
 }
 
 TEST_CASE("application config loader accepts a run request with no scenario",
@@ -234,6 +237,14 @@ TEST_CASE("application config loader rejects an unknown mode, map name, and bot 
          ApplicationInputErrorCode::kMatchBotRosterInvalid);
   reject("bots=wanderer:2, chaser:1", "bots=wanderer:1, wanderer:1",
          ApplicationInputErrorCode::kMatchBotRosterInvalid);
+  // A lobby of no seats cannot be sat in, and the engine's roster bound is the ceiling.
+  reject("lobby_seat_count=4", "lobby_seat_count=0",
+         ApplicationInputErrorCode::kMatchLobbySeatCountOutOfRange);
+  reject("lobby_seat_count=4", "lobby_seat_count=65",
+         ApplicationInputErrorCode::kMatchLobbySeatCountOutOfRange);
+  // A process runs at least one room and no more than the protocol's directory can list.
+  reject("count=1", "count=0", ApplicationInputErrorCode::kLobbiesCountOutOfRange);
+  reject("count=1", "count=9", ApplicationInputErrorCode::kLobbiesCountOutOfRange);
 }
 
 TEST_CASE("application config loader trims comma-delimited server policy entries",

@@ -52,6 +52,7 @@ inline constexpr std::string_view kValidConfiguration = "[server]\n"
                                                         "map=arena-960x640\n"
                                                         "maps_directory=maps\n"
                                                         "seed=1\n"
+                                                        "lobby_seat_count=4\n"
                                                         "bots=wanderer:2, chaser:1\n"
                                                         "\n"
                                                         "[royale]\n"
@@ -60,9 +61,11 @@ inline constexpr std::string_view kValidConfiguration = "[server]\n"
                                                         "zone_minimum_radius_world_units=60\n"
                                                         "zone_shrink_seconds=90\n"
                                                         "elimination_grace_seconds=3\n"
-                                                        "lobby_seat_count=4\n"
                                                         "countdown_seconds=5\n"
-                                                        "restart_delay_seconds=8\n";
+                                                        "restart_delay_seconds=8\n"
+                                                        "\n"
+                                                        "[lobbies]\n"
+                                                        "count=1\n";
 
 inline constexpr std::string_view kValidScenarioRows = "20,500,400,2.5,1.8,0,0\n"
                                                        "3,15,70,-1,3.2,-0,-0\n";

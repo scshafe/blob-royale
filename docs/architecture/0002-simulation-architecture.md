@@ -125,6 +125,22 @@ flowchart TD
   boundaries. It never enters simulation, runtime, or protocol values and is not an ambient
   singleton.
 
+**Amended 2026-09-09 (ADR 0006, plan Steps 5, 9, 11, and 13).** The first two bullets now read per
+room. `BlobRoyaleApplication` constructs `[lobbies] count` `Room`s -- each owning one
+`SimulationRuntime` on its own thread, one `ControllerHost`, one `SeatBotReconciler`, and one
+`MatchSessionContext` -- and the `LobbyDirectory` the server reads them through, before it
+constructs `GameServer`, so reverse-order destruction still stops every command source and every
+network reader before any room's mailbox, publication, or simulation. `SimulationRuntime` still
+owns exactly one of each thing listed; there are N of it. The server holds N publications and N
+sinks only through `LobbyDirectory`, and a session is bound at admission to one `LobbyEntry` for
+its life; it receives no runtime and no lifecycle transition, as before. Two commands joined the
+registry, `join` and `leave`, both server-issued and ranked after every client kind:
+`CommandSink::close_session` enqueues the leave before retiring the controller, so the tick and not
+the session destroys what the controller drove, and a session submits its own join whenever it
+observes that it holds no seat. The runtime's clock gained bounded catch-up and overrun accounting
+(`src/runtime/README.md` § "The clock"), and a room whose runtime fails is closed and reported while
+the process keeps serving the others.
+
 ### OOP policy
 
 Professional OOP here means encapsulated invariants, explicit construction, deterministic

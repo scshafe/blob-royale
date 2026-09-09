@@ -2,7 +2,7 @@
 
 # 6. Host several lobbies as rooms behind one listener
 
-* **Status:** Proposed. Drafted 2026-09-08; the owner agreed all four decisions on 2026-09-09. Accepted at Step 17 of `.claude/plans/2026-09-09-lobbies-as-rooms.md`; nothing below is built yet.
+* **Status:** Accepted. Drafted 2026-09-08; the owner agreed all four decisions on 2026-09-09; accepted 2026-09-09 at Step 17 of `.claude/plans/2026-09-09-lobbies-as-rooms.md`, with Steps 1 to 16 of that plan built and verified. Where the built thing departs from the text below, a dated amendment says so beside the text it amends; the decisions are otherwise left as agreed.
 * **Date:** 2026-09-08
 * **Deciders:** Project owner
 
@@ -97,6 +97,18 @@ for any new kind or member, and verification on both compiler lanes.
   tick may hold a `GameWorld&` (ADR 0002 § "Ownership and lifecycle").
 
 ## Decision Outcome
+
+**Amended 2026-09-09 (plan Step 17, acceptance).** Plan Steps 1 to 16 built this design: the two
+server-issued commands, the seat reconciliation, the bounded clock, N rooms behind one listener, the
+directory and the room target, protocol 2.4, the client's directory and lobby views, and a browser
+flow across two rooms. The departures are recorded beside the text they amend -- § "The lobby
+lifecycle" (no spectators; `lobby_full` before the welcome; "Room", not "Lobby"), § "Protocol
+consequence: 2.4" (which schema and constant names shipped, and which envelopes name the room),
+§ "Failure modes" (what a browser can and cannot see of a refusal), and § "Backpressure and
+admission" (what `409` names) -- and one fact this text never stated is now stated in
+`docs/protocol/v2.md` § "The lobby directory": admission compares against the room's *live*
+`seat_count`, which anyone in that lobby may change, so an occupant who shrinks a lobby lowers what
+admission accepts, which is no more authority than the lobby commands already grant.
 
 **Chosen: routing A, stepping A, lifecycle A, seating A.** Rooms are a fixed pool of
 `SimulationRuntime`s behind one listener; a player joins a room by opening one socket to it and
@@ -219,7 +231,9 @@ own step time is under budget.
 * **Creation.** All rooms exist from startup, built by the composition root exactly as the one
   runtime is built today, and `application.running` is logged once every room has committed its
   first tick.
-* **Naming.** The server names rooms `1..N`; the client renders "Lobby 1". No user-supplied string.
+* **Naming.** The server names rooms `1..N`; the client renders "Room 1" (amended 2026-09-09: the
+  directory is "Rooms" and a room is "Room N"; `lobby_id` on the wire is unchanged). No
+  user-supplied string.
 * **Reaping.** None. An empty room in `lobby` is one idle thread waking 400 times a second to copy
   a small world; that is the cost of four rooms on a wall and it is paid whether or not anyone is
   looking.
@@ -237,6 +251,18 @@ own step time is under budget.
   `phase_started_tick` so the browser can show how long the match has been going. A refusal was
   considered and rejected: watching until the next lobby is the better answer and needs no new
   error code.
+
+**Amended 2026-09-09 (plan Steps 12 and 13).** The bullet above is not what was built, and the
+reason is the welcome. A welcome names the session's first body, and a session with no seat never
+gets one, so a joiner who "watches" would be a socket that never receives a frame. What is built
+instead: a person's `join` takes the lowest empty seat in any phase and displaces a declared bot's
+seat only in `lobby` or `countdown`; a session whose join could change nothing -- every seat held
+past `countdown`, or held by people -- is closed `1013 lobby_full` before any welcome, by the same
+rule the tick seats with (`first_joinable_seat`). The directory predicts that case from its census
+and disables the room's Join with the reason, so the close answers the last-seat race and not the
+ordinary path. Spectating stays in § "What is deliberately not built"; the abandonment rule in the
+bullet before this one was built as written and is observed end to end by plan Step 16's browser
+flow.
 
 ### Seats, people, and bots
 
@@ -284,11 +310,17 @@ One minor, republished together:
 * Targets `GET /api/v2/lobbies` and `GET /api/v2/lobbies/<lobby_id>/session`; `/api/v2/session`
   defined as room 1.
 * A `lobby-directory.schema.json` for the directory response, bounded at `kMaximumLobbyCount`
-  entries, carried in the v2 envelope.
+  entries, carried in the v2 envelope (amended 2026-09-09: shipped as
+  `lobby-directory-message.schema.json` over `lobby-directory-data.schema.json`, bounded by
+  `kLobbyDirectoryLimit`, the constant's name in `protocol_v2_constants.hpp`).
 * `welcome.lobby_id` and `welcome.seat_count_maximum`, both required.
 * Error codes `LOBBY.NOT_FOUND` (`404`), `LOBBY.FULL` (`409`, when a room's session count already
-  equals its seat count), `LOBBY.UNAVAILABLE` (`503`, a room whose runtime has failed).
-* Close reason `lobby_full` on `1013`, for a join the tick refused after admission.
+  equals its seat count), `LOBBY.UNAVAILABLE` (`503`, a room whose runtime has failed). Amended
+  2026-09-09: `409` and `503` name the room in `details.lobby_id`; `404` carries no id, so no
+  client-chosen byte reaches a response body; `503` is also the answer for a room that has not yet
+  committed its first tick.
+* Close reason `lobby_full` on `1013`, for a join the tick refused after admission (amended
+  2026-09-09: sent before any welcome, see § "The lobby lifecycle").
 * The `controller` seat kind becomes reachable; its schema is unchanged.
 * `join` and `leave` in the simulation registry and the replay CSV, not on the wire.
 * The fixes from the review folded in: the lethal row phase-gated to `running`, the empty roster for
@@ -310,7 +342,7 @@ procedure exactly.
 | A player disconnects mid-match | The close path | `session.closed`, `lobby_id` | `leave` destroys the body and frees the seat; the alive count falls, which may end the match exactly as an elimination would |
 | Two clients race the last seat | Both `join`s land in one batch, ascending controller id | The loser's `session.closed` with `lobby_full` | First wins by batch order; the loser is closed with a reason and re-reads the directory |
 | A room's runtime throws | `SimulationRuntimeState::kFailed` on that room only | `runtime.failed` at error with `lobby_id` and the exception; `healthy: false`, `LOBBY.UNAVAILABLE` on join | The control loop closes that room's sessions with `service_not_ready`, keeps the other rooms serving, and does **not** stop the process. Readiness stays true while room 1 is healthy. A failed room stays failed until restart: there is no in-process resurrection, because a runtime that threw has a world nobody trusts |
-| Join to a full, unknown, or failed room | Router and directory | `409`, `404`, `503` with the v2 error envelope naming the room | The browser renders `error.message` and stays on the directory |
+| Join to a full, unknown, or failed room | Router and directory | `409`, `404`, `503` with the v2 error envelope naming the room | Amended 2026-09-09: a browser never sees the envelope, because the WebSocket API exposes no declined-upgrade response, so the client reads the directory once, derives the refusal from the listing -- full, not serving, not listed -- and shows that sentence on the directory without retrying; the envelope's message reaches `curl` and the logs. `1013 lobby_full` is the one refusal that arrives in the server's own words |
 | The pinned mirror is down | Not a runtime failure; see § "Observability" | `deploy_tailnet.error_code` and a CI step name | Build the toolchain image once and reuse it by digest |
 
 ### Isolation
@@ -326,7 +358,7 @@ supervisor beyond Docker's restart policy, are deliberately not built.
 
 | Resource | Per room | Global | What a player sees at the bound |
 |---|---:|---:|---|
-| Sessions | the room's seat count | 32, and 8 per client | `409 LOBBY.FULL` naming `seat_count`; `429` with `Retry-After` as today |
+| Sessions | the room's seat count | 32, and 8 per client | `409 LOBBY.FULL` naming the room in `details.lobby_id` (amended 2026-09-09; the count is the room's live `seat_count`); `429` with `Retry-After` as today |
 | Seats | 1 to the map's spawn markers (32 shipped), protocol cap 64 | | A seat-count control that stops at `seat_count_maximum`; a stale value is a no-op |
 | Published entities | 1,024, checked at startup per room with `kMaximumLobbySeatCount` bots counted | | Startup rejection naming the room's table |
 | Mailbox | 2,048 distinct (kind, identity) | | Unreachable at this scale; counted and logged if reached |
@@ -418,7 +450,9 @@ need fixing under it.
 * **Positive:** Failure isolation falls out of "one runtime per room" without a new abstraction.
 * **Negative:** N threads on two CPUs, unmeasured today.
 * **Mitigation:** The budget is a number, the measurement is the plan's first step, and the
-  fallback is a configuration value, not a redesign.
+  fallback is a configuration value, not a redesign. (Measured 2026-09-09 at plan Step 8 on the
+  native host: 5.2 µs mean and 7.8 µs p99 per tick at the deployed roster, 48× and 128× inside the
+  budget; § "The tick-loop decision".)
 * **Negative:** Joining re-upgrades and browsing polls, both of which are per-client bounds that
   the loopback proxy collapses today.
 * **Mitigation:** `trusted_proxy_addresses` is set, with the residual the protocol already accepts.

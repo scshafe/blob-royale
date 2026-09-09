@@ -78,26 +78,30 @@ The migration also carries a real risk worth naming in advance. A `start_match` 
 
 ### Phase 3 — NPCs and late arrivals
 
-- [ ] ~~**Step 6: Reconcile bot sessions to the seat roster**~~ *(superseded 2026-09-09: executed as Step 6 of `2026-09-09-lobbies-as-rooms.md`, where bots exist only through seats and a server-issued `join` command fills a declared seat)*
+- [x] ~~**Step 6: Reconcile bot sessions to the seat roster**~~ *(superseded 2026-09-09: executed as Step 6 of `2026-09-09-lobbies-as-rooms.md`, where bots exist only through seats and a server-issued `join` command fills a declared seat)*
   - Verify: `./scripts/verify-focused 'unit.runtime|unit.application|integration'`
   - Notes: The tick records that seat 3 wants a `chaser`; the runtime observes committed seat state after each tick and opens or closes bot sessions so the live controllers match. This is the only place a controller is constructed, and it stays in the application layer where `ControllerRegistry` lives.
   - The reconciliation must be idempotent and must not thrash: a seat already holding the right kind is left alone. Deleting `seat_configured_bots` and letting `[match] bots` seed the initial roster instead is the likely shape — decide and say which.
+  - Execution note (2026-09-09): Landed as Step 6 of `2026-09-09-lobbies-as-rooms.md` (commit 7c7b7fa): bots exist only through seats, `SeatBotReconciler` runs on the control loop's poll, one bot per declared seat nobody holds and none for a seat cleared, resized away, or taken by a person; `seat_configured_bots` survives only for a mode without a lobby.
 
-- [ ] ~~**Step 7: A human joining a full lobby displaces an NPC**~~ *(superseded 2026-09-09: falls out of the `join` command in Step 6 of `2026-09-09-lobbies-as-rooms.md`; the refusal of a full lobby is that plan's Step 13)*
+- [x] ~~**Step 7: A human joining a full lobby displaces an NPC**~~ *(superseded 2026-09-09: falls out of the `join` command in Step 6 of `2026-09-09-lobbies-as-rooms.md`; the refusal of a full lobby is that plan's Step 13)*
   - Verify: `./scripts/verify-focused 'unit.runtime|unit.application|integration'`
   - Notes: On session admission with no empty seat, take the lowest-indexed seat holding an NPC, close that bot's session, and seat the human. Lowest-indexed because it must be deterministic and explicable, not because it is fairest. With no NPC seated the lobby is genuinely full and the upgrade is refused with a diagnostic naming the reason.
   - Decide what happens to a human who connects while a match is `running` — this plan does not add spectators, so the honest answer is a refusal with a clear message, and it should say when to come back.
+  - Execution note (2026-09-09): Landed as the `join` command of Step 6 and the admission of Step 13 of `2026-09-09-lobbies-as-rooms.md` (commits 7c7b7fa and 1981eed): a person's join takes the lowest empty seat in any phase and displaces the lowest declared bot's seat in `lobby` or `countdown`; a room whose sessions number its seats refuses at the door with `409 LOBBY.FULL`, and a session whose join could take nothing -- including one joining a running match with every seat held -- is closed `1013 lobby_full` before any welcome, which is the refusal with a reason this step asked for. Spectating is not built.
 
 ### Phase 4 — The client
 
-- [ ] ~~**Step 8: Build the lobby view**~~ *(superseded 2026-09-09: Step 15 of `2026-09-09-lobbies-as-rooms.md`, which keeps these notes as its specification)*
+- [x] ~~**Step 8: Build the lobby view**~~ *(superseded 2026-09-09: Step 15 of `2026-09-09-lobbies-as-rooms.md`, which keeps these notes as its specification)*
   - Verify: `cd frontend-react && npm run typecheck && npm run lint && npm run test:ci && npm run build`
   - Notes: A seat grid rendered from the match section: each seat empty, a named human, or a named NPC, with the session's own seat marked. A seat-count control, and **right-click an empty seat** for a context menu of the NPC kinds the welcome published. Start Game is enabled exactly when every seat is full, and disabled with a reason when it is not.
   - Right-click means `contextmenu`, which must be prevented from opening the browser menu, must be dismissible with Escape and an outside click, and needs a keyboard-reachable equivalent — a context menu that only a mouse can open is a control some people cannot use at all. The arena canvas already owns pointer input; make sure the lobby's handler does not fight it.
+  - Execution note (2026-09-09): Landed as Step 15 of `2026-09-09-lobbies-as-rooms.md` (commit 52f8e27), to these notes: seat grid with the own seat marked, right-click and keyboard bot menu from `welcome.npc_controller_kinds` with Escape and outside-press dismissal and no arrow keys, seat-count control floored at the highest occupied seat and capped at `welcome.seat_count_maximum`, debounced `set_seat_count`, and Start enabled exactly when every seat is filled.
 
-- [ ] ~~**Step 9: Prove it in a browser**~~ *(superseded 2026-09-09: Step 16 of `2026-09-09-lobbies-as-rooms.md`, widened to two rooms)*
+- [x] ~~**Step 9: Prove it in a browser**~~ *(superseded 2026-09-09: Step 16 of `2026-09-09-lobbies-as-rooms.md`, widened to two rooms)*
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Notes: One flow: two browsers join a four-seat lobby, one right-clicks a seat and fills it with a bot, the second fills the last seat, Start Game becomes enabled, one presses it, and both observe the match reach `running`. Assert that Start is disabled while a seat is empty, because that is the rule most likely to regress silently.
+  - Execution note (2026-09-09): Landed as Step 16 of `2026-09-09-lobbies-as-rooms.md` (commit 7bc5f82), widened to two rooms: a browser seats a bot through the right-click menu, another through the seat button, Start is asserted disabled while a seat is empty and never enabled while a bot is joining, both matches reach `running`, and a left room returns to its lobby.
 
 ### Phase 5 — Ship
 

@@ -6,9 +6,11 @@
 It reads immutable `ServerConfig` and a `LobbyDirectory`: one `LobbyEntry` per room, each a
 `const SnapshotPublication` to read and one write capability, `MatchSessionContext`, whose entire
 interface is `CommandSink::open_session`, `submit`, and `close_session` plus a read-only
-presentation directory and the match identities a `welcome` announces. Every route serves room 1
-until the directory and room routes land (plan Step 13); a session counts itself in and out of its
-room's entry so the application can tell when a room has been abandoned. It cannot start, pause, stop, step, or otherwise mutate the simulation, and it cannot
+presentation directory and the match identities a `welcome` announces. The v1 routes and
+`/api/v2/session` serve room 1; `GET /api/v2/lobbies` lists every room from its latest committed
+snapshot and its admission count, and `GET /api/v2/lobbies/<lobby_id>/session` joins the room it
+names. A session is bound at admission to its room's entry for its life and counts itself in and
+out of it, so the application can tell when a room has been abandoned. It cannot start, pause, stop, step, or otherwise mutate the simulation, and it cannot
 read world state through the write path. `GameServer::run()` is a single foreground event loop. The
 application owns process signals and calls the thread-safe, idempotent `GameServer::stop()`, which
 closes acceptance before sessions and enforces a fixed shutdown deadline.
@@ -21,17 +23,28 @@ closes acceptance before sessions and enforces a fixed shutdown deadline.
 * `TcpListener` owns one acceptor and rejects peers outside loopback or the exact trusted-proxy set.
 * `HttpSession` owns one bounded parser, at most eight queued responses, and at most 100 requests.
 * `GameApiRouter` is the sole HTTP trust-boundary validator and exposes only the four v1 routes plus
-  `GET /api/v2/session`. Route and subprotocol are validated as a pair, never by first-acceptable
-  offer, and a `/api/v2/` target's failure is rendered in the v2 error envelope.
+  v2's three targets: the lobby directory, `/api/v2/session`, and
+  `/api/v2/lobbies/<lobby_id>/session`. The one parametric segment is matched by the grammar
+  `[1-9][0-9]{0,2}` between exact neighbours and resolved through `LobbyDirectory::find`; every
+  other string under the prefix is `404 LOBBY.NOT_FOUND` before the method or the handshake is
+  examined. Route and subprotocol are validated as a pair, never by first-acceptable offer, and a
+  `/api/v2/` target's failure is rendered in the v2 error envelope. Admission runs after every
+  upgrade rule and before the WebSocket reservation: `503 LOBBY.UNAVAILABLE` for a room that is
+  not serving and `409 LOBBY.FULL` when the room's admitted sessions already number its live seat
+  count, both naming the room; a room with no lobby is never full this way.
 * `PeerIdentity` is the one derivation of a connection's accounting principal and display name. It
   classifies the socket peer against `trusted_proxy_addresses` **before** any loopback test, so a
   configured proxy never inherits the direct-peer Origin relaxation.
 * `SnapshotWebSocketSession` samples immutable publication at presentation cadence, permits one
   data write plus one replaceable pending snapshot, and accepts no application data from clients.
-* `SessionWebSocketSession` is the protocol v2 half: it opens one `CommandSink` session, sends one
-  `welcome`, decodes command envelopes under the per-session command bucket, stamps its own current
-  body onto every command, pushes v2 snapshots on v1's cadence algorithm, and despawns then retires
-  its controller exactly once on every close path.
+* `SessionWebSocketSession` is the protocol v2 half, bound for its life to the room the router
+  admitted it into: it opens one `CommandSink` session, asks for a seat and a body the way the
+  tick gives them, sends one `welcome` once it has a body, decodes command envelopes under the
+  per-session command bucket, stamps its own current body onto every command, pushes v2 snapshots
+  on v1's cadence algorithm, and retires its controller exactly once on every close path. A session
+  whose join could take no seat -- the last-seat race lost, or a room past `countdown` with every
+  seat held -- is closed `1013 lobby_full` before any welcome, by the same rule the tick seats with
+  (`first_joinable_seat`).
 * `RuntimeControllerDirectoryView` is the one production implementation of the v2 encoder's
   presentation port, and lives here because this is the only target allowed to depend on both
   `blob_protocol` and `blob_runtime`.

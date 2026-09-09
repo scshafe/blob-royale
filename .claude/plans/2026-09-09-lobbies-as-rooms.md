@@ -155,9 +155,10 @@ Facts the executor needs that the code does not say on its face, all verified on
 
 ### Phase 6 — Ship
 
-- [ ] **Step 17: Accept ADR 0006 and amend the documents it touches**
+- [x] **Step 17: Accept ADR 0006 and amend the documents it touches**
   - Verify: `grep -q '^\* \*\*Status:\*\* Accepted' docs/architecture/0006-lobbies-as-rooms.md && ! grep -q 'Multiple rooms, matchmaking' docs/protocol/v2.md` and human review of the amendments.
   - Notes: Status to Accepted with Step 8's measured numbers in § "The tick-loop decision". ADR 0002 § "Ownership and lifecycle" gains a dated amendment: the composition root owns N runtimes and the server holds N publications through the directory. ADR 0001's consequences record per-client accounting enabled and the residual. `src/application/README.md`, `src/server/README.md`, and `src/runtime/README.md` describe rooms, the two commands, and the deadline policy. The 2026-09-08 plan's Steps 6 to 10 are already struck through and pointing here; tick them there with an execution note citing this plan.
+  - Execution note (2026-09-09): The mechanical verify passes and the amendments were reviewed by the owner. ADR 0006 is Accepted with dated amendments beside the text they amend (acceptance, and the Step 12/13 lifecycle rules: no spectators, `lobby_full` before any welcome); ADR 0002 § "Ownership and lifecycle" and ADR 0001's consequences carry their dated entries; `src/server/README.md` describes the routes, admission, and the session's binding to its room. `src/application/README.md` and `src/runtime/README.md` already described rooms, the two commands, and the deadline policy from the steps that built them, so this step did not touch them. The 2026-09-08 plan's Steps 6 to 9 are ticked with execution notes naming the commits that landed them; its Step 10 stays open until Step 18 deploys.
 
 - [ ] **Step 18: Deploy and playtest with two rooms in use**
   - Verify: `ssh ubuntu-tailscale 'cd ~/Projects/blob-royale && git pull --ff-only && curl -fsSI https://snapshot.ubuntu.com/ >/dev/null && ./scripts/deploy-tailnet'`, then the container, the `blob-royale.deployed-commit` label, readiness, the served bundle's protocol version `2.4`, and `GET /api/v2/lobbies` listing four rooms, each checked independently of the script's own report.

@@ -1,10 +1,8 @@
 #include "application_config.hpp"
 #include "application_config_loader.hpp"
 #include "game_mode_registry.hpp"
-#include "game_world.hpp"
 #include "map_loader.hpp"
 #include "match_startup_validation.hpp"
-#include "scenario_loader.hpp"
 #include "server_config.hpp"
 #include "shared/hazard_archetype.hpp"
 
@@ -22,13 +20,15 @@ namespace {
 
 using blob_royale::application::ApplicationConfigLoader;
 
-// Loads the committed cole-ubuntu-pc deployment inputs through the exact production parsers.
+// Loads the committed cole-ubuntu-pc deployment inputs through the exact production parsers, in
+// the shape `scripts/deploy-tailnet` launches the container: the configuration alone. A scenario
+// seeds exactly one world and the deployment runs four rooms, so it passes none; the loader refuses
+// the pair, and a fixture that passed one would be proving a launch the script does not make.
 [[nodiscard]] ApplicationConfigLoader::Result load_deployment_inputs() {
   const std::filesystem::path deployment_directory{BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY};
   const std::string configuration_path = (deployment_directory / "blob-royale.cfg").string();
-  const std::string scenario_path = (deployment_directory / "scenario.csv").string();
-  const std::array<const char*, 5> arguments = {
-      "blob-royale", "--config", configuration_path.c_str(), "--scenario", scenario_path.c_str()};
+  const std::array<const char*, 3> arguments = {"blob-royale", "--config",
+                                                configuration_path.c_str()};
   return ApplicationConfigLoader::load(static_cast<int>(arguments.size()), arguments.data());
 }
 
@@ -55,18 +55,20 @@ TEST_CASE("deployment configuration for cole-ubuntu-pc loads through the applica
   CHECK(server_config.snapshots_per_second() == 20);
 }
 
-TEST_CASE("deployment scenario for cole-ubuntu-pc loads a populated world",
-          "[fixtures][deployment]") {
+TEST_CASE("the deployment runs four rooms and seeds no scenario", "[fixtures][deployment]") {
+  // Four rooms is the count ADR 0006 measured a budget for
+  // (`docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision"), and a scenario seeds
+  // exactly one world, so a deployment with more than one room passes none. The pair is refused at
+  // load with `APPLICATION.LOBBIES.SCENARIO_REQUIRES_ONE_LOBBY`, which is what the deploy script
+  // used to trip over at readiness after the count went to four; this pins the launch shape the
+  // script makes now.
   const ApplicationConfigLoader::Result result = load_deployment_inputs();
   REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
   const ApplicationConfigLoader::RunRequest& run_request =
       std::get<ApplicationConfigLoader::RunRequest>(result);
 
-  REQUIRE(run_request.scenario_path().has_value());
-  const blob_royale::simulation::GameWorld world = blob_royale::application::ScenarioLoader::load(
-      *run_request.scenario_path(), run_request.application_config().simulation_config());
-
-  CHECK(world.entities().size() == 4);
+  CHECK_FALSE(run_request.scenario_path().has_value());
+  CHECK(run_request.application_config().lobbies_configuration().count() == 4);
 }
 
 TEST_CASE("the deployed hazard table is the one intended and fits the snapshot entity bound",

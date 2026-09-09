@@ -1,5 +1,0 @@
-entity_id,position_x_world_units,position_y_world_units,velocity_x_world_units_per_second,velocity_y_world_units_per_second,acceleration_x_world_units_per_second_squared,acceleration_y_world_units_per_second_squared
-1,250.0,80.0,0.0,2.5,0.0,0.0
-2,250.0,120.0,0.0,-2.5,0.0,0.0
-3,300.0,400.0,2.0,0.0,0.0,0.0
-4,340.0,410.0,-2.0,0,0,0.0

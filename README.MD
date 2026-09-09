@@ -157,7 +157,7 @@ external origin the same way. The production bundle is produced with `npm run bu
 - `benchmarks` — deterministic Linux simulation and delivery measurements
 - `docs/operations/linux.md` — deployment, shutdown, diagnostics, and incident guidance
 - `docs/operations/tailnet.md` — deploying and operating the tailnet game host `cole-ubuntu-pc`
-- `deploy/ubuntu-pc` — committed configuration and starting scenario for that host
+- `deploy/ubuntu-pc` — committed configuration for that host
 
 Commands arrive over protocol v2 (`docs/protocol/v2.md`) on its own versioned route, `GET
 /api/v2/session`, and never over v1's read-only snapshot stream. Network code still holds only

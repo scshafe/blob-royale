@@ -76,9 +76,8 @@ for required_command in curl docker git hostname install rsync sed sudo tailscal
 done
 sudo -n true 2>/dev/null ||
   fail "DEPLOY.SUDO_REQUIRED" "non-interactive sudo is required for /srv and tailscale serve"
-[[ -f "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" &&
-  -f "${DEPLOYMENT_SOURCE_DIRECTORY}/scenario.csv" ]] ||
-  fail "DEPLOY.INPUTS_MISSING" "deploy/ubuntu-pc must contain blob-royale.cfg and scenario.csv"
+[[ -f "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" ]] ||
+  fail "DEPLOY.INPUTS_MISSING" "deploy/ubuntu-pc must contain blob-royale.cfg"
 # A match names its map by directory, and the process fails closed if that content is absent, so
 # the map named by the deployed configuration is a deployment input like the configuration itself.
 DEPLOYED_MAP_NAME="$(sed -n 's/^map=//p' "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg")"
@@ -121,8 +120,6 @@ printf 'deploy_tailnet.step=install-files status=running\n'
 sudo install -d -m 0755 "${DEPLOYMENT_ROOT}" "${CONFIGURATION_DIRECTORY}" "${WEB_DIRECTORY}"
 sudo install -m 0444 "${DEPLOYMENT_SOURCE_DIRECTORY}/blob-royale.cfg" \
   "${CONFIGURATION_DIRECTORY}/blob-royale.cfg"
-sudo install -m 0444 "${DEPLOYMENT_SOURCE_DIRECTORY}/scenario.csv" \
-  "${CONFIGURATION_DIRECTORY}/scenario.csv"
 sudo install -d -m 0755 "${MAPS_DIRECTORY}"
 sudo rsync --archive --delete --chmod=D0755,F0444 \
   "${MAPS_SOURCE_DIRECTORY}/" "${MAPS_DIRECTORY}/"
@@ -154,7 +151,6 @@ docker run \
   --volume "${CONFIGURATION_DIRECTORY}:${CONTAINER_INPUT_DIRECTORY}:ro" \
   "${RUNTIME_IMAGE}" \
   --config "${CONTAINER_INPUT_DIRECTORY}/blob-royale.cfg" \
-  --scenario "${CONTAINER_INPUT_DIRECTORY}/scenario.csv" \
   >/dev/null
 
 server_ready=false

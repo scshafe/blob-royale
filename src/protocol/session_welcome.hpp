@@ -5,8 +5,10 @@
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace blob_royale::protocol {
 
@@ -29,7 +31,20 @@ namespace blob_royale::protocol {
 // intersection with the client-sendable vocabulary, so a mask naming `spawn` or `despawn` cannot
 // advertise either (`command_wire_kind.hpp`). The advertisement is not the enforcement: the
 // boundary refuses an unaccepted kind independently and `InputBatch::create` filters again.
-// related: docs/protocol/schema/v2/welcome-data.schema.json -- the closed wire shape.
+//
+// **`npc_controller_kinds` is read from `ControllerRegistry` and is why registering a bot costs no
+// client change.** A client renders exactly the kinds this frame names -- that is the menu behind a
+// right-clicked empty seat -- and the boundary accepts a `seat_npc` naming exactly the kinds this
+// frame named, because both read the one list the composition root took from the registry
+// (`src/application/blob_royale_application.cpp`, `command_decoding.hpp`). Adding a bot is one row
+// in `controller_registry.hpp`; the menu and the accepted vocabulary follow with no schema edit and
+// no client edit, which is the property this member exists to buy.
+//
+// The list is **not** bounded by how many kinds are registered: `welcome-data.schema.json` bounds
+// it at `kNpcControllerKindLimit`, a protocol constant, precisely so that the bot count and the
+// wire contract are not the same number. A `maxItems` that tracked the registry would put a
+// protocol version behind every new bot, which is the cost this member was added to avoid. related:
+// docs/protocol/schema/v2/welcome-data.schema.json -- the closed wire shape.
 class SessionWelcome final {
 public:
   // Validates the complete accepted grammar of every member.
@@ -38,7 +53,8 @@ public:
                                              simulation::ControllerId controller,
                                              std::string display_name, std::string mode_name,
                                              std::string map_name,
-                                             simulation::CommandKindMask accepted_command_kinds);
+                                             simulation::CommandKindMask accepted_command_kinds,
+                                             std::vector<std::string> npc_controller_kinds);
 
   SessionWelcome(const SessionWelcome&) = default;
   SessionWelcome(SessionWelcome&&) noexcept = default;
@@ -58,12 +74,21 @@ public:
     return accepted_command_kinds_;
   }
 
+  // The seatable NPC kinds, in the registry's declared order, which is the order a client renders
+  // the menu in. Order is preserved rather than sorted because the registry's order is somebody's
+  // deliberate ordering of the bots and a client that re-sorted it would be inventing one.
+  [[nodiscard]] std::span<const std::string> npc_controller_kinds() const& noexcept {
+    return npc_controller_kinds_;
+  }
+  [[nodiscard]] std::span<const std::string> npc_controller_kinds() const&& = delete;
+
   friend bool operator==(const SessionWelcome&, const SessionWelcome&) = default;
 
 private:
   SessionWelcome(simulation::EntityId entity, simulation::ControllerId controller,
                  std::string display_name, std::string mode_name, std::string map_name,
-                 simulation::CommandKindMask accepted_command_kinds) noexcept;
+                 simulation::CommandKindMask accepted_command_kinds,
+                 std::vector<std::string> npc_controller_kinds) noexcept;
 
   simulation::EntityId entity_;
   simulation::ControllerId controller_;
@@ -71,6 +96,7 @@ private:
   std::string mode_name_;
   std::string map_name_;
   simulation::CommandKindMask accepted_command_kinds_;
+  std::vector<std::string> npc_controller_kinds_;
 };
 
 // The accepted grammars, exposed because the identity boundary applies the display-name grammar to

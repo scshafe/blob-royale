@@ -9,6 +9,7 @@
 #include "entity_id.hpp"
 #include "entity_id_allocator.hpp"
 #include "runtime_limits.hpp"
+#include "seat_roster.hpp"
 #include "simulation_limits.hpp"
 #include "vector2.hpp"
 
@@ -218,4 +219,60 @@ TEST_CASE("CommandSink refuses a despawn naming an id no tick has issued",
                               simulation::DespawnCommand{
                                   .entity = simulation::EntityId::create(kIssuedEntityId)}) ==
           runtime::CommandSubmissionResult::kAccepted);
+}
+
+TEST_CASE("CommandSink refuses a lobby command stamped with a foreign controller",
+          "[unit][runtime][command_sink][lobby]") {
+  // The stamp is the server's own, so a foreign one means the boundary and the sink disagree about
+  // who is submitting. It matters more here than for a spawn: a lobby command spends somebody's
+  // decision -- a Start, a seat, a resize -- and one session must not spend another's.
+  CommandSinkFixture fixture;
+  const simulation::ControllerId controller = fixture.sink.open_session("session", "Ada");
+  const simulation::ControllerId other = fixture.sink.open_session("session", "Bob");
+
+  CHECK(fixture.sink.submit(controller, simulation::StartMatchCommand{.controller = other}) ==
+        runtime::CommandSubmissionResult::kRejectedForeignController);
+  CHECK(fixture.sink.submit(
+            controller, simulation::SetSeatCountCommand{.controller = other, .seat_count = 4}) ==
+        runtime::CommandSubmissionResult::kRejectedForeignController);
+  CHECK(fixture.sink.submit(controller, simulation::StartMatchCommand{.controller = controller}) ==
+        runtime::CommandSubmissionResult::kAccepted);
+}
+
+TEST_CASE("CommandSink refuses a seat index or a seat count outside the engine's own bound",
+          "[unit][runtime][command_sink][lobby]") {
+  // The same rule `InputBatch::create` enforces, refused here so that one client's out-of-range
+  // frame cannot become a hard tick failure for everyone. It is the *value* bound and not the
+  // running lobby's size: the sink holds no world, and an index inside the bound that names no seat
+  // is ignored by the tick rather than refused here.
+  CommandSinkFixture fixture;
+  const simulation::ControllerId controller = fixture.sink.open_session("session", "Ada");
+  constexpr std::uint64_t kSeatCeiling = simulation::kMaximumLobbySeatCount;
+
+  CHECK(fixture.sink.submit(
+            controller,
+            simulation::SeatNpcCommand{.controller = controller,
+                                       .seat_index = kSeatCeiling,
+                                       .kind = simulation::SeatKindName::create("wanderer")}) ==
+        runtime::CommandSubmissionResult::kRejectedSeatIndexOutOfRange);
+  CHECK(fixture.sink.submit(controller, simulation::ClearSeatCommand{.controller = controller,
+                                                                     .seat_index = kSeatCeiling}) ==
+        runtime::CommandSubmissionResult::kRejectedSeatIndexOutOfRange);
+  CHECK(fixture.sink.submit(controller, simulation::SetSeatCountCommand{.controller = controller,
+                                                                        .seat_count = 0}) ==
+        runtime::CommandSubmissionResult::kRejectedSeatCountOutOfRange);
+  CHECK(fixture.sink.submit(controller,
+                            simulation::SetSeatCountCommand{.controller = controller,
+                                                            .seat_count = kSeatCeiling + 1}) ==
+        runtime::CommandSubmissionResult::kRejectedSeatCountOutOfRange);
+
+  // The bounds themselves are accepted, so the rejection is a bound and not an off-by-one.
+  CHECK(fixture.sink.submit(controller,
+                            simulation::ClearSeatCommand{.controller = controller,
+                                                         .seat_index = kSeatCeiling - 1}) ==
+        runtime::CommandSubmissionResult::kAccepted);
+  CHECK(fixture.sink.submit(controller,
+                            simulation::SetSeatCountCommand{.controller = controller,
+                                                            .seat_count = kSeatCeiling}) ==
+        runtime::CommandSubmissionResult::kAccepted);
 }

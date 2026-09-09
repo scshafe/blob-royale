@@ -54,10 +54,15 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
+  // Seven: the three every mode needs, and the four that operate the pre-match lobby. A mode
+  // declares the lobby kinds rather than the engine offering them to everybody, which is why
+  // `sandbox` -- whose objective never starts -- accepts none of them.
   CHECK(mode.accepted_command_kinds() ==
-        simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
-                                             simulation::CommandKind::kDespawn,
-                                             simulation::CommandKind::kThrust}));
+        simulation::CommandKindMask::create(
+            {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
+             simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
+             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+             simulation::CommandKind::kStartMatch}));
 }
 
 TEST_CASE("RoyaleMode declares seven systems in the order its rules depend on",
@@ -95,13 +100,13 @@ TEST_CASE("RoyaleMode declares seven systems in the order its rules depend on",
         std::string_view{"elimination_grace_publisher"});
 }
 
-TEST_CASE("RoyaleMode rejects a map with fewer spawn markers than it needs players",
+TEST_CASE("RoyaleMode rejects a map with fewer spawn markers than its lobby has seats",
           "[unit][gameplay][royale][validation]") {
-  // A map with fewer can never satisfy `can_start` and would hold every match in `lobby` forever,
-  // so it is a startup rejection naming the map rather than a silent stall.
+  // A map with fewer could not seat a full lobby, so a match that satisfied `can_start` would still
+  // leave joiners pending: it is a startup rejection naming the map rather than a silent stall.
   try {
     default_mode().validate_map(testing::gameplay_map(1, "royale_one_point_map"));
-    FAIL("a map with one spawn marker was accepted for a two-player minimum");
+    FAIL("a map with one spawn marker was accepted for a four-seat lobby");
   } catch (const gameplay::GameplayValidationError& error) {
     CHECK(error.validation_code() ==
           gameplay::GameplayValidationCode::kRoyaleMapWithoutEnoughSpawnPoints);
@@ -109,7 +114,7 @@ TEST_CASE("RoyaleMode rejects a map with fewer spawn markers than it needs playe
     CHECK(error.detail().find("royale_one_point_map") != std::string::npos);
   }
 
-  CHECK_NOTHROW(default_mode().validate_map(testing::gameplay_map(2, "royale_two_point_map")));
+  CHECK_NOTHROW(default_mode().validate_map(testing::gameplay_map(4, "royale_four_point_map")));
 }
 
 TEST_CASE("RoyaleMode rejects a map whose arena is already inside the zone minimum",
@@ -118,8 +123,12 @@ TEST_CASE("RoyaleMode rejects a map whose arena is already inside the zone minim
   // bounds, not of the `[royale]` section. An arena that starts at its floor would never contract.
   const simulation::MapDefinition tiny = simulation::MapDefinition::create(
       "royale_tiny_map", simulation::ArenaBounds::create(60.0, 40.0), {},
-      {simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(20.0, 20.0)),
-       simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(40.0, 20.0))},
+      // Four markers, because the spawn-marker check runs first and this test is about the second
+      // rejection: a map short of the default lobby's seats would be refused for the wrong reason.
+      {simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(20.0, 10.0)),
+       simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(40.0, 10.0)),
+       simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(20.0, 30.0)),
+       simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(40.0, 30.0))},
       simulation::MapMetadata::none());
 
   try {
@@ -192,7 +201,7 @@ TEST_CASE("a royale mode built from its own configuration hands it to the system
   // two different games played by the same rules.
   gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
   section.thrust_max_world_units_per_second_squared = 1'000.0;
-  section.lobby_minimum_players = 3;
+  section.lobby_seat_count = 3;
   const gameplay::RoyaleMode mode{gameplay::RoyaleConfiguration::create(section)};
 
   CHECK_THROWS_AS(mode.validate_map(testing::gameplay_map(2, "royale_two_point_map")),

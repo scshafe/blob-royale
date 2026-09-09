@@ -215,9 +215,9 @@ carries has no baseline counterpart to differ from. The `sandbox` mode is the st
 one system is steering, which writes nothing when no thrust was recorded — and a mode with no
 systems at all is the stricter one
 (`.claude/plans/2026-09-06-playable-prototype-tailnet.md` Step 17). A seeded fixture that runs under
-`royale` must additionally set `lobby_minimum_players` above its seeded roster size, which holds the
-match in `lobby`, where the zone stays at full radius and elimination never evaluates
-(ADR 0005 § "Mode configuration"). All fixtures and tests run at `drag_per_second = 0`; only the
+`royale` stays in `lobby` unless its command log fills every lobby seat and requests a start, and in
+`lobby` the zone stays at full radius and elimination never evaluates
+(ADR 0005 § "Match lifecycle"). All fixtures and tests run at `drag_per_second = 0`; only the
 deployment configuration sets a nonzero value (same plan, § "Execution constraints").
 
 ### Player-pair policy
@@ -307,7 +307,7 @@ Simulation fixtures are specifications, not recordings of the prototype. Each fi
 | Spawn slot order | The engine `SpawnSystem` seats unseated entities in ascending `EntityId`, each at the marker index the mode's `SpawnPolicy` returns for the world-owned rotation counter and the free-marker set. A policy that returns no index defers that entity and seats nobody in its place. Submitting the same spawns in a different order produces the same seating, because the batch is canonical and seating order is ascending `EntityId` rather than arrival order. |
 | Despawn of a pending pair member | A despawn removes its entity in phase 0, before phase 2 builds the pair list, so no candidate pair in that tick names it. A partner that would otherwise have been in contact receives no impulse on that tick and integrates unchanged. An entity removed instead by a `DespawnEvent` leaves the roster at the commit of the tick that emitted it. In both cases the committed grid holds no removed `EntityId`. |
 | Match transition | At most one `MatchPhase` transition commits per tick. A mode whose durations are all zero advances exactly one phase per tick and terminates instead of chaining `lobby → countdown → running → ended → lobby` inside one tick. The transition observes the tick's final world, after every `kPostKernel` and `kLifecycle` system has run. |
-| Baseline preservation | With `drag_per_second = 0`, an empty `InputBatch` on every tick, and a mode whose systems write nothing, every row above this one produces the same tick horizons, the same ordered bodies, and the same bytes as the accepted seven-phase baseline. Under `royale` the same holds with a `lobby_minimum_players` above the fixture's roster size. This row is the regression that proves the framework additive. |
+| Baseline preservation | With `drag_per_second = 0`, an empty `InputBatch` on every tick, and a mode whose systems write nothing, every row above this one produces the same tick horizons, the same ordered bodies, and the same bytes as the accepted seven-phase baseline. Under `royale` the same holds for any fixture that never requests a start. This row is the regression that proves the framework additive. |
 
 Royale's own outcomes are not rows here. Zone shrink timing, the elimination grace count,
 simultaneous elimination, placement order, and the draw are mode rules, verified by the replay suite
@@ -435,7 +435,7 @@ These are seams in the pure-function and phase boundaries, not plugin registries
 * **Negative:** Binary64 arithmetic does not promise cross-toolchain bit identity.
 * **Mitigation:** Preserve operation order, forbid fast-math and unordered reductions, require within-toolchain bit identity, and compare cross-toolchain values and invariants with the declared tolerance.
 * **Operational:** Scenario files carry explicit IDs and remain initial-state seeds; executable tests own the expected tick horizons and outcomes.
-* **Operational:** `drag_per_second` joins the `[simulation]` section because phase 1 owns it; it is `0` in every fixture and test configuration and nonzero only in deployment. A migrated physics fixture keeps its accepted horizon under a mode whose systems write nothing, or under `royale` with a `lobby_minimum_players` above that fixture's roster size. Fixtures that exercise gameplay set those keys deliberately.
+* **Operational:** `drag_per_second` joins the `[simulation]` section because phase 1 owns it; it is `0` in every fixture and test configuration and nonzero only in deployment. A migrated physics fixture keeps its accepted horizon under a mode whose systems write nothing, or under `royale` when nothing in its command log requests a start. Fixtures that exercise gameplay set those keys deliberately.
 * **Reversibility:** The pure physics functions and phase-local buffers allow a versioned collision or integration policy to replace the baseline without changing world ownership, runtime publication, protocol encoding, or server boundaries.
 
 ## Implementation evidence

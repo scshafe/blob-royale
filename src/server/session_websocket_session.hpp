@@ -179,6 +179,11 @@ private:
   // The body this session drives in the most recently observed snapshot. Absent is ordinary: a
   // spawn not yet seated, an elimination, and the lobby wipe all produce it.
   std::optional<simulation::EntityId> current_entity_;
+  // The entity this session owns, body or not. It is a second value rather than a widening of
+  // `current_entity_` because the two answer different questions and both are needed: the welcome
+  // and the command stamp want a body, and the close path wants ownership
+  // (`src/protocol/protocol_v2_json_encoding.hpp`, find_controlled_entity).
+  std::optional<simulation::EntityId> current_controlled_entity_;
   std::optional<simulation::TickSequence> last_spawn_request_tick_;
 
   bool handshake_completed_{false};

@@ -5,11 +5,18 @@
     "display_name": "Cole Shaffer",
     "mode": "royale",
     "map": "arena-960x640",
-    "accepted_command_kinds": ["set_thrust"]
+    "accepted_command_kinds": [
+      "clear_seat",
+      "seat_npc",
+      "set_seat_count",
+      "set_thrust",
+      "start_match"
+    ],
+    "npc_controller_kinds": ["wanderer", "chaser"]
   },
   "error": null,
   "meta": {
-    "protocol_version": "2.2",
+    "protocol_version": "2.3",
     "schema_id": "blob-royale://protocol/v2/welcome-message",
     "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
     "message_sequence": 1,

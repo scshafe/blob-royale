@@ -428,7 +428,7 @@ void write_fixture_map(const std::filesystem::path& fixture_directory,
       map_directory / "static_bodies.csv",
       "position_x_world_units,position_y_world_units,collision_layer,collision_mask\n",
       "server_fixture.write_map_static_bodies");
-  // The session workload needs at least `lobby_minimum_players` spawn markers for
+  // The session workload needs at least `lobby_seat_count` spawn markers for
   // `RoyaleMode::validate_map`, and needs enough of them that two sessions and one bot are all
   // seated at once and never in contact with each other.
   const std::string markers =
@@ -490,12 +490,13 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("zone_minimum_radius_world_units=10\n");
   configuration.append("zone_shrink_seconds=90\n");
   configuration.append("elimination_grace_seconds=3\n");
-  // The session workload holds the match in `lobby` forever: two sessions plus one bot are three
-  // controllers, and six is unreachable. A running royale match would shrink a zone and eliminate
-  // the very entities these contracts assert about, and the mode's systems, spawn policy, and
-  // command mask are the same in every phase.
-  configuration.append(session_workload ? "lobby_minimum_players=6\n"
-                                        : "lobby_minimum_players=2\n");
+  // The session workload holds the match in `lobby` forever, and since Step 2 it does so for a
+  // simpler reason than the six-player minimum it used to declare: a royale match leaves `lobby`
+  // only when every seat is filled and somebody presses Start, and nothing in this fixture presses
+  // it. A running royale match would shrink a zone and eliminate the very entities these contracts
+  // assert about, and the mode's systems, spawn policy, and command mask are the same in every
+  // phase. The six seats are kept because the six spawn markers written above are sized for them.
+  configuration.append(session_workload ? "lobby_seat_count=6\n" : "lobby_seat_count=2\n");
   configuration.append("countdown_seconds=5\n");
   configuration.append("restart_delay_seconds=8\n");
   write_fixture_text_file_atomically(fixture_directory / kConfigurationFileName, configuration,

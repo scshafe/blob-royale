@@ -35,10 +35,10 @@ namespace blob_royale::gameplay {
 //                           kPostKernel; placement_recorder, lifetime_expiry, hazard_spawn then
 //                           elimination_grace_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
-//   accepted_command_kinds  spawn, despawn, thrust
+//   accepted_command_kinds  spawn, despawn, thrust, and the four lobby kinds
 //   spawn_policy()          RotatingRingSpawnPolicy
 //   objective()             RoyaleObjective
-//   validate_map()          at least `lobby_minimum_players` spawn markers, and an arena whose
+//   validate_map()          at least `lobby_seat_count` spawn markers, and an arena whose
 //                           `R_full` is strictly greater than the configured zone minimum
 //
 // **Why `contact_rules()` declares one row above the built-in ones.** Royale still changes no
@@ -118,10 +118,20 @@ public:
     return simulation::ContactRuleTable::with_rows_above_built_in({lethal_hazard_contact_rule()});
   }
 
+  // Seven kinds: the three every mode needs, and the four that operate the pre-match lobby.
+  //
+  // **The four lobby kinds are declared by the mode rather than by the engine**, even though the
+  // roster they write is engine state, because the mask is what a mode uses to say which decisions
+  // its game admits and `sandbox` genuinely admits none of them -- free play has no match to start,
+  // so a `start_match` there would be a capability advertised to a client that could never use it
+  // (`src/gameplay/sandbox/sandbox_mode.hpp`). A mode that wanted a lobby it could not operate
+  // would simply omit them, and the `welcome` frame would tell every client so.
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
-    return simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
-                                                simulation::CommandKind::kDespawn,
-                                                simulation::CommandKind::kThrust});
+    return simulation::CommandKindMask::create(
+        {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
+         simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
+         simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+         simulation::CommandKind::kStartMatch});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {
@@ -133,8 +143,9 @@ public:
   }
 
   // Rejects a map royale cannot play, at startup, naming the map and the cause. Fewer spawn markers
-  // than `lobby_minimum_players` can never satisfy `can_start` and would hold every match in
-  // `lobby` forever; an arena whose `R_full` is not strictly greater than the configured zone
+  // than `lobby_seat_count` is a lobby whose full field could not all be seated, so a match that
+  // satisfied `can_start` would still leave joiners pending forever; an arena whose `R_full` is not
+  // strictly greater than the configured zone
   // minimum starts already shrunk to its floor, so the zone would never contract and the game would
   // never end (`docs/architecture/0005-royale-mode.md` § "Mode configuration").
   void validate_map(const simulation::MapDefinition& map) const override;

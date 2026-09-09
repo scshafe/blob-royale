@@ -23,6 +23,25 @@ namespace {
 void commit_transition(MatchState& match, const MatchPhase phase, const TickSequence now) noexcept {
   match.phase = phase;
   match.phase_started_tick = now;
+  // **A transition into `lobby` clears the pending start request, and that is the only direction
+  // this fires in.** The rule the lobby needs is "a match never starts without someone pressing
+  // Start for *this* lobby", and clearing on arrival is what delivers it: `ended -> lobby` after a
+  // finished match, and `countdown -> lobby` after a seat emptied, both leave a lobby that will sit
+  // still until the button is pressed again.
+  //
+  // Clearing on the way *out* of `lobby` instead -- the obvious reading of "one-shot" -- is a trap
+  // worth naming, because it does not work. `can_start` is asked twice by this machine: once as
+  // "may it leave `lobby`" and once as "may it stay in `countdown`". A request cleared by
+  // `lobby -> countdown` would make the very next tick's countdown check see a request that is no
+  // longer there, bounce straight back to `lobby`, and no match with a non-zero countdown -- or
+  // with a zero one -- could ever reach `running` at all.
+  //
+  // This is the fifth thing a committed transition writes, and it is engine state written by the
+  // engine's own system: the roster lives in `MatchState` beside the phase precisely because it is
+  // the input to the first transition (`seat_roster.hpp`).
+  if (phase == MatchPhase::kLobby) {
+    match.seats.clear_start_request();
+  }
 }
 
 } // namespace

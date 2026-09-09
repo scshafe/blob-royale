@@ -96,7 +96,7 @@ a tick (ADR 0004 § "Game modes and the match lifecycle").
 | `accepted_command_kinds()` | spawn, despawn, thrust | ADR 0004 § "Commands" |
 | `spawn_policy()` | `RotatingRingSpawnPolicy` over the map's spawn markers (§ "Spawning") | ADR 0004 § "Game modes and the match lifecycle" |
 | `objective()` | `RoyaleObjective` (§ "Match lifecycle") | ADR 0004 § "Game modes and the match lifecycle" |
-| `validate_map()` | rejects a map with fewer than `lobby_minimum_players` markers of kind `spawn` | ADR 0004 § "Maps as data" |
+| `validate_map()` | rejects a map with fewer than `lobby_seat_count` markers of kind `spawn` | ADR 0004 § "Maps as data" |
 
 The names in the `systems()` row are each system's `name()`, the stable snake_case identity the
 pipeline, diagnostics, and fixtures use and the one ADR 0004 § "Game modes and the match lifecycle"
@@ -174,7 +174,7 @@ rejection, and every value must be finite.
 | `zone_minimum_radius_world_units` | `wu` | finite, `>= 0`; `validate_map` additionally rejects a map whose `R_full` is not strictly greater | `60` |
 | `zone_shrink_seconds` | `s` | finite, `>= 0` | `90` |
 | `elimination_grace_seconds` | `s` | finite, `>= 0` | `3` |
-| `lobby_minimum_players` | count | integer, `>= 1` | `2` |
+| `lobby_seat_count` | count | integer, `>= 1` and within the engine's lobby bound; `validate_map` additionally rejects a map with fewer `spawn` markers | `4` |
 | `countdown_seconds` | `s` | finite, `>= 0` | `5` |
 | `restart_delay_seconds` | `s` | finite, `>= 0` | `8` |
 
@@ -495,7 +495,7 @@ modes and the match lifecycle").
 
 | Member | What `RoyaleObjective` returns |
 |---|---|
-| `can_start(world)` | true when the alive count is at or above `lobby_minimum_players` |
+| `can_start(world)` | true when every seat in `MatchState::seats` is filled **and** a start has been requested |
 | `outcome(world)` | `won_by_entity` naming the single alive entity when the alive count is `1`; `drawn` when it is `0`; `undecided` otherwise |
 | `durations()` | `countdown_ticks` and `restart_delay_ticks` from `[royale]` |
 
@@ -602,8 +602,8 @@ functions — which ADR 0003 § "Floating-point contract" would only have guaran
 anyway — never arises. A marker outside the arena is a map-load rejection, so the in-bounds property
 is validated as data rather than proved as arithmetic.
 
-`validate_map` requires at least `lobby_minimum_players` markers of kind `spawn`, because a map with
-fewer can never satisfy `can_start` and would hold every match in `lobby` forever. A map with more
+`validate_map` requires at least `lobby_seat_count` markers of kind `spawn`, because a map with
+fewer could not seat a full lobby, so a started match would leave joiners pending forever. A map with more
 than 32 points, or fewer, is valid; the count is data. A layout whose adjacent chord falls below
 `2r` is also valid: the occupancy test simply seats fewer entities per tick and the rest defer.
 
@@ -640,8 +640,8 @@ three, phase 0 is a no-op, phase 1's damping is exactly `1.0`, the contact table
 rows evaluating the accepted equations, and no stage contributes a system that touches a body. That
 is the compatibility proof, and no fixture is regenerated.
 
-**A seeded fixture world that runs under `royale` must set `lobby_minimum_players` above its seeded
-roster size.** The match then stays in `lobby`, where the radius is `R_full` and elimination is not
+**A seeded fixture world that runs under `royale` stays in `lobby` unless its command log fills
+every seat and requests a start.** In `lobby` the radius is `R_full` and elimination is not
 evaluated, so no royale system touches a body. Two additions to the world remain and must be
 expected rather than asserted away: the zone entity and its `Zone` component, which own no
 `PhysicsBody` and never reach the physics kernel, and the one `EntityId` drawn from the first tick's
@@ -665,7 +665,7 @@ A first suite covers six scenarios, one for each rule that can be wrong on its o
 | Spawn order | Joiners in one tick take consecutive points from the rotation counter; a full ring defers exactly one tick; two entities are never seated in contact; a joiner during `running` is deferred. |
 | Elimination timing | Elimination on exactly the `G`th consecutive outside tick; re-entry resets the counter and loses partial grace; a center exactly on the boundary is inside; `G = 0` eliminates on the first outside tick and never a safe player. |
 | Simultaneous elimination and draw | Two entities leaving together share one placement; the final two share placement `1` and the committed outcome is `drawn`. |
-| Transition per tick | `countdown_seconds = 0` and `restart_delay_seconds = 0` advance one phase per tick and terminate; `lobby_minimum_players = 1` cycles instead of hanging. |
+| Transition per tick | `countdown_seconds = 0` and `restart_delay_seconds = 0` advance one phase per tick and terminate; a one-seat lobby cycles instead of hanging, one requested start at a time. |
 
 The 100-fresh-run bit-identity rule of ADR 0003 is asserted over a scripted multi-entity `royale`
 replay from this suite (plan Step 21), which is the first time that rule covers a whole match rather
@@ -779,12 +779,13 @@ discharged by the framework, not by this game.
   `0.5 %` at the proposed values.
 * **Mitigation:** Both formulas are stated above, and the exact discrete value is the one the replay
   suite asserts. The gap grows only with `drag_per_second`, which the `max(0, …)` clamp bounds.
-* **Negative:** `lobby_minimum_players = 1` produces a degenerate cycle: one player enters
-  `countdown`, `running` immediately observes an alive count of `1`, and the match ends and restarts
-  on a period of the two configured durations plus a handful of transition ticks.
-* **Mitigation:** The engine's one-transition-per-tick rule keeps that cycle terminating and
-  observable rather than a hang, and the replay suite pins it. It is a configuration choice, not a
-  contract defect; the proposed value is `2`.
+* **Negative:** `lobby_seat_count = 1` is degenerate: one player fills the only seat, presses
+  Start, and `running` immediately observes an alive count of `1`, so the match ends after the two
+  configured durations plus a handful of transition ticks.
+* **Mitigation:** The engine's one-transition-per-tick rule keeps that sequence terminating and
+  observable rather than a hang, and the start request is one-shot -- cleared on every transition
+  into `lobby` -- so the match stops there instead of cycling. It is a configuration choice, not a
+  contract defect; the proposed value is `4`.
 * **Negative:** `previous_phase` is mode state that duplicates knowledge the engine already has, and
   it makes royale react to a transition on the tick *after* the engine commits it.
 * **Mitigation:** Neither reaction is observable a tick early: the placement clear lands on the
@@ -804,7 +805,7 @@ discharged by the framework, not by this game.
   file (plan Steps 25 and 31). A missing section is a startup rejection, not a default.
 * **Operational:** `maps/arena-960x640` must ship with the 32 `spawn` markers described above so the
   deployed arena reproduces today's geometry (plan Step 25). A map with fewer than
-  `lobby_minimum_players` of them is rejected by `validate_map` at startup, naming the map and the
+  `lobby_seat_count` of them is rejected by `validate_map` at startup, naming the map and the
   cause.
 * **Operational:** Per-tick royale cost is three linear passes over ascending component stores — one
   for thrust, one for elimination, one over this tick's events for placements — plus one pass over

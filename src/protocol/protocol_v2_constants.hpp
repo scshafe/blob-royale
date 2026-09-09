@@ -25,7 +25,7 @@ namespace blob_royale::protocol {
 // related: docs/protocol/v2.md -- the accepted contract these values are read from.
 // related: protocol_constants.hpp -- the v1 twin, deliberately not shared.
 
-inline constexpr std::string_view kProtocolV2Version = "2.2";
+inline constexpr std::string_view kProtocolV2Version = "2.3";
 
 inline constexpr std::string_view kWelcomeMessageSchemaId =
     "blob-royale://protocol/v2/welcome-message";
@@ -68,11 +68,36 @@ inline constexpr std::array<std::string_view, 8> kV2ComponentKindNames{
     "controllable", "lethal_on_contact", "lifetime", "physics_body", "score", "team",
     "zone",         "zone_exposure"};
 
-// The client-sendable command vocabulary of `common.schema.json#/$defs/command_kind`. It names
-// neither `spawn` nor `despawn`: both are server-issued on session admission and close, and
-// advertising one would name a capability the boundary must refuse
+// The client-sendable command vocabulary of `common.schema.json#/$defs/command_kind`, in the
+// schema's own ascending order. It names neither `spawn` nor `despawn`: both are server-issued on
+// session admission and close, and advertising one would name a capability the boundary must refuse
 // (`docs/protocol/v2.md` § "welcome").
-inline constexpr std::array<std::string_view, 1> kV2ClientCommandKindNames{"set_thrust"};
+//
+// Four of the five operate the pre-match lobby and were added in 2.3. They are a client's whole
+// authority over a match: which seats exist, who is cleared out of one, which NPC fills one, and
+// whether to begin.
+inline constexpr std::array<std::string_view, 5> kV2ClientCommandKindNames{
+    "clear_seat", "seat_npc", "set_seat_count", "set_thrust", "start_match"};
+
+// canonical: lobby_seat_wire_bounds -- the seat index and seat count a v2 frame may carry.
+//
+// Mirrors `simulation::kMaximumLobbySeatCount`, and the mirror is checked by `static_assert` in
+// `command_wire_kind.hpp` rather than by including a simulation header here, for the reason the
+// component-kind and command-kind vocabularies above are mirrors too: this file is the
+// transcription of the accepted schemas, and a schema bound that silently followed a C++ constant
+// would be a published contract nobody could read from the published contract.
+//
+// A seat index is zero-based, so its inclusive maximum is one below the count.
+inline constexpr std::size_t kLobbySeatCountMaximum = 64;
+inline constexpr std::size_t kLobbySeatIndexMaximum = kLobbySeatCountMaximum - 1;
+
+// The published NPC-kind list's bound. It is **not** the number of registered bot kinds, and that
+// is the whole point: `welcome.npc_controller_kinds` is read from `ControllerRegistry` so that
+// registering a bot costs no client change, and a bound that tracked the registry's size would put
+// a schema edit -- and therefore a protocol version -- behind every new bot. Sixty-four is a
+// generous ceiling on how many kinds one build can register and is a bound the frame budget can
+// afford (`docs/protocol/v2.md` § "Limits").
+inline constexpr std::size_t kNpcControllerKindLimit = 64;
 
 // Whether a name is a registered v2 component kind. The vocabulary is closed, so this is the whole
 // question and an unlisted name is a failure rather than a value to skip.

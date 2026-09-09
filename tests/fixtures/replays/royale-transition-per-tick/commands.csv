@@ -1,4 +1,25 @@
-tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y
-1,,spawn,1,,
-6,,spawn,2,,
-11,,spawn,3,,
+# One seat, three matches, one transition per tick.
+#
+# **The seat is filled once and the start is pressed three times**, which is the shape the one-shot
+# start request produces: `MatchLifecycleSystem` clears the request on every arrival in `lobby`, so
+# each of the three matches needs its own press, while the seat nothing clears stays filled across
+# all of them.
+#
+# **The phase timeline did not move.** Under the retired `lobby_minimum_players=1` the transition
+# fired when the alive count reached one, which happened in tick 1's SpawnSystem and was observed by
+# the lifecycle system later in that same tick. `seat_npc` and `start_match` apply at phase 0 of the
+# same tick, which is earlier still, and the lifecycle system observes them at the same `kLifecycle`
+# it always did -- so `countdown` is committed on ticks 1, 6 and 11 exactly as before, and every
+# expected phase in `royale_replay_fixture_tests.cpp` is the value it already was.
+#
+# ControllerId 1 operates the lobby on every tick, including the two where its own blob no longer
+# exists. A replay has no sessions, so the identity is only an ordering and de-duplication key here
+# (`src/simulation/command_registry.hpp`); using one is what keeps the log readable.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+1,,seat_npc,1,,,0,,wanderer
+1,,start_match,1,,,,,
+6,,spawn,2,,,,,
+6,,start_match,1,,,,,
+11,,spawn,3,,,,,
+11,,start_match,1,,,,,

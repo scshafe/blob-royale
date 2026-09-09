@@ -12,4 +12,15 @@ Phase time is reported as elapsed rather than remaining, and the reason is avail
 
 Zone exposure was the same until protocol 2.2, and is no longer. `elimination_grace_ticks` now travels in the royale mode-state block, so the HUD counts the real remainder down and the exposure ring thickens against the same denominator `zone_elimination` enforces. The elapsed reading survives as the fallback for a mode that publishes no grace — `sandbox` publishes the `none` block — because the one rule that has not changed is that this client never renders a duration the server did not send.
 
+**Protocol 2.3 is on the wire and this domain does not yet use it.** The generated schemas and types
+carry the four lobby command kinds, the `match.seats` roster with `match.start_requested`, and
+`welcome.npc_controller_kinds`, and the client validates every one of them because the schemas are
+closed and validation is not optional. Nothing renders them: the lobby view, the seat grid, the
+right-click NPC menu, and the Start control are a later step, and until they land a royale match is
+started by a client that is not this one. Two consequences are worth knowing before that work begins.
+`welcome.npc_controller_kinds` is the menu — it is read from the server's controller registry, so a
+new bot appears in it with no change here at all. And the overlay copy "The match starts once enough
+blobs have joined the arena" is no longer true of the server it describes; a match now starts when
+every seat is filled and somebody presses Start, and that sentence is the seat grid's to replace.
+
 The domain depends on React, Ajv, browser Fetch/WebSocket APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v2`. It has no dependency on process lifecycle, Axios, polling, or class-shaped wire models. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

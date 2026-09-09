@@ -58,7 +58,7 @@ TEST_CASE("Welcome encoder matches the accepted golden example and canonical byt
   fixture::require_json_matches_v2_golden_example(encoded, "welcome-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["set_thrust"]},"error":null,"meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
+      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"]},"error":null,"meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
 }
 
 TEST_CASE("Snapshot v2 encoder matches the accepted golden example",
@@ -80,7 +80,7 @@ TEST_CASE("Snapshot v2 encoder emits canonical bytes for the accepted golden wor
 
   CHECK(
       encoded ==
-      R"({"data":{"tick_sequence":12904,"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
+      R"({"data":{"tick_sequence":12904,"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
 }
 
 TEST_CASE("Error response v2 encoder matches the accepted golden example and canonical bytes",
@@ -93,7 +93,7 @@ TEST_CASE("Error response v2 encoder matches the accepted golden example and can
   fixture::require_json_matches_v2_golden_example(encoded, "error-response.json");
   CHECK(
       encoded ==
-      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
 }
 
 TEST_CASE("Error response v2 encoder carries the fourteen rows v2 shares with v1",
@@ -106,7 +106,7 @@ TEST_CASE("Error response v2 encoder carries the fourteen rows v2 shares with v1
 
   CHECK(encoded.find(R"("code":"PROTOCOL.METHOD_NOT_ALLOWED")") != std::string::npos);
   CHECK(encoded.find(R"("allowed_methods":["GET"])") != std::string::npos);
-  CHECK(encoded.find(R"("protocol_version":"2.2")") != std::string::npos);
+  CHECK(encoded.find(R"("protocol_version":"2.3")") != std::string::npos);
   CHECK(encoded.find(R"("schema_id":"blob-royale://protocol/v2/error-response")") !=
         std::string::npos);
 }
@@ -192,7 +192,7 @@ TEST_CASE("Conformance rejects a frame carrying both data and error",
   constexpr std::string_view kDataAndError =
       R"({"data":{"tick_sequence":1,"entities":[],"match":{}},)"
       R"("error":{"code":"SERVICE.INTERNAL_FAILURE","message":"m","retryable":false,"details":{}},)"
-      R"("meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kDataAndError) ==
@@ -203,7 +203,7 @@ TEST_CASE("Conformance rejects a frame carrying neither data nor error",
           "[unit][protocol][v2][conformance][rejection]") {
   constexpr std::string_view kNeither =
       R"({"data":null,"error":null,)"
-      R"("meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kNeither) ==
@@ -218,7 +218,7 @@ TEST_CASE("Conformance rejects a snapshot carrying an unregistered component kin
       R"("phase_started_tick":1,"outcome":{"kind":"none","winner_entity_id":null,)"
       R"("winner_team_id":null},"placements":[],"mode_state":)"
       R"({"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},"error":null,)"
-      R"("meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kUnknownComponentKind) ==
@@ -235,7 +235,7 @@ TEST_CASE("Conformance rejects a snapshot whose entity ids are not ascending and
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kDescending) ==
@@ -250,7 +250,7 @@ TEST_CASE("Conformance rejects a published entity carrying no component",
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kEmptyComponents) ==
@@ -260,13 +260,14 @@ TEST_CASE("Conformance rejects a published entity carrying no component",
 TEST_CASE("Conformance rejects a frame naming a protocol version this schema set does not pin",
           "[unit][protocol][v2][conformance][rejection]") {
   // One minor ahead of whatever this build pins. It moved 2.1 -> 2.2 when `lethal_on_contact` was
-  // published and 2.2 -> 2.3 when the royale mode-state block gained `elimination_grace_ticks`,
-  // because a case named "a version this schema set does not pin" that names the pinned one tests
-  // nothing.
+  // published, 2.2 -> 2.3 when the royale mode-state block gained `elimination_grace_ticks`, and
+  // 2.3 -> 2.4 when the lobby command kinds and the match seat roster landed, because a case named
+  // "a version this schema set does not pin" that names the pinned one tests nothing.
   constexpr std::string_view kMinorAhead =
       R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale",)"
-      R"("map":"arena-960x640","accepted_command_kinds":["set_thrust"]},"error":null,)"
-      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/welcome-message",)"
+      R"("map":"arena-960x640","accepted_command_kinds":["set_thrust"],)"
+      R"("npc_controller_kinds":[]},"error":null,)"
+      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/welcome-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kMinorAhead) ==
@@ -281,7 +282,7 @@ TEST_CASE("Conformance rejects a snapshot delivered as message one",
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kSnapshotAsFirstFrame) ==
@@ -296,7 +297,7 @@ TEST_CASE("Conformance rejects a snapshot naming an unregistered mode-state sche
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/capture","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.2","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"2.3","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v2_server_frame(kUnknownModeState) ==
@@ -448,7 +449,8 @@ TEST_CASE("Welcome value rejects a display name outside the accepted grammar",
       return protocol::SessionWelcome::create(
           simulation::EntityId::create(7), simulation::ControllerId::create(3), display_name,
           "royale", "arena-960x640",
-          simulation::CommandKindMask::create({simulation::CommandKind::kThrust}));
+          simulation::CommandKindMask::create({simulation::CommandKind::kThrust}),
+          fixture::golden_npc_controller_kinds());
     };
   };
 
@@ -466,18 +468,98 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
           "[unit][protocol][v2][encoding]") {
   const protocol::SessionWelcome every_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
-      "royale", "arena-960x640", simulation::CommandKindMask::all());
+      "royale", "arena-960x640", simulation::CommandKindMask::all(),
+      fixture::golden_npc_controller_kinds());
   const protocol::SessionWelcome no_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
-      "sandbox", "arena-960x640", simulation::CommandKindMask::none());
+      "sandbox", "arena-960x640", simulation::CommandKindMask::none(),
+      fixture::golden_npc_controller_kinds());
 
   const std::string advertised_all = protocol::encode_welcome_message(
       every_kind, fixture::session_request_id(), fixture::kWelcomeTimestamp);
   const std::string advertised_none = protocol::encode_welcome_message(
       no_kind, fixture::session_request_id(), fixture::kWelcomeTimestamp);
 
-  CHECK(advertised_all.find(R"("accepted_command_kinds":["set_thrust"])") != std::string::npos);
+  // In the published vocabulary's own order, not the engine's declaration order, so a client reads
+  // the array in the order its schema enumerates.
+  CHECK(
+      advertised_all.find(
+          R"("accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"])") !=
+      std::string::npos);
   CHECK(advertised_all.find("spawn") == std::string::npos);
   CHECK(advertised_all.find("despawn") == std::string::npos);
   CHECK(advertised_none.find(R"("accepted_command_kinds":[])") != std::string::npos);
+
+  // A mask naming only `set_thrust` -- sandbox's -- advertises exactly one kind, so the four lobby
+  // controls a client would draw are absent from its welcome rather than drawn and inert.
+  const protocol::SessionWelcome thrust_only = protocol::SessionWelcome::create(
+      simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
+      "sandbox", "arena-960x640",
+      simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
+                                           simulation::CommandKind::kDespawn,
+                                           simulation::CommandKind::kThrust}),
+      fixture::golden_npc_controller_kinds());
+  CHECK(protocol::encode_welcome_message(thrust_only, fixture::session_request_id(),
+                                         fixture::kWelcomeTimestamp)
+            .find(R"("accepted_command_kinds":["set_thrust"])") != std::string::npos);
+}
+
+TEST_CASE("Welcome publishes the NPC kinds the registry declared, in registry order",
+          "[unit][protocol][v2][encoding][lobby]") {
+  // **The acceptance test for "registering a bot costs no client change", on the publishing side.**
+  // The list is data the composition root read from `ControllerRegistry`, so a build with one more
+  // registered bot publishes one more name through the same encoder, the same schema, and the same
+  // client -- with no edit to any of the three.
+  const auto welcome_publishing = [](std::vector<std::string> npc_controller_kinds) {
+    return protocol::SessionWelcome::create(
+        simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
+        "royale", "arena-960x640", simulation::CommandKindMask::all(),
+        std::move(npc_controller_kinds));
+  };
+
+  const std::string two_bots =
+      protocol::encode_welcome_message(welcome_publishing({"wanderer", "chaser"}),
+                                       fixture::session_request_id(), fixture::kWelcomeTimestamp);
+  CHECK(two_bots.find(R"("npc_controller_kinds":["wanderer","chaser"])") != std::string::npos);
+
+  const std::string three_bots =
+      protocol::encode_welcome_message(welcome_publishing({"wanderer", "chaser", "ambusher"}),
+                                       fixture::session_request_id(), fixture::kWelcomeTimestamp);
+  CHECK(three_bots.find(R"("npc_controller_kinds":["wanderer","chaser","ambusher"])") !=
+        std::string::npos);
+
+  // Registry order is preserved rather than sorted: the table's order is somebody's ordering of the
+  // bots and a client that re-sorted it would be inventing a different one.
+  const std::string reversed =
+      protocol::encode_welcome_message(welcome_publishing({"chaser", "wanderer"}),
+                                       fixture::session_request_id(), fixture::kWelcomeTimestamp);
+  CHECK(reversed.find(R"("npc_controller_kinds":["chaser","wanderer"])") != std::string::npos);
+
+  // A build with no registered bot publishes an empty array, which is the honest statement that no
+  // seat can be filled with one -- not an omitted member a client has to guess at.
+  const std::string no_bots = protocol::encode_welcome_message(
+      welcome_publishing({}), fixture::session_request_id(), fixture::kWelcomeTimestamp);
+  CHECK(no_bots.find(R"("npc_controller_kinds":[])") != std::string::npos);
+}
+
+TEST_CASE("Welcome refuses a registered controller kind it could not publish",
+          "[unit][protocol][v2][encoding][rejection]") {
+  // A registry row whose name is not a `kind_name` is a build-time mistake, and it fails at the
+  // value rather than in the encoder: the encoder never has to decide what to do with a name it
+  // cannot write.
+  const auto welcome_publishing = [](std::vector<std::string> npc_controller_kinds) {
+    return [npc_controller_kinds = std::move(npc_controller_kinds)] {
+      return protocol::SessionWelcome::create(
+          simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
+          "royale", "arena-960x640", simulation::CommandKindMask::all(), npc_controller_kinds);
+    };
+  };
+
+  fixture::require_protocol_error_code(welcome_publishing({"Wanderer"}),
+                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+  fixture::require_protocol_error_code(welcome_publishing({"wanderer", ""}),
+                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+  fixture::require_protocol_error_code(
+      welcome_publishing(std::vector<std::string>(protocol::kNpcControllerKindLimit + 1, "a")),
+      protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
 }

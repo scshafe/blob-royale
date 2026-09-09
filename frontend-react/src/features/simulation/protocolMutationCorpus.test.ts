@@ -136,9 +136,62 @@ const welcomeMutations: readonly MutationCase<MutableWelcomeDocument>[] = [
       Reflect.set(document.data, 'accepted_command_kinds', ['spawn']);
     },
   },
+  {
+    name: 'missing NPC controller kinds',
+    mutate: (document) => {
+      Reflect.deleteProperty(document.data, 'npc_controller_kinds');
+    },
+  },
+  {
+    name: 'NPC controller kind outside the published kind-name grammar',
+    mutate: (document) => {
+      // The array's *members* are not a schema enum -- they are read from the server's registry so a
+      // new bot costs no client change -- but the grammar still is, and a name this client could
+      // never render as a seat label must not reach the seat menu.
+      Reflect.set(document.data, 'npc_controller_kinds', ['Wanderer']);
+    },
+  },
 ];
 
 const snapshotMutations: readonly MutationCase<MutableSnapshotDocument>[] = [
+  {
+    name: 'missing seat roster',
+    mutate: (document) => {
+      Reflect.deleteProperty(document.data.match, 'seats');
+    },
+  },
+  {
+    name: 'missing start request',
+    mutate: (document) => {
+      Reflect.deleteProperty(document.data.match, 'start_requested');
+    },
+  },
+  {
+    name: 'empty seat carrying an occupant',
+    mutate: (document) => {
+      // The paired-member rule the seat schema states: `kind` and the two nullable members agree, or
+      // the frame is a lie about who is in the lobby.
+      Reflect.set(document.data.match, 'seats', [
+        { kind: 'empty', controller_id: 3, npc_kind: null },
+      ]);
+    },
+  },
+  {
+    name: 'NPC seat with no kind',
+    mutate: (document) => {
+      Reflect.set(document.data.match, 'seats', [
+        { kind: 'npc', controller_id: null, npc_kind: null },
+      ]);
+    },
+  },
+  {
+    name: 'unregistered seat kind',
+    mutate: (document) => {
+      Reflect.set(document.data.match, 'seats', [
+        { kind: 'spectator', controller_id: null, npc_kind: null },
+      ]);
+    },
+  },
   {
     name: 'missing tick sequence',
     mutate: (document) => {

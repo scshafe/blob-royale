@@ -59,11 +59,23 @@ outlives the entities it drives; `Controllable` is the only place the two identi
 ## The command vocabulary
 
 `command_registry.hpp` is the closed, ordered list of command kinds: the variant
-`Command = SpawnCommand | DespawnCommand | ThrustCommand`, the `CommandKind` bit enumerators, each
-kind's wire name, and each kind's position in phase 0's application order. A command is a value
-struct in its own header under `commands/`. `SpawnCommand` names only a `ControllerId` — the engine
-draws the new `EntityId` from the tick's reservation and the mode seats it — so a spawn addresses its
-controller while every other kind addresses the `EntityId` it names.
+`Command = SpawnCommand | DespawnCommand | ThrustCommand | SetSeatCountCommand | ClearSeatCommand |
+SeatNpcCommand | StartMatchCommand`, the `CommandKind` bit enumerators, each kind's wire name, and
+each kind's position in phase 0's application order. A command is a value struct in its own header
+under `commands/`.
+
+**A kind addresses whichever identity it carries.** `SpawnCommand` names only a `ControllerId` — the
+engine draws the new `EntityId` from the tick's reservation and the mode seats it — and the four
+lobby kinds name only the `ControllerId` the boundary stamped them with, because a lobby command acts
+on the match rather than on a body. Every kind that names an entity addresses that `EntityId`.
+Addressing the sender is what makes "the first of two clients to seat one seat wins" a stated rule:
+both commands survive de-duplication and apply in ascending sender order, and seating never
+overwrites.
+
+**The four lobby kinds are the only commands the engine itself interprets besides spawn and
+despawn**, and for the same reason: they write `MatchState`, which is engine-owned state gating an
+engine-owned transition. A mode's meaning is still a mode's system, which is why `thrust` is recorded
+rather than applied.
 
 `CommandKindMask` is the set of kinds a mode accepts, one integer with `create`, `none`, `all`,
 `contains`, and an immutable `with`.
@@ -277,10 +289,18 @@ edit src/simulation/command_registry.hpp         one type in the Command variant
                                                  one CommandKindName, one CommandKindOf, one
                                                  application rank, one addressed_identity_of arm
 edit src/simulation/input_batch.cpp              the kind's value validation, if it has any
-new  src/gameplay/...                            the consuming system
+new  src/gameplay/...                            the consuming system, unless the meaning is the
+                                                 engine's own, in which case one arm of phase 0
+edit src/runtime/command_mailbox.hpp             one arm of is_entity_lifecycle_command, saying
+                                                 whether losing it changes whether an entity exists
 edit src/protocol/command_wire_kind.hpp          one specialization saying whether a client may
                                                  send it, and under what wire name
 ```
+
+Three of those five are enforced by a `static_assert` or a `-Werror=switch` rather than by this
+list: the mailbox pins `kCommandKindCount`, `CommandWireKind`'s primary template is declared and
+never defined, and `addressed_identity_of`'s fallback arm reads `value.entity`, which a command
+carrying no entity does not have. A kind that skips one of them fails to compile.
 
 A **client-sendable** kind costs three more edits outside this domain, and a server-issued one
 costs none of them, because `CommandWireKind` answering `std::nullopt` is what makes it unreachable

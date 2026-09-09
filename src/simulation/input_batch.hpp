@@ -25,17 +25,28 @@ namespace blob_royale::simulation {
 //  2. Rejects any command whose kind is absent from `accepted_kinds`.
 //  3. Rejects a thrust whose direction has a component outside [-1, 1].
 //  4. Rejects a despawn naming an id inside this batch's own EntityIdReservation.
-//  5. Keeps the last submitted command of each kind for each addressed identity, discarding the
+//  5. Rejects a lobby command naming a seat index at or above kMaximumLobbySeatCount, or a seat
+//     count outside [1, kMaximumLobbySeatCount].
+//  6. Keeps the last submitted command of each kind for each addressed identity, discarding the
 //     earlier ones, so the batch carries at most one command of each kind per identity.
-//  6. Orders the survivors by phase 0's application order.
+//  7. Orders the survivors by phase 0's application order.
+
+// **Rule 5 is the engine's bound and deliberately not the lobby's.** A seat index this factory
+// accepts may still name no seat in the roster the tick is about to read, because the roster's size
+// is world state and this factory has no world; that disagreement is ignored by phase 0 exactly as
+// a despawn for an entity that does not exist is. What rule 5 buys is that a client cannot make a
+// seat index or a seat count unbounded, which is the only part of the question that can be answered
+// without the world -- and it is the part that would otherwise be an allocation an attacker chose.
 //
 // **The canonical order** is the phase-0 application order of § "Canonical tick" -- despawns, then
 // spawns, then every remaining kind in ascending enumerator value -- and, within one kind,
 // ascending by the identity the command addresses. A spawn addresses no entity, because the engine
 // chooses the EntityId, so spawns are ordered by ascending ControllerId and are placed as one
 // contiguous group between the despawns and the remaining kinds, which is where phase 0 applies
-// them. The result is that phase 0 is one forward pass that neither sorts, regroups,
-// de-duplicates, nor range-checks.
+// them. The four lobby kinds address a ControllerId for the same structural reason and are ordered
+// by ascending sender, which is what makes "the first of two clients to seat one seat wins" a
+// stated rule rather than an accident of arrival. The result is that phase 0 is one forward pass
+// that neither sorts, regroups, de-duplicates, nor range-checks.
 //
 // **Deviations recorded at Step 16, where an accepted decision had to be pinned:**
 //

@@ -3,7 +3,13 @@
 #include "command_wire_kind.hpp"
 #include "protocol_v2_constants.hpp"
 
+#include "commands/clear_seat_command.hpp"
+#include "commands/seat_npc_command.hpp"
+#include "commands/set_seat_count_command.hpp"
+#include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
+#include "seat_roster.hpp"
+#include "snake_case_identity.hpp"
 #include "vector2.hpp"
 
 #include <boost/json/object.hpp>
@@ -13,9 +19,13 @@
 #include <boost/json/value.hpp>
 #include <boost/system/error_code.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
+#include <span>
+#include <string>
 #include <string_view>
 
 namespace blob_royale::protocol {
@@ -82,16 +92,152 @@ namespace json = boost::json;
       simulation::ThrustCommand{stamped_entity, simulation::Vector2::create(*x, *y)});
 }
 
+// One JSON number read as an exact unsigned integer inside an inclusive bound.
+//
+// **A fractional or negative value is a rejection rather than a truncation.** `seat_index: 1.5` and
+// `seat_index: -1` are both a client saying something it cannot mean, and rounding either into a
+// seat would seat somebody somewhere they did not ask for. `is_double()` is therefore refused
+// outright rather than checked for integrality: the schema types these members as integers, and a
+// decoder that accepted `2.0` would accept a value the published contract does not describe.
+[[nodiscard]] std::optional<std::uint64_t>
+bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
+                    const std::uint64_t maximum) noexcept {
+  std::optional<std::uint64_t> parsed;
+  if (value.is_uint64()) {
+    parsed = value.get_uint64();
+  } else if (value.is_int64() && value.get_int64() >= 0) {
+    parsed = static_cast<std::uint64_t>(value.get_int64());
+  }
+  if (!parsed.has_value() || *parsed < minimum || *parsed > maximum) {
+    return std::nullopt;
+  }
+  return parsed;
+}
+
+// One `{seat_index}` payload, shared by `clear_seat` and `seat_npc`'s first member. The bound is
+// the
+// **protocol's** constant, not the live roster's size: the roster is world state and no boundary
+// holds it, so an index inside this bound that names no seat in the running lobby is a disagreement
+// the tick ignores rather than a frame the boundary refuses
+// (`src/simulation/game_simulation.cpp`, apply_lobby_command).
+[[nodiscard]] std::optional<std::uint64_t> decode_seat_index(const json::value& encoded) noexcept {
+  return bounded_unsigned_of(encoded, 0, kLobbySeatIndexMaximum);
+}
+
+[[nodiscard]] CommandDecodeResult decode_set_seat_count(const json::object& payload,
+                                                        const simulation::ControllerId controller) {
+  if (payload.size() != 1) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const json::value* const encoded = payload.if_contains("seat_count");
+  if (encoded == nullptr) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const std::optional<std::uint64_t> seat_count =
+      bounded_unsigned_of(*encoded, 1, kLobbySeatCountMaximum);
+  if (!seat_count.has_value()) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  return CommandDecodeResult::accepted(simulation::SetSeatCountCommand{controller, *seat_count});
+}
+
+[[nodiscard]] CommandDecodeResult decode_clear_seat(const json::object& payload,
+                                                    const simulation::ControllerId controller) {
+  if (payload.size() != 1) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const json::value* const encoded = payload.if_contains("seat_index");
+  if (encoded == nullptr) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const std::optional<std::uint64_t> seat_index = decode_seat_index(*encoded);
+  if (!seat_index.has_value()) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  return CommandDecodeResult::accepted(simulation::ClearSeatCommand{controller, *seat_index});
+}
+
+// One `seat_npc` payload: `{seat_index, npc_kind}`, closed.
+//
+// **`npc_kind` is checked against the very list this session's `welcome` published**, which is read
+// from `ControllerRegistry` and is therefore the exact set of bots the server can build
+// (`session_welcome.hpp`). That is what makes registering a bot cost no client change: the same
+// value teaches the client what to offer and teaches this decoder what to accept, so the two can
+// never drift.
+//
+// A name outside that closed list is `kPayloadInvalid` and closes the session, exactly as an
+// unregistered `command_kind` or an unregistered `mode_state.schema_id` does. It is a deliberate
+// difference from every *state* disagreement in the lobby -- a stale seat index, an occupied seat,
+// a shrink past an occupant -- each of which is a silent no-op inside the tick. The line between
+// them is whether the client could have known: the seat roster changes under a client between
+// frames and racing it is unavoidable, while the NPC vocabulary is constant for the process
+// lifetime and was handed to this client in its first frame. Naming something outside it is a
+// defect, and v2's stance on a defect is to fail closed and say so (`docs/protocol/v2.md` §
+// "Versioning and fail-closed decoding").
+[[nodiscard]] CommandDecodeResult
+decode_seat_npc(const json::object& payload, const simulation::ControllerId controller,
+                const std::span<const std::string> npc_controller_kinds) {
+  if (payload.size() != 2) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const json::value* const encoded_seat_index = payload.if_contains("seat_index");
+  const json::value* const encoded_npc_kind = payload.if_contains("npc_kind");
+  if (encoded_seat_index == nullptr || encoded_npc_kind == nullptr ||
+      !encoded_npc_kind->is_string()) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const std::optional<std::uint64_t> seat_index = decode_seat_index(*encoded_seat_index);
+  if (!seat_index.has_value()) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+
+  const json::string& encoded_kind_name = encoded_npc_kind->get_string();
+  const std::string_view npc_kind{encoded_kind_name.data(), encoded_kind_name.size()};
+  const bool registered =
+      std::ranges::find(npc_controller_kinds, npc_kind) != npc_controller_kinds.end();
+  // The grammar check is unreachable behind the membership check -- a published kind satisfies it,
+  // and `MatchSessionContext::create` refuses a list where one does not -- and it is written anyway
+  // because `SeatKindName::create` throws, and a decoder that parses attacker-chosen bytes must not
+  // have a throwing path at all (`command_decoding.hpp`).
+  if (!registered || !simulation::is_wire_kind_name(npc_kind)) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  return CommandDecodeResult::accepted(simulation::SeatNpcCommand{
+      controller, *seat_index, simulation::SeatKindName::create(npc_kind)});
+}
+
+// One `start_match` payload: `{}`, and the emptiness is the whole check. A member here would be a
+// client saying something about a match it does not get to say -- which match, whose start, from
+// which tick -- so the closed shape is the enforcement rather than a preamble to it. It is the same
+// argument `lethal-on-contact-component.schema.json` makes for an empty published object.
+[[nodiscard]] CommandDecodeResult decode_start_match(const json::object& payload,
+                                                     const simulation::ControllerId controller) {
+  if (!payload.empty()) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  return CommandDecodeResult::accepted(simulation::StartMatchCommand{controller});
+}
+
 // Admission-order step 7, dispatched on the kind step 6 accepted. Total over the closed command
 // vocabulary: the two server-issued kinds are unreachable here because `client_command_wire_name`
 // gives them no wire name at all, and answering `kKindRejected` rather than asserting keeps this
 // function total without a second opinion about which kinds a client may send.
-[[nodiscard]] CommandDecodeResult decode_payload(const simulation::CommandKind kind,
-                                                 const json::object& payload,
-                                                 const simulation::EntityId stamped_entity) {
+[[nodiscard]] CommandDecodeResult
+decode_payload(const simulation::CommandKind kind, const json::object& payload,
+               const simulation::EntityId stamped_entity,
+               const simulation::ControllerId stamped_controller,
+               const std::span<const std::string> npc_controller_kinds) {
   switch (kind) {
   case simulation::CommandKind::kThrust:
     return decode_set_thrust(payload, stamped_entity);
+  case simulation::CommandKind::kSetSeatCount:
+    return decode_set_seat_count(payload, stamped_controller);
+  case simulation::CommandKind::kClearSeat:
+    return decode_clear_seat(payload, stamped_controller);
+  case simulation::CommandKind::kSeatNpc:
+    return decode_seat_npc(payload, stamped_controller, npc_controller_kinds);
+  case simulation::CommandKind::kStartMatch:
+    return decode_start_match(payload, stamped_controller);
   case simulation::CommandKind::kSpawn:
   case simulation::CommandKind::kDespawn:
     break;
@@ -101,9 +247,10 @@ namespace json = boost::json;
 
 } // namespace
 
-CommandDecodeResult decode_command_envelope(const std::string_view frame,
-                                            const simulation::CommandKindMask accepted_kinds,
-                                            const simulation::EntityId stamped_entity) {
+CommandDecodeResult decode_command_envelope(
+    const std::string_view frame, const simulation::CommandKindMask accepted_kinds,
+    const simulation::EntityId stamped_entity, const simulation::ControllerId stamped_controller,
+    const std::span<const std::string> npc_controller_kinds) {
   // Step 1. Frame size, before anything else touches the bytes.
   if (frame.size() > kClientMessageMaximumByteCount) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kMessageTooLarge);
@@ -144,8 +291,9 @@ CommandDecodeResult decode_command_envelope(const std::string_view frame,
     return CommandDecodeResult::rejected(CommandDecodeRejection::kKindRejected);
   }
 
-  // Steps 7 and 8. The closed payload schema for that kind, then the server's own entity stamp.
-  return decode_payload(*kind, encoded_payload->get_object(), stamped_entity);
+  // Steps 7 and 8. The closed payload schema for that kind, then the server's own identity stamps.
+  return decode_payload(*kind, encoded_payload->get_object(), stamped_entity, stamped_controller,
+                        npc_controller_kinds);
 }
 
 } // namespace blob_royale::protocol

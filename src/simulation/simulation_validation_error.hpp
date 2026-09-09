@@ -38,10 +38,15 @@ enum class SimulationValidationCode {
   kInputBatchCommandKindNotAccepted,
   kInputBatchThrustDirectionOutOfRange,
   kInputBatchSpawnAndDespawnConflict,
+  kInputBatchSeatIndexOutOfRange,
+  kInputBatchSeatCountOutOfRange,
   kGameWorldEntityLimitExceeded,
   kGameWorldDuplicateEntityId,
   kGameWorldEventLimitExceeded,
   kDeterministicRandomBoundEmpty,
+  kSeatKindNameInvalid,
+  kSeatRosterSeatCountOutOfRange,
+  kSeatRosterSeatIndexOutOfRange,
   kSpawnPolicyIndexOutOfRange,
   kSpawnPolicyPointOccupied,
   kMapSpawnPointNotSeatable,
@@ -131,6 +136,10 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.INPUT_BATCH_COMMAND_KIND_NOT_ACCEPTED";
   case SimulationValidationCode::kInputBatchThrustDirectionOutOfRange:
     return "SIMULATION.INPUT_BATCH_THRUST_DIRECTION_OUT_OF_RANGE";
+  case SimulationValidationCode::kInputBatchSeatIndexOutOfRange:
+    return "SIMULATION.INPUT_BATCH_SEAT_INDEX_OUT_OF_RANGE";
+  case SimulationValidationCode::kInputBatchSeatCountOutOfRange:
+    return "SIMULATION.INPUT_BATCH_SEAT_COUNT_OUT_OF_RANGE";
   case SimulationValidationCode::kInputBatchSpawnAndDespawnConflict:
     return "SIMULATION.INPUT_BATCH_SPAWN_AND_DESPAWN_CONFLICT";
   case SimulationValidationCode::kGameWorldEntityLimitExceeded:
@@ -141,6 +150,12 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.GAME_WORLD_EVENT_LIMIT_EXCEEDED";
   case SimulationValidationCode::kDeterministicRandomBoundEmpty:
     return "SIMULATION.DETERMINISTIC_RANDOM_BOUND_EMPTY";
+  case SimulationValidationCode::kSeatKindNameInvalid:
+    return "SIMULATION.SEAT_KIND_NAME_INVALID";
+  case SimulationValidationCode::kSeatRosterSeatCountOutOfRange:
+    return "SIMULATION.SEAT_ROSTER_SEAT_COUNT_OUT_OF_RANGE";
+  case SimulationValidationCode::kSeatRosterSeatIndexOutOfRange:
+    return "SIMULATION.SEAT_ROSTER_SEAT_INDEX_OUT_OF_RANGE";
   case SimulationValidationCode::kSpawnPolicyIndexOutOfRange:
     return "SIMULATION.SPAWN_POLICY_INDEX_OUT_OF_RANGE";
   case SimulationValidationCode::kSpawnPolicyPointOccupied:

@@ -1,4 +1,8 @@
-tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y
-1,,spawn,1,,
-2,1,thrust,,1,0
-30,1,thrust,,1,1
+# No seat is filled and no start is requested, so this replay never leaves `lobby`. The suite
+# asserts exactly that: a seeded royale world in lobby adds the zone entity and nothing else,
+# and no royale system touches a body. Starting it would put an elimination clock on the
+# integration this fixture exists to measure.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+2,1,thrust,,1,0,,,
+30,1,thrust,,1,1,,,

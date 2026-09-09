@@ -167,7 +167,13 @@ describe('useSimulationConnection', () => {
     });
 
     expect(result.current.session).toEqual({
-      acceptedCommandKinds: ['set_thrust'],
+      acceptedCommandKinds: [
+        'clear_seat',
+        'seat_npc',
+        'set_seat_count',
+        'set_thrust',
+        'start_match',
+      ],
       controllerId: 3,
       displayName: 'Cole Shaffer',
       firstEntityId: 7,

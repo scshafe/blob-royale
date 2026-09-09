@@ -28,6 +28,7 @@
 #include "match_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "physics_body.hpp"
+#include "seat_roster.hpp"
 #include "simulation_config.hpp"
 #include "simulation_system.hpp"
 #include "spawn_policy.hpp"
@@ -42,6 +43,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -85,6 +87,10 @@ inline constexpr std::uint64_t kPlacedEntityId = 5;
 inline constexpr std::uint64_t kPlayerControllerId = 3;
 inline constexpr std::uint64_t kBotControllerId = 4;
 inline constexpr std::uint64_t kPlacedControllerId = 6;
+// The bot whose seat the runtime has already built, which is what makes seat 1 an NPC seat carrying
+// a controller. It drives no entity here on purpose: a seat is a lobby fact and a body is an arena
+// fact, and the golden should not imply the two are the same value.
+inline constexpr std::uint64_t kSeatedBotId = 12;
 
 inline constexpr std::string_view kPlayerDisplayName = "Cole Shaffer";
 inline constexpr std::string_view kBotDisplayName = "wanderer-1";
@@ -192,6 +198,20 @@ public:
     simulation::MatchState& match = world.mutable_match();
     match.phase = simulation::MatchPhase::kRunning;
     match.phase_started_tick = simulation::TickSequence::create(kGoldenPhaseStartedTick);
+    // A four-seat lobby holding one of every published seat shape: a person, an NPC whose bot the
+    // runtime has built, an NPC still waiting for one, and an empty seat. A running match carrying
+    // a full roster is the ordinary case -- the roster is what started it and nothing clears it --
+    // and publishing all four shapes in one golden is what makes the example a decoder can be
+    // written against.
+    match.seats = simulation::SeatRoster::of_size(4);
+    match.seats.assign_seat(0, simulation::Seat{simulation::ControllerSeat{
+                                   simulation::ControllerId::create(kPlayerControllerId)}});
+    match.seats.assign_seat(
+        1, simulation::Seat{simulation::NpcSeat{simulation::SeatKindName::create("wanderer"),
+                                                simulation::ControllerId::create(kSeatedBotId)}});
+    match.seats.assign_seat(2, simulation::Seat{simulation::NpcSeat{
+                                   simulation::SeatKindName::create("chaser"), std::nullopt}});
+    match.seats.request_start();
     match.running_started_tick = simulation::TickSequence::create(kGoldenPhaseStartedTick);
     match.outcome = simulation::MatchOutcome::undecided();
     // The grace is royale's proposed `elimination_grace_seconds = 3.0` at 400 ticks/s, so the
@@ -307,12 +327,25 @@ public:
   return snapshot;
 }
 
+// The NPC kinds the golden welcome publishes, in the order `ControllerRegistry` declares them. It
+// is a *fixture* copy rather than a read of the registry: `blob_protocol` does not link
+// `blob_controllers`, and the whole point of the member is that the list travels as data.
+inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wanderer", "chaser"};
+
+[[nodiscard]] inline std::vector<std::string> golden_npc_controller_kinds() {
+  return {std::string{kGoldenNpcControllerKinds[0]}, std::string{kGoldenNpcControllerKinds[1]}};
+}
+
 [[nodiscard]] inline SessionWelcome golden_welcome() {
   return SessionWelcome::create(
       simulation::EntityId::create(kPlayerEntityId),
       simulation::ControllerId::create(kPlayerControllerId), std::string{kPlayerDisplayName},
       std::string{kGoldenModeName}, std::string{kGoldenMapName},
-      simulation::CommandKindMask::create({simulation::CommandKind::kThrust}));
+      simulation::CommandKindMask::create(
+          {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
+           simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+           simulation::CommandKind::kStartMatch}),
+      golden_npc_controller_kinds());
 }
 
 [[nodiscard]] inline std::string read_v2_golden_example(const std::string_view filename) {

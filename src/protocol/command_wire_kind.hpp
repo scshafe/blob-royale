@@ -4,6 +4,7 @@
 #include "protocol_v2_constants.hpp"
 
 #include "command_registry.hpp"
+#include "simulation_limits.hpp"
 
 #include <cstddef>
 #include <optional>
@@ -44,7 +45,32 @@ template <> struct CommandWireKind<simulation::DespawnCommand> {
 // `set_thrust` says the command *replaces* a steering intent that otherwise persists, which is the
 // property a client must know to release a key correctly (`docs/protocol/v2.md` § "set_thrust").
 template <> struct CommandWireKind<simulation::ThrustCommand> {
+  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[3];
+};
+
+// The four lobby kinds, added in 2.3. **Each one is a decision that a client may operate the
+// lobby**
+// -- the primary template above is declared and never defined precisely so that decision has to be
+// made rather than inherited, and here it is made four times in the affirmative.
+//
+// Each names itself, unlike `set_thrust`: none of them replaces a persistent intent, so there is no
+// property a differing wire name would have to teach. The array indices are the schema's own
+// ascending order (`protocol_v2_constants.hpp`), which is why they do not read in the order they
+// are applied.
+template <> struct CommandWireKind<simulation::SetSeatCountCommand> {
+  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[2];
+};
+
+template <> struct CommandWireKind<simulation::ClearSeatCommand> {
   static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[0];
+};
+
+template <> struct CommandWireKind<simulation::SeatNpcCommand> {
+  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[1];
+};
+
+template <> struct CommandWireKind<simulation::StartMatchCommand> {
+  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[4];
 };
 
 namespace detail {
@@ -110,8 +136,34 @@ static_assert(detail::client_sendable_kind_count() == kV2ClientCommandKindNames.
               "the client-sendable command kinds and the closed v2 command_kind vocabulary must "
               "name the same set");
 
-static_assert(client_command_kind_of_wire_name(kV2ClientCommandKindNames[0]).has_value(),
+namespace detail {
+
+// Every published name selects a registered kind. Counting alone is not enough: five declarations
+// and five schema names agree on size while two declarations quietly share one name and a third
+// name selects nothing at all. Written as a fold over the whole vocabulary rather than one assert
+// per index, so a sixth kind costs no new line here.
+[[nodiscard]] constexpr bool every_published_name_selects_a_kind() noexcept {
+  for (const std::string_view wire_name : kV2ClientCommandKindNames) {
+    if (!client_command_kind_of_wire_name(wire_name).has_value()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+} // namespace detail
+
+static_assert(detail::every_published_name_selects_a_kind(),
               "every name in the closed v2 command_kind vocabulary must select a registered kind");
+
+// The seat bounds this file's schema transcription pins and the bound the engine actually enforces
+// are one number, and this is where the mirror is checked. `protocol_v2_constants.hpp` deliberately
+// includes no simulation header -- it is a transcription of the published schemas -- so the check
+// lives in the first file that legitimately sees both.
+static_assert(kLobbySeatCountMaximum == simulation::kMaximumLobbySeatCount,
+              "the published seat-count bound and the engine's lobby bound must be one number");
+static_assert(kLobbySeatIndexMaximum + 1 == simulation::kMaximumLobbySeatCount,
+              "a seat index is zero-based, so its published maximum is one below the seat count");
 
 } // namespace blob_royale::protocol
 

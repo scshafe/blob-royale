@@ -8,6 +8,7 @@
 #include "game_server_state.hpp"
 #include "game_simulation_setup.hpp"
 #include "match_startup_validation.hpp"
+#include "seat_roster.hpp"
 #include "simulation_runtime_state.hpp"
 #include "structured_logger.hpp"
 
@@ -19,12 +20,15 @@
 
 #include <chrono>
 #include <csignal>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace blob_royale::application {
 namespace {
@@ -280,6 +284,22 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
       gameplay::GameModeRegistry::create(application_config.match_configuration().mode_name(),
                                          application_config.game_mode_configuration());
 
+  // **The lobby is seeded here, into the world, before the engine ever sees it.**
+  //
+  // `MatchState::seats` is engine state -- it is the input to the machine's first transition -- but
+  // its *initial* size is a required configuration key that only a mode's section carries, so the
+  // one place that has both the world and the parsed sections is this composition root. It is the
+  // same relationship the seeded entities already have: the world arrives carrying the state a
+  // match begins with, and `GameSimulation::create` neither invents nor overwrites it
+  // (`src/simulation/seat_roster.hpp`).
+  //
+  // Seeded from `[royale]` whatever `[match] mode` names, for the reason that section is required
+  // whatever the mode is (`application_config_loader.cpp`): a mode that does not read a seat
+  // ignores this roster exactly as `sandbox` ignores every other `[royale]` key, and an ignored
+  // roster is inert.
+  initial_world.mutable_match().seats = simulation::SeatRoster::of_size(static_cast<std::size_t>(
+      application_config.game_mode_configuration().royale.lobby_seat_count()));
+
   // The accepted command mask is copied out **before** the mode is moved into the engine, which
   // destroys it once it has read its seven declarations. It is the set a protocol v2 `welcome`
   // advertises and the set the session boundary enforces, and copying the mode's own declaration
@@ -313,13 +333,35 @@ BlobRoyaleApplication::BlobRoyaleApplication(
                        simulation_runtime_.command_sink(),
                        simulation_runtime_.controller_directory(),
                        std::string{application_config_.match_configuration().map_name()},
-                       accepted_command_kinds),
+                       accepted_command_kinds, registered_npc_controller_kinds()),
                    logger_) {
   // Seated in the constructor rather than in `create`, because this class is non-movable and a
   // factory that configured a local could not return it. Every bot therefore exists before any
   // caller can observe the object, which is also what makes the roster part of construction rather
   // than a second step a caller could forget.
   seat_configured_bots();
+}
+
+std::vector<std::string> BlobRoyaleApplication::registered_npc_controller_kinds() {
+  // **The one place a bot kind name leaves `blob_controllers`.** The `welcome` frame publishes this
+  // list so a client can offer it behind an empty seat, and `decode_command_envelope` accepts a
+  // `seat_npc` naming exactly these and nothing else -- both from this single read, which is what
+  // makes registering a bot cost one row in `controller_registry.hpp` and no client change at all.
+  //
+  // Registry order is preserved rather than sorted: the table's order is somebody's deliberate
+  // ordering of the bots and re-sorting it here would invent a different one for every client.
+  //
+  // It is a composition-root job because this is the only layer that links both libraries. The
+  // server must not link `blob_controllers` -- it has no business constructing a bot -- and the
+  // registry must not know a protocol exists.
+  std::vector<std::string> npc_controller_kinds;
+  const std::span<const controllers::ControllerRegistry::Registration> registrations =
+      controllers::ControllerRegistry::registrations();
+  npc_controller_kinds.reserve(registrations.size());
+  for (const controllers::ControllerRegistry::Registration& registration : registrations) {
+    npc_controller_kinds.emplace_back(registration.name);
+  }
+  return npc_controller_kinds;
 }
 
 void BlobRoyaleApplication::seat_configured_bots() {

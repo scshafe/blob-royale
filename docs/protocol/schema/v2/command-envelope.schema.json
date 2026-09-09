@@ -32,6 +32,74 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "set_seat_count"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "set-seat-count-command.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "clear_seat"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "clear-seat-command.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "seat_npc"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "seat-npc-command.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "start_match"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "start-match-command.schema.json"
+          }
+        }
+      }
     }
   ],
   "$comment": "@extension-point command_kind -- a new client command adds one enum member in common.schema.json#/$defs/command_kind, one <kind>-command.schema.json file, one if/then row here, and one maxItems bump in welcome-data.schema.json, and is a protocol minor version."

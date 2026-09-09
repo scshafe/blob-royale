@@ -7,6 +7,7 @@ import {
   type Page,
 } from '@playwright/test';
 
+import { BlobRoyaleLobbyDriver } from './BlobRoyaleLobbyDriver';
 import {
   BlobRoyaleServerProcess,
   type BlobRoyaleServerFixture,
@@ -39,6 +40,16 @@ import {
  * caption assertion and a hazard is an entity: adding one there would make the count fluctuate and
  * that assertion would be asserting the weather. Neither existing flow is touched by this file.
  */
+/**
+ * The lobby both flows fill, which is `[royale] lobby_seat_count` and the map's spawn-marker count at
+ * once. `wanderer` is one of the kinds the server's `welcome.npc_controller_kinds` publishes; it
+ * seats a *declaration* only, and `[match] bots` is empty in both fixtures, so no bot session is ever
+ * created and the two browsers remain the only bodies in the arena. That is what keeps the drawn
+ * crossing a two-body geometry.
+ */
+const HAZARD_SEAT_COUNT = 2;
+const SEATED_NPC_KIND = 'wanderer';
+
 const LETHAL_FIXTURE: BlobRoyaleServerFixture = Object.freeze({
   configurationFileName: 'blob-royale-browser-e2e-hazard-lethal.cfg',
   scenarioFileName: null,
@@ -320,9 +331,9 @@ async function startMatchWithTwoBrowsers(
   await server.start();
   await waitForReadyServer(request, server);
 
-  // `lobby_minimum_players` is the whole roster and there is no bot, so the match cannot leave the
-  // lobby until both browsers are seated and neither is ever a mid-match joiner the spawn policy
-  // would defer.
+  // `lobby_seat_count` is the whole field and there is no bot, so the match cannot leave the lobby
+  // until both seats are filled and somebody presses Start -- which this flow does below, after both
+  // browsers have connected, so neither is ever a mid-match joiner the spawn policy would defer.
   const contextA = await browser.newContext({ baseURL: PRODUCTION_ORIGIN });
   contexts.push(contextA);
   const pageA = await openSessionPage(contextA, pageErrors);
@@ -337,6 +348,16 @@ async function startMatchWithTwoBrowsers(
   await expect(pageB.getByRole('status')).toHaveText(CONNECTED_STATUS);
   const nameB = await readOwnDisplayName(pageB);
   expect(nameB).not.toBe(nameA);
+
+  // **The lobby is operated over the published wire, not by the client.** Since protocol 2.3 a match
+  // starts only when every seat is filled and somebody sends `start_match`, and the lobby UI that
+  // would do it is a later step of the same plan. The driver opens its own session, sends the 2.3
+  // command frames, and closes; it resolves only once its session's entity is gone, so nothing it
+  // did is still in the world when the geometry below is read.
+  await BlobRoyaleLobbyDriver.fillSeatsAndStart(
+    HAZARD_SEAT_COUNT,
+    SEATED_NPC_KIND,
+  );
 
   for (const page of [pageA, pageB]) {
     await expect(matchHudCell(page, 'Phase')).toHaveText('running', {

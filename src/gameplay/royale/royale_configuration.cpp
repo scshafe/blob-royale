@@ -1,6 +1,7 @@
 #include "royale/royale_configuration.hpp"
 
 #include "gameplay_validation_error.hpp"
+#include "seat_roster.hpp"
 #include "shared/duration_ticks.hpp"
 #include "shared/thrust_steering_system.hpp"
 
@@ -33,11 +34,22 @@ RoyaleConfiguration RoyaleConfiguration::create(const Section& section) {
   require_valid_thrust_maximum(section.thrust_max_world_units_per_second_squared);
   require_finite_and_not_negative(section.zone_minimum_radius_world_units,
                                   "zone_minimum_radius_world_units");
-  if (section.lobby_minimum_players < 1) {
+  // The lobby's own bounds, checked here because they are properties of the number rather than of
+  // the map: a lobby of no seats cannot be sat in, and `kMaximumLobbySeatCount` is the ceiling the
+  // engine copies into the working world every tick (`src/simulation/seat_roster.hpp`). The tighter
+  // and more interesting bound -- the map's spawn-marker count -- is `RoyaleMode::validate_map`'s,
+  // because only the mode knows what a spawn marker is and only it has the map.
+  if (section.lobby_seat_count < simulation::SeatRoster::kMinimumSeatCount) {
     throw GameplayValidationError(GameplayValidationCode::kRoyaleScalarOutOfRange,
-                                  "royale.lobby_minimum_players",
-                                  "a match needs at least one player to start, so "
-                                  "lobby_minimum_players must be greater than or equal to one");
+                                  "royale.lobby_seat_count",
+                                  "a match needs at least one seat to be sat in, so "
+                                  "lobby_seat_count must be greater than or equal to one");
+  }
+  if (section.lobby_seat_count > simulation::SeatRoster::kMaximumSeatCount) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kRoyaleScalarOutOfRange, "royale.lobby_seat_count",
+        std::to_string(section.lobby_seat_count) + " seats exceeds the " +
+            std::to_string(simulation::SeatRoster::kMaximumSeatCount) + " a lobby may declare");
   }
   // Converted into named locals in the order the section declares them rather than inside the
   // constructor call, because the order in which function arguments are evaluated is unspecified in
@@ -58,8 +70,8 @@ RoyaleConfiguration RoyaleConfiguration::create(const Section& section) {
       duration_ticks(section.restart_delay_seconds, "royale.restart_delay_seconds");
   return RoyaleConfiguration(section.thrust_max_world_units_per_second_squared,
                              section.zone_minimum_radius_world_units, zone_shrink_ticks,
-                             elimination_grace_ticks, section.lobby_minimum_players,
-                             countdown_ticks, restart_delay_ticks);
+                             elimination_grace_ticks, section.lobby_seat_count, countdown_ticks,
+                             restart_delay_ticks);
 }
 
 RoyaleConfiguration::Section RoyaleConfiguration::default_section() noexcept {
@@ -67,7 +79,7 @@ RoyaleConfiguration::Section RoyaleConfiguration::default_section() noexcept {
                  kDefaultZoneMinimumRadiusWorldUnits,
                  kDefaultZoneShrinkSeconds,
                  kDefaultEliminationGraceSeconds,
-                 kDefaultLobbyMinimumPlayers,
+                 kDefaultLobbySeatCount,
                  kDefaultCountdownSeconds,
                  kDefaultRestartDelaySeconds};
 }
@@ -78,12 +90,12 @@ RoyaleConfiguration::RoyaleConfiguration(const double thrust_maximum,
                                          const double zone_minimum_radius,
                                          const std::uint64_t zone_shrink_ticks,
                                          const std::uint64_t elimination_grace_ticks,
-                                         const std::uint64_t lobby_minimum_players,
+                                         const std::uint64_t lobby_seat_count,
                                          const std::uint64_t countdown_ticks,
                                          const std::uint64_t restart_delay_ticks) noexcept
     : thrust_maximum_(thrust_maximum), zone_minimum_radius_(zone_minimum_radius),
       zone_shrink_ticks_(zone_shrink_ticks), elimination_grace_ticks_(elimination_grace_ticks),
-      lobby_minimum_players_(lobby_minimum_players), countdown_ticks_(countdown_ticks),
+      lobby_seat_count_(lobby_seat_count), countdown_ticks_(countdown_ticks),
       restart_delay_ticks_(restart_delay_ticks) {}
 
 } // namespace blob_royale::gameplay

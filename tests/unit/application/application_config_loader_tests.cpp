@@ -180,7 +180,7 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(royale.zone_minimum_radius() == 60.0);
   CHECK(royale.zone_shrink_ticks() == 36'000);
   CHECK(royale.elimination_grace_ticks() == 1'200);
-  CHECK(royale.lobby_minimum_players() == 2);
+  CHECK(royale.lobby_seat_count() == 4);
   CHECK(royale.countdown_ticks() == 2'000);
   CHECK(royale.restart_delay_ticks() == 3'200);
 }

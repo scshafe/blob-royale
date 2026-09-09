@@ -11,9 +11,11 @@ add_executable(blob_simulation_unit_tests
   simulation/entity_id_reservation_tests.cpp
   simulation/game_simulation_tests.cpp
   simulation/input_batch_tests.cpp
+  simulation/lobby_command_tests.cpp
   simulation/map_definition_tests.cpp
   simulation/match_lifecycle_tests.cpp
   simulation/physics_tests.cpp
+  simulation/seat_roster_tests.cpp
   simulation/simulation_system_tests.cpp
   simulation/snapshot_tests.cpp
   simulation/spatial_grid_tests.cpp

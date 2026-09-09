@@ -34,6 +34,8 @@ enum class CommandSubmissionResult : std::uint8_t {
   kRejectedThrustDirectionOutOfRange = 5,
   kRejectedUnissuedEntityId = 6,
   kDroppedMailboxFull = 7,
+  kRejectedSeatIndexOutOfRange = 8,
+  kRejectedSeatCountOutOfRange = 9,
 };
 
 // Whether the command is now pending for a tick. The two acceptances are the only values for which
@@ -64,6 +66,10 @@ command_submission_result_name(const CommandSubmissionResult result) noexcept {
     return "rejected_unissued_entity_id";
   case CommandSubmissionResult::kDroppedMailboxFull:
     return "dropped_mailbox_full";
+  case CommandSubmissionResult::kRejectedSeatIndexOutOfRange:
+    return "rejected_seat_index_out_of_range";
+  case CommandSubmissionResult::kRejectedSeatCountOutOfRange:
+    return "rejected_seat_count_out_of_range";
   }
   return "command_submission_result_invalid";
 }

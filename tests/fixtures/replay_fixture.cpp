@@ -1,8 +1,12 @@
 #include "replay_fixture.hpp"
 
 #include "command_kind_mask.hpp"
+#include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/seat_npc_command.hpp"
+#include "commands/set_seat_count_command.hpp"
 #include "commands/spawn_command.hpp"
+#include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
 #include "entity_id_reservation.hpp"
@@ -13,6 +17,7 @@
 #include "game_world.hpp"
 #include "input_batch.hpp"
 #include "royale/royale_mode.hpp"
+#include "seat_roster.hpp"
 #include "vector2.hpp"
 
 #include <algorithm>
@@ -62,6 +67,36 @@ constexpr std::size_t kMaximumReplayFileBytes = 1'048'576;
   return lines;
 }
 
+// A full-line comment, and only a full-line one: `#` in the first column and nothing before it.
+//
+// **Added when the lobby commands landed, because a migrated fixture has to be able to say why it
+// starts when it starts.** A `start_match` row at tick 2 rather than tick 1 is a derivation, not a
+// datum, and a derivation with nowhere to live is a number the next reader has to re-derive or
+// trust. The alternative -- explaining every fixture in the test that reads it -- puts the reason a
+// screen away from the row and one file away from the person editing the row.
+//
+// It stays a *full-line* rule so nothing about the strictness below changes: a `#` anywhere else is
+// still an ordinary character in an ordinary column, so no value can be silently truncated by a
+// comment marker appearing inside it, and every other rejection this reader makes is untouched.
+[[nodiscard]] bool is_comment(const std::string& line) noexcept {
+  return !line.empty() && line.front() == '#';
+}
+
+[[nodiscard]] bool is_skipped(const std::string& line) noexcept {
+  return line.empty() || is_comment(line);
+}
+
+// The index of the first line that is neither blank nor a comment, which is where a CSV's one
+// accepted header row must be. It is `lines.size()` for a file that has no content at all, which
+// the caller reports as a missing header rather than reading past the end.
+[[nodiscard]] std::size_t first_content_line(const std::vector<std::string>& lines) noexcept {
+  std::size_t index = 0;
+  while (index < lines.size() && is_skipped(lines[index])) {
+    ++index;
+  }
+  return index;
+}
+
 [[nodiscard]] std::vector<std::string> split_columns(const std::string& row) {
   std::vector<std::string> columns;
   std::size_t column_start = 0;
@@ -98,8 +133,10 @@ constexpr std::size_t kMaximumReplayFileBytes = 1'048'576;
   return parsed;
 }
 
-// One strict INI document: `[section] key=value`, no comments, no blank-line tolerance beyond fully
-// empty lines, no duplicate keys, and no repeated sections.
+// One strict INI document: `[section] key=value`, full-line `#` comments, no blank-line tolerance
+// beyond fully empty lines, no duplicate keys, and no repeated sections. A comment is skipped
+// before anything else looks at the line, so it can appear anywhere including above the first
+// section.
 class StrictIni final {
 public:
   [[nodiscard]] static StrictIni parse(const std::string& text, const std::string& path) {
@@ -109,7 +146,7 @@ public:
     for (const std::string& line : split_lines(text)) {
       ++line_number;
       const std::string where = path + ":" + std::to_string(line_number);
-      if (line.empty()) {
+      if (is_skipped(line)) {
         continue;
       }
       if (line.front() == '[') {
@@ -187,19 +224,25 @@ private:
 
 constexpr std::string_view kMarkerHeader =
     "marker_kind,position_x_world_units,position_y_world_units";
-constexpr std::string_view kCommandHeader =
-    "tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y";
+// Nine columns since the lobby commands landed. The three new ones are empty for every kind that
+// does not use them, which is the same rule the six original columns already obeyed: a row cannot
+// carry a value the reader silently drops.
+constexpr std::string_view kCommandHeader = "tick_sequence,entity_id,command_kind,controller_id,"
+                                            "direction_x,direction_y,seat_index,seat_count,"
+                                            "npc_kind";
+constexpr std::size_t kCommandColumnCount = 9;
 
 [[nodiscard]] std::vector<simulation::MapDefinition::Marker>
 read_markers(const std::filesystem::path& path) {
   const std::vector<std::string> lines = split_lines(read_replay_file(path));
-  if (lines.empty() || lines.front() != kMarkerHeader) {
+  const std::size_t header_index = first_content_line(lines);
+  if (header_index >= lines.size() || lines[header_index] != kMarkerHeader) {
     throw ReplayFixtureError(path.string() + ": the first row must be exactly '" +
                              std::string(kMarkerHeader) + "'");
   }
   std::vector<simulation::MapDefinition::Marker> markers;
-  for (std::size_t index = 1; index < lines.size(); ++index) {
-    if (lines[index].empty()) {
+  for (std::size_t index = header_index + 1; index < lines.size(); ++index) {
+    if (is_skipped(lines[index])) {
       continue;
     }
     const std::string where = path.string() + ":" + std::to_string(index + 1);
@@ -230,21 +273,22 @@ void require_empty(const std::vector<std::string>& columns, const std::size_t in
 [[nodiscard]] std::vector<std::vector<simulation::Command>>
 read_commands(const std::filesystem::path& path, const std::uint64_t tick_count) {
   const std::vector<std::string> lines = split_lines(read_replay_file(path));
-  if (lines.empty() || lines.front() != kCommandHeader) {
+  const std::size_t header_index = first_content_line(lines);
+  if (header_index >= lines.size() || lines[header_index] != kCommandHeader) {
     throw ReplayFixtureError(path.string() + ": the first row must be exactly '" +
                              std::string(kCommandHeader) + "'");
   }
   std::vector<std::vector<simulation::Command>> by_tick(static_cast<std::size_t>(tick_count));
   std::uint64_t previous_tick = 0;
-  for (std::size_t index = 1; index < lines.size(); ++index) {
-    if (lines[index].empty()) {
+  for (std::size_t index = header_index + 1; index < lines.size(); ++index) {
+    if (is_skipped(lines[index])) {
       continue;
     }
     const std::string where = path.string() + ":" + std::to_string(index + 1);
     const std::vector<std::string> columns = split_columns(lines[index]);
-    if (columns.size() != 6) {
-      throw ReplayFixtureError(where + ": expected 6 columns, found " +
-                               std::to_string(columns.size()));
+    if (columns.size() != kCommandColumnCount) {
+      throw ReplayFixtureError(where + ": expected " + std::to_string(kCommandColumnCount) +
+                               " columns, found " + std::to_string(columns.size()));
     }
     const std::uint64_t tick = parse_unsigned(columns[0], where + " tick_sequence");
     if (tick == 0 || tick > tick_count) {
@@ -262,6 +306,9 @@ read_commands(const std::filesystem::path& path, const std::uint64_t tick_count)
       require_empty(columns, 1, "entity_id", where);
       require_empty(columns, 4, "direction_x", where);
       require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
       tick_commands.push_back(simulation::Command{simulation::SpawnCommand{
           simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id"))}});
       continue;
@@ -270,16 +317,74 @@ read_commands(const std::filesystem::path& path, const std::uint64_t tick_count)
       require_empty(columns, 3, "controller_id", where);
       require_empty(columns, 4, "direction_x", where);
       require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
       tick_commands.push_back(simulation::Command{simulation::DespawnCommand{
           simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id"))}});
       continue;
     }
     if (kind == "thrust") {
       require_empty(columns, 3, "controller_id", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
       tick_commands.push_back(simulation::Command{simulation::ThrustCommand{
           simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id")),
           simulation::Vector2::create(parse_double(columns[4], where + " direction_x"),
                                       parse_double(columns[5], where + " direction_y"))}});
+      continue;
+    }
+    // The four lobby kinds. Each names its sender in `controller_id`, exactly as the wire does: the
+    // identity is what orders them and what de-duplicates them, so a row that omitted it would be a
+    // command no batch could place (`src/simulation/command_registry.hpp`).
+    if (kind == "set_seat_count") {
+      require_empty(columns, 1, "entity_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 8, "npc_kind", where);
+      tick_commands.push_back(simulation::Command{simulation::SetSeatCountCommand{
+          simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id")),
+          parse_unsigned(columns[7], where + " seat_count")}});
+      continue;
+    }
+    if (kind == "clear_seat") {
+      require_empty(columns, 1, "entity_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
+      tick_commands.push_back(simulation::Command{simulation::ClearSeatCommand{
+          simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id")),
+          parse_unsigned(columns[6], where + " seat_index")}});
+      continue;
+    }
+    if (kind == "seat_npc") {
+      require_empty(columns, 1, "entity_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 7, "seat_count", where);
+      // `SeatKindName::create` enforces the published `kind_name` grammar and throws a
+      // SimulationValidationError for a name that fails it. That is deliberately **not** translated
+      // into a ReplayFixtureError: a fixture naming an ungrammatical kind is exercising the same
+      // rejection a client would get, and reporting it under the simulation's own code is what
+      // makes the two comparable.
+      tick_commands.push_back(simulation::Command{simulation::SeatNpcCommand{
+          simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id")),
+          parse_unsigned(columns[6], where + " seat_index"),
+          simulation::SeatKindName::create(columns[8])}});
+      continue;
+    }
+    if (kind == "start_match") {
+      require_empty(columns, 1, "entity_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
+      tick_commands.push_back(simulation::Command{simulation::StartMatchCommand{
+          simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id"))}});
       continue;
     }
     throw ReplayFixtureError(where + ": '" + kind + "' is not a registered command kind");
@@ -333,7 +438,7 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
       match.number("royale", "zone_minimum_radius_world_units"),
       match.number("royale", "zone_shrink_seconds"),
       match.number("royale", "elimination_grace_seconds"),
-      match.count("royale", "lobby_minimum_players"),
+      match.count("royale", "lobby_seat_count"),
       match.number("royale", "countdown_seconds"),
       match.number("royale", "restart_delay_seconds")};
   const gameplay::RoyaleConfiguration royale =
@@ -417,6 +522,13 @@ std::vector<simulation::WorldSnapshot> ReplayFixture::run() const {
   std::unique_ptr<const simulation::GameMode> mode = gameplay::RoyaleMode::create(royale_);
   simulation::MapDefinition map = map_;
   simulation::GameWorld world = simulation::GameWorld::create(configuration_, map, seed_);
+  // The lobby is part of the state a match begins in, so it is seeded onto the initial world here
+  // exactly as `BlobRoyaleApplication::create` seeds it in production. **Every seat starts empty
+  // and no start is requested**, so no recorded replay leaves `lobby` on its own: a replay that
+  // needs a running match says so in its own `commands.csv`, with `seat_npc` rows that fill the
+  // field and a `start_match` row that presses the button, on the tick its own comment derives.
+  world.mutable_match().seats =
+      simulation::SeatRoster::of_size(static_cast<std::size_t>(royale_.lobby_seat_count()));
   simulation::GameSimulation game = simulation::GameSimulation::create(
       configuration_, std::move(world),
       simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));

@@ -5,9 +5,11 @@
 
 #include "simulation_limits.hpp"
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace blob_royale::protocol {
 namespace {
@@ -93,7 +95,8 @@ SessionWelcome SessionWelcome::create(const simulation::EntityId entity,
                                       const simulation::ControllerId controller,
                                       std::string display_name, std::string mode_name,
                                       std::string map_name,
-                                      const simulation::CommandKindMask accepted_command_kinds) {
+                                      const simulation::CommandKindMask accepted_command_kinds,
+                                      std::vector<std::string> npc_controller_kinds) {
   require(entity.value() >= simulation::kMinimumEntityId, "welcome_message.data.entity_id",
           "entity id must be in the inclusive range 1 to 2^53-1");
   require(controller.value() >= simulation::kMinimumControllerId,
@@ -106,21 +109,37 @@ SessionWelcome SessionWelcome::create(const simulation::EntityId entity,
           "mode name must match the accepted lower snake case kind grammar");
   require(is_accepted_map_name(map_name), "welcome_message.data.map",
           "map name must match the accepted map-name grammar");
+  // The published NPC vocabulary is validated here, once, so that neither the encoder nor the
+  // command decoder has to decide what to do with a registered bot whose name cannot be published.
+  // A registry row that fails this is a build-time mistake surfacing at the first session rather
+  // than at the first right-click, which is the earlier of the two places it can surface.
+  require(npc_controller_kinds.size() <= kNpcControllerKindLimit,
+          "welcome_message.data.npc_controller_kinds",
+          "the published NPC controller kinds must number at most " +
+              std::to_string(kNpcControllerKindLimit));
+  for (const std::string& npc_controller_kind : npc_controller_kinds) {
+    require(is_accepted_kind_name(npc_controller_kind), "welcome_message.data.npc_controller_kinds",
+            "NPC controller kind " + npc_controller_kind +
+                " must match the accepted lower snake case kind grammar");
+  }
 
   return SessionWelcome{entity,
                         controller,
                         std::move(display_name),
                         std::move(mode_name),
                         std::move(map_name),
-                        accepted_command_kinds};
+                        accepted_command_kinds,
+                        std::move(npc_controller_kinds)};
 }
 
 SessionWelcome::SessionWelcome(const simulation::EntityId entity,
                                const simulation::ControllerId controller, std::string display_name,
                                std::string mode_name, std::string map_name,
-                               const simulation::CommandKindMask accepted_command_kinds) noexcept
+                               const simulation::CommandKindMask accepted_command_kinds,
+                               std::vector<std::string> npc_controller_kinds) noexcept
     : entity_(entity), controller_(controller), display_name_(std::move(display_name)),
       mode_name_(std::move(mode_name)), map_name_(std::move(map_name)),
-      accepted_command_kinds_(accepted_command_kinds) {}
+      accepted_command_kinds_(accepted_command_kinds),
+      npc_controller_kinds_(std::move(npc_controller_kinds)) {}
 
 } // namespace blob_royale::protocol

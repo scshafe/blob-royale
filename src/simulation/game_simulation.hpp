@@ -29,7 +29,8 @@ namespace blob_royale::simulation {
 // `docs/architecture/0004-gameplay-architecture.md` § "The tick: one fixed kernel, three named
 // stages"):
 //
-//   phase 0            despawns, spawn creation, spawn seating (SpawnPolicy), command recording
+//   phase 0            despawns, spawn creation, spawn seating (SpawnPolicy), lobby commands,
+//                      command recording
 //   ---- kPreKernel -- the mode's systems, declared order
 //   phase 1            stored acceleration, then drag
 //   phase 2            canonical candidate pairs

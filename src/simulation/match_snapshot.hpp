@@ -52,6 +52,12 @@ public:
   [[nodiscard]] const MatchOutcome& outcome() const& noexcept { return state_.outcome; }
   [[nodiscard]] const MatchOutcome& outcome() const&& = delete;
 
+  // The committed lobby. It is published here because a client cannot render a lobby it cannot see
+  // and a test cannot assert on committed seat state any other way; **what the wire carries is a
+  // separate decision** and is plan Step 5, which is why no encoder reads this yet.
+  [[nodiscard]] const SeatRoster& seats() const& noexcept { return state_.seats; }
+  [[nodiscard]] const SeatRoster& seats() const&& = delete;
+
   // The mode's own match-state block. `mode_match_state_schema_id_of` names which arm it holds.
   [[nodiscard]] const ModeMatchState& mode_state() const& noexcept { return state_.mode_state; }
   [[nodiscard]] const ModeMatchState& mode_state() const&& = delete;

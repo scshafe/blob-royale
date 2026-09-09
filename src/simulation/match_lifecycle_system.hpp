@@ -32,8 +32,13 @@ namespace blob_royale::simulation {
 //   ended     -> lobby      after restart_delay_ticks
 //
 // A committed transition writes MatchState -- the phase, its start tick, the running start tick,
-// and the committed MatchOutcome -- **and nothing else**. A consequence a mode wants from a
+// the committed MatchOutcome, and, on every transition **into** `lobby`, the clearing of the seat
+// roster's one-shot start request -- **and nothing else**. A consequence a mode wants from a
 // transition is that mode's own system, ordered ahead of this one by declaration.
+//
+// The start request is cleared on arrival in `lobby` rather than on departure from it because
+// `can_start` is this machine's answer to two questions at once, "may it leave `lobby`" and "may it
+// stay in `countdown`"; the reasoning is written out at the one line that does it.
 //
 // The system holds only immutable configuration, as the interface requires: the objective it was
 // constructed with and the durations that objective declared once.

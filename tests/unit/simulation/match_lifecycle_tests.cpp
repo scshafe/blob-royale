@@ -2,6 +2,7 @@
 #include "command_registry.hpp"
 #include "commands/despawn_command.hpp"
 #include "components/lifetime_component.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "entity_id_reservation.hpp"
 #include "fixed_delta.hpp"
@@ -18,6 +19,7 @@
 #include "match_state.hpp"
 #include "mode_match_state_registry.hpp"
 #include "physics_body.hpp"
+#include "seat_roster.hpp"
 #include "simulation_config.hpp"
 #include "simulation_system.hpp"
 #include "simulation_test_fixture.hpp"
@@ -61,13 +63,19 @@ namespace {
 [[nodiscard]] simulation::GameSimulation
 lifecycle_game(std::vector<simulation::GameWorld::EntitySeed> seeds,
                const std::size_t minimum_players,
-               const simulation::MatchLifecycleDurations durations) {
+               const simulation::MatchLifecycleDurations durations,
+               simulation::SeatRoster lobby = simulation::SeatRoster{}) {
   testing::TestGameMode::Declaration declaration;
   declaration.name = "lifecycle_mode";
   declaration.minimum_players = minimum_players;
   declaration.durations = durations;
+  simulation::GameWorld world = simulation::GameWorld::create(std::move(seeds));
+  // The lobby is seeded onto the initial world exactly as production seeds it. The in-test mode's
+  // objective never reads it, so it changes no transition here and only the engine's own clearing
+  // rule can be observed through it.
+  world.mutable_match().seats = std::move(lobby);
   return simulation::GameSimulation::create(
-      configuration(), simulation::GameWorld::create(std::move(seeds)),
+      configuration(), std::move(world),
       simulation::GameSimulationSetup::of_mode(
           simulation::MapDefinition::bare_arena(simulation::ArenaBounds::create(500.0, 500.0)),
           testing::TestGameMode::create(std::move(declaration))));
@@ -107,6 +115,16 @@ void despawn(simulation::GameSimulation& game,
 [[nodiscard]] std::uint64_t running_started_tick_of(const simulation::GameSimulation& game) {
   const simulation::WorldSnapshot snapshot = game.snapshot();
   return snapshot.match().running_started_tick().value();
+}
+
+[[nodiscard]] bool start_requested_of(const simulation::GameSimulation& game) {
+  const simulation::WorldSnapshot snapshot = game.snapshot();
+  return snapshot.match().seats().start_requested();
+}
+
+[[nodiscard]] simulation::SeatRoster seats_of(const simulation::GameSimulation& game) {
+  const simulation::WorldSnapshot snapshot = game.snapshot();
+  return snapshot.match().seats();
 }
 
 [[nodiscard]] simulation::MatchOutcome outcome_of(const simulation::GameSimulation& game) {
@@ -166,6 +184,79 @@ TEST_CASE("a default MatchState is the state every match begins in",
   CHECK_FALSE(state.outcome.is_decided());
   CHECK(state.spawn_rotation_counter == 0);
   CHECK(simulation::mode_match_state_schema_id_of(state.mode_state) == "none");
+  // No lobby has been declared, so there are no seats and no pending start. A world nobody seeded a
+  // roster onto is a world no seat-reading objective will ever start.
+  CHECK(state.seats.seat_count() == 0);
+  CHECK_FALSE(state.seats.is_full());
+  CHECK_FALSE(state.seats.start_requested());
+}
+
+TEST_CASE("every committed transition into lobby clears the pending start request",
+          "[unit][simulation][match_lifecycle_system][seat_roster]") {
+  // The engine's own rule, tested through the engine's own machine and deliberately not through a
+  // mode: the clearing happens in `commit_transition` and applies whatever a mode's `can_start`
+  // reads. The in-test mode's objective is the alive count, so the roster below drives nothing and
+  // the only thing under test is when the flag is cleared.
+  //
+  // The flag survives `lobby -> countdown` and `countdown -> running`, which is the part that would
+  // be wrong if it were cleared on the way *out* of `lobby`: a request cleared there would make the
+  // next tick's "may it stay in `countdown`" check fail and no match could ever run.
+  simulation::SeatRoster lobby = simulation::SeatRoster::of_size(2);
+  lobby.assign_seat(
+      0, simulation::Seat{simulation::ControllerSeat{simulation::ControllerId::create(1)}});
+  lobby.assign_seat(
+      1, simulation::Seat{simulation::ControllerSeat{simulation::ControllerId::create(2)}});
+  lobby.request_start();
+
+  simulation::GameSimulation game =
+      lifecycle_game({player(1, 50.0, 50.0), player(2, 300.0, 300.0)}, 2,
+                     simulation::MatchLifecycleDurations{2, 1}, std::move(lobby));
+  REQUIRE(start_requested_of(game));
+
+  advance(game, 1);
+  REQUIRE(phase_of(game) == simulation::MatchPhase::kCountdown);
+  CHECK(start_requested_of(game));
+
+  advance(game, 2);
+  REQUIRE(phase_of(game) == simulation::MatchPhase::kRunning);
+  CHECK(start_requested_of(game));
+
+  // The field empties, so the match ends and the restart delay returns it to `lobby` -- where the
+  // request is gone and the next match waits for someone to ask for it.
+  despawn(game, {1, 2});
+  REQUIRE(phase_of(game) == simulation::MatchPhase::kEnded);
+  CHECK(start_requested_of(game));
+
+  advance(game, 1);
+  REQUIRE(phase_of(game) == simulation::MatchPhase::kLobby);
+  CHECK_FALSE(start_requested_of(game));
+  // And the seats themselves are untouched: arriving in the lobby clears the request and nothing
+  // else, because who is seated is not the machine's business.
+  CHECK(seats_of(game).seat_count() == 2);
+  CHECK(seats_of(game).is_full());
+}
+
+TEST_CASE("a countdown that returns to lobby also discards the start request",
+          "[unit][simulation][match_lifecycle_system][seat_roster]") {
+  // The other direction into `lobby`, and the reason the rule is "on arrival" rather than "after a
+  // match": a field that broke up during the countdown is back in the lobby, and a lobby that still
+  // held a request would restart itself the moment the seat refilled without anyone asking twice.
+  simulation::SeatRoster lobby = simulation::SeatRoster::of_size(1);
+  lobby.assign_seat(
+      0, simulation::Seat{simulation::ControllerSeat{simulation::ControllerId::create(1)}});
+  lobby.request_start();
+
+  simulation::GameSimulation game =
+      lifecycle_game({player(1, 50.0, 50.0), player(2, 300.0, 300.0)}, 2,
+                     simulation::MatchLifecycleDurations{8, 0}, std::move(lobby));
+
+  advance(game, 1);
+  REQUIRE(phase_of(game) == simulation::MatchPhase::kCountdown);
+  REQUIRE(start_requested_of(game));
+
+  despawn(game, {2});
+  REQUIRE(phase_of(game) == simulation::MatchPhase::kLobby);
+  CHECK_FALSE(start_requested_of(game));
 }
 
 TEST_CASE("the lifecycle machine walks lobby, countdown, running, ended and back",

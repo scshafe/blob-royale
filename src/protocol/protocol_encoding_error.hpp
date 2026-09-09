@@ -20,6 +20,7 @@ enum class ProtocolEncodingErrorCode {
   kSnapshotEntityOrderInvalid,
   kSnapshotEntityLimitExceeded,
   kPlacementLimitExceeded,
+  kSeatLimitExceeded,
   kMatchModeNameInvalid,
   kComponentValueOutOfRange,
 };
@@ -51,6 +52,8 @@ protocol_encoding_error_code_name(ProtocolEncodingErrorCode error_code) noexcept
     return "PROTOCOL.ENCODING.SNAPSHOT_ENTITY_LIMIT_EXCEEDED";
   case ProtocolEncodingErrorCode::kPlacementLimitExceeded:
     return "PROTOCOL.ENCODING.PLACEMENT_LIMIT_EXCEEDED";
+  case ProtocolEncodingErrorCode::kSeatLimitExceeded:
+    return "PROTOCOL.ENCODING.SEAT_LIMIT_EXCEEDED";
   case ProtocolEncodingErrorCode::kMatchModeNameInvalid:
     return "PROTOCOL.ENCODING.MATCH_MODE_NAME_INVALID";
   case ProtocolEncodingErrorCode::kComponentValueOutOfRange:

@@ -36,8 +36,8 @@ namespace blob_royale::simulation {
 class EntityIdReservation final {
 public:
   // Creates the block `[first, first + count)`. Throws SimulationValidationError when the block
-  // would run past kMaximumEntityId or would exceed the world's seat count, so an impossible
-  // reservation never reaches a tick.
+  // would run past kMaximumEntityId or would exceed the world's entity slot count, so an
+  // impossible reservation never reaches a tick.
   [[nodiscard]] static EntityIdReservation create(const EntityId first, const std::uint64_t count) {
     if (count > kMaximumEntityIdReservationCount) {
       throw SimulationValidationError(SimulationValidationCode::kEntityIdReservationLimitExceeded,

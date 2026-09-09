@@ -94,7 +94,8 @@ public:
   [[nodiscard]] MatchSessionContext context() const {
     return MatchSessionContext::create(
         simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
-        std::string{kFixtureMapName}, simulation::CommandKindMask::all());
+        std::string{kFixtureMapName}, simulation::CommandKindMask::all(),
+        std::vector<std::string>{"wanderer", "chaser"});
   }
 
   [[nodiscard]] runtime::CommandSink& command_sink() const noexcept {

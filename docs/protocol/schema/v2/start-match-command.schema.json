@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/start-match-command.schema.json",
+  "title": "Blob Royale protocol v2 start_match command payload",
+  "description": "Somebody pressed Start. The payload is empty and the emptiness is the whole schema: which match, whose start, and from which tick are not questions a client gets to answer, and the closed shape is the enforcement rather than a preamble to it.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "$comment": "It records a request; it does not start a match. The server commits lobby -> countdown only when the running mode's objective also says the field is complete, so a press into a lobby with an empty seat is remembered and changes no phase. The request is one-shot and is cleared on every arrival in lobby, so a finished match cannot restart itself. Added in 2.3."
+}

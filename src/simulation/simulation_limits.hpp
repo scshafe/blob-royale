@@ -20,19 +20,39 @@ inline constexpr std::uint64_t kMaximumControllerId = kMaximumProtocolSafeIntege
 inline constexpr std::uint64_t kMinimumTeamId = 1;
 inline constexpr std::uint64_t kMaximumTeamId = kMaximumProtocolSafeInteger;
 inline constexpr double kMaximumPhysicalComponentMagnitude = 1'000'000'000'000.0;
-// One entity is one seat in the world. This bounds the entity roster and every per-kind component
-// store, and an entity is not a player: a wall, a projectile, a pickup, and royale's zone each take
-// a seat and none of them is a player, so the bound says entities (engine review finding 11).
+// One entity is one **entity slot** in the world. This bounds the entity roster and every per-kind
+// component store, and an entity is not a player: a wall, a projectile, a pickup, and royale's zone
+// each take a slot and none of them is a player, so the bound says entities (engine review finding
+// 11).
+//
+// The word used to be "seat", and it changed because the lobby took that word for the thing players
+// call a seat -- a place in a pre-match roster (`seat_roster.hpp`). One noun for two unrelated
+// bounds, one of which players read on a screen, is the ambiguity worth spending a rename on; the
+// lobby keeps "seat" because that is what a person sitting down calls it.
 inline constexpr std::size_t kMaximumEntityCount = 4'096;
 // The protocol v1 snapshot player limit, which `src/protocol/protocol_constants.hpp` pins to this
 // value with a static_assert. It is a *publication* bound over the entities carrying both a
 // PhysicsBody and a Controllable, which is what a player is, and it is a different question from
-// how many seats the world has: protocol v2 caps a snapshot at 1,024 while the simulation still
-// permits kMaximumEntityCount entities. A player is an entity, so this can never exceed the seat
-// count; nothing but a snapshot publication reads it.
+// how many entity slots the world has: protocol v2 caps a snapshot at 1,024 while the simulation
+// still permits kMaximumEntityCount entities. A player is an entity, so this can never exceed the
+// entity-slot count; nothing but a snapshot publication reads it.
 inline constexpr std::size_t kMaximumPlayerCount = 4'096;
 static_assert(kMaximumPlayerCount <= kMaximumEntityCount,
-              "a player is an entity, so the published player limit cannot exceed the seat count");
+              "a player is an entity, so the published player limit cannot exceed the entity slot "
+              "count");
+// canonical: maximum_lobby_seat_count -- how many seats one pre-match lobby may declare.
+//
+// A *lobby* bound, not a roster bound: it caps the ordered seat list `MatchState` carries and
+// copies into the working world every tick, and it is what makes a seat count arriving from a
+// client a bounded input rather than an unbounded allocation. Sixty-four is far above any playable
+// competitive field and far below `kMaximumEntityCount`, which is deliberate -- the tighter and
+// more meaningful ceiling is the map's own spawn-marker count, applied by the mode that knows what
+// a spawn marker is (`src/gameplay/royale/royale_mode.hpp`), and this exists so a map with
+// thousands of markers still cannot declare a lobby the tick has to copy.
+inline constexpr std::size_t kMaximumLobbySeatCount = 64;
+static_assert(kMaximumLobbySeatCount <= kMaximumPlayerCount,
+              "every seated player is a published player, so a lobby cannot exceed the player "
+              "publication bound");
 // One tick's submitted commands, before canonicalization collapses them to at most one of each
 // kind per addressed identity. The runtime's bounded mailbox is the upstream boundary that keeps
 // a batch below this; this is the simulation's own fail-closed ceiling on an unbounded input.
@@ -66,7 +86,7 @@ static_assert(kSystemCreatedEntityHeadroom >= 1,
               "reservation on its first running tick");
 static_assert(kSystemCreatedEntityHeadroom <= kMaximumEntityIdReservationCount,
               "the headroom alone must still be a legal reservation width");
-// One tick's WorldEvent list: sixteen events per world seat. The dominant producer is the contact
+// One tick's WorldEvent list: sixteen events per entity slot. The dominant producer is the contact
 // phase, which emits at most one event per contacting pair, and an equal-radius disc in a
 // non-overlapping arrangement touches at most six coplanar neighbours, so sixteen leaves room for
 // every other producing phase to name an entity once. Overflow is a hard simulation failure rather
@@ -83,7 +103,7 @@ inline constexpr double kMaximumThrustDirectionComponentMagnitude = 1.0;
 inline constexpr std::size_t kMaximumKindNameLength = 64;
 
 inline constexpr std::size_t kMaximumContactRuleNameLength = 64;
-// One map's authored content. Static bodies and markers each take a world seat once a mode seats
+// One map's authored content. Static bodies and markers each take an entity slot once a mode seats
 // them, so neither may exceed the roster the world can hold; the metadata bounds keep a map file a
 // declaration rather than an unbounded blob.
 inline constexpr std::size_t kMaximumMapNameLength = 64;

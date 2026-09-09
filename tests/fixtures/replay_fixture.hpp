@@ -35,7 +35,15 @@ namespace gameplay = blob_royale::gameplay;
 //                 [royale] the seven keys of `docs/architecture/0005-royale-mode.md`
 //                          § "Mode configuration"
 //   markers.csv   marker_kind,position_x_world_units,position_y_world_units
-//   commands.csv  tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y
+//   commands.csv  tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,
+//                 seat_index,seat_count,npc_kind
+//
+// **A line whose first character is `#` is a comment**, in every one of the three files, and may
+// appear anywhere including above a header row. It exists because a fixture has to be able to state
+// a derivation: "the `start_match` is at tick 2 because tick 1 is when the fourth seat fills" is
+// the difference between a number a reader can check and a number a reader has to trust. The rule
+// is full-line only, so `#` inside a value is still an ordinary character and no column can be
+// truncated by one.
 //
 // The map travels **with** the replay rather than being named in `maps/`, because `maps/` and its
 // loader arrive in plan Step 25 and a fixture that cannot be run is not a fixture. `[map]` and

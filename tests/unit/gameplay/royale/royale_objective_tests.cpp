@@ -9,11 +9,15 @@
 #include "match_outcome.hpp"
 #include "physics_body.hpp"
 #include "royale/royale_configuration.hpp"
+#include "seat_roster.hpp"
 #include "vector2.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <utility>
 #include <vector>
 
 namespace gameplay = blob_royale::gameplay;
@@ -34,25 +38,102 @@ namespace {
   return simulation::GameWorld::create(std::move(seeds));
 }
 
-[[nodiscard]] gameplay::RoyaleObjective objective_for(const std::uint64_t lobby_minimum_players) {
+[[nodiscard]] gameplay::RoyaleObjective objective_for(const std::uint64_t lobby_seat_count) {
   gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
-  section.lobby_minimum_players = lobby_minimum_players;
+  section.lobby_seat_count = lobby_seat_count;
   return gameplay::RoyaleObjective{gameplay::RoyaleConfiguration::create(section)};
+}
+
+// A world whose lobby has `seat_count` seats, the first `filled_count` of them held by a
+// controller. The seat contents are irrelevant to the rule under test -- a declared NPC seat fills
+// a seat exactly as a controller does -- so the cheaper arm is used and the NPC arm is covered by
+// its own case below.
+[[nodiscard]] simulation::GameWorld lobby_world(const std::size_t seat_count,
+                                                const std::size_t filled_count,
+                                                const bool start_requested) {
+  simulation::GameWorld world = world_with_alive_entities(0);
+  simulation::SeatRoster roster = simulation::SeatRoster::of_size(seat_count);
+  for (std::size_t index = 0; index < filled_count; ++index) {
+    roster.assign_seat(index, simulation::Seat{simulation::ControllerSeat{
+                                  simulation::ControllerId::create(index + 1)}});
+  }
+  if (start_requested) {
+    roster.request_start();
+  }
+  world.mutable_match().seats = std::move(roster);
+  return world;
 }
 
 } // namespace
 
-TEST_CASE("can_start is the alive count against the configured lobby minimum",
+TEST_CASE("can_start is a full lobby and a requested start, and needs both",
           "[unit][gameplay][royale][objective]") {
+  // The Step 2 rule. Both conjuncts are load-bearing and the four combinations say so: a full lobby
+  // nobody started does not start, a start requested into an incomplete lobby does not start
+  // either, and only the two together do.
+  const gameplay::RoyaleObjective objective = objective_for(4);
+
+  CHECK_FALSE(objective.can_start(lobby_world(4, 4, false)));
+  CHECK_FALSE(objective.can_start(lobby_world(4, 3, true)));
+  CHECK_FALSE(objective.can_start(lobby_world(4, 0, true)));
+  CHECK(objective.can_start(lobby_world(4, 4, true)));
+
+  // A one-seat lobby is legal and degenerate rather than a rejection.
+  CHECK(objective_for(1).can_start(lobby_world(1, 1, true)));
+}
+
+TEST_CASE("a world with no declared lobby never starts a match",
+          "[unit][gameplay][royale][objective]") {
+  // A default-constructed `MatchState` has no seats at all, which is what every world nobody seeded
+  // a lobby onto holds. "Every seat is filled" over an empty roster is vacuously true, so without
+  // the roster's own "at least one seat" rule this world would start a match with nobody in it --
+  // and it would do it on the first tick, before any session had connected.
+  const gameplay::RoyaleObjective objective = objective_for(4);
+  simulation::GameWorld world = world_with_alive_entities(3);
+  REQUIRE(world.match().seats.seat_count() == 0);
+
+  CHECK_FALSE(objective.can_start(world));
+  world.mutable_match().seats.request_start();
+  CHECK_FALSE(objective.can_start(world));
+}
+
+TEST_CASE("a seat declared for an NPC fills that seat before its session exists",
+          "[unit][gameplay][royale][objective]") {
+  // The simulation cannot construct a controller, so a seat that names a bot kind is a declaration
+  // the runtime has not yet reconciled. It still counts as filled: making Start wait on a runtime
+  // reconciliation would make the lobby's own rule unexplainable from the lobby.
+  const gameplay::RoyaleObjective objective = objective_for(2);
+  simulation::GameWorld world = lobby_world(2, 1, true);
+  CHECK_FALSE(objective.can_start(world));
+
+  world.mutable_match().seats.assign_seat(
+      1, simulation::Seat{
+             simulation::NpcSeat{simulation::SeatKindName::create("wanderer"), std::nullopt}});
+  CHECK(objective.can_start(world));
+
+  // And it still counts as filled once the runtime has built the bot, so the transition from
+  // declaration to session never passes through a tick in which the lobby looks incomplete.
+  world.mutable_match().seats.assign_seat(
+      1, simulation::Seat{simulation::NpcSeat{simulation::SeatKindName::create("wanderer"),
+                                              simulation::ControllerId::create(9)}});
+  CHECK(objective.can_start(world));
+}
+
+TEST_CASE("the alive count no longer decides whether a match may start",
+          "[unit][gameplay][royale][objective]") {
+  // The rule this replaced was "the alive count is at or above `lobby_minimum_players`". This is
+  // the regression that says it is gone: a field of five live blobs with an empty seat does not
+  // start, and an empty arena whose lobby is full and started does.
   const gameplay::RoyaleObjective objective = objective_for(2);
 
-  CHECK_FALSE(objective.can_start(world_with_alive_entities(0)));
-  CHECK_FALSE(objective.can_start(world_with_alive_entities(1)));
-  CHECK(objective.can_start(world_with_alive_entities(2)));
-  CHECK(objective.can_start(world_with_alive_entities(5)));
+  simulation::GameWorld crowded = world_with_alive_entities(5);
+  // Bound to a named world first: `GameWorld::match()` is deleted on an rvalue, because a reference
+  // into a temporary world would dangle.
+  const simulation::GameWorld one_short = lobby_world(2, 1, true);
+  crowded.mutable_match().seats = one_short.match().seats;
+  CHECK_FALSE(objective.can_start(crowded));
 
-  // `lobby_minimum_players = 1` is a legal, degenerate configuration rather than a rejection.
-  CHECK(objective_for(1).can_start(world_with_alive_entities(1)));
+  CHECK(objective.can_start(lobby_world(2, 2, true)));
 }
 
 TEST_CASE("outcome names the last alive entity, draws an empty field, and is otherwise undecided",
@@ -68,9 +149,11 @@ TEST_CASE("outcome names the last alive entity, draws an empty field, and is oth
 
 TEST_CASE("a pending entity and a body with no controller are not alive",
           "[unit][gameplay][royale][objective]") {
-  // "Alive" is entities owning both a PhysicsBody and a Controllable, which is the only population
-  // the objective reads. A pending joiner owns only the controller link, a wall owns only the body,
-  // and the zone entity owns neither.
+  // "Alive" is entities owning both a PhysicsBody and a Controllable, which is the population
+  // `outcome` reads. A pending joiner owns only the controller link, a wall owns only the body, and
+  // the zone entity owns neither. `can_start` is deliberately not asserted here any more: since
+  // Step 2 it reads the seat roster and not this population at all, so an assertion on it would
+  // pass for a reason that has nothing to do with what this case is about.
   const gameplay::RoyaleObjective objective = objective_for(2);
   simulation::GameWorld world = world_with_alive_entities(1);
 
@@ -81,7 +164,6 @@ TEST_CASE("a pending entity and a body with no controller are not alive",
       simulation::EntityId::create(60),
       simulation::PhysicsBody::create_static(simulation::Vector2::create(500.0, 500.0)));
 
-  CHECK_FALSE(objective.can_start(world));
   CHECK(objective.outcome(world) ==
         simulation::MatchOutcome::won_by_entity(simulation::EntityId::create(1)));
 }

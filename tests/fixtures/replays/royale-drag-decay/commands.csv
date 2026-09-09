@@ -1,4 +1,8 @@
-tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y
-1,,spawn,1,,
-2,1,thrust,,1,0
-6001,1,thrust,,0,0
+# No seat is filled and no start is requested, so this replay never leaves `lobby` -- which is
+# what it wants. It measures the drag factor on one coasting body, and a running match would
+# add a shrinking zone and an elimination clock to a fixture whose whole subject is one
+# multiplication per tick.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+2,1,thrust,,1,0,,,
+6001,1,thrust,,0,0,,,

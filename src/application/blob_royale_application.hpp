@@ -13,7 +13,9 @@
 #include "structured_logger.hpp"
 
 #include <atomic>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace blob_royale::application {
 
@@ -65,6 +67,11 @@ private:
   // Opens one `CommandSink` session per configured bot and files the constructed controller with
   // the host, in roster order and then in count order, so the `ControllerId` a bot receives is a
   // function of the configuration alone.
+  // The registered bot kinds, as the `welcome` publishes them. Static because it reads only the
+  // constexpr registry table and is needed inside the member-initializer list, before any member
+  // exists.
+  [[nodiscard]] static std::vector<std::string> registered_npc_controller_kinds();
+
   void seat_configured_bots();
 
   void start_server_thread();

@@ -20,8 +20,22 @@ type DeepReadonly<T> = T extends (...arguments_: readonly unknown[]) => unknown
 type MutableBlobRoyaleProtocolV2ClientCommandEnvelope = {
   [k: string]: unknown | undefined;
 } & {
-  kind: 'set_thrust';
+  kind:
+    'clear_seat' | 'seat_npc' | 'set_seat_count' | 'set_thrust' | 'start_match';
   payload: {};
+};
+/**
+ * One seat in the lobby. Every member is always present and the member that does not apply is null, which is the shape outcome uses and for the same reason: a decoder reads one known member set rather than branching on which keys exist.
+ *
+ * This interface was referenced by `MutableBlobRoyaleProtocolV2MatchSection`'s JSON-Schema
+ * via the `definition` "seat".
+ */
+type MutableSeat = {
+  [k: string]: unknown | undefined;
+} & {
+  kind: 'controller' | 'empty' | 'npc';
+  controller_id: number | null;
+  npc_kind: string | null;
 };
 /**
  * Two named winner members rather than one polymorphic winner, so a reader can never mistake a team id for an entity id. Both are always present; the member that does not apply is null.
@@ -64,7 +78,7 @@ interface MutableBlobRoyaleProtocolV2HTTPErrorResponse {
   data: null;
   error: MutableError;
   meta: {
-    protocol_version: '2.2';
+    protocol_version: '2.3';
     schema_id: 'blob-royale://protocol/v2/error-response';
     request_id: string;
   };
@@ -113,7 +127,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketSnapshotMessage {
   data: MutableBlobRoyaleProtocolV2WorldSnapshotData;
   error: null;
   meta: {
-    protocol_version: '2.2';
+    protocol_version: '2.3';
     schema_id: 'blob-royale://protocol/v2/snapshot-message';
     request_id: string;
     message_sequence: number;
@@ -208,12 +222,17 @@ interface MutableBlobRoyaleProtocolV2ZoneExposureComponent {
   outside_ticks: number;
 }
 /**
- * The generic match lifecycle header plus one mode-state block identified by a schema id. Entity-shaped mode state is published only as components and never duplicated here; the royale safe zone is the zone component of the zone entity (ADR 0005). Alive count is not a field: it is the number of published entities carrying both physics_body and controllable.
+ * The generic match lifecycle header, the pre-match seat roster the first transition reads, plus one mode-state block identified by a schema id. Entity-shaped mode state is published only as components and never duplicated here; the royale safe zone is the zone component of the zone entity (ADR 0005). Alive count is not a field: it is the number of published entities carrying both physics_body and controllable.
  */
 interface MutableBlobRoyaleProtocolV2MatchSection {
   mode: string;
   phase: 'lobby' | 'countdown' | 'running' | 'ended';
   phase_started_tick: number;
+  /**
+   * @maxItems 64
+   */
+  seats: MutableSeat[];
+  start_requested: boolean;
   outcome: MutableOutcome;
   /**
    * @maxItems 1024
@@ -240,7 +259,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketWelcomeMessage {
   data: MutableBlobRoyaleProtocolV2WelcomeData;
   error: null;
   meta: {
-    protocol_version: '2.2';
+    protocol_version: '2.3';
     schema_id: 'blob-royale://protocol/v2/welcome-message';
     request_id: string;
     message_sequence: 1;
@@ -248,7 +267,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketWelcomeMessage {
   };
 }
 /**
- * Everything a session learns about itself, sent exactly once immediately after the upgrade and before any snapshot. accepted_command_kinds is an advertisement of what the boundary will accept from this client, not a grant: the server enforces the same set independently and InputBatch::create filters it a second time.
+ * Everything a session learns about itself, sent exactly once immediately after the upgrade and before any snapshot. accepted_command_kinds is an advertisement of what the boundary will accept from this client, not a grant: the server enforces the same set independently and InputBatch::create filters it a second time. npc_controller_kinds is the same kind of advertisement for the one closed vocabulary a client is allowed to name a value from.
  */
 interface MutableBlobRoyaleProtocolV2WelcomeData {
   entity_id: number;
@@ -257,13 +276,132 @@ interface MutableBlobRoyaleProtocolV2WelcomeData {
   mode: string;
   map: string;
   /**
-   * @maxItems 1
+   * @maxItems 5
    */
-  accepted_command_kinds: [] | ['set_thrust'];
+  accepted_command_kinds:
+    | []
+    | [
+        | 'clear_seat'
+        | 'seat_npc'
+        | 'set_seat_count'
+        | 'set_thrust'
+        | 'start_match',
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+      ];
+  /**
+   * @maxItems 64
+   */
+  npc_controller_kinds: string[];
 }
 
 export type BlobRoyaleProtocolV2ClientCommandEnvelope =
   DeepReadonly<MutableBlobRoyaleProtocolV2ClientCommandEnvelope>;
+export type Seat = DeepReadonly<MutableSeat>;
 export type Outcome = DeepReadonly<MutableOutcome>;
 export type ModeState = DeepReadonly<MutableModeState>;
 export type ProtocolV2SchemaTypes = DeepReadonly<MutableProtocolV2SchemaTypes>;

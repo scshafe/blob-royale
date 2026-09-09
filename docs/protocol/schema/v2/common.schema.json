@@ -7,8 +7,8 @@
   "$defs": {
     "protocol_version": {
       "type": "string",
-      "const": "2.2",
-      "$comment": "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind and 2.2 added elimination_grace_ticks to the royale mode-state block. A 2.2 client therefore rejects a 2.3 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
+      "const": "2.3",
+      "$comment": "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, and 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds. A 2.3 client therefore rejects a 2.4 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
     },
     "request_id": {
       "type": "string",
@@ -159,8 +159,31 @@
     },
     "command_kind": {
       "type": "string",
-      "enum": ["set_thrust"],
-      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire."
+      "enum": [
+        "clear_seat",
+        "seat_npc",
+        "set_seat_count",
+        "set_thrust",
+        "start_match"
+      ],
+      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire. Four of the five operate the pre-match lobby and were added in 2.3; a mode that has no lobby to operate omits them from welcome.accepted_command_kinds rather than accepting a command it cannot honour."
+    },
+    "seat_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 64,
+      "$comment": "How many seats one lobby may declare. The maximum is a protocol constant mirroring the engine's own bound; the tighter and more meaningful ceiling is the running map's spawn-marker count, which the server enforces at startup and which no client can read from this schema."
+    },
+    "seat_index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 63,
+      "$comment": "Zero-based, so the maximum is one below seat_count's. It bounds the value rather than the running lobby: an index inside this bound that names no seat in the current roster is ignored by the server, because a client's view of the roster lags by a frame and racing it must not close a connection."
+    },
+    "seat_kind": {
+      "type": "string",
+      "enum": ["controller", "empty", "npc"],
+      "$comment": "Closed. A seat is empty, held by a live controller, or declared for an NPC of a named kind; the three are exclusive and every published seat names exactly one."
     },
     "match_phase": {
       "type": "string",

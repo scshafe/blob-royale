@@ -8,7 +8,9 @@
 
 #include "command_kind_mask.hpp"
 
+#include <span>
 #include <string>
+#include <vector>
 
 namespace blob_royale::server {
 
@@ -31,6 +33,14 @@ namespace blob_royale::server {
 // **`accepted_command_kinds` is the running mode's own mask**, read once at composition from the
 // mode the engine is constructed with, so the advertised set and the enforced set cannot drift:
 // the mode is fixed for the process lifetime and this value is a copy of its declaration.
+//
+// **`npc_controller_kinds` is `ControllerRegistry`'s own list**, read once at composition for the
+// same reason and carried here because `blob_server` neither links `blob_controllers` nor should:
+// the server has no business constructing a bot, only publishing which ones exist and refusing a
+// `seat_npc` that names one that does not. It is the *fourth* thing this bundle carries, and it
+// earns its place by being the one value that makes "registering a bot costs no client change" true
+// -- the `welcome` publishes it and `decode_command_envelope` enforces it, from one source
+// (`src/protocol/session_welcome.hpp`).
 // related: docs/protocol/v2.md -- the boundary this crosses.
 // related: session_websocket_session.hpp -- the only consumer.
 class MatchSessionContext final {
@@ -38,10 +48,14 @@ public:
   // Validates the map name against `common.schema.json#/$defs/map_name`, because a name the
   // welcome could not encode must fail at startup rather than on every session's first frame.
   // Throws GameServerError with `SERVER.SESSION.INVARIANT_FAILED`.
+  // Validates the map name and every published NPC controller kind against
+  // `common.schema.json#/$defs/kind_name`, because a name the welcome could not encode must fail at
+  // startup rather than on every session's first frame.
   [[nodiscard]] static MatchSessionContext
   create(runtime::CommandSink& command_sink,
          const runtime::ControllerDirectory& controller_directory, std::string map_name,
-         simulation::CommandKindMask accepted_command_kinds);
+         simulation::CommandKindMask accepted_command_kinds,
+         std::vector<std::string> npc_controller_kinds);
 
   MatchSessionContext(const MatchSessionContext&) = default;
   MatchSessionContext(MatchSessionContext&&) noexcept = default;
@@ -63,16 +77,23 @@ public:
     return accepted_command_kinds_;
   }
 
+  // The seatable NPC kinds, in the registry's declared order.
+  [[nodiscard]] std::span<const std::string> npc_controller_kinds() const& noexcept {
+    return npc_controller_kinds_;
+  }
+  [[nodiscard]] std::span<const std::string> npc_controller_kinds() const&& = delete;
+
 private:
   MatchSessionContext(runtime::CommandSink& command_sink,
                       const runtime::ControllerDirectory& controller_directory,
-                      std::string map_name,
-                      simulation::CommandKindMask accepted_command_kinds) noexcept;
+                      std::string map_name, simulation::CommandKindMask accepted_command_kinds,
+                      std::vector<std::string> npc_controller_kinds) noexcept;
 
   runtime::CommandSink* command_sink_;
   RuntimeControllerDirectoryView directory_view_;
   std::string map_name_;
   simulation::CommandKindMask accepted_command_kinds_;
+  std::vector<std::string> npc_controller_kinds_;
 };
 
 } // namespace blob_royale::server

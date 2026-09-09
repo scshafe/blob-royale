@@ -13,8 +13,10 @@
 #include "command_sink.hpp"
 #include "command_sink_error.hpp"
 
+#include "command_registry.hpp"
 #include "commands/despawn_command.hpp"
 #include "commands/spawn_command.hpp"
+#include "controller_id.hpp"
 #include "world_snapshot.hpp"
 
 #include <boost/asio/buffer.hpp>
@@ -31,8 +33,10 @@
 #include <ctime>
 #include <exception>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace blob_royale::server {
 namespace {
@@ -254,8 +258,11 @@ void SessionWebSocketSession::admit_client_command(const std::string_view frame)
   // liveness would be a probing signal. The placeholder below is never submitted.
   const simulation::EntityId stamped_entity =
       current_entity_.value_or(simulation::EntityId::create(1));
+  const simulation::ControllerId stamped_controller =
+      controller_.value_or(simulation::ControllerId::create(1));
   const protocol::CommandDecodeResult decoded = protocol::decode_command_envelope(
-      frame, server_context_->match_session().accepted_command_kinds(), stamped_entity);
+      frame, server_context_->match_session().accepted_command_kinds(), stamped_entity,
+      stamped_controller, server_context_->match_session().npc_controller_kinds());
   if (!decoded.is_accepted()) {
     switch (decoded.rejection()) {
     case protocol::CommandDecodeRejection::kMessageTooLarge:
@@ -276,7 +283,23 @@ void SessionWebSocketSession::admit_client_command(const std::string_view frame)
     return;
   }
 
-  if (!current_entity_.has_value() || !controller_.has_value()) {
+  if (!controller_.has_value()) {
+    // No open session, so there is no identity to submit under and nothing to submit to.
+    return;
+  }
+  // **What a command needs in order to be submittable is which identity it addresses**, and the
+  // command registry already answers that: a kind that names an entity needs this session to own
+  // one, and a kind that names only its sender does not
+  // (`src/simulation/command_registry.hpp`, AddressedIdentity).
+  //
+  // The distinction is not academic. A session owns no body for the whole window between the lobby
+  // wipe and its reseat, and it may own none at all while a full spawn ring defers it -- and both
+  // are exactly the moments a player is *looking at the lobby*, deciding a seat count and pressing
+  // Start. Gating every kind on a live body, which is what this did before the lobby existed, would
+  // have made the Start button dead precisely when it matters and would have been invisible in
+  // every test that owned a blob.
+  if (simulation::addressed_identity_of(*decoded.command()).entity().has_value() &&
+      !current_entity_.has_value()) {
     // Elimination and an in-flight keystroke race by construction. The command is charged and
     // validated and then has nothing to address, which is not an error and must not close the
     // connection: closing here would disconnect honest clients at the most visible moment.
@@ -411,6 +434,10 @@ void SessionWebSocketSession::observe_own_entity(
   // frame. An absent answer is the ordinary state of a player who is eliminated, waiting for the
   // next match, or deferred by the mode's spawn policy.
   current_entity_ = protocol::find_controlled_body(snapshot, *controller_);
+  // And, separately, what this session *owns*. A deferred or unseated session owns an entity and
+  // has no body, and the close path has to despawn the one it owns or leave it in the world
+  // forever.
+  current_controlled_entity_ = protocol::find_controlled_entity(snapshot, *controller_);
   if (current_entity_.has_value()) {
     last_spawn_request_tick_.reset();
   }
@@ -438,10 +465,12 @@ void SessionWebSocketSession::start_welcome_write(const simulation::EntityId ent
   active_egress_lease_.emplace(std::move(egress_lease));
   const MatchSessionContext& match_session = server_context_->match_session();
   try {
+    const std::span<const std::string> npc_controller_kinds = match_session.npc_controller_kinds();
     const protocol::SessionWelcome welcome = protocol::SessionWelcome::create(
         entity, *controller_, peer_identity_.display_name_for(*session_id_),
         std::string{server_context_->publication().latest()->match().mode_name()},
-        match_session.map_name(), match_session.accepted_command_kinds());
+        match_session.map_name(), match_session.accepted_command_kinds(),
+        std::vector<std::string>{npc_controller_kinds.begin(), npc_controller_kinds.end()});
     active_write_payload_ = protocol::encode_welcome_message(
         welcome, request_id_, current_utc_timestamp(), active_egress_lease_->owned_byte_count());
   } catch (const protocol::ProtocolEncodingError& error) {
@@ -706,13 +735,20 @@ void SessionWebSocketSession::leave_match() noexcept {
   left_match_ = true;
   try {
     runtime::CommandSink& command_sink = server_context_->match_session().command_sink();
-    if (current_entity_.has_value()) {
+    // **Ownership, not a body.** A session that was never seated -- deferred by a full spawn ring,
+    // or still sitting in a lobby -- owns an entity carrying only its `Controllable`, and
+    // despawning only bodies left that entity in the world for the rest of the process:
+    // unrenderable, uncounted as a player, and destroyed by nothing. It was reachable before the
+    // lobby existed and the lobby makes it the normal case, because sitting in a lobby without a
+    // body is what a player about to play is doing.
+    if (current_controlled_entity_.has_value()) {
       // The despawn precedes the retirement, because `CommandSink::submit` refuses a closed
       // session. A despawn naming a body the tick has already destroyed is ignored by contract,
       // so racing an elimination is benign; a despawn the mailbox drops is counted and the
       // composition root reports it at error severity, because the roster itself lost a change.
       static_cast<void>(command_sink.submit(
-          *controller_, simulation::Command{simulation::DespawnCommand{*current_entity_}}));
+          *controller_,
+          simulation::Command{simulation::DespawnCommand{*current_controlled_entity_}}));
     }
     static_cast<void>(command_sink.close_session(*controller_));
   } catch (...) {

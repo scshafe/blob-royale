@@ -407,7 +407,7 @@ TEST_CASE("GameApiRouter returns 426 in the v2 envelope for an ordinary session 
   CHECK(fixture::response_contains(response, "PROTOCOL.UPGRADE_REQUIRED"));
   // A `/api/v2/` target's failure must name v2, so the envelope is selected by the target's
   // version prefix and not by the route that answered it.
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.2\""));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.3\""));
   CHECK(fixture::response_contains(response, "blob-royale://protocol/v2/error-response"));
 }
 
@@ -417,7 +417,7 @@ TEST_CASE("GameApiRouter answers an unrouted v2 target in the v2 envelope",
   const server::GameApiHttpResponse response =
       route_response(state, fixture::request(http::verb::get, "/api/v2/nonsense"));
   CHECK(response.result() == http::status::not_found);
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.2\""));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.3\""));
 }
 
 TEST_CASE("GameApiRouter answers an unrouted v3 target in the v1 envelope",

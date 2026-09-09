@@ -1,15 +1,42 @@
 #include "command_sink.hpp"
 
 #include "command_sink_error.hpp"
+#include "seat_roster.hpp"
 #include "simulation_limits.hpp"
 
 #include <atomic>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <variant>
 
 namespace blob_royale::runtime {
+namespace {
+
+// The identity one command is stamped with, or nullopt for a kind that carries none. Total over the
+// closed variant: a kind with a `controller` member answers with it, and every other kind answers
+// nullopt (`src/simulation/command_registry.hpp`, AddressedIdentity, makes the same distinction for
+// a different purpose).
+[[nodiscard]] std::optional<simulation::ControllerId>
+stamped_controller_of(const simulation::Command& command) noexcept {
+  return std::visit(
+      []<typename CommandType>(
+          const CommandType& value) -> std::optional<simulation::ControllerId> {
+        if constexpr (std::is_same_v<CommandType, simulation::SpawnCommand> ||
+                      std::is_same_v<CommandType, simulation::SetSeatCountCommand> ||
+                      std::is_same_v<CommandType, simulation::ClearSeatCommand> ||
+                      std::is_same_v<CommandType, simulation::SeatNpcCommand> ||
+                      std::is_same_v<CommandType, simulation::StartMatchCommand>) {
+          return value.controller;
+        } else {
+          return std::nullopt;
+        }
+      },
+      command);
+}
+
+} // namespace
 
 CommandSink::CommandSink(CommandMailbox& mailbox, ControllerDirectory& controller_directory,
                          const EntityIdAllocator& entity_id_allocator,
@@ -64,8 +91,12 @@ CommandSubmissionResult CommandSink::submit(const simulation::ControllerId contr
     return CommandSubmissionResult::kRejectedSessionNotOpen;
   }
 
-  if (const auto* const spawn = std::get_if<simulation::SpawnCommand>(&command);
-      spawn != nullptr && spawn->controller != controller) {
+  // Every command that carries an identity must carry *this* session's. A spawn has always been
+  // checked here; the four lobby kinds carry the same stamp for the same reason, so one check
+  // covers all five and a sixth kind that carries a controller cannot be forgotten --
+  // `stamped_controller_of` is total over the variant.
+  if (const std::optional<simulation::ControllerId> stamped = stamped_controller_of(command);
+      stamped.has_value() && *stamped != controller) {
     return CommandSubmissionResult::kRejectedForeignController;
   }
 
@@ -101,6 +132,21 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
           // cannot reach a future block by guessing.
           if (value.entity.value() >= entity_id_allocator_->next_entity_id().value()) {
             return CommandSubmissionResult::kRejectedUnissuedEntityId;
+          }
+          return CommandSubmissionResult::kAccepted;
+        } else if constexpr (std::is_same_v<CommandType, simulation::SeatNpcCommand> ||
+                             std::is_same_v<CommandType, simulation::ClearSeatCommand>) {
+          // The engine's bound on a seat index, not the live roster's size: this sink holds no
+          // world. An index inside the bound that names no seat in the running lobby is ignored by
+          // the tick, which is the disagreement that cannot be settled anywhere but there.
+          if (value.seat_index >= simulation::kMaximumLobbySeatCount) {
+            return CommandSubmissionResult::kRejectedSeatIndexOutOfRange;
+          }
+          return CommandSubmissionResult::kAccepted;
+        } else if constexpr (std::is_same_v<CommandType, simulation::SetSeatCountCommand>) {
+          if (value.seat_count < simulation::SeatRoster::kMinimumSeatCount ||
+              value.seat_count > simulation::SeatRoster::kMaximumSeatCount) {
+            return CommandSubmissionResult::kRejectedSeatCountOutOfRange;
           }
           return CommandSubmissionResult::kAccepted;
         } else {

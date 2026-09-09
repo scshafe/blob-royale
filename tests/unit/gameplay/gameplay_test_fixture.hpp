@@ -21,6 +21,7 @@
 #include "match_phase.hpp"
 #include "match_snapshot.hpp"
 #include "physics_body.hpp"
+#include "seat_roster.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "spatial_grid.hpp"
@@ -80,12 +81,40 @@ gameplay_map(const std::size_t point_count, const std::string& name = "gameplay_
 // different seeds deliberately. Everything written before hazards passed no seed and keeps `0`.
 [[nodiscard]] inline simulation::GameSimulation
 gameplay_simulation(std::unique_ptr<const simulation::GameMode> mode, simulation::MapDefinition map,
-                    const std::uint64_t seed = 0) {
+                    const std::uint64_t seed = 0,
+                    simulation::SeatRoster lobby = simulation::SeatRoster{}) {
   const simulation::SimulationConfig configuration = gameplay_configuration();
   simulation::GameWorld world = simulation::GameWorld::create(configuration, map, seed);
+  // The lobby is part of the state a match begins in and is seeded onto the initial world, exactly
+  // as `BlobRoyaleApplication::create` seeds it in production from `[royale] lobby_seat_count`.
+  // The default is no lobby at all, which is what every test that is not about the lifecycle wants:
+  // a mode whose `can_start` reads the roster then never leaves `lobby`, and a mode whose
+  // `can_start` ignores it -- `sandbox` -- behaves exactly as it always did.
+  world.mutable_match().seats = std::move(lobby);
   return simulation::GameSimulation::create(
       configuration, std::move(world),
       simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));
+}
+
+// A lobby of `seat_count` seats, every one of them held by a controller, with Start pressed.
+//
+// **This is the test-side stand-in for the lobby commands plan Step 3 adds.** Under the Step 2 rule
+// a royale match leaves `lobby` only when every seat is filled and a start has been requested, and
+// until the commands exist the only way to express that is to seed the state a filled, started
+// lobby would have reached. It is not a shortcut around the rule: it satisfies the rule exactly,
+// with real seats and a real request, and a test that omits it observes a match that correctly
+// never starts.
+//
+// The controller ids run from 1 so a test that also spawns controllers 1..n has its seats and its
+// blobs agree by construction, which is what the runtime will make true for real in Step 6.
+[[nodiscard]] inline simulation::SeatRoster started_lobby(const std::size_t seat_count) {
+  simulation::SeatRoster roster = simulation::SeatRoster::of_size(seat_count);
+  for (std::size_t index = 0; index < seat_count; ++index) {
+    roster.assign_seat(index, simulation::Seat{simulation::ControllerSeat{
+                                  simulation::ControllerId::create(index + 1)}});
+  }
+  roster.request_start();
+  return roster;
 }
 
 [[nodiscard]] inline simulation::Command spawn_command(const std::uint64_t controller) {

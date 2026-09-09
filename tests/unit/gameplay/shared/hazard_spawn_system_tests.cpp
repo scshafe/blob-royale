@@ -51,22 +51,28 @@ archetype(const std::string_view kind, const bool lethal,
 // A royale whose match reaches `running` almost immediately and then stays there, so a test spends
 // its ticks on hazards rather than on the lobby.
 //
-// **Two players, not one.** Royale is last blob standing, so a one-player match satisfies its own
+// **Two seats, not one.** Royale is last blob standing, so a one-player match satisfies its own
 // outcome on the first running tick and transitions straight to `ended` -- at which point the
 // spawner correctly does nothing and every hazard assertion below would fail for a reason that has
 // nothing to do with hazards.
+constexpr std::size_t kPromptLobbySeatCount = 2;
+
 [[nodiscard]] gameplay::RoyaleConfiguration prompt_royale() {
   gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
-  section.lobby_minimum_players = 2;
+  section.lobby_seat_count = kPromptLobbySeatCount;
   section.countdown_seconds = 0.01;
   return gameplay::RoyaleConfiguration::create(section);
 }
 
+// The driver is handed a full lobby with Start already pressed, because since Step 2 a royale match
+// leaves `lobby` only when someone asks it to and nothing in a hazard test would ever ask. The two
+// seated controllers are the same 1 and 2 every test below spawns, so the lobby and the arena
+// agree.
 [[nodiscard]] testing::SteppedGame royale_driver(std::vector<gameplay::HazardArchetype> hazards,
                                                  const std::uint64_t seed = 0) {
   return testing::SteppedGame{testing::gameplay_simulation(
       gameplay::RoyaleMode::create(prompt_royale(), std::move(hazards)), testing::gameplay_map(4),
-      seed)};
+      seed, testing::started_lobby(kPromptLobbySeatCount))};
 }
 
 // The hazards one snapshot published: every entity carrying a body and no controller. A player has

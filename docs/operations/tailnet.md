@@ -79,10 +79,10 @@ number stops the container with a diagnostic naming the key rather than serving 
 Restart takes seconds. Commit whatever value you settle on, so the running arena and the repository
 agree.
 
-The two numbers that decide who a match waits for are `[match] bots` and
-`[royale] lobby_minimum_players`. The minimum counts every seated blob, bots included, so a minimum
-above the bot count makes the arena wait for people rather than playing against itself. The shipped
-values are one bot and a minimum of three, so the lobby holds until two people have joined.
+The number that decides who a match waits for is `[royale] lobby_seat_count`: it is how many seats
+the pre-match lobby is created with, and a match starts only when every seat is filled and somebody
+presses Start. The shipped value is four seats. `[match] bots` still seats its roster at startup and
+is a separate question from who the lobby is waiting for.
 
 ## Verify
 

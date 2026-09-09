@@ -133,7 +133,7 @@ TEST_CASE("the replay format reads a directory into a runnable match",
   CHECK(fixture.configuration().drag_per_second() == 0.0);
   CHECK(fixture.map().spawn_points().size() == 3);
   CHECK(fixture.royale().thrust_maximum() == 400.0);
-  CHECK(fixture.royale().lobby_minimum_players() == 3);
+  CHECK(fixture.royale().lobby_seat_count() == 3);
 
   const Snapshots snapshots = fixture.run();
   REQUIRE(snapshots.size() == fixture.tick_count());
@@ -148,11 +148,12 @@ TEST_CASE("a replay directory that is malformed is a rejection naming the cause"
 
 TEST_CASE("a seeded royale world adds the zone entity and nothing else while it stays in lobby",
           "[fixtures][replay][royale][zone]") {
-  // `docs/architecture/0005-royale-mode.md` § "Fixture expectations": a fixture whose
-  // `lobby_minimum_players` is above its roster stays in lobby, where the radius is `R_full` and
-  // elimination is not evaluated, so no royale system touches a body. The two additions that remain
-  // are expected rather than asserted away: the zone entity and the one EntityId drawn to create
-  // it.
+  // `docs/architecture/0005-royale-mode.md` § "Fixture expectations": a fixture that never leaves
+  // lobby holds the zone at `R_full` and never evaluates elimination, so no royale system touches a
+  // body. A match leaves `lobby` only when every seat is filled *and* a start has been requested,
+  // and this fixture's `commands.csv` deliberately says neither -- an elimination clock has no
+  // place in a fixture whose subject is one integration. The two additions that remain are expected
+  // rather than asserted away: the zone entity and the one EntityId drawn to create it.
   const testing::ReplayFixture fixture = testing::ReplayFixture::named("royale-thrust-integration");
   const Snapshots snapshots = fixture.run();
 
@@ -306,6 +307,17 @@ TEST_CASE("spawning takes consecutive ring points, defers a full ring, and defer
   CHECK_FALSE(body_of(third, fixture.spawned_entity_id(1, 0)).has_value());
   CHECK(body_of(third, fifth)->position() == simulation::Vector2::create(300.0, 320.0));
 
+  // The phase timeline this fixture's `start_match` tick was chosen to reproduce, pinned rather
+  // than implied. The seats fill and Start is pressed at phase 0 of tick 2, the lifecycle system
+  // commits `lobby -> countdown` at the end of that same tick, and `countdown_seconds=0` makes tick
+  // 3 `running` -- which is exactly where the retired alive-count threshold put them, and which is
+  // what keeps the two seating assertions above meaningful: tick 3's despawn frees a ring point
+  // during `countdown`, where the spawn policy still seats, and tick 4's joiner arrives during
+  // `running`, where it does not.
+  CHECK(at_tick(snapshots, 1).match().phase() == simulation::MatchPhase::kLobby);
+  CHECK(at_tick(snapshots, 2).match().phase() == simulation::MatchPhase::kCountdown);
+  CHECK(at_tick(snapshots, 3).match().phase() == simulation::MatchPhase::kRunning);
+
   // A joiner who arrives while the match is running is deferred for as long as it runs, which is
   // what makes a match a closed field.
   const simulation::EntityId late = fixture.spawned_entity_id(4, 0);
@@ -457,7 +469,7 @@ TEST_CASE("an all-zero duration configuration advances one phase per tick and cy
       testing::ReplayFixture::named("royale-transition-per-tick");
   REQUIRE(fixture.royale().countdown_ticks() == 0);
   REQUIRE(fixture.royale().restart_delay_ticks() == 0);
-  REQUIRE(fixture.royale().lobby_minimum_players() == 1);
+  REQUIRE(fixture.royale().lobby_seat_count() == 1);
   const Snapshots snapshots = fixture.run();
 
   // Three complete cycles of the same five-tick period: one transition per tick through

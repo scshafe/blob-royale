@@ -46,7 +46,7 @@ enum class ConfigField : std::size_t {
   kRoyaleZoneMinimumRadius,
   kRoyaleZoneShrinkSeconds,
   kRoyaleEliminationGraceSeconds,
-  kRoyaleLobbyMinimumPlayers,
+  kRoyaleLobbySeatCount,
   kRoyaleCountdownSeconds,
   kRoyaleRestartDelaySeconds,
   kCount,
@@ -95,7 +95,7 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"royale", "zone_minimum_radius_world_units"},
          {"royale", "zone_shrink_seconds"},
          {"royale", "elimination_grace_seconds"},
-         {"royale", "lobby_minimum_players"},
+         {"royale", "lobby_seat_count"},
          {"royale", "countdown_seconds"},
          {"royale", "restart_delay_seconds"}}};
 
@@ -733,8 +733,8 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
               parse_double_config_value(document, ConfigField::kRoyaleZoneShrinkSeconds),
           .elimination_grace_seconds =
               parse_double_config_value(document, ConfigField::kRoyaleEliminationGraceSeconds),
-          .lobby_minimum_players =
-              parse_unsigned_config_value(document, ConfigField::kRoyaleLobbyMinimumPlayers),
+          .lobby_seat_count =
+              parse_unsigned_config_value(document, ConfigField::kRoyaleLobbySeatCount),
           .countdown_seconds =
               parse_double_config_value(document, ConfigField::kRoyaleCountdownSeconds),
           .restart_delay_seconds =

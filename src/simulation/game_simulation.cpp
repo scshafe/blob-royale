@@ -8,8 +8,11 @@
 #include "idle_match_objective.hpp"
 #include "idle_spawn_policy.hpp"
 #include "match_lifecycle_system.hpp"
+#include "match_phase.hpp"
+#include "match_state.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
+#include "seat_roster.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_tolerance.hpp"
 #include "simulation_validation_error.hpp"
@@ -62,11 +65,112 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 // interpreted**, because command meaning is a system's job
 // (`docs/architecture/0004-gameplay-architecture.md` § "Commands").
 //
+// **The exception, stated so it is not mistaken for a violation: a command whose meaning is the
+// engine's own is applied by the engine, here.** That was already true of the two kinds above -- a
+// despawn destroys an entity and a spawn creates one, and neither is recorded for a system to
+// interpret -- and it is true of the four lobby kinds for the same reason: they write `MatchState`,
+// which is engine-owned state gating an engine-owned transition. The rule the ADR is stating is
+// that a *mode's* meaning is a mode's system, which is exactly why `thrust` is recorded rather than
+// applied: what a thrust does depends on a `thrust_max` only the mode knows. Nothing about a seat
+// depends on the mode; a mode reads the roster through its objective and never writes one.
+//
 // A command that disagrees with committed world state -- a despawn for an entity that does not
 // exist, a command recorded for an entity that is not live -- is ignored rather than failing the
 // tick, because the command source is a network session and a hard failure would let one client
 // stop the match (`docs/architecture/0003-deterministic-simulation-contract.md`
 // § "Accepted simulation input").
+// canonical: lobby_command_application -- phase 0's arm for the four commands that operate a lobby.
+//
+// **Applied here, at phase 0, in the batch's existing order, rather than in a system.** Everything
+// determinism needs is already true of this pass -- the batch is canonical, the order is the one
+// `docs/architecture/0003-deterministic-simulation-contract.md` § "Canonical tick" fixes, and a
+// replay reproduces it -- so a lobby that is operated here inherits replay and determinism instead
+// of reinventing them. A lobby system would have had to be ordered against the lifecycle system,
+// and getting that order wrong is a match that starts a tick late for reasons nobody can see.
+//
+// **Every one of them is refused outside `lobby`, and the guard is one line for all four.** A seat
+// roster is only meaningful before a match: resizing the field mid-match, or seating a bot into a
+// running game, are changes the arena has no way to represent. Refusing is silent because the
+// alternative is loud in the wrong direction -- see the ignoring rule below.
+//
+// **Anyone may send any of them. That is a deliberate trust choice, and this is the comment that
+// says so.** The owner chose it on 2026-09-08: no host, no ready check, no per-seat ownership. It
+// is defensible because of what this deployment is -- a private tailnet where every peer is an
+// identified person the owner invited, and where the worst outcome of a mis-click is a match that
+// starts early or a bot that has to be re-seated. **What would have to change for a public
+// deployment** is not this pass but the identity that reaches it: a lobby command would need an
+// authority attached to its `ControllerId` -- host, or seat-owner, or first-joiner -- decided
+// *above* the simulation and carried in as part of the command, because the tick knows nothing
+// about people and must not start. Concretely: `MatchSessionContext` would grow that authority,
+// `CommandSink::submit` would refuse a lobby command from a session that does not hold it, and this
+// pass would be unchanged. Nothing here is load-bearing for that change, which is the property that
+// makes shipping the trusting version now honest rather than lazy.
+//
+// **A command that disagrees with committed state is ignored, never fatal**, exactly as a despawn
+// for an entity that does not exist is: the source is a network session whose view of the roster
+// lags the world by a frame, and a hard failure would let one client stop the match. There are four
+// such disagreements and each is a no-op -- the match is not in `lobby`, the seat index names no
+// seat in this roster, the seat a `seat_npc` names is already occupied, and a `set_seat_count`
+// would shrink past somebody sitting down (`seat_roster.hpp`, `try_set_seat_count`).
+//
+// Returns true when the command was a lobby kind, whether or not it changed anything, so the caller
+// stops considering it.
+[[nodiscard]] bool apply_lobby_command(GameWorld& world, const Command& command) {
+  const bool is_lobby_command = std::holds_alternative<SetSeatCountCommand>(command) ||
+                                std::holds_alternative<ClearSeatCommand>(command) ||
+                                std::holds_alternative<SeatNpcCommand>(command) ||
+                                std::holds_alternative<StartMatchCommand>(command);
+  if (!is_lobby_command) {
+    return false;
+  }
+  MatchState& match = world.mutable_match();
+  if (match.phase != MatchPhase::kLobby) {
+    return true;
+  }
+
+  if (const auto* set_seat_count = std::get_if<SetSeatCountCommand>(&command);
+      set_seat_count != nullptr) {
+    // The range is `InputBatch::create`'s, checked before this batch existed, so the cast is on a
+    // value already known to fit the roster's own bound.
+    static_cast<void>(
+        match.seats.try_set_seat_count(static_cast<std::size_t>(set_seat_count->seat_count)));
+    return true;
+  }
+  if (const auto* clear_seat = std::get_if<ClearSeatCommand>(&command); clear_seat != nullptr) {
+    const std::size_t index = static_cast<std::size_t>(clear_seat->seat_index);
+    if (index >= match.seats.seat_count()) {
+      return true;
+    }
+    // Only a declared NPC is cleared. A seat a live controller holds is the runtime's to give and
+    // take, and a tick that emptied one would be contradicted by the next reconciliation
+    // (`commands/clear_seat_command.hpp`).
+    if (std::holds_alternative<NpcSeat>(match.seats.seats()[index])) {
+      match.seats.assign_seat(index, Seat{EmptySeat{}});
+    }
+    return true;
+  }
+  if (const auto* seat_npc = std::get_if<SeatNpcCommand>(&command); seat_npc != nullptr) {
+    const std::size_t index = static_cast<std::size_t>(seat_npc->seat_index);
+    if (index >= match.seats.seat_count()) {
+      return true;
+    }
+    // First-wins: an occupied seat is left alone, so two clients seating one seat in one tick
+    // resolve by this batch's order and the second press is a no-op rather than an eviction.
+    if (!seat_is_filled(match.seats.seats()[index])) {
+      // The controller is absent because no bot exists yet. The runtime that creates one writes it
+      // back; until it does, the seat is a declaration a client renders as joining
+      // (`seat_roster.hpp`, NpcSeat).
+      match.seats.assign_seat(index, Seat{NpcSeat{seat_npc->kind, std::nullopt}});
+    }
+    return true;
+  }
+  // `start_match`. It records a request and commits nothing: the transition is
+  // `MatchLifecycleSystem`'s, at `kLifecycle`, and it happens only if the mode's objective also
+  // says the field is complete (`commands/start_match_command.hpp`).
+  match.seats.request_start();
+  return true;
+}
+
 // True when some live entity's Controllable already names this controller. A controller drives at
 // most one body at a time, so a spawn for one that already has a body is a duplicate.
 [[nodiscard]] bool controller_holds_a_body(const GameWorld& world, const ControllerId controller) {
@@ -108,10 +212,12 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
                                                            Controllable{spawn->controller});
       continue;
     }
-    // Total over the closed variant: the only kind that addresses no entity is the spawn handled
-    // above, so this guard is unreachable today and is what keeps the pass correct the day a kind
-    // that addresses something other than an EntityId is registered
-    // (`command_registry.hpp`, AddressedIdentity).
+    if (apply_lobby_command(world, command)) {
+      continue;
+    }
+    // Total over the closed variant: every kind that addresses no entity is handled above, so this
+    // guard is unreachable today and is what keeps the pass correct the day a kind that addresses
+    // something other than an EntityId is registered (`command_registry.hpp`, AddressedIdentity).
     const std::optional<EntityId> recorded_entity = addressed_identity_of(command).entity();
     if (!recorded_entity.has_value()) {
       continue;

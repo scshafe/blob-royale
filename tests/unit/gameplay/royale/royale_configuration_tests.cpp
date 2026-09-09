@@ -1,6 +1,7 @@
 #include "royale/royale_configuration.hpp"
 
 #include "gameplay_validation_error.hpp"
+#include "seat_roster.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -11,6 +12,7 @@
 #include <string_view>
 
 namespace gameplay = blob_royale::gameplay;
+namespace simulation = blob_royale::simulation;
 
 namespace {
 
@@ -47,7 +49,7 @@ TEST_CASE("the proposed [royale] section converts to the accepted tick counts",
 
   CHECK(configuration.thrust_maximum() == 400.0);
   CHECK(configuration.zone_minimum_radius() == 60.0);
-  CHECK(configuration.lobby_minimum_players() == 2);
+  CHECK(configuration.lobby_seat_count() == 4);
 }
 
 TEST_CASE("a rejected [royale] duration still names the key it was authored under",
@@ -85,12 +87,20 @@ TEST_CASE("every [royale] value must be finite and not negative",
   CHECK(rejection_code_of(negative_radius) ==
         gameplay::GameplayValidationCode::kRoyaleScalarOutOfRange);
 
-  // A lobby that can never fill is a configuration that can never start a match, so zero is a
-  // rejection rather than a mode that holds every match in `lobby` forever.
+  // A lobby of no seats is a lobby nobody can sit in, so zero is a rejection rather than a mode
+  // that holds every match in `lobby` forever.
   gameplay::RoyaleConfiguration::Section empty_lobby =
       gameplay::RoyaleConfiguration::default_section();
-  empty_lobby.lobby_minimum_players = 0;
+  empty_lobby.lobby_seat_count = 0;
   CHECK(rejection_code_of(empty_lobby) ==
+        gameplay::GameplayValidationCode::kRoyaleScalarOutOfRange);
+
+  // And the ceiling, which is the engine's: the roster is copied into the working world every tick,
+  // so a lobby the tick cannot afford is refused at startup rather than allocated per tick.
+  gameplay::RoyaleConfiguration::Section oversized_lobby =
+      gameplay::RoyaleConfiguration::default_section();
+  oversized_lobby.lobby_seat_count = simulation::SeatRoster::kMaximumSeatCount + 1;
+  CHECK(rejection_code_of(oversized_lobby) ==
         gameplay::GameplayValidationCode::kRoyaleScalarOutOfRange);
 }
 
@@ -122,7 +132,7 @@ TEST_CASE("a zero-duration configuration is accepted rather than rejected",
   degenerate.elimination_grace_seconds = 0.0;
   degenerate.countdown_seconds = 0.0;
   degenerate.restart_delay_seconds = 0.0;
-  degenerate.lobby_minimum_players = 1;
+  degenerate.lobby_seat_count = 1;
 
   const gameplay::RoyaleConfiguration configuration =
       gameplay::RoyaleConfiguration::create(degenerate);
@@ -130,5 +140,5 @@ TEST_CASE("a zero-duration configuration is accepted rather than rejected",
   CHECK(configuration.elimination_grace_ticks() == 0);
   CHECK(configuration.countdown_ticks() == 0);
   CHECK(configuration.restart_delay_ticks() == 0);
-  CHECK(configuration.lobby_minimum_players() == 1);
+  CHECK(configuration.lobby_seat_count() == 1);
 }

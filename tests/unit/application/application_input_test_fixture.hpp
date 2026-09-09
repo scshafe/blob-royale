@@ -60,7 +60,7 @@ inline constexpr std::string_view kValidConfiguration = "[server]\n"
                                                         "zone_minimum_radius_world_units=60\n"
                                                         "zone_shrink_seconds=90\n"
                                                         "elimination_grace_seconds=3\n"
-                                                        "lobby_minimum_players=2\n"
+                                                        "lobby_seat_count=4\n"
                                                         "countdown_seconds=5\n"
                                                         "restart_delay_seconds=8\n";
 

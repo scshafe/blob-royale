@@ -160,8 +160,8 @@ What it contributed outside its own directory is two component headers plus one 
 no contact rule, no world event kind, and no kernel phase.
 
 `validate_map` rejects two maps at startup, naming the map and the cause: one with fewer `spawn`
-markers than `lobby_minimum_players`, which could never satisfy `can_start` and would hold every
-match in `lobby` forever; and one whose arena's circumscribed radius is not strictly greater than
+markers than `lobby_seat_count`, which could not seat a full lobby and would leave joiners pending
+forever; and one whose arena's circumscribed radius is not strictly greater than
 `zone_minimum_radius_world_units`, which would start the zone already at its floor so it never
 contracts and the game never ends.
 

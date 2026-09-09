@@ -19,6 +19,7 @@
 #include "match_phase.hpp"
 #include "match_snapshot.hpp"
 #include "physics_body.hpp"
+#include "seat_roster.hpp"
 #include "simulation_limits.hpp"
 #include "team_id.hpp"
 #include "tick_sequence.hpp"
@@ -35,7 +36,9 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace blob_royale::protocol {
@@ -47,7 +50,8 @@ namespace simulation = blob_royale::simulation;
 static_assert(kSnapshotFrameV2MaximumByteCount == kSnapshotFrameMaximumByteCount,
               "protocol v2 inherits v1's unchanged 2 MiB frame ceiling");
 static_assert(kSnapshotEntityLimit <= simulation::kMaximumEntityCount,
-              "a published entity is a world seat, so the wire bound cannot exceed the seat count");
+              "a published entity is a world entity slot, so the wire bound cannot exceed the "
+              "entity slot count");
 
 // The Boost.JSON realization of the sink every per-kind component encoder writes through. It is the
 // only place a component value meets a JSON type, which is what keeps `ComponentWireEncoding` free
@@ -305,6 +309,80 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   return encoded;
 }
 
+// The wire name of one seat's arm. Closed, and mirrored by `common.schema.json#/$defs/seat_kind`.
+[[nodiscard]] constexpr std::string_view
+seat_wire_kind_name(const simulation::Seat& seat) noexcept {
+  return std::visit(
+      []<typename SeatType>(const SeatType&) -> std::string_view {
+        if constexpr (std::is_same_v<SeatType, simulation::ControllerSeat>) {
+          return "controller";
+        } else if constexpr (std::is_same_v<SeatType, simulation::NpcSeat>) {
+          return "npc";
+        } else {
+          return "empty";
+        }
+      },
+      seat);
+}
+
+// One published seat.
+//
+// **Every member is always present and the ones that do not apply are null**, which is the shape
+// `outcome` already uses and for the same reason: a decoder reads one object with a known member
+// set rather than branching on which keys exist, and a client can never mistake an absent member
+// for a meaningful one (`match-data.schema.json`, outcome).
+//
+// `controller_id` is non-null on a `controller` seat and on an `npc` seat **whose bot the runtime
+// has already created**; it is null on an `npc` seat still waiting for one, which is the state a
+// client renders as joining (`src/simulation/seat_roster.hpp`, NpcSeat).
+[[nodiscard]] json::object encode_seat(const simulation::Seat& seat) {
+  json::object encoded;
+  encoded.reserve(3);
+  encoded.emplace("kind", seat_wire_kind_name(seat));
+
+  std::optional<simulation::ControllerId> controller;
+  std::optional<std::string_view> npc_kind;
+  if (const auto* held = std::get_if<simulation::ControllerSeat>(&seat); held != nullptr) {
+    controller = held->controller;
+  } else if (const auto* declared = std::get_if<simulation::NpcSeat>(&seat); declared != nullptr) {
+    controller = declared->controller;
+    npc_kind = declared->kind.value();
+  }
+
+  if (controller.has_value()) {
+    encoded.emplace("controller_id", controller->value());
+  } else {
+    encoded.emplace("controller_id", nullptr);
+  }
+  if (npc_kind.has_value()) {
+    encoded.emplace("npc_kind", *npc_kind);
+  } else {
+    encoded.emplace("npc_kind", nullptr);
+  }
+  return encoded;
+}
+
+// The lobby, in index order, which is the order a client renders it and the order every tie-break
+// over seats resolves in (`src/simulation/seat_roster.hpp`).
+//
+// A world that declared no lobby publishes an empty array rather than a null, so a client has one
+// code path; that is what `sandbox` publishes, and an empty roster is never full, so no client can
+// read it as a startable match.
+[[nodiscard]] json::array encode_seats(const simulation::SeatRoster& seats) {
+  if (seats.seat_count() > kLobbySeatCountMaximum) {
+    throw ProtocolEncodingError{
+        ProtocolEncodingErrorCode::kSeatLimitExceeded, "snapshot_message.data.match.seats",
+        "seat count " + std::to_string(seats.seat_count()) +
+            " exceeds the accepted protocol v2 limit " + std::to_string(kLobbySeatCountMaximum)};
+  }
+  json::array encoded;
+  encoded.reserve(seats.seat_count());
+  for (const simulation::Seat& seat : seats.seats()) {
+    encoded.emplace_back(encode_seat(seat));
+  }
+  return encoded;
+}
+
 [[nodiscard]] json::object encode_match(const simulation::MatchSnapshot& match) {
   if (!is_accepted_kind_name(match.mode_name())) {
     throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMatchModeNameInvalid,
@@ -318,10 +396,14 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   // frame (`docs/protocol/v2.md` § "Field dictionary and invariants").
 
   json::object encoded;
-  encoded.reserve(6);
+  encoded.reserve(8);
   encoded.emplace("mode", match.mode_name());
   encoded.emplace("phase", simulation::match_phase_name(match.phase()));
   encoded.emplace("phase_started_tick", match.phase_started_tick().value());
+  // The lobby sits with the lifecycle header it gates rather than at the end beside `outcome` and
+  // `placements`, which describe a match that has already been played.
+  encoded.emplace("seats", encode_seats(match.seats()));
+  encoded.emplace("start_requested", match.seats().start_requested());
   encoded.emplace("outcome", encode_outcome(match.outcome()));
   encoded.emplace("placements", encode_placements(match));
   encoded.emplace("mode_state", encode_mode_state(match));
@@ -342,6 +424,18 @@ void validate_ascending_unique_entities(const std::span<const simulation::Entity
             std::to_string(entities[position - 1].value()) + " is followed by " +
             std::to_string(entities[position].value())};
   }
+}
+
+std::optional<simulation::EntityId>
+find_controlled_entity(const simulation::WorldSnapshot& snapshot,
+                       const simulation::ControllerId controller) {
+  for (const simulation::ComponentStore<simulation::Controllable>::Entry& entry :
+       snapshot.components<simulation::Controllable>()) {
+    if (entry.value.controller_id == controller) {
+      return entry.entity;
+    }
+  }
+  return std::nullopt;
 }
 
 std::optional<simulation::EntityId>
@@ -367,23 +461,37 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
                                    const std::size_t output_byte_limit) {
   validate_timestamp(sent_at_utc, "welcome_message.meta.sent_at_utc");
 
+  // Walked over the **published vocabulary** rather than the simulation's kind list, so the array a
+  // client reads is in the schema enum's own order however the engine happens to declare its kinds.
+  // A kind the mode does not accept is absent, and a kind with no wire name cannot appear at all
+  // because it has no name to appear under (`command_wire_kind.hpp`).
   json::array accepted_command_kinds;
   accepted_command_kinds.reserve(kV2ClientCommandKindNames.size());
-  for (const simulation::CommandKind kind : simulation::kCommandKinds) {
-    const std::optional<std::string_view> wire_name = client_command_wire_name(kind);
-    if (wire_name.has_value() && welcome.accepted_command_kinds().contains(kind)) {
-      accepted_command_kinds.emplace_back(*wire_name);
+  for (const std::string_view wire_name : kV2ClientCommandKindNames) {
+    const std::optional<simulation::CommandKind> kind = client_command_kind_of_wire_name(wire_name);
+    if (kind.has_value() && welcome.accepted_command_kinds().contains(*kind)) {
+      accepted_command_kinds.emplace_back(wire_name);
     }
   }
 
+  // Read from `ControllerRegistry` by the composition root and validated by `SessionWelcome`, so
+  // this loop publishes rather than decides. Registry order is preserved for the reason
+  // `session_welcome.hpp` gives: it is somebody's deliberate ordering of the bots.
+  json::array npc_controller_kinds;
+  npc_controller_kinds.reserve(welcome.npc_controller_kinds().size());
+  for (const std::string& npc_controller_kind : welcome.npc_controller_kinds()) {
+    npc_controller_kinds.emplace_back(npc_controller_kind);
+  }
+
   json::object data;
-  data.reserve(6);
+  data.reserve(7);
   data.emplace("entity_id", welcome.entity().value());
   data.emplace("controller_id", welcome.controller().value());
   data.emplace("display_name", welcome.display_name());
   data.emplace("mode", welcome.mode_name());
   data.emplace("map", welcome.map_name());
   data.emplace("accepted_command_kinds", std::move(accepted_command_kinds));
+  data.emplace("npc_controller_kinds", std::move(npc_controller_kinds));
 
   json::object envelope = encode_envelope_with_data(
       json::value(std::move(data)), encode_message_metadata(kWelcomeMessageSchemaId, request_id,

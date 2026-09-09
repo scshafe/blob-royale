@@ -18,7 +18,21 @@ namespace blob_royale::runtime {
 // a dropped spawn leaves a connected player with no body -- both are visible, persistent
 // corruptions of the roster, while a dropped thrust is one missed 2.5 ms of steering.
 //
-// The static assertion is the guard that keeps this honest: a fourth command kind cannot be added
+// **The four lobby kinds answer `false`, and the answer took some deciding.** They change the
+// *seat* roster rather than the entity roster, so the question this function asks is answered no by
+// construction. The tempting argument for `true` is that a dropped `start_match` is a button that
+// did nothing, which feels worse than a dropped thrust -- and it is, but it is not the failure this
+// classification protects against. A lost despawn is unrecoverable by anyone: the body stays,
+// nobody owns it, and no person can press anything to remove it. A lost Start is visible to the
+// person who pressed it, in a lobby they are looking at, and pressing again fixes it. Promoting
+// them would also let a lobby press evict a queued spawn, which trades a recoverable annoyance for
+// an unrecoverable one.
+//
+// The superseding rule above is what keeps that safe in the first place: a sender occupies one slot
+// per lobby kind no matter how fast it clicks, so lobby traffic cannot flood the mailbox and the
+// eviction path is reached by pressure from elsewhere.
+//
+// The static assertion is the guard that keeps this honest: an eighth command kind cannot be added
 // without an author deciding, here, whether losing it changes the roster.
 // related: command_registry.hpp -- the closed list this classifies.
 [[nodiscard]] constexpr bool
@@ -28,12 +42,16 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   case simulation::CommandKind::kDespawn:
     return true;
   case simulation::CommandKind::kThrust:
+  case simulation::CommandKind::kSetSeatCount:
+  case simulation::CommandKind::kClearSeat:
+  case simulation::CommandKind::kSeatNpc:
+  case simulation::CommandKind::kStartMatch:
     return false;
   }
   return false;
 }
 
-static_assert(simulation::kCommandKindCount == 3,
+static_assert(simulation::kCommandKindCount == 7,
               "a new CommandKind must declare in is_entity_lifecycle_command whether losing it "
               "changes whether an entity exists");
 

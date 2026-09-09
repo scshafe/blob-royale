@@ -628,7 +628,7 @@ never have needed, and team-tagged spawn points.
 | `contact_rules()` | built-in two | built-in two | `flag_pickup` (pass-through + event), then built-in two |
 | `accepted_command_kinds()` | spawn, despawn, thrust | spawn, despawn, thrust | spawn, despawn, thrust |
 | `spawn_policy()` | `AnyFreeSpawnPoint`, seats in every phase | `RotatingRingSpawnPolicy`, defers unless `lobby` or `countdown` | `TeamSpawnPolicy`, matches the point's `team_id` |
-| `objective().can_start` | always true | alive count at or above `lobby_minimum_players` | at least one alive entity on each of two teams |
+| `objective().can_start` | always true | every lobby seat filled and a start requested | at least one alive entity on each of two teams |
 | `objective().outcome` | always `undecided` | alive `1` → `won_by_entity`; alive `0` → `drawn` | team `Score` at `captures_to_win` → `won_by_team`; running past `time_limit_ticks` → higher score or `drawn` |
 | `objective().durations` | `0` / `0` | `2,000` / `3,200` | `2,000` / `3,200` |
 | `validate_map()` | at least one spawn point | at least one spawn point | at least one spawn point per team and one `flag_home` marker per team |

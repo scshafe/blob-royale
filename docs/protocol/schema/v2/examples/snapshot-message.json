@@ -107,6 +107,29 @@
       "mode": "royale",
       "phase": "running",
       "phase_started_tick": 10904,
+      "seats": [
+        {
+          "kind": "controller",
+          "controller_id": 3,
+          "npc_kind": null
+        },
+        {
+          "kind": "npc",
+          "controller_id": 12,
+          "npc_kind": "wanderer"
+        },
+        {
+          "kind": "npc",
+          "controller_id": null,
+          "npc_kind": "chaser"
+        },
+        {
+          "kind": "empty",
+          "controller_id": null,
+          "npc_kind": null
+        }
+      ],
+      "start_requested": true,
       "outcome": {
         "kind": "none",
         "winner_entity_id": null,
@@ -131,7 +154,7 @@
   },
   "error": null,
   "meta": {
-    "protocol_version": "2.2",
+    "protocol_version": "2.3",
     "schema_id": "blob-royale://protocol/v2/snapshot-message",
     "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
     "message_sequence": 129,

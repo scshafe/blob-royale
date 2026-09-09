@@ -1,8 +1,12 @@
 #ifndef BLOB_ROYALE_SIMULATION_COMMAND_REGISTRY_HPP
 #define BLOB_ROYALE_SIMULATION_COMMAND_REGISTRY_HPP
 
+#include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/seat_npc_command.hpp"
+#include "commands/set_seat_count_command.hpp"
 #include "commands/spawn_command.hpp"
+#include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
@@ -47,7 +51,8 @@ namespace blob_royale::simulation {
 // related: command_kind_mask.hpp -- the set of kinds a mode accepts.
 // related: input_batch.hpp -- the one validated command value a tick may read.
 // related: kind_registry.hpp -- the derivation that keeps the kind list honest.
-using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand>;
+using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand,
+                             ClearSeatCommand, SeatNpcCommand, StartMatchCommand>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -57,10 +62,17 @@ static_assert(std::is_nothrow_move_constructible_v<Command>,
               "every Command alternative must be nothrow-move-constructible");
 
 // One distinct bit per kind, so a set of kinds is one integer (see command_kind_mask.hpp).
+// The four lobby kinds carry bits above `kThrust` in the order phase 0 applies them, so the
+// documented rule "every remaining kind in ascending enumerator value" stays a true description of
+// `command_kind_application_rank` rather than a coincidence it happens to agree with.
 enum class CommandKind : std::uint32_t {
   kSpawn = 1u << 0,
   kDespawn = 1u << 1,
   kThrust = 1u << 2,
+  kSetSeatCount = 1u << 3,
+  kClearSeat = 1u << 4,
+  kSeatNpc = 1u << 5,
+  kStartMatch = 1u << 6,
 };
 
 // canonical: command_kind_of_type -- the enumerator of one command value type.
@@ -79,6 +91,22 @@ template <> struct CommandKindOf<DespawnCommand> {
 
 template <> struct CommandKindOf<ThrustCommand> {
   static constexpr CommandKind value = CommandKind::kThrust;
+};
+
+template <> struct CommandKindOf<SetSeatCountCommand> {
+  static constexpr CommandKind value = CommandKind::kSetSeatCount;
+};
+
+template <> struct CommandKindOf<ClearSeatCommand> {
+  static constexpr CommandKind value = CommandKind::kClearSeat;
+};
+
+template <> struct CommandKindOf<SeatNpcCommand> {
+  static constexpr CommandKind value = CommandKind::kSeatNpc;
+};
+
+template <> struct CommandKindOf<StartMatchCommand> {
+  static constexpr CommandKind value = CommandKind::kStartMatch;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through CommandKindOf.
@@ -117,6 +145,26 @@ template <> struct CommandKindName<ThrustCommand> {
   static constexpr std::string_view value = "thrust";
 };
 
+// The four lobby kinds are named on the wire exactly as they are named here, unlike `thrust`, whose
+// wire name says `set_thrust` because a client has to know the command replaces a persistent intent
+// (`src/protocol/command_wire_kind.hpp`). These four each perform one whole act with no persistence
+// to explain, so one name serves both vocabularies.
+template <> struct CommandKindName<SetSeatCountCommand> {
+  static constexpr std::string_view value = "set_seat_count";
+};
+
+template <> struct CommandKindName<ClearSeatCommand> {
+  static constexpr std::string_view value = "clear_seat";
+};
+
+template <> struct CommandKindName<SeatNpcCommand> {
+  static constexpr std::string_view value = "seat_npc";
+};
+
+template <> struct CommandKindName<StartMatchCommand> {
+  static constexpr std::string_view value = "start_match";
+};
+
 // The declared wire name of one command kind, for encoders, diagnostics, and fixtures.
 template <typename CommandType>
 inline constexpr std::string_view command_kind_name = CommandKindName<CommandType>::value;
@@ -138,6 +186,14 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
     return command_kind_name<DespawnCommand>;
   case CommandKind::kThrust:
     return command_kind_name<ThrustCommand>;
+  case CommandKind::kSetSeatCount:
+    return command_kind_name<SetSeatCountCommand>;
+  case CommandKind::kClearSeat:
+    return command_kind_name<ClearSeatCommand>;
+  case CommandKind::kSeatNpc:
+    return command_kind_name<SeatNpcCommand>;
+  case CommandKind::kStartMatch:
+    return command_kind_name<StartMatchCommand>;
   }
   return "command_kind_invalid";
 }
@@ -149,10 +205,17 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
 // phase 0 needs the entity to record the command against. One capability, two implementations, two
 // places to forget an arm -- which is engine review finding 5, and this value is its resolution.
 //
-// A **spawn** addresses its ControllerId, because the engine and not the command chooses the
-// EntityId (`commands/spawn_command.hpp`), so it has an ordering key and no entity: phase 0 creates
-// an entity for it rather than recording against one. **Every other kind** addresses the EntityId
-// it names, and its ordering key is that id's value.
+// **A kind addresses whichever identity it actually carries.** A spawn addresses its ControllerId,
+// because the engine and not the command chooses the EntityId (`commands/spawn_command.hpp`), so it
+// has an ordering key and no entity: phase 0 creates an entity for it rather than recording against
+// one. The four lobby kinds address their ControllerId for a different reason: a lobby command acts
+// on the *match*, not on a body, and the only identity it carries is the sender the boundary
+// stamped it with. That choice is what makes "two clients seating the same seat resolve by the
+// existing command order" true -- keying on the seat instead would collapse the two presses into
+// one and silently discard the earlier sender's decision, which is a different rule and a worse
+// one. It also bounds each sender to one command of each lobby kind per tick, which is the
+// de-duplication a held mouse button needs. Every kind that names an entity addresses that EntityId
+// and orders by its value.
 //
 // The two identity spaces are never compared with each other. InputBatch groups by
 // (application rank, ordering key) and the rank is injective over the kinds, so two kinds drawn
@@ -195,11 +258,16 @@ private:
 };
 
 // The identity one command addresses. Total over the closed variant; adding a kind adds its arm
-// here and nowhere else.
+// here and nowhere else, and forgetting to add one is a compile error rather than a wrong answer:
+// the `else` arm reads `value.entity`, which a command carrying no entity does not have.
 [[nodiscard]] inline AddressedIdentity addressed_identity_of(const Command& command) noexcept {
   return std::visit(
       []<typename CommandType>(const CommandType& value) {
-        if constexpr (std::is_same_v<CommandType, SpawnCommand>) {
+        if constexpr (std::is_same_v<CommandType, SpawnCommand> ||
+                      std::is_same_v<CommandType, SetSeatCountCommand> ||
+                      std::is_same_v<CommandType, ClearSeatCommand> ||
+                      std::is_same_v<CommandType, SeatNpcCommand> ||
+                      std::is_same_v<CommandType, StartMatchCommand>) {
           return AddressedIdentity::of_controller(value.controller);
         } else {
           return AddressedIdentity::of_entity(value.entity);
@@ -223,6 +291,23 @@ command_kind_application_rank(const CommandKind kind) noexcept {
     return 1;
   case CommandKind::kThrust:
     return 2;
+  // The four lobby kinds run after every kind that touches an entity, and among themselves in the
+  // order one seat's story is told: which seats exist, then who leaves one, then who takes one,
+  // then whether to begin. That order is not decoration. `set_seat_count` first means a client may
+  // grow the roster and seat the new seat in the same tick. `clear_seat` before `seat_npc` means a
+  // client may replace a seat's occupant in one tick, which is the only way to replace one at all,
+  // since seating never overwrites. `start_match` last means a press submitted alongside the
+  // seating that completes the field is read after that seating rather than before it -- which
+  // costs nothing today, because `can_start` is asked at `kLifecycle` long after this pass, and
+  // which stays true the day something asks earlier.
+  case CommandKind::kSetSeatCount:
+    return 3;
+  case CommandKind::kClearSeat:
+    return 4;
+  case CommandKind::kSeatNpc:
+    return 5;
+  case CommandKind::kStartMatch:
+    return 6;
   }
   return static_cast<std::uint32_t>(kCommandKindCount);
 }

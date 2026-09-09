@@ -6,25 +6,48 @@
 
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace blob_royale::server {
 
-MatchSessionContext::MatchSessionContext(
-    runtime::CommandSink& command_sink, const runtime::ControllerDirectory& controller_directory,
-    std::string map_name, const simulation::CommandKindMask accepted_command_kinds) noexcept
+MatchSessionContext::MatchSessionContext(runtime::CommandSink& command_sink,
+                                         const runtime::ControllerDirectory& controller_directory,
+                                         std::string map_name,
+                                         const simulation::CommandKindMask accepted_command_kinds,
+                                         std::vector<std::string> npc_controller_kinds) noexcept
     : command_sink_(&command_sink), directory_view_(controller_directory),
-      map_name_(std::move(map_name)), accepted_command_kinds_(accepted_command_kinds) {}
+      map_name_(std::move(map_name)), accepted_command_kinds_(accepted_command_kinds),
+      npc_controller_kinds_(std::move(npc_controller_kinds)) {}
 
 MatchSessionContext MatchSessionContext::create(
     runtime::CommandSink& command_sink, const runtime::ControllerDirectory& controller_directory,
-    std::string map_name, const simulation::CommandKindMask accepted_command_kinds) {
+    std::string map_name, const simulation::CommandKindMask accepted_command_kinds,
+    std::vector<std::string> npc_controller_kinds) {
   if (!protocol::is_accepted_map_name(map_name)) {
     throw GameServerError{
         GameServerErrorCode::kSessionInvariantFailed, "match_session_context.map_name",
         "the map name is not a protocol v2 map_name of at most " +
             std::to_string(protocol::kMapNameMaximumCharacterCount) + " characters"};
   }
-  return {command_sink, controller_directory, std::move(map_name), accepted_command_kinds};
+  // A registered bot whose name the welcome could not publish is a build-time mistake, and this is
+  // the earliest place in the process that can see it. Failing here means the server does not
+  // start; failing later would mean every session's first frame throws instead.
+  if (npc_controller_kinds.size() > protocol::kNpcControllerKindLimit) {
+    throw GameServerError{GameServerErrorCode::kSessionInvariantFailed,
+                          "match_session_context.npc_controller_kinds",
+                          "the registered NPC controller kinds must number at most " +
+                              std::to_string(protocol::kNpcControllerKindLimit)};
+  }
+  for (const std::string& npc_controller_kind : npc_controller_kinds) {
+    if (!protocol::is_accepted_kind_name(npc_controller_kind)) {
+      throw GameServerError{GameServerErrorCode::kSessionInvariantFailed,
+                            "match_session_context.npc_controller_kinds",
+                            "the registered controller kind " + npc_controller_kind +
+                                " is not a protocol v2 kind_name"};
+    }
+  }
+  return {command_sink, controller_directory, std::move(map_name), accepted_command_kinds,
+          std::move(npc_controller_kinds)};
 }
 
 } // namespace blob_royale::server

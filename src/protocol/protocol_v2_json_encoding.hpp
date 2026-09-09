@@ -85,6 +85,26 @@ encode_error_response_v2(const V2HttpError& error, const RequestId& request_id,
 // It is the canonical two-store join over the published spans: an entity that carries a
 // `Controllable` naming this controller but no `PhysicsBody` is not a body and is skipped
 // (`src/simulation/component_join.hpp`).
+// canonical: find_controlled_entity -- the entity one controller owns, body or not.
+//
+// **This is a different question from `find_controlled_body` and the difference is load-bearing.**
+// A body is what a client draws and what a thrust addresses, so that resolution requires a
+// `PhysicsBody`. *Ownership* requires only the `Controllable` link, and the two diverge for a whole
+// class of ordinary session: one deferred by a full spawn ring, one waiting between a lobby wipe
+// and its reseat, one sitting in a lobby it has not been seated into yet. Such a session owns an
+// entity and has no body.
+//
+// It exists because the close path needs the second question. A session that leaves despawns what
+// it owns, and asking for a body there left every never-seated session's entity in the world
+// forever -- a Controllable with no body, unrenderable, uncounted as a player, and never destroyed.
+// That was reachable before the lobby existed, by joining a running royale; the lobby makes a
+// bodiless session the *normal* state of somebody who is about to play, which is why it is fixed
+// here. related: find_controlled_body -- the narrower question, for the welcome and the command
+// stamp.
+[[nodiscard]] std::optional<simulation::EntityId>
+find_controlled_entity(const simulation::WorldSnapshot& snapshot,
+                       simulation::ControllerId controller);
+
 [[nodiscard]] std::optional<simulation::EntityId>
 find_controlled_body(const simulation::WorldSnapshot& snapshot,
                      simulation::ControllerId controller);

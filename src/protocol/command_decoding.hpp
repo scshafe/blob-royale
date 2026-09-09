@@ -3,10 +3,13 @@
 
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 
 #include <cstdint>
 #include <optional>
+#include <span>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -109,20 +112,30 @@ private:
 // function is called, because charging after parsing is what would let one token buy unbounded
 // parser work.
 //
-// **The envelope names no entity.** `stamped_entity` is the session's own current body, supplied by
-// the caller, and it is the only entity a decoded command can ever address. There is no wire field
-// for a client to put someone else's id in, so "ignore the client's entity id" is not a check a
-// refactor can drop -- it is a shape that does not exist
-// (`docs/protocol/v2.md` § "Client command model").
+// **The envelope names no identity.** `stamped_entity` is the session's own current body and
+// `stamped_controller` is the durable identity the sink issued it; both are supplied by the caller,
+// and they are the only identities a decoded command can ever address. There is no wire field for a
+// client to put someone else's id in, so "ignore the client's entity id" is not a check a refactor
+// can drop -- it is a shape that does not exist (`docs/protocol/v2.md` § "Client command model").
+// The four lobby kinds carry the controller stamp for exactly this reason: a `start_match` that a
+// client could sign with somebody else's identity would let one peer spend another's decision.
 //
 // `accepted_kinds` is the running mode's mask. A kind that is registered on the wire but absent
 // from the mask is `kKindRejected`, which is the second of the two independent enforcement points;
 // `InputBatch::create` is the third and the `welcome` advertisement is none of them.
+//
+// `npc_controller_kinds` is the closed list this session's `welcome` published, read from
+// `ControllerRegistry` by the composition root. It is the one place a `seat_npc` payload's kind is
+// checked against what the server can actually build, and it is passed in rather than looked up
+// because the registry lives in `blob_controllers`, which this library neither links nor should.
 // related: command_wire_kind.hpp -- which simulation kinds a client may send, and under what name.
+// related: session_welcome.hpp -- the frame that publishes the same list to the client.
 // related: src/simulation/input_batch.hpp -- the revalidation inside the runtime.
 [[nodiscard]] CommandDecodeResult
 decode_command_envelope(std::string_view frame, simulation::CommandKindMask accepted_kinds,
-                        simulation::EntityId stamped_entity);
+                        simulation::EntityId stamped_entity,
+                        simulation::ControllerId stamped_controller,
+                        std::span<const std::string> npc_controller_kinds);
 
 } // namespace blob_royale::protocol
 

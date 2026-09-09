@@ -65,14 +65,19 @@ simulation::SystemPipeline RoyaleMode::systems() const {
 }
 
 void RoyaleMode::validate_map(const simulation::MapDefinition& map) const {
-  if (map.spawn_points().size() < configuration_.lobby_minimum_players()) {
+  // The map bounds the lobby: a seat with no spawn marker behind it is a player the field cannot
+  // seat, so a match that filled every seat could never put every seated blob in the arena. The
+  // check moved from the retired `lobby_minimum_players` to the seat count with the rule it guards
+  // -- "every seat is filled" replaced "the alive count crossed a threshold" -- and it is still the
+  // same startup rejection rather than a mid-match surprise.
+  if (map.spawn_points().size() < configuration_.lobby_seat_count()) {
     throw GameplayValidationError(GameplayValidationCode::kRoyaleMapWithoutEnoughSpawnPoints,
                                   "royale_mode.validate_map.spawn_points",
                                   "map " + std::string(map.name()) + " declares " +
                                       std::to_string(map.spawn_points().size()) +
                                       " spawn markers, fewer than the " +
-                                      std::to_string(configuration_.lobby_minimum_players()) +
-                                      " royale needs to ever satisfy can_start");
+                                      std::to_string(configuration_.lobby_seat_count()) +
+                                      " seats royale's lobby is created with");
   }
   const double full_radius = zone_full_radius(map.bounds());
   if (full_radius <= configuration_.zone_minimum_radius()) {

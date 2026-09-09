@@ -71,6 +71,12 @@ public:
     return simulation::ContactRuleTable::built_in();
   }
 
+  // The three kinds free play has any use for. **The four lobby kinds are deliberately absent**:
+  // `FreePlayObjective::can_start` is false forever, so a sandbox world has no match to seat anyone
+  // into and never leaves `lobby`. Accepting `start_match` here would advertise a button in every
+  // client's `welcome` that could not do anything, which is worse than not offering it -- and the
+  // seat roster a sandbox world still carries stays what it has always been: inert
+  // (`src/simulation/seat_roster.hpp`).
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
     return simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
                                                 simulation::CommandKind::kDespawn,

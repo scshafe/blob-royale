@@ -1,12 +1,17 @@
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
+#include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/seat_npc_command.hpp"
+#include "commands/set_seat_count_command.hpp"
 #include "commands/spawn_command.hpp"
+#include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "entity_id_reservation.hpp"
 #include "input_batch.hpp"
+#include "seat_roster.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 #include "vector2.hpp"
@@ -316,4 +321,62 @@ TEST_CASE("InputBatch canonicalization is a function of the submitted set, not i
       simulation::CommandKindMask::all(), reservation());
 
   CHECK(forward == reversed);
+}
+
+TEST_CASE("InputBatch rejects a lobby command whose seat value is outside the engine's bound",
+          "[unit][simulation][input_batch][lobby][validation]") {
+  // The third and last enforcement point, and the one that is a hard failure by design: a value
+  // reaching here means the session boundary and the sink both let it past, which ADR 0003
+  // § "Accepted simulation input" keeps a hard failure rather than a silent drop.
+  const auto rejected = [](simulation::Command command) {
+    return [command = std::move(command)] {
+      static_cast<void>(simulation::InputBatch::create(
+          {command}, simulation::CommandKindMask::all(), simulation::EntityIdReservation::none()));
+    };
+  };
+
+  CHECK_THROWS_AS(rejected(simulation::SeatNpcCommand{
+                      simulation::ControllerId::create(1), simulation::kMaximumLobbySeatCount,
+                      simulation::SeatKindName::create("wanderer")})(),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(rejected(simulation::ClearSeatCommand{simulation::ControllerId::create(1),
+                                                        simulation::kMaximumLobbySeatCount})(),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(
+      rejected(simulation::SetSeatCountCommand{simulation::ControllerId::create(1), 0})(),
+      simulation::SimulationValidationError);
+  CHECK_THROWS_AS(
+      rejected(simulation::SetSeatCountCommand{simulation::ControllerId::create(1),
+                                               simulation::kMaximumLobbySeatCount + 1})(),
+      simulation::SimulationValidationError);
+
+  // `start_match` carries no value beyond its sender, so there is nothing it can fail on.
+  CHECK_NOTHROW(rejected(simulation::StartMatchCommand{simulation::ControllerId::create(1)})());
+}
+
+TEST_CASE("InputBatch keeps one lobby command of each kind per sender and orders senders ascending",
+          "[unit][simulation][input_batch][lobby]") {
+  // The de-duplication that makes a held mouse button one decision, and the ordering that makes
+  // "the first of two clients to seat one seat wins" a stated rule rather than an accident of
+  // arrival.
+  const simulation::InputBatch batch = simulation::InputBatch::create(
+      {simulation::Command{simulation::SeatNpcCommand{simulation::ControllerId::create(9), 0,
+                                                      simulation::SeatKindName::create("chaser")}},
+       simulation::Command{simulation::SeatNpcCommand{
+           simulation::ControllerId::create(4), 1, simulation::SeatKindName::create("wanderer")}},
+       simulation::Command{simulation::SeatNpcCommand{simulation::ControllerId::create(4), 0,
+                                                      simulation::SeatKindName::create("chaser")}},
+       simulation::Command{simulation::StartMatchCommand{simulation::ControllerId::create(9)}}},
+      simulation::CommandKindMask::all(), simulation::EntityIdReservation::none());
+
+  REQUIRE(batch.commands().size() == 3);
+  // Controller 4's two seatings collapse to its last, and the survivors are ordered by ascending
+  // sender within the kind.
+  const auto& first = std::get<simulation::SeatNpcCommand>(batch.commands()[0]);
+  const auto& second = std::get<simulation::SeatNpcCommand>(batch.commands()[1]);
+  CHECK(first.controller == simulation::ControllerId::create(4));
+  CHECK(first.seat_index == 0);
+  CHECK(second.controller == simulation::ControllerId::create(9));
+  // And `start_match` follows every seating, because its application rank is the highest.
+  CHECK(std::holds_alternative<simulation::StartMatchCommand>(batch.commands()[2]));
 }

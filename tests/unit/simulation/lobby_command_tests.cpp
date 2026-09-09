@@ -11,10 +11,12 @@
 #include "game_simulation_setup.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "map_definition.hpp"
 #include "match_phase.hpp"
 #include "match_snapshot.hpp"
 #include "seat_roster.hpp"
 #include "simulation_config.hpp"
+#include "vector2.hpp"
 #include "world_snapshot.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -32,15 +34,33 @@ namespace simulation = blob_royale::simulation;
 
 namespace {
 
+// The map every lobby below runs on: `kSpawnPointCount` markers, which is the ceiling a lobby may
+// grow to at run time, exactly as it is the ceiling `validate_map` holds a configured count to.
+inline constexpr std::size_t kSpawnPointCount = 8;
+
+[[nodiscard]] simulation::MapDefinition lobby_map() {
+  std::vector<simulation::MapDefinition::Marker> markers;
+  markers.reserve(kSpawnPointCount);
+  for (std::size_t index = 0; index < kSpawnPointCount; ++index) {
+    markers.push_back(simulation::MapDefinition::Marker::spawn(
+        simulation::Vector2::create(50.0 * static_cast<double>(index + 1), 250.0)));
+  }
+  return simulation::MapDefinition::create("lobby_map",
+                                           simulation::ArenaBounds::create(500.0, 500.0), {},
+                                           std::move(markers), simulation::MapMetadata::none());
+}
+
 // A world with a declared lobby and nothing else, stepped with no mode, so the only thing any of
 // these ticks can change is the seat roster. There is no mode, so the engine's idle objective never
 // starts a match and the phase stays `lobby` unless a test moves it deliberately -- which is what
-// makes "the roster changed" the whole observable.
+// makes "the roster changed" the whole observable. The map is there because phase 0 holds a
+// `set_seat_count` to the map's spawn-marker count, and a bare arena has none.
 [[nodiscard]] simulation::GameSimulation lobby_simulation(const std::size_t seat_count) {
   simulation::GameWorld world = simulation::GameWorld::create({});
   world.mutable_match().seats = simulation::SeatRoster::of_size(seat_count);
   return simulation::GameSimulation::create(
-      simulation::SimulationConfig::create(500.0, 500.0, 10.0, 400, 8, 8), std::move(world));
+      simulation::SimulationConfig::create(500.0, 500.0, 10.0, 400, 8, 8), std::move(world),
+      simulation::GameSimulationSetup::engine_defaults().with_map(lobby_map()));
 }
 
 [[nodiscard]] simulation::InputBatch batch(std::vector<simulation::Command> commands) {
@@ -201,6 +221,26 @@ TEST_CASE("A lobby grows and shrinks, and never shrinks past somebody sitting do
   const simulation::SeatRoster grown = roster_of(game);
   CHECK(grown.seat_count() == 6);
   CHECK(npc_kind_at(grown, 5) == std::string{"chaser"});
+}
+
+TEST_CASE("A lobby never grows past the map's spawn markers",
+          "[unit][simulation][lobby][command]") {
+  // The wire admits any count up to 64 and `validate_map` only ever saw the configured count, so
+  // the run-time command is the one place a lobby could outgrow the arena it plays on. A count
+  // above the marker count is a disagreement with committed state -- the map -- that the client
+  // could not have known, so it is ignored rather than refused
+  // (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 3).
+  simulation::GameSimulation game = lobby_simulation(2);
+  step(game, {set_seat_count(1, kSpawnPointCount + 1)});
+  CHECK(roster_of(game).seat_count() == 2);
+  step(game, {set_seat_count(1, simulation::kMaximumLobbySeatCount)});
+  CHECK(roster_of(game).seat_count() == 2);
+
+  // Exactly the marker count is a lobby the field can seat in full.
+  step(game, {set_seat_count(1, kSpawnPointCount)});
+  CHECK(roster_of(game).seat_count() == kSpawnPointCount);
+  step(game, {set_seat_count(1, kSpawnPointCount + 1)});
+  CHECK(roster_of(game).seat_count() == kSpawnPointCount);
 }
 
 TEST_CASE("A seat index inside the wire bound that names no seat is ignored",

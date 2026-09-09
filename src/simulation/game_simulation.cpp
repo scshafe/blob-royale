@@ -108,14 +108,26 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 //
 // **A command that disagrees with committed state is ignored, never fatal**, exactly as a despawn
 // for an entity that does not exist is: the source is a network session whose view of the roster
-// lags the world by a frame, and a hard failure would let one client stop the match. There are four
+// lags the world by a frame, and a hard failure would let one client stop the match. There are five
 // such disagreements and each is a no-op -- the match is not in `lobby`, the seat index names no
-// seat in this roster, the seat a `seat_npc` names is already occupied, and a `set_seat_count`
-// would shrink past somebody sitting down (`seat_roster.hpp`, `try_set_seat_count`).
+// seat in this roster, the seat a `seat_npc` names is already occupied, a `set_seat_count` would
+// shrink past somebody sitting down (`seat_roster.hpp`, `try_set_seat_count`), and a
+// `set_seat_count` would grow past `seat_ceiling`.
+//
+// **`seat_ceiling` is the map's spawn-marker count**, handed in by the kernel from the map it was
+// constructed with. A seat with no marker behind it is a player the field could never seat, which
+// is exactly what `RoyaleMode::validate_map` refuses for the *configured* count at startup; the
+// command that resizes a lobby at run time is held to the same bound here, in the one place that
+// has both the roster and the map. It is a no-op rather than a rejection because the client cannot
+// know the bound -- no frame publishes a marker count -- and the taxonomy's line is whether it
+// could have (`docs/protocol/v2.md` § "The lobby commands"). It is not a `MatchState` member: the
+// ceiling is a fact about the map, and a member would grow every snapshot for a number the map
+// already owns.
 //
 // Returns true when the command was a lobby kind, whether or not it changed anything, so the caller
 // stops considering it.
-[[nodiscard]] bool apply_lobby_command(GameWorld& world, const Command& command) {
+[[nodiscard]] bool apply_lobby_command(GameWorld& world, const Command& command,
+                                       const std::size_t seat_ceiling) {
   const bool is_lobby_command = std::holds_alternative<SetSeatCountCommand>(command) ||
                                 std::holds_alternative<ClearSeatCommand>(command) ||
                                 std::holds_alternative<SeatNpcCommand>(command) ||
@@ -131,9 +143,13 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
   if (const auto* set_seat_count = std::get_if<SetSeatCountCommand>(&command);
       set_seat_count != nullptr) {
     // The range is `InputBatch::create`'s, checked before this batch existed, so the cast is on a
-    // value already known to fit the roster's own bound.
-    static_cast<void>(
-        match.seats.try_set_seat_count(static_cast<std::size_t>(set_seat_count->seat_count)));
+    // value already known to fit the roster's own bound. The map's tighter bound is this pass's
+    // to apply, and above it nothing changes.
+    const auto requested = static_cast<std::size_t>(set_seat_count->seat_count);
+    if (requested > seat_ceiling) {
+      return true;
+    }
+    static_cast<void>(match.seats.try_set_seat_count(requested));
     return true;
   }
   if (const auto* clear_seat = std::get_if<ClearSeatCommand>(&command); clear_seat != nullptr) {
@@ -182,7 +198,8 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
   return false;
 }
 
-void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
+void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
+                       const std::size_t seat_ceiling) {
   // Last tick's recorded commands are cleared in place rather than by reconstructing the
   // component, so each entity's vector keeps its capacity across ticks.
   for (Controllable& controllable : world.mutable_store<Controllable>().mutable_values()) {
@@ -212,7 +229,7 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch) {
                                                            Controllable{spawn->controller});
       continue;
     }
-    if (apply_lobby_command(world, command)) {
+    if (apply_lobby_command(world, command, seat_ceiling)) {
       continue;
     }
     // Total over the closed variant: every kind that addresses no entity is handled above, so this
@@ -647,7 +664,8 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   // § "Determinism obligations for framework code").
   GameWorld next_world = world_;
   next_world.open_tick(input_batch.entity_id_reservation());
-  apply_input_batch(next_world, input_batch);
+  // The map's spawn-marker count is the lobby's ceiling at run time, as it is at startup.
+  apply_input_batch(next_world, input_batch, map_.spawn_points().size());
 
   // The batch's own index: the bodies the despawns of this batch left, at this tick's
   // start-of-tick positions. It is derived before seating because the SpawnSystem's policy socket

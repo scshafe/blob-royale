@@ -198,7 +198,9 @@ public:
 
   // `seat_count` empty seats and no pending start. Throws SimulationValidationError outside
   // `[kMinimumSeatCount, kMaximumSeatCount]`; the tighter bound -- a map's spawn-marker count --
-  // belongs to the mode that knows what a spawn marker is and is applied by `validate_map`.
+  // is applied by the mode's `validate_map` to the configured count at startup and by kernel
+  // phase 0 to every `set_seat_count` at run time (`game_simulation.cpp`, apply_lobby_command),
+  // because the roster itself never sees a map.
   [[nodiscard]] static SeatRoster of_size(const std::size_t seat_count) {
     if (seat_count < kMinimumSeatCount || seat_count > kMaximumSeatCount) {
       throw SimulationValidationError(
@@ -271,7 +273,8 @@ public:
   // Throws SimulationValidationError for a count outside `[kMinimumSeatCount, kMaximumSeatCount]`,
   // because that is a defect in whatever produced it rather than a lagging view: a command carrying
   // a seat count is range-checked at the boundary and again by `InputBatch::create` before it can
-  // reach a tick.
+  // reach a tick. The map's spawn-marker ceiling is the caller's to apply before calling this, for
+  // the reason given at `of_size`.
   [[nodiscard]] bool try_set_seat_count(const std::size_t seat_count) {
     if (seat_count < kMinimumSeatCount || seat_count > kMaximumSeatCount) {
       throw SimulationValidationError(

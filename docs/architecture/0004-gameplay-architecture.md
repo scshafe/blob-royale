@@ -573,7 +573,9 @@ public:
   virtual ~MatchObjective() = default;
 
   [[nodiscard]] virtual bool can_start(const GameWorld& world) const = 0;
-  [[nodiscard]] virtual MatchOutcome outcome(const GameWorld& world) const = 0;
+  // Amended 2026-09-09: takes the committing tick's context as well; see the amendment below.
+  [[nodiscard]] virtual MatchOutcome outcome(const GameWorld& world,
+                                             const TickContext& context) const = 0;
   [[nodiscard]] virtual MatchLifecycleDurations durations() const noexcept = 0;
 };
 ```
@@ -1201,3 +1203,15 @@ decides whether a client may send a kind and under what wire name. A kind added 
 registered in the simulation and unreachable from the network, so the row now names it. This is the
 third correction to this table's counts, all in the same direction: an addition costs more files
 than the design's first estimate, and the honest number belongs here rather than in a step's notes.
+
+**Amended 2026-09-09 (ADR 0007, plan Step 1):** `MatchObjective::outcome` takes the committing
+tick's `TickContext` beside the world. This section lists "running past `time_limit_ticks`" as an
+outcome capture the flag returns and `MatchOutcome::drawn` names "a clock expiring level", but a
+committed world holds only the ticks at which phases *began*, so no objective written to the
+original signature could reach either. `MatchLifecycleSystem::apply` already held the context and
+now hands it on; `IdleMatchObjective`, `FreePlayObjective`, and `RoyaleObjective` take the argument
+and ignore it, and every accepted fixture's decision tick is unchanged. `can_start` is deliberately
+not widened: nothing about starting is timed by the objective. The alternative -- a mode system
+stamping the elapsed tick count into its own mode-state block for the objective to read back -- was
+rejected in `0007-king-of-the-hill-and-race-modes.md` § "Considered Options" as a clock smuggled
+past an interface that should carry it.

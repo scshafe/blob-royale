@@ -235,7 +235,8 @@ class UndecidedObjective final : public simulation::MatchObjective {
 public:
   [[nodiscard]] bool can_start(const simulation::GameWorld&) const override { return false; }
 
-  [[nodiscard]] simulation::MatchOutcome outcome(const simulation::GameWorld&) const override {
+  [[nodiscard]] simulation::MatchOutcome outcome(const simulation::GameWorld&,
+                                                 const simulation::TickContext&) const override {
     return simulation::MatchOutcome::undecided();
   }
 

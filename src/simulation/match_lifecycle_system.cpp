@@ -77,7 +77,7 @@ void MatchLifecycleSystem::apply(GameWorld& world, const TickContext& context) c
   case MatchPhase::kRunning: {
     // The objective is consulted only here, so a value it would consider nonsense in another
     // phase -- an empty field's `drawn` -- is never committed.
-    const MatchOutcome outcome = objective_->outcome(world);
+    const MatchOutcome outcome = objective_->outcome(world, context);
     if (outcome.is_decided()) {
       match.outcome = outcome;
       commit_transition(match, MatchPhase::kEnded, now);

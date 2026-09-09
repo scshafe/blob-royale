@@ -5,6 +5,7 @@
 #include "match_lifecycle_durations.hpp"
 #include "match_objective.hpp"
 #include "match_outcome.hpp"
+#include "tick_context.hpp"
 
 namespace blob_royale::gameplay {
 
@@ -30,7 +31,8 @@ public:
 
   [[nodiscard]] bool can_start(const simulation::GameWorld&) const override { return true; }
 
-  [[nodiscard]] simulation::MatchOutcome outcome(const simulation::GameWorld&) const override {
+  [[nodiscard]] simulation::MatchOutcome outcome(const simulation::GameWorld&,
+                                                 const simulation::TickContext&) const override {
     return simulation::MatchOutcome::undecided();
   }
 

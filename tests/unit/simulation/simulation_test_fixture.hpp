@@ -364,8 +364,8 @@ public:
     return alive_count(world) >= minimum_players_;
   }
 
-  [[nodiscard]] simulation::MatchOutcome
-  outcome(const simulation::GameWorld& world) const override {
+  [[nodiscard]] simulation::MatchOutcome outcome(const simulation::GameWorld& world,
+                                                 const simulation::TickContext&) const override {
     const std::size_t alive = alive_count(world);
     if (alive > 1) {
       return simulation::MatchOutcome::undecided();

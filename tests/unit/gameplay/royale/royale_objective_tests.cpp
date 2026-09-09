@@ -10,6 +10,8 @@
 #include "physics_body.hpp"
 #include "royale/royale_configuration.hpp"
 #include "seat_roster.hpp"
+#include "tick_context.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -22,6 +24,7 @@
 
 namespace gameplay = blob_royale::gameplay;
 namespace simulation = blob_royale::simulation;
+namespace testing = blob_royale::testing;
 
 namespace {
 
@@ -42,6 +45,15 @@ namespace {
 // seat count, because who plays is a `[match]` fact and the roster is world state.
 [[nodiscard]] gameplay::RoyaleObjective royale_objective() {
   return gameplay::RoyaleObjective{gameplay::RoyaleConfiguration::defaults()};
+}
+
+// `outcome` is asked with the committing tick's context, which royale takes and never reads. The
+// harness owns the map and index the context refers to, so the value cannot dangle.
+[[nodiscard]] simulation::MatchOutcome outcome_at(const gameplay::RoyaleObjective& objective,
+                                                  const simulation::GameWorld& world,
+                                                  const std::uint64_t tick_sequence = 1) {
+  const testing::TickHarness harness{simulation::TickSequence::create(tick_sequence)};
+  return objective.outcome(world, harness.context());
 }
 
 // A world whose lobby has `seat_count` seats, the first `filled_count` of them held by a
@@ -147,11 +159,31 @@ TEST_CASE("outcome names the last alive entity, draws an empty field, and is oth
           "[unit][gameplay][royale][objective]") {
   const gameplay::RoyaleObjective objective = royale_objective();
 
-  CHECK(objective.outcome(world_with_alive_entities(0)) == simulation::MatchOutcome::drawn());
-  CHECK(objective.outcome(world_with_alive_entities(1)) ==
+  CHECK(outcome_at(objective, world_with_alive_entities(0)) == simulation::MatchOutcome::drawn());
+  CHECK(outcome_at(objective, world_with_alive_entities(1)) ==
         simulation::MatchOutcome::won_by_entity(simulation::EntityId::create(1)));
-  CHECK(objective.outcome(world_with_alive_entities(2)) == simulation::MatchOutcome::undecided());
-  CHECK(objective.outcome(world_with_alive_entities(9)) == simulation::MatchOutcome::undecided());
+  CHECK(outcome_at(objective, world_with_alive_entities(2)) ==
+        simulation::MatchOutcome::undecided());
+  CHECK(outcome_at(objective, world_with_alive_entities(9)) ==
+        simulation::MatchOutcome::undecided());
+}
+
+TEST_CASE("royale's outcome is decided by who is left and never by the clock",
+          "[unit][gameplay][royale][objective]") {
+  // The interface hands every objective the committing tick's context so a mode can end on a time
+  // limit (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "Where the framework has
+  // to move"). Attrition has no clock: the same field is the same answer on tick 1 and a match
+  // later, which is what keeps every accepted royale fixture's decision tick where it was.
+  const gameplay::RoyaleObjective objective = royale_objective();
+  const simulation::GameWorld two_alive = world_with_alive_entities(2);
+  const simulation::GameWorld one_alive = world_with_alive_entities(1);
+
+  CHECK(outcome_at(objective, two_alive, 1) == simulation::MatchOutcome::undecided());
+  CHECK(outcome_at(objective, two_alive, 1'000'000) == simulation::MatchOutcome::undecided());
+  CHECK(outcome_at(objective, one_alive, 1) ==
+        simulation::MatchOutcome::won_by_entity(simulation::EntityId::create(1)));
+  CHECK(outcome_at(objective, one_alive, 1'000'000) ==
+        simulation::MatchOutcome::won_by_entity(simulation::EntityId::create(1)));
 }
 
 TEST_CASE("a pending entity and a body with no controller are not alive",
@@ -171,7 +203,7 @@ TEST_CASE("a pending entity and a body with no controller are not alive",
       simulation::EntityId::create(60),
       simulation::PhysicsBody::create_static(simulation::Vector2::create(500.0, 500.0)));
 
-  CHECK(objective.outcome(world) ==
+  CHECK(outcome_at(objective, world) ==
         simulation::MatchOutcome::won_by_entity(simulation::EntityId::create(1)));
 }
 

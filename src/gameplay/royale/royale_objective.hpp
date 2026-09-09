@@ -8,6 +8,7 @@
 #include "royale/royale_configuration.hpp"
 #include "royale/royale_roster.hpp"
 #include "seat_roster.hpp"
+#include "tick_context.hpp"
 
 #include <cstddef>
 #include <utility>
@@ -75,8 +76,9 @@ public:
     return seats.is_full() && seats.start_requested();
   }
 
-  [[nodiscard]] simulation::MatchOutcome
-  outcome(const simulation::GameWorld& world) const override {
+  // The context is taken and not read: attrition is decided by who is left, never by the clock.
+  [[nodiscard]] simulation::MatchOutcome outcome(const simulation::GameWorld& world,
+                                                 const simulation::TickContext&) const override {
     const std::vector<simulation::EntityId> alive = alive_entities(world);
     if (alive.size() == 1) {
       return simulation::MatchOutcome::won_by_entity(alive.front());

@@ -69,11 +69,12 @@ Facts the executor needs that the code does not say on its face, all verified in
 
 ### Phase 1 -- Framework amendments
 
-- [ ] **Step 1: Give the objective the tick context**
+- [x] **Step 1: Give the objective the tick context**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|fixtures' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|fixtures' linux-clang-asan-ubsan`
   - Notes: `outcome(const GameWorld&, const TickContext&)`; the lifecycle system passes its
     context; the three objectives take and ignore the argument. Amend ADR 0004 § "Game modes and
     the match lifecycle" with a dated entry in the same commit. No test may lose a case.
+  - Execution note (2026-09-09): `outcome(const GameWorld&, const TickContext&)`; the lifecycle system passes its context; the idle, free-play, and royale objectives and the two test objectives take and ignore it. Royale's tests call through a `TickHarness`, and a new case pins that attrition ignores the tick. ADR 0004's objective block and a dated amendment at its foot record the change. Verified at 507 of 510 on both lanes, the three failures being the deployment fixtures that had been failing since the rooms plan's Step 10 for a reason unrelated to this step (the deploy launch still passed a scenario to a four-room configuration); that is fixed as Step 17b of `2026-09-09-lobbies-as-rooms.md`, after which the `fixtures` filter is 21 of 21 on both lanes. `unit.protocol`, which holds one of the test objectives, was compiled and run separately on linux-gcc-debug before this commit.
 
 - [ ] **Step 2: Make `previous_phase` engine state**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' linux-clang-asan-ubsan && git diff --stat -- docs/protocol/schema/ | wc -l | grep -qx 0`

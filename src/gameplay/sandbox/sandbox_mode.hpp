@@ -9,7 +9,7 @@
 #include "map_definition.hpp"
 #include "match_objective.hpp"
 #include "sandbox/free_play_objective.hpp"
-#include "sandbox/next_free_spawn_point_policy.hpp"
+#include "shared/next_free_spawn_point_policy.hpp"
 #include "spawn_policy.hpp"
 #include "system_pipeline.hpp"
 
@@ -24,8 +24,9 @@ namespace blob_royale::gameplay {
 // The first of the two games in `blob_gameplay`, and **a mode is a declaration, not machinery**:
 // everything below is seven answers and one declared system. Steering is `thrust_steering`, which
 // `royale` declares too and which therefore lives in `src/gameplay/shared/`; seating is "the next
-// free point, in every phase"; the lifecycle is "always startable, never decided"; interactions are
-// the engine's own two contact rows. Sandbox contributes no component kind, no contact rule, no
+// free point, in every phase", `shared/next_free_spawn_point_policy.hpp`, which king of the hill
+// declares too; the lifecycle is "always startable, never decided"; interactions are the engine's
+// own two contact rows. Sandbox contributes no component kind, no contact rule, no
 // world event, no mode-state block, and no `kPostKernel` or `kLifecycle` system at all.
 //
 // The one balance number it owns is the thrust maximum, held here and handed to the system it

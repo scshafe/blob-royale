@@ -93,7 +93,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     refactor: the seating write and the predicate keep their expressions.
   - Execution note (2026-09-09): `spawn_seating.{hpp,cpp}` hold `point_is_occupied(point, bodies, player_radius)` and `seat_body_at_rest(world, entity, position, player_radius)`, moved out of `spawn_system.cpp` with their expressions intact -- the predicate keeps its `std::hypot` and its tolerance call -- and `SpawnSystem` composes them. The signatures take the radius and the body span rather than the configuration and the world the plan sketched, because that is exactly what each reads. Four direct tests pin the contact-range boundary, the empty arena, the at-rest write with an ordinary blob's physics, and replacement of a body the entity already carried. Verified at 412 of 412 on both lanes.
 
-- [ ] **Step 4: Promote the five shared rules**
+- [x] **Step 4: Promote the five shared rules**
   - Verify: `./scripts/verify-focused 'unit.gameplay|fixtures' && ./scripts/verify-focused 'unit.gameplay|fixtures' linux-clang-asan-ubsan && test -z "$(ls src/gameplay/royale src/gameplay/sandbox | grep -E 'roster|next_free')"`
   - Notes: `shared/roster.hpp` (plus `participant_entities`, `participant_count`),
     `shared/lobby_start_rule.hpp`, `shared/disc_geometry.hpp` (from `zone_elimination.cpp`),
@@ -102,6 +102,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     post-`ended` lobby deferral added here and a test for it; the `RespawnTimer` deferral is
     Step 5's, once the kind exists. Tests move with their sources; the gameplay README's file
     lists are remeasured by their own stated method.
+  - Execution note (2026-09-09): `shared/roster.hpp` (royale's alive functions plus `participant_count` and `participant_entities`), `shared/lobby_start_rule.hpp`, `shared/disc_geometry.hpp`, `shared/spawn_point_probe.hpp`, and `shared/next_free_spawn_point_policy.hpp` with the post-`ended` lobby deferral; royale's ring policy stays in `royale/` and calls the probe. Every moved expression is byte for byte what it was, and the five new test files pin the two populations, the start rule, the rim boundary, the probe's wrap, and the one tick the open-field policy defers in. One authoring slip fixed under this step: a test built a zero-seat lobby through `SeatRoster::of_size`, which refuses zero; the no-lobby world is the default roster. Verified at 135 of 135 on both lanes.
 
 - [ ] **Step 5: Add `RespawnTimer`, the `respawn` system, and `match_reset`; open protocol 2.5**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' linux-clang-asan-ubsan && ./scripts/verify-web`

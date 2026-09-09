@@ -26,10 +26,14 @@ src/gameplay/
     hazard_spawn_system.*       seats a crossing body per archetype whose interval is due
     lethal_hazard_contact_rule.* touching a lethal hazard eliminates the player, while a match runs
     lifetime_expiry_system.*    decrements `Lifetime` and despawns what runs out
+    roster.hpp                  the two populations a rule reads: who is alive, who is playing
+    lobby_start_rule.hpp        every seat filled and a start requested
+    disc_geometry.hpp           whether a centre is outside a circle, written once
+    spawn_point_probe.hpp       the forward probe from the rotation counter every policy shares
+    next_free_spawn_point_policy.hpp  the next free point, in every phase but the wipe tick
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations
-    next_free_spawn_point_policy.hpp  the next free point, in every phase
   royale/                       thrust and drag inside a shrinking zone, last blob standing
     royale_mode.*               the seven declarations
     royale_configuration.*      the validated `[royale]` section, in the units systems read
@@ -39,7 +43,6 @@ src/gameplay/
     elimination_grace_publisher_system.*  `G` on the wire, so a client can count down
     rotating_ring_spawn_policy.hpp  the next free point, and only between matches
     royale_objective.hpp        ending by attrition, as three total predicates
-    royale_roster.hpp           the one definition of "alive" royale's rules read
     royale_mode_state.hpp       the one answer to "what if the world holds another arm"
 ```
 
@@ -58,6 +61,18 @@ the parameter is now the full configuration context (`royale.zone_shrink_seconds
 three rejections carry owner-neutral `GAMEPLAY.DURATION_*` codes instead of `GAMEPLAY.ROYALE_*`
 ones. The arithmetic is untouched, so every accepted tick count is the value it always was, and
 `royale_configuration_tests.cpp` pins the contexts to prove it.
+
+Five more things crossed the line on 2026-09-09, the day the second and third competitive modes
+were designed (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "Shared rules
+promoted, because they now have a second customer"), each a pure move with at most one predicate
+added: `roster.hpp` (royale's "alive", plus "participant" -- every entity carrying a
+`Controllable`, which is the field a mode whose fallen come back decides by);
+`lobby_start_rule.hpp` (`RoyaleObjective::can_start`'s conjunction, now called by every lobby
+mode); `disc_geometry.hpp` (`zone_elimination`'s centre-outside-a-circle predicate, byte for byte);
+`spawn_point_probe.hpp` (the forward probe both spawn policies had written out); and
+`next_free_spawn_point_policy.hpp` (sandbox's open-field policy, which now also defers on the one
+`lobby` tick after `ended` so a restart wipe never destroys what the same tick seated -- a phase
+sandbox never reaches). Every royale fixture and the accepted baseline are unchanged by the five.
 
 ## Adding a game
 

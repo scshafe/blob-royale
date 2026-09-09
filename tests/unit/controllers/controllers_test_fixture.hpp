@@ -50,7 +50,7 @@ namespace runtime = blob_royale::runtime;
 // A map with a spawn marker at each requested position, in that order. Sandbox seats the entity
 // awaiting a body with the lowest `EntityId` at the first free marker and advances the rotation
 // counter, so with one spawn per controller in one tick, marker `i` seats the `i`-th lowest
-// `ControllerId` (`src/gameplay/sandbox/next_free_spawn_point_policy.hpp`;
+// `ControllerId` (`src/gameplay/shared/next_free_spawn_point_policy.hpp`;
 // `src/simulation/spawn_system.hpp`).
 [[nodiscard]] inline simulation::MapDefinition
 controllers_map(const std::vector<simulation::Vector2>& spawn_positions,

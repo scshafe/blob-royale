@@ -11,7 +11,7 @@
 #include "match_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "royale/royale_mode_state.hpp"
-#include "royale/royale_roster.hpp"
+#include "shared/roster.hpp"
 #include "simulation_limits.hpp"
 #include "tick_context.hpp"
 #include "world_event_registry.hpp"

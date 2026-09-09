@@ -5,6 +5,7 @@
 #include "game_world.hpp"
 #include "match_phase.hpp"
 #include "match_state.hpp"
+#include "shared/spawn_point_probe.hpp"
 #include "spawn_policy.hpp"
 #include "tick_context.hpp"
 
@@ -38,9 +39,10 @@ namespace blob_royale::gameplay {
 // previous tick and nothing rewrites before the end of this one, so the two rules cannot disagree
 // about which tick that is (`match_state.hpp`).
 //
-// The rotation is the whole of the rest: consecutive joiners are spread around the map's points
-// instead of stacking on the first free one, and the counter is world state, so seating is a
-// deterministic function of the committed world.
+// The rotation is the whole of the rest, and it is the shared probe of
+// `shared/spawn_point_probe.hpp`: consecutive joiners are spread around the map's points instead
+// of stacking on the first free one, and the counter is world state, so seating is a deterministic
+// function of the committed world.
 //
 // The engine's `SpawnSystem` owns everything else -- ascending-`EntityId` iteration over pending
 // entities, the occupancy test that produced `spawn_point_is_free`, the counter and its advance,
@@ -70,14 +72,7 @@ public:
         world.match().previous_phase == simulation::MatchPhase::kEnded) {
       return std::nullopt;
     }
-    const std::size_t point_count = spawn_point_is_free.size();
-    for (std::size_t probe = 0; probe < point_count; ++probe) {
-      const std::size_t index = (rotation_counter + probe) % point_count;
-      if (spawn_point_is_free[index]) {
-        return index;
-      }
-    }
-    return std::nullopt;
+    return next_free_spawn_point(rotation_counter, spawn_point_is_free);
   }
 };
 

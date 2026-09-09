@@ -6,8 +6,9 @@
 #include "match_objective.hpp"
 #include "match_outcome.hpp"
 #include "royale/royale_configuration.hpp"
-#include "royale/royale_roster.hpp"
 #include "seat_roster.hpp"
+#include "shared/lobby_start_rule.hpp"
+#include "shared/roster.hpp"
 #include "tick_context.hpp"
 
 #include <cstddef>
@@ -50,7 +51,7 @@ namespace blob_royale::gameplay {
 // is the difference the one-shot flag makes: the old threshold cycled forever on the same input,
 // this one stops.
 // related: royale_mode.hpp -- the one declaration that returns this.
-// related: royale/royale_roster.hpp -- the definition of "alive" the outcome reads.
+// related: shared/roster.hpp -- the definition of "alive" the outcome reads.
 // related: seat_roster.hpp -- the lobby `can_start` asks, and where the flag is cleared.
 class RoyaleObjective final : public simulation::MatchObjective {
 public:
@@ -60,20 +61,9 @@ public:
       : configuration_(std::move(configuration)) {}
 
   [[nodiscard]] bool can_start(const simulation::GameWorld& world) const override {
-    // Total in every phase, as the interface requires, and phase-free: the engine asks this both as
-    // "may it leave `lobby`" and as "may it stay in `countdown`", and the same conjunction answers
-    // both. It stays true through the countdown because the flag is cleared on arrival *in* `lobby`
-    // and never on departure from it (`match_lifecycle_system.cpp`), and it goes false the moment a
-    // seat empties or loses its bot, which is what returns a match whose field broke up to the
-    // lobby. A seat declared for a bot the runtime has not built yet is not filled
-    // (`seat_roster.hpp`, seat_is_filled), so a lobby of declarations cannot start a match with
-    // nobody in it.
-    //
-    // The alive count is deliberately not consulted. Who is *seated* is the lobby's business and
-    // who is *alive* is the outcome's, and conflating them is what made a joiner's arrival start
-    // somebody else's match.
-    const simulation::SeatRoster& seats = world.match().seats;
-    return seats.is_full() && seats.start_requested();
+    // Every lobby mode's rule, stated once in `shared/lobby_start_rule.hpp`: every seat filled and
+    // a start requested, phase-free and total, with the alive count deliberately not consulted.
+    return lobby_ready_to_start(world);
   }
 
   // The context is taken and not read: attrition is decided by who is left, never by the clock.

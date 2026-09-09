@@ -11,10 +11,9 @@
 #include "gameplay_validation_error.hpp"
 #include "match_phase.hpp"
 #include "physics_body.hpp"
-#include "simulation_limits.hpp"
+#include "shared/disc_geometry.hpp"
 #include "tick_context.hpp"
 
-#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -24,17 +23,6 @@ namespace blob_royale::gameplay {
 namespace {
 
 namespace simulation = blob_royale::simulation;
-
-// The elimination predicate, written exactly as `docs/architecture/0005-royale-mode.md`
-// § "Elimination and placement" states it. `sqrt(dx * dx + dy * dy)` is written out rather than
-// delegated to `std::hypot`, which computes a different binary64 value for the same inputs.
-[[nodiscard]] bool center_is_outside(const simulation::Vector2& position,
-                                     const simulation::Zone& zone) noexcept {
-  const double offset_x = position.x() - zone.center.x();
-  const double offset_y = position.y() - zone.center.y();
-  const double distance = std::sqrt((offset_x * offset_x) + (offset_y * offset_y));
-  return distance > zone.radius + simulation::kPositionTolerance;
-}
 
 } // namespace
 
@@ -72,7 +60,9 @@ void ZoneEliminationSystem::apply(simulation::GameWorld& world,
       [&world, &zone, grace_ticks](const simulation::EntityId entity,
                                    const simulation::PhysicsBody& body,
                                    const simulation::Controllable&) {
-        if (!center_is_outside(body.position(), zone)) {
+        // The elimination predicate is `shared/disc_geometry.hpp`, written exactly as
+        // `docs/architecture/0005-royale-mode.md` § "Elimination and placement" states it.
+        if (!center_is_outside(body.position(), zone.center, zone.radius)) {
           // Re-entering resets the counter and any partial grace is lost. Erasing rather than
           // storing an explicit zero keeps one world state with one spelling, because an absent
           // ZoneExposure already reads as zero.

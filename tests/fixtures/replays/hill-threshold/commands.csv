@@ -1,0 +1,10 @@
+# Running from tick 2; player 1 counts from tick 3 with a 4-tick interval, so its points land on
+# ticks 6, 10, and 14, and the third is the threshold: the objective decides won_by_entity(1) on
+# tick 14, the same tick the point is scored, because scoring runs at kPostKernel and the
+# objective at kLifecycle of one tick.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+1,,spawn,2,,,,,
+1,,join,1,,,,,
+1,,join,2,,,,,
+1,,start_match,1,,,,,

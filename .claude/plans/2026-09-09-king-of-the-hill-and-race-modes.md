@@ -148,7 +148,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     is measured for the README by the README's method.
   - Execution note (2026-09-09): `hill_scoring`, `HillObjective`, `hill_rules_publisher`, the `king_of_the_hill` block (three declared constants) with its arm, schema id, wire encoding, schema, enum member, and `if/then` row under the open 2.5, `KingOfTheHillMode`, and the registry's third row. The scoring tests pin the table line by line and the hill-absent rejection; the objective tests pin the order (a field of one before the scoreboard, a same-tick threshold is a draw, the clock ranks the leader, participants not bodies); the mode tests pin the eight systems in order, the map rejections, the registry, the hill entity created on the first tick with the block stamped beside it, and a scripted two-seat match decided by the threshold on the derived tick. Two background lanes were killed by host memory pressure at their last objects and were finished incrementally in the foreground. Verified at 644 of 644 on both lanes and 226 of 226 client tests.
 
-- [ ] **Step 9: Map and replay fixtures for the hill**
+- [x] **Step 9: Map and replay fixtures for the hill**
   - Verify: `./scripts/verify-focused 'fixtures' && ./scripts/verify-focused 'fixtures' linux-clang-asan-ubsan && git diff --quiet -- maps/arena-960x640`
   - Specialist: `testineer`
   - Notes: `maps/hills-960x640` with four `hill` markers and eight `spawn` markers, authored as
@@ -158,6 +158,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     threshold decision tick), `hill-contested` (no point while two hold it, a point once one
     leaves), `hill-time-limit` (a draw at the clock with level scores, then a win with one thrust
     more). Each runs 100 times bit-identical.
+  - Execution note (2026-09-09): `maps/hills-960x640` with four `hill` markers on the arena's horizontal midline and eight `spawn` markers on a ring, derived in its README; the shipped-map test loads it through the production loader. The fixture reader keeps the whole mode section as an opaque `[king_of_the_hill]` table and builds the mode through `GameModeRegistry::create`, so the harness is mode-generic and every royale fixture is byte-for-byte unchanged (the arena map is untouched by the verify's diff check). Four hill fixtures: `hill-scripted-match` (hill from the first tick, the tour's hop and glide on derived ticks, the freeze at `ended`, a point every interval, the clock ranking 27 to 19, the lobby wipe), `hill-threshold` (decided on the scoring tick), `hill-contested` (no point while two hold it, a point once one is pushed off), and `hill-time-limit-draw` (level scoreboard at the clock). Two corrections while authoring: a zero restart delay returns the ended match to the lobby, so the hill returns to marker 0 rather than staying frozen; and the tick that commits `ended -> lobby` at kLifecycle still wrote the frozen hill because `hill_movement` observed `ended` at kPostKernel, so the lobby's hill is first seen one tick later. Verified at 29 of 29 fixture tests on both lanes, the scripted hill match bit-identical over 100 fresh runs.
 
 ### Phase 3 -- King of the hill, client and bot
 

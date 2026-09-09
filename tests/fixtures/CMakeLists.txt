@@ -1,5 +1,6 @@
 add_executable(blob_royale_fixture_tests
   deployment_fixture_tests.cpp
+  king_of_the_hill_replay_fixture_tests.cpp
   map_fixture_tests.cpp
   replay_fixture.cpp
   royale_replay_fixture_tests.cpp

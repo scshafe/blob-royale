@@ -1,0 +1,5 @@
+# Both spawn points are well outside the one hill, so nobody ever scores.
+marker_kind,position_x_world_units,position_y_world_units
+spawn,200,320
+spawn,760,320
+hill,480,320

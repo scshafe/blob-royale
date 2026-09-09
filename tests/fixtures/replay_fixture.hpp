@@ -3,6 +3,8 @@
 
 #include "command_registry.hpp"
 #include "entity_id.hpp"
+#include "game_mode_configuration.hpp"
+#include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "map_definition.hpp"
 #include "royale/royale_configuration.hpp"
 #include "simulation_config.hpp"
@@ -32,8 +34,11 @@ namespace gameplay = blob_royale::gameplay;
 //                 [map] name, width_world_units, height_world_units
 //                 [simulation] player_radius_world_units, ticks_per_second, spatial_grid_columns,
 //                              spatial_grid_rows, drag_per_second
-//                 [royale] the six keys of `docs/architecture/0005-royale-mode.md`
-//                          § "Mode configuration"
+//                 the one section of the mode `[match] mode` names: [royale] with the six keys of
+//                 `docs/architecture/0005-royale-mode.md` § "Mode configuration", or
+//                 [king_of_the_hill] with the eleven keys of ADR 0007's table. A fixture carries
+//                 its own mode's section and no other, because a key no reader asked for is a
+//                 rejection.
 //   markers.csv   marker_kind,position_x_world_units,position_y_world_units
 //   commands.csv  tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,
 //                 seat_index,seat_count,npc_kind
@@ -63,7 +68,8 @@ namespace gameplay = blob_royale::gameplay;
 // system may create. Plan Step 22 gives the runtime its own allocator; this is what a replay uses
 // until then, and `first_reserved_entity_id` is how a test names an id the log did not.
 // related: royale_replay_fixture_tests.cpp -- the suite this format exists for.
-// related: royale/royale_configuration.hpp -- the `[royale]` values this validates through.
+// related: king_of_the_hill_replay_fixture_tests.cpp -- the hill's suite on the same format.
+// related: game_mode_configuration.hpp -- the validated sections this hands the mode registry.
 
 // A rejection from the replay reader. It is not a `SimulationValidationError` or a
 // `GameplayValidationError` because a malformed fixture is a defect in the test data rather than in
@@ -105,7 +111,18 @@ public:
     return configuration_;
   }
   [[nodiscard]] const simulation::MapDefinition& map() const noexcept { return map_; }
-  [[nodiscard]] const gameplay::RoyaleConfiguration& royale() const noexcept { return royale_; }
+  // The validated sections the mode is built from. The section the fixture's mode names is the
+  // fixture's own; every other member holds that mode's declared defaults, which the named mode
+  // never reads.
+  [[nodiscard]] const gameplay::GameModeConfiguration& mode_configuration() const noexcept {
+    return mode_configuration_;
+  }
+  [[nodiscard]] const gameplay::RoyaleConfiguration& royale() const noexcept {
+    return mode_configuration_.royale;
+  }
+  [[nodiscard]] const gameplay::KingOfTheHillConfiguration& king_of_the_hill() const noexcept {
+    return mode_configuration_.king_of_the_hill;
+  }
 
   // The lowest id of the block handed to `tick_sequence`, which is the id the first spawn command
   // of that tick created. Throws ReplayFixtureError for a tick outside `[1, tick_count]`.
@@ -125,7 +142,7 @@ private:
   ReplayFixture(std::string name, std::string mode_name, std::uint64_t seed,
                 std::uint64_t tick_count, std::uint64_t lobby_seat_count,
                 simulation::SimulationConfig configuration, simulation::MapDefinition map,
-                gameplay::RoyaleConfiguration royale,
+                gameplay::GameModeConfiguration mode_configuration,
                 std::vector<std::vector<simulation::Command>> commands_by_tick,
                 std::vector<std::uint64_t> spawn_count_by_tick);
 
@@ -136,7 +153,7 @@ private:
   std::uint64_t lobby_seat_count_;
   simulation::SimulationConfig configuration_;
   simulation::MapDefinition map_;
-  gameplay::RoyaleConfiguration royale_;
+  gameplay::GameModeConfiguration mode_configuration_;
   // Indexed by `tick_sequence - 1`, so entry zero is tick 1. A tick with no command holds an empty
   // vector rather than being absent, because every tick is stepped.
   std::vector<std::vector<simulation::Command>> commands_by_tick_;

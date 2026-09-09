@@ -18,6 +18,8 @@
 #include "game_simulation_setup.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "king_of_the_hill/king_of_the_hill_configuration.hpp"
+#include "king_of_the_hill/king_of_the_hill_mode.hpp"
 #include "royale/royale_mode.hpp"
 #include "seat_roster.hpp"
 #include "vector2.hpp"
@@ -203,6 +205,20 @@ public:
 
   [[nodiscard]] std::uint64_t count(const std::string& section, const std::string& key) {
     return parse_unsigned(value(section, key), path_ + ": [" + section + "] " + key);
+  }
+
+  // The one boolean spelling the production loader accepts, for the same reason: four spellings
+  // of one value are four ways for two fixtures to read differently while meaning the same thing.
+  [[nodiscard]] bool flag(const std::string& section, const std::string& key) {
+    const std::string& text = value(section, key);
+    if (text == "true") {
+      return true;
+    }
+    if (text == "false") {
+      return false;
+    }
+    throw ReplayFixtureError(path_ + ": [" + section + "] " + key +
+                             " must be exactly true or false");
   }
 
   void require_every_key_was_read() const {
@@ -465,17 +481,42 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
       map.bounds().width(), map.bounds().height(), player_radius, ticks_per_second, grid_columns,
       grid_rows, drag_per_second);
 
-  // Aggregate initialization of `Section` sequences its initializers left to right, unlike a
-  // function call's arguments, so this one is already ordered.
-  const gameplay::RoyaleConfiguration::Section royale_section{
-      match.number("royale", "thrust_max_world_units_per_second_squared"),
-      match.number("royale", "zone_minimum_radius_world_units"),
-      match.number("royale", "zone_shrink_seconds"),
-      match.number("royale", "elimination_grace_seconds"),
-      match.number("royale", "countdown_seconds"),
-      match.number("royale", "restart_delay_seconds")};
-  const gameplay::RoyaleConfiguration royale =
-      gameplay::RoyaleConfiguration::create(royale_section);
+  // The section of the mode the fixture names, and no other: a fixture whose balance numbers were
+  // silently replaced by a mode's defaults would assert against a game it is not running, and a
+  // section for a mode the fixture does not run is a key no reader asked for. Aggregate
+  // initialization of a `Section` sequences its initializers left to right, unlike a function
+  // call's arguments, so each one is already ordered.
+  gameplay::GameModeConfiguration mode_configuration = gameplay::GameModeConfiguration::defaults();
+  if (mode_name == gameplay::RoyaleMode::kModeName) {
+    const gameplay::RoyaleConfiguration::Section royale_section{
+        match.number("royale", "thrust_max_world_units_per_second_squared"),
+        match.number("royale", "zone_minimum_radius_world_units"),
+        match.number("royale", "zone_shrink_seconds"),
+        match.number("royale", "elimination_grace_seconds"),
+        match.number("royale", "countdown_seconds"),
+        match.number("royale", "restart_delay_seconds")};
+    mode_configuration.royale = gameplay::RoyaleConfiguration::create(royale_section);
+  } else if (mode_name == gameplay::KingOfTheHillMode::kModeName) {
+    const gameplay::KingOfTheHillConfiguration::Section hill_section{
+        match.number("king_of_the_hill", "thrust_max_world_units_per_second_squared"),
+        match.number("king_of_the_hill", "hill_radius_world_units"),
+        match.number("king_of_the_hill", "hill_dwell_seconds"),
+        match.number("king_of_the_hill", "hill_travel_seconds"),
+        match.number("king_of_the_hill", "point_interval_seconds"),
+        match.count("king_of_the_hill", "points_to_win"),
+        match.flag("king_of_the_hill", "contested_hill_scores"),
+        match.number("king_of_the_hill", "time_limit_seconds"),
+        match.number("king_of_the_hill", "respawn_delay_seconds"),
+        match.number("king_of_the_hill", "countdown_seconds"),
+        match.number("king_of_the_hill", "restart_delay_seconds")};
+    mode_configuration.king_of_the_hill =
+        gameplay::KingOfTheHillConfiguration::create(hill_section);
+  } else {
+    throw ReplayFixtureError(replay_directory.filename().string() + ": [match] mode=" + mode_name +
+                             " has no configuration section this format knows how to read; " +
+                             std::string(gameplay::RoyaleMode::kModeName) + " and " +
+                             std::string(gameplay::KingOfTheHillMode::kModeName) + " do");
+  }
 
   match.require_every_key_was_read();
 
@@ -488,8 +529,9 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
   }
 
   return ReplayFixture(replay_directory.filename().string(), std::move(mode_name), seed, tick_count,
-                       lobby_seat_count, configuration, std::move(map), royale,
-                       std::move(commands_by_tick), std::move(spawn_count_by_tick));
+                       lobby_seat_count, configuration, std::move(map),
+                       std::move(mode_configuration), std::move(commands_by_tick),
+                       std::move(spawn_count_by_tick));
 }
 
 ReplayFixture ReplayFixture::named(const std::string& fixture_name) {
@@ -499,12 +541,14 @@ ReplayFixture ReplayFixture::named(const std::string& fixture_name) {
 ReplayFixture::ReplayFixture(std::string name, std::string mode_name, const std::uint64_t seed,
                              const std::uint64_t tick_count, const std::uint64_t lobby_seat_count,
                              simulation::SimulationConfig configuration,
-                             simulation::MapDefinition map, gameplay::RoyaleConfiguration royale,
+                             simulation::MapDefinition map,
+                             gameplay::GameModeConfiguration mode_configuration,
                              std::vector<std::vector<simulation::Command>> commands_by_tick,
                              std::vector<std::uint64_t> spawn_count_by_tick)
     : name_(std::move(name)), mode_name_(std::move(mode_name)), seed_(seed),
       tick_count_(tick_count), lobby_seat_count_(lobby_seat_count),
-      configuration_(std::move(configuration)), map_(std::move(map)), royale_(std::move(royale)),
+      configuration_(std::move(configuration)), map_(std::move(map)),
+      mode_configuration_(std::move(mode_configuration)),
       commands_by_tick_(std::move(commands_by_tick)),
       spawn_count_by_tick_(std::move(spawn_count_by_tick)) {}
 
@@ -539,21 +583,16 @@ simulation::EntityId ReplayFixture::spawned_entity_id(const std::uint64_t tick_s
 
 std::vector<simulation::WorldSnapshot> ReplayFixture::run() const {
   // The mode name must resolve in the registry, because `[match] mode=` naming an unregistered game
-  // is exactly the rejection the registry exists for. The mode is then built from **this replay's**
-  // `[royale]` section rather than through the registry's factory, which takes no argument until
-  // plan Step 25 hands it a parsed section: a fixture whose balance numbers were silently replaced
-  // by the mode's defaults would assert against a game it is not running.
+  // is exactly the rejection the registry exists for. The mode is then built through the
+  // registry's own factory from **this replay's** sections, which is how production builds it, so
+  // the harness is generic over every registered game.
   if (!gameplay::GameModeRegistry::contains(mode_name_)) {
     throw ReplayFixtureError(name_ + ": [match] mode=" + mode_name_ +
                              " is registered by no row; the registered modes are " +
                              gameplay::GameModeRegistry::registered_names());
   }
-  if (mode_name_ != gameplay::RoyaleMode::kModeName) {
-    throw ReplayFixtureError(name_ + ": [match] mode=" + mode_name_ +
-                             " has no configuration section this format knows how to read; only " +
-                             std::string(gameplay::RoyaleMode::kModeName) + " does today");
-  }
-  std::unique_ptr<const simulation::GameMode> mode = gameplay::RoyaleMode::create(royale_);
+  std::unique_ptr<const simulation::GameMode> mode =
+      gameplay::GameModeRegistry::create(mode_name_, mode_configuration_);
   simulation::MapDefinition map = map_;
   simulation::GameWorld world = simulation::GameWorld::create(configuration_, map, seed_);
   // The lobby is part of the state a match begins in, so it is seeded onto the initial world here

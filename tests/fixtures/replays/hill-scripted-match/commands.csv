@@ -1,0 +1,23 @@
+# Two seats, taken and started on tick 1, which is the tick the two players join on. Zero
+# countdown: tick 1 commits lobby -> countdown, tick 2 commits countdown -> running with
+# `running_started_tick = 2`, and scoring first evaluates on tick 3 at elapsed tick e = 1.
+#
+# The hill dwells at the first stop for 100 ticks (e = 0..99, ticks 2..101), glides to the second
+# over 32 ticks (e = 100..131, ticks 102..133) at x = 400 + 10 * (e - 100), and dwells there from
+# tick 134; the glide back would begin on tick 234, but the match has ended by then and the hill
+# stays frozen at the second stop. With a 4-tick point interval:
+#
+#   player 1 at (400, 320) is inside while x - 400 <= 90, i.e. through e = 109 (tick 111), and
+#   scores on ticks 6, 10, ..., 110: 27 points; its partial point is erased on tick 112.
+#   player 2 at (720, 320) is inside from x >= 630, i.e. e = 123 (tick 125), and scores on ticks
+#   128, 132, ..., 200: 19 points by the tick the clock decides.
+#   the clock: time_limit 200 ticks, so e = 200 is tick 202, the first decided tick; player 1's 27
+#   beats player 2's 19 and the match ends won_by_entity(1) at tick 202, restart delay zero, so tick
+#   203 is lobby, the reset wipes both players on tick 204 (lobby after ended), and their sessions
+#   would re-spawn in production; this log has them not do so.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+1,,spawn,2,,,,,
+1,,join,1,,,,,
+1,,join,2,,,,,
+1,,start_match,1,,,,,

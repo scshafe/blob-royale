@@ -1,0 +1,5 @@
+# One hill marker, so the hill never moves; player 1 is seated on it and player 2 200 wu away.
+marker_kind,position_x_world_units,position_y_world_units
+spawn,400,320
+spawn,600,320
+hill,400,320

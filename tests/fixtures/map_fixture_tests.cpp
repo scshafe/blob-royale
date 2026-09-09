@@ -1,3 +1,4 @@
+#include "game_mode_registry.hpp"
 #include "map_loader.hpp"
 #include "match_configuration.hpp"
 #include "match_startup_validation.hpp"
@@ -98,4 +99,26 @@ TEST_CASE("the shipped arena and the shipped roster fit the snapshot entity boun
   // this hand-built roster, so the two tests cannot disagree about what is deployed.
   CHECK_NOTHROW(application::require_match_fits_snapshot_bound(match, map, {}));
   CHECK_NOTHROW(application::require_map_matches_published_world(shipped_configuration(), map));
+}
+
+TEST_CASE("the shipped hills-960x640 map loads through the production map loader",
+          "[fixtures][map][king_of_the_hill]") {
+  const blob_royale::simulation::MapDefinition map = blob_royale::application::MapLoader::load(
+      std::filesystem::path{BLOB_ROYALE_MAPS_DIRECTORY} / "hills-960x640");
+
+  CHECK(map.name() == "hills-960x640");
+  CHECK(map.bounds().width() == 960.0);
+  CHECK(map.bounds().height() == 640.0);
+  CHECK(map.static_bodies().empty());
+  // Eight spawn points, every fourth slot of the arena's ring, and the four stops of the tour.
+  CHECK(map.spawn_points().size() == 8);
+  std::size_t hill_count = 0;
+  for (const blob_royale::simulation::MapDefinition::Marker& marker : map.markers()) {
+    if (marker.kind == "hill") {
+      ++hill_count;
+    }
+  }
+  CHECK(hill_count == 4);
+  CHECK_NOTHROW(
+      blob_royale::gameplay::GameModeRegistry::create("king_of_the_hill")->validate_map(map));
 }

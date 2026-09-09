@@ -3,6 +3,7 @@
 
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
 #include "commands/spawn_command.hpp"
@@ -52,7 +53,7 @@ namespace blob_royale::simulation {
 // related: input_batch.hpp -- the one validated command value a tick may read.
 // related: kind_registry.hpp -- the derivation that keeps the kind list honest.
 using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand,
-                             ClearSeatCommand, SeatNpcCommand, StartMatchCommand>;
+                             ClearSeatCommand, SeatNpcCommand, StartMatchCommand, LeaveCommand>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -73,6 +74,9 @@ enum class CommandKind : std::uint32_t {
   kClearSeat = 1u << 4,
   kSeatNpc = 1u << 5,
   kStartMatch = 1u << 6,
+  // Server-issued on session close and applied after every other kind
+  // (`commands/leave_command.hpp`).
+  kLeave = 1u << 7,
 };
 
 // canonical: command_kind_of_type -- the enumerator of one command value type.
@@ -107,6 +111,10 @@ template <> struct CommandKindOf<SeatNpcCommand> {
 
 template <> struct CommandKindOf<StartMatchCommand> {
   static constexpr CommandKind value = CommandKind::kStartMatch;
+};
+
+template <> struct CommandKindOf<LeaveCommand> {
+  static constexpr CommandKind value = CommandKind::kLeave;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through CommandKindOf.
@@ -165,6 +173,12 @@ template <> struct CommandKindName<StartMatchCommand> {
   static constexpr std::string_view value = "start_match";
 };
 
+// Server-issued and therefore never on the wire; the name is what a replay log and a diagnostic
+// call it.
+template <> struct CommandKindName<LeaveCommand> {
+  static constexpr std::string_view value = "leave";
+};
+
 // The declared wire name of one command kind, for encoders, diagnostics, and fixtures.
 template <typename CommandType>
 inline constexpr std::string_view command_kind_name = CommandKindName<CommandType>::value;
@@ -194,6 +208,8 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
     return command_kind_name<SeatNpcCommand>;
   case CommandKind::kStartMatch:
     return command_kind_name<StartMatchCommand>;
+  case CommandKind::kLeave:
+    return command_kind_name<LeaveCommand>;
   }
   return "command_kind_invalid";
 }
@@ -208,7 +224,8 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
 // **A kind addresses whichever identity it actually carries.** A spawn addresses its ControllerId,
 // because the engine and not the command chooses the EntityId (`commands/spawn_command.hpp`), so it
 // has an ordering key and no entity: phase 0 creates an entity for it rather than recording against
-// one. The four lobby kinds address their ControllerId for a different reason: a lobby command acts
+// one. The lobby kinds and a leave address their ControllerId for a different reason: a lobby
+// command acts
 // on the *match*, not on a body, and the only identity it carries is the sender the boundary
 // stamped it with. That choice is what makes "two clients seating the same seat resolve by the
 // existing command order" true -- keying on the seat instead would collapse the two presses into
@@ -267,7 +284,8 @@ private:
                       std::is_same_v<CommandType, SetSeatCountCommand> ||
                       std::is_same_v<CommandType, ClearSeatCommand> ||
                       std::is_same_v<CommandType, SeatNpcCommand> ||
-                      std::is_same_v<CommandType, StartMatchCommand>) {
+                      std::is_same_v<CommandType, StartMatchCommand> ||
+                      std::is_same_v<CommandType, LeaveCommand>) {
           return AddressedIdentity::of_controller(value.controller);
         } else {
           return AddressedIdentity::of_entity(value.entity);
@@ -308,6 +326,11 @@ command_kind_application_rank(const CommandKind kind) noexcept {
     return 5;
   case CommandKind::kStartMatch:
     return 6;
+  // `leave` runs last of all. A spawn drained into the same batch must have created its entity
+  // before the leave destroys it, or a departed session's spawn would survive it; and a seating or
+  // a Start the leaver sent alongside is still the decision it made while present.
+  case CommandKind::kLeave:
+    return 7;
   }
   return static_cast<std::uint32_t>(kCommandKindCount);
 }

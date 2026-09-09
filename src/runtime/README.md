@@ -40,7 +40,9 @@ reverse. No drop is silent: every refusal is returned to the caller and counted 
 `CommandSink` has exactly three operations — `open_session`, `submit`, `close_session`.
 `open_session` returns a **`ControllerId`**, not an `EntityId`: the engine chooses entity ids inside
 `step` from the tick's reservation, and a controller outlives the entities it drives, so the durable
-identity is the only one a session can hold across an elimination.
+identity is the only one a session can hold across an elimination. `close_session` enqueues the
+controller's `leave` before retiring it, so the tick, not the session, destroys whatever the
+controller drove and vacates its seat; a session needs to know nothing about the world to leave it.
 
 ## Dependencies
 

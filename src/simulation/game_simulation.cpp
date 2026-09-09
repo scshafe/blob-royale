@@ -72,7 +72,9 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 // which is engine-owned state gating an engine-owned transition. The rule the ADR is stating is
 // that a *mode's* meaning is a mode's system, which is exactly why `thrust` is recorded rather than
 // applied: what a thrust does depends on a `thrust_max` only the mode knows. Nothing about a seat
-// depends on the mode; a mode reads the roster through its objective and never writes one.
+// depends on the mode; a mode reads the roster through its objective and never writes one. A
+// `leave` is the engine's own for the reason a despawn is: it removes what a departed controller
+// drove and vacates its seat, and nothing about that depends on the mode either.
 //
 // A command that disagrees with committed world state -- a despawn for an entity that does not
 // exist, a command recorded for an entity that is not live -- is ignored rather than failing the
@@ -198,6 +200,39 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
   return false;
 }
 
+// Phase 0's arm for a departed controller. Every entity whose `Controllable` names it is destroyed,
+// pending or seated, and any seat it holds is vacated: a person's seat empties, an NPC seat keeps
+// its declared kind and loses its bot, so the reconciliation that created the bot can create
+// another. Both walks are ascending by construction, and a controller that drives nothing and sits
+// nowhere is a no-op -- which is what makes a repeated close harmless and a replayed leave for a
+// never-seated controller legal (`commands/leave_command.hpp`).
+void apply_leave(GameWorld& world, const ControllerId controller) {
+  std::vector<EntityId> driven;
+  for (const auto& entry : world.store<Controllable>().entries()) {
+    if (entry.value.controller_id == controller) {
+      driven.push_back(entry.entity);
+    }
+  }
+  for (const EntityId entity : driven) {
+    world.destroy_entity(entity);
+  }
+
+  SeatRoster& seats = world.mutable_match().seats;
+  for (std::size_t index = 0; index < seats.seat_count(); ++index) {
+    const Seat& seat = seats.seats()[index];
+    if (const auto* held = std::get_if<ControllerSeat>(&seat);
+        held != nullptr && held->controller == controller) {
+      seats.assign_seat(index, Seat{EmptySeat{}});
+      continue;
+    }
+    if (const auto* declared = std::get_if<NpcSeat>(&seat);
+        declared != nullptr && declared->controller == controller) {
+      const SeatKindName kind = declared->kind;
+      seats.assign_seat(index, Seat{NpcSeat{kind, std::nullopt}});
+    }
+  }
+}
+
 void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
                        const std::size_t seat_ceiling) {
   // Last tick's recorded commands are cleared in place rather than by reconstructing the
@@ -230,6 +265,10 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
       continue;
     }
     if (apply_lobby_command(world, command, seat_ceiling)) {
+      continue;
+    }
+    if (const auto* leave = std::get_if<LeaveCommand>(&command); leave != nullptr) {
+      apply_leave(world, leave->controller);
       continue;
     }
     // Total over the closed variant: every kind that addresses no entity is handled above, so this
@@ -576,6 +615,25 @@ struct IndexedBody final {
                     });
 }
 
+// A declared mode must accept the kinds the server issues for every session: `spawn` on admission,
+// `leave` on close, and `despawn`, which a fixture or a test issues by entity. A mode that refused
+// one would have the mailbox drop it on every disconnect, counted but otherwise silent, and the
+// result is a body nobody owns left in the arena -- the failure this check turns into a startup
+// rejection with a name (`commands/leave_command.hpp`).
+void require_mode_accepts_server_issued_kinds(const CommandKindMask accepted,
+                                              const std::string_view mode_name) {
+  for (const CommandKind kind : {CommandKind::kSpawn, CommandKind::kDespawn, CommandKind::kLeave}) {
+    if (accepted.contains(kind)) {
+      continue;
+    }
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameSimulationModeRefusesServerIssuedKind,
+        "game_simulation.setup.accepted_command_kinds",
+        "mode " + std::string(mode_name) + " does not accept the server-issued command kind " +
+            std::string(command_kind_name_of(kind)));
+  }
+}
+
 // Not noexcept, because `systems_at` rejects a stage outside the closed enumeration rather than
 // reading past its offsets array (engine review finding 15). Every call below names a literal
 // enumerator, so the rejection is unreachable from the kernel and is there for the caller that
@@ -620,6 +678,7 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
     declared_systems = mode.systems();
     contact_rules = mode.contact_rules();
     accepted_command_kinds = mode.accepted_command_kinds();
+    require_mode_accepts_server_issued_kinds(accepted_command_kinds, mode.name());
     spawn_policy = mode.spawn_policy();
     objective = mode.objective();
   } else {

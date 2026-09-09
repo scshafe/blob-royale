@@ -18,6 +18,10 @@ namespace blob_royale::runtime {
 // a dropped spawn leaves a connected player with no body -- both are visible, persistent
 // corruptions of the roster, while a dropped thrust is one missed 2.5 ms of steering.
 //
+// **A `leave` answers `true` for the reason a despawn does, only more so.** It is the one command
+// that removes a departed session's entities and vacates its seat, and a dropped one is exactly the
+// body nobody owns that review finding 1 describes; the session that could have re-sent it is gone.
+//
 // **The four lobby kinds answer `false`, and the answer took some deciding.** They change the
 // *seat* roster rather than the entity roster, so the question this function asks is answered no by
 // construction. The tempting argument for `true` is that a dropped `start_match` is a button that
@@ -40,6 +44,7 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   switch (kind) {
   case simulation::CommandKind::kSpawn:
   case simulation::CommandKind::kDespawn:
+  case simulation::CommandKind::kLeave:
     return true;
   case simulation::CommandKind::kThrust:
   case simulation::CommandKind::kSetSeatCount:
@@ -51,7 +56,7 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   return false;
 }
 
-static_assert(simulation::kCommandKindCount == 7,
+static_assert(simulation::kCommandKindCount == 8,
               "a new CommandKind must declare in is_entity_lifecycle_command whether losing it "
               "changes whether an entity exists");
 

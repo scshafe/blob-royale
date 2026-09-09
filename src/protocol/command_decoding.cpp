@@ -240,6 +240,7 @@ decode_payload(const simulation::CommandKind kind, const json::object& payload,
     return decode_start_match(payload, stamped_controller);
   case simulation::CommandKind::kSpawn:
   case simulation::CommandKind::kDespawn:
+  case simulation::CommandKind::kLeave:
     break;
   }
   return CommandDecodeResult::rejected(CommandDecodeRejection::kKindRejected);

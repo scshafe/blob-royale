@@ -78,9 +78,9 @@ public:
   // seat roster a sandbox world still carries stays what it has always been: inert
   // (`src/simulation/seat_roster.hpp`).
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
-    return simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
-                                                simulation::CommandKind::kDespawn,
-                                                simulation::CommandKind::kThrust});
+    return simulation::CommandKindMask::create(
+        {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kThrust});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

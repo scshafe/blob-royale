@@ -96,8 +96,11 @@ public:
   [[nodiscard]] CommandSubmissionResult submit(simulation::ControllerId controller,
                                                const simulation::Command& command);
 
-  // Retires one controller identity: its entry leaves the directory and it may submit nothing more.
-  // Idempotent -- a second close reports `kUnknownControllerId` rather than failing -- because a
+  // Enqueues this controller's `leave`, then retires the identity: its entry leaves the directory
+  // and it may submit nothing more. The leave is what destroys everything the controller drove,
+  // seated or still queued as a spawn, and vacates its seat, so a caller needs to know nothing
+  // about the world to leave it cleanly (`commands/leave_command.hpp`). Idempotent -- a second
+  // close enqueues nothing and reports `kUnknownControllerId` rather than failing -- because a
   // session's close path may run on more than one code path.
   [[nodiscard]] ControllerCloseResult close_session(simulation::ControllerId controller);
 

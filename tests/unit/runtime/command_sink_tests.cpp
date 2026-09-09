@@ -4,6 +4,7 @@
 #include "command_sink.hpp"
 #include "command_sink_error.hpp"
 #include "command_submission_result.hpp"
+#include "commands/leave_command.hpp"
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
@@ -19,6 +20,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace runtime = blob_royale::runtime;
 namespace simulation = blob_royale::simulation;
@@ -146,7 +148,30 @@ TEST_CASE("CommandSink refuses a command submitted after the session closed",
 
   REQUIRE(fixture.sink.submit(controller, thrust_fixture(kIssuedEntityId, 1.0, 0.0)) ==
           runtime::CommandSubmissionResult::kRejectedSessionNotOpen);
-  REQUIRE(fixture.mailbox.statistics().submitted_command_count == 0);
+  // The one submission the mailbox saw is the leave the close itself enqueued; the refused thrust
+  // never reached it.
+  REQUIRE(fixture.mailbox.statistics().submitted_command_count == 1);
+}
+
+TEST_CASE("CommandSink enqueues one leave for a closing session and none for a second close",
+          "[unit][runtime][command_sink][leave]") {
+  CommandSinkFixture fixture;
+  const simulation::ControllerId controller = fixture.sink.open_session("session", "Ada");
+
+  // The leave is in the mailbox before the identity is retired, stamped with the controller that
+  // is leaving, so the tick can destroy whatever it drove without the session naming an entity.
+  REQUIRE(fixture.sink.close_session(controller) == runtime::ControllerCloseResult::kClosed);
+  const std::vector<simulation::Command> drained = fixture.mailbox.drain();
+  REQUIRE(drained.size() == 1);
+  CHECK(drained[0] == simulation::Command{simulation::LeaveCommand{controller}});
+
+  // A second close is refused at the sink as a closed session, so its leave never reaches the
+  // mailbox at all: one submission, one acceptance, nothing to drain.
+  REQUIRE(fixture.sink.close_session(controller) ==
+          runtime::ControllerCloseResult::kUnknownControllerId);
+  CHECK(fixture.mailbox.drain().empty());
+  CHECK(fixture.mailbox.statistics().submitted_command_count == 1);
+  CHECK(fixture.mailbox.statistics().accepted_command_count == 1);
 }
 
 TEST_CASE("CommandSink reports a second close of one session rather than failing",

@@ -14,7 +14,6 @@
 #include "command_sink_error.hpp"
 
 #include "command_registry.hpp"
-#include "commands/despawn_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "controller_id.hpp"
 #include "world_snapshot.hpp"
@@ -473,10 +472,6 @@ void SessionWebSocketSession::observe_own_entity(
   // frame. An absent answer is the ordinary state of a player who is eliminated, waiting for the
   // next match, or deferred by the mode's spawn policy.
   current_entity_ = protocol::find_controlled_body(snapshot, *controller_);
-  // And, separately, what this session *owns*. A deferred or unseated session owns an entity and
-  // has no body, and the close path has to despawn the one it owns or leave it in the world
-  // forever.
-  current_controlled_entity_ = protocol::find_controlled_entity(snapshot, *controller_);
   if (current_entity_.has_value()) {
     last_spawn_request_tick_.reset();
   }
@@ -773,25 +768,16 @@ void SessionWebSocketSession::leave_match() noexcept {
   }
   left_match_ = true;
   try {
-    runtime::CommandSink& command_sink = server_context_->match_session().command_sink();
-    // **Ownership, not a body.** A session that was never seated -- deferred by a full spawn ring,
-    // or still sitting in a lobby -- owns an entity carrying only its `Controllable`, and
-    // despawning only bodies left that entity in the world for the rest of the process:
-    // unrenderable, uncounted as a player, and destroyed by nothing. It was reachable before the
-    // lobby existed and the lobby makes it the normal case, because sitting in a lobby without a
-    // body is what a player about to play is doing.
-    if (current_controlled_entity_.has_value()) {
-      // The despawn precedes the retirement, because `CommandSink::submit` refuses a closed
-      // session. A despawn naming a body the tick has already destroyed is ignored by contract,
-      // so racing an elimination is benign; a despawn the mailbox drops is counted and the
-      // composition root reports it at error severity, because the roster itself lost a change.
-      static_cast<void>(command_sink.submit(
-          *controller_,
-          simulation::Command{simulation::DespawnCommand{*current_controlled_entity_}}));
-    }
-    static_cast<void>(command_sink.close_session(*controller_));
+    // **The sink leaves on this session's behalf.** `close_session` enqueues a `leave` for the
+    // controller before retiring it, and the tick destroys whatever the controller drove -- a
+    // seated body, a pending entity, or a spawn still queued at this instant -- and vacates its
+    // seat. This session therefore needs to know nothing about its own entity to leave cleanly,
+    // which is the property a session-side despawn could not have: it despawned only what the last
+    // presentation slot had observed, and a spawn submitted at that slot and applied after it left
+    // a body nobody owned (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 1).
+    static_cast<void>(server_context_->match_session().command_sink().close_session(*controller_));
   } catch (...) {
-    // Neither operation throws by contract; a terminal path may not propagate regardless.
+    // The operation does not throw by contract; a terminal path may not propagate regardless.
   }
 }
 

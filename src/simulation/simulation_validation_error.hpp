@@ -51,6 +51,7 @@ enum class SimulationValidationCode {
   kSpawnPolicyPointOccupied,
   kMapSpawnPointNotSeatable,
   kGameSimulationSetupConflict,
+  kGameSimulationModeRefusesServerIssuedKind,
   kSystemPipelineSystemMissing,
   kSystemPipelineSystemNameEmpty,
   kSystemPipelineDuplicateSystemName,
@@ -164,6 +165,8 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.MAP_SPAWN_POINT_NOT_SEATABLE";
   case SimulationValidationCode::kGameSimulationSetupConflict:
     return "SIMULATION.GAME_SIMULATION_SETUP_CONFLICT";
+  case SimulationValidationCode::kGameSimulationModeRefusesServerIssuedKind:
+    return "SIMULATION.GAME_SIMULATION_MODE_REFUSES_SERVER_ISSUED_KIND";
   case SimulationValidationCode::kSystemPipelineSystemMissing:
     return "SIMULATION.SYSTEM_PIPELINE_SYSTEM_MISSING";
   case SimulationValidationCode::kSystemPipelineSystemNameEmpty:

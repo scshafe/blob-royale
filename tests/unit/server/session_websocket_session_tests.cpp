@@ -4,8 +4,15 @@
 #include "server_test_fixture.hpp"
 #include "session_websocket_session.hpp"
 
+#include "command_kind_mask.hpp"
+#include "command_mailbox.hpp"
+#include "components/controllable_component.hpp"
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
+#include "match_session_context.hpp"
+#include "server_config.hpp"
+#include "simulation_runtime.hpp"
+#include "world_snapshot.hpp"
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/address_v4.hpp>
@@ -27,6 +34,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -399,4 +407,172 @@ TEST_CASE("SessionWebSocketSession logs every lobby command it submits, with the
   REQUIRE(logged->detail.has_value());
   CHECK(logged->detail->find("kind=start_match") != std::string::npos);
   CHECK(logged->detail->find("result=accepted") != std::string::npos);
+}
+
+namespace {
+
+// The same harness shape as `SessionHarness`, except that the publication the server reads is a
+// **live** runtime's and that runtime is ticking, so a spawn the session submits is actually
+// applied. Presentation runs at one slot per second, which turns the window between "spawn
+// submitted" and "body observed" from ~33 ms into ~1 s so the test can close inside it reliably.
+class LiveRuntimeHarness final {
+public:
+  LiveRuntimeHarness()
+      : simulation_runtime_(fixture::game_simulation()),
+        acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
+        server_context_(std::make_shared<server::ServerExecutionContext>(
+            server_io_context_, server_config(acceptor_.local_endpoint().port()),
+            simulation_runtime_.snapshot_publication(), match_context(), log_capture_.logger)),
+        client_socket_(client_io_context_), server_socket_(server_io_context_) {
+    simulation_runtime_.start();
+    client_socket_.connect(acceptor_.local_endpoint());
+    acceptor_.accept(server_socket_);
+  }
+
+  LiveRuntimeHarness(const LiveRuntimeHarness&) = delete;
+  LiveRuntimeHarness(LiveRuntimeHarness&&) = delete;
+  LiveRuntimeHarness& operator=(const LiveRuntimeHarness&) = delete;
+  LiveRuntimeHarness& operator=(LiveRuntimeHarness&&) = delete;
+  ~LiveRuntimeHarness() { simulation_runtime_.stop(); }
+
+  [[nodiscard]] std::shared_ptr<server::SessionWebSocketSession>
+  make_session(const std::string_view request_id, server::PeerIdentity peer_identity) {
+    server::TcpReservationResult tcp_reservation =
+        server_context_->traffic_policy().reserve_tcp_connection(
+            kPeerAddress, server::PeerTrafficPolicy::Clock::now());
+    server::WebSocketReservationResult websocket_reservation =
+        server_context_->traffic_policy().reserve_websocket(
+            kPeerAddress, server::PeerTrafficPolicy::Clock::now());
+    if (!tcp_reservation.lease.has_value() || !websocket_reservation.lease.has_value()) {
+      throw std::runtime_error{"test session could not reserve admission capacity"};
+    }
+    return std::make_shared<server::SessionWebSocketSession>(
+        std::move(server_socket_), server_context_, std::string{kPeerAddress},
+        protocol::RequestId::create(std::string{request_id}), std::move(peer_identity),
+        std::move(*websocket_reservation.lease), std::move(*tcp_reservation.lease));
+  }
+
+  [[nodiscard]] server::GameApiHttpRequest request(const std::string_view request_id) const {
+    server::GameApiHttpRequest result{boost::beast::http::verb::get, "/api/v2/session", 11};
+    result.set(boost::beast::http::field::host,
+               std::string{"127.0.0.1:"}.append(std::to_string(acceptor_.local_endpoint().port())));
+    result.set(boost::beast::http::field::connection, "Upgrade");
+    result.set(boost::beast::http::field::upgrade, "websocket");
+    result.set(boost::beast::http::field::sec_websocket_version, "13");
+    result.set(boost::beast::http::field::sec_websocket_key, "dGhlIHNhbXBsZSBub25jZQ==");
+    result.set(boost::beast::http::field::sec_websocket_protocol, kSessionSubprotocol);
+    result.set("X-Request-ID", request_id);
+    return result;
+  }
+
+  [[nodiscard]] boost::asio::io_context& server_io_context() noexcept { return server_io_context_; }
+  [[nodiscard]] Tcp::socket& client_socket() noexcept { return client_socket_; }
+  [[nodiscard]] runtime::SimulationRuntime& simulation_runtime() noexcept {
+    return simulation_runtime_;
+  }
+  [[nodiscard]] const fixture::LogCapture& log_capture() const noexcept { return log_capture_; }
+
+private:
+  [[nodiscard]] server::MatchSessionContext match_context() {
+    return server::MatchSessionContext::create(
+        simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
+        std::string{fixture::kFixtureMapName}, simulation::CommandKindMask::all(),
+        std::vector<std::string>{"wanderer"});
+  }
+
+  [[nodiscard]] static server::ServerConfig server_config(const std::uint16_t port) {
+    return server::ServerConfig::create(
+        "127.0.0.1", port, 1, fixture::kWorldWidth, fixture::kWorldHeight, fixture::kPlayerRadius,
+        {std::string{"127.0.0.1:"}.append(std::to_string(port))}, {}, {});
+  }
+
+  boost::asio::io_context server_io_context_{1};
+  boost::asio::io_context client_io_context_{1};
+  runtime::SimulationRuntime simulation_runtime_;
+  fixture::LogCapture log_capture_;
+  Tcp::acceptor acceptor_;
+  std::shared_ptr<server::ServerExecutionContext> server_context_;
+  Tcp::socket client_socket_;
+  Tcp::socket server_socket_;
+};
+
+template <typename Predicate>
+void run_until_within(boost::asio::io_context& io_context,
+                      const std::chrono::steady_clock::duration budget, Predicate predicate) {
+  const auto deadline = std::chrono::steady_clock::now() + budget;
+  while (std::chrono::steady_clock::now() < deadline) {
+    io_context.restart();
+    static_cast<void>(io_context.poll());
+    if (predicate()) {
+      return;
+    }
+    std::this_thread::sleep_for(1ms);
+  }
+}
+
+[[nodiscard]] std::size_t count_events(const LiveRuntimeHarness& harness,
+                                       const std::string_view event) {
+  std::size_t count = 0;
+  for (const blob_royale::test_support::CapturedStructuredLogEvent& record :
+       harness.log_capture().events()) {
+    count += record.event == event ? 1U : 0U;
+  }
+  return count;
+}
+
+[[nodiscard]] bool world_holds_controller(const simulation::WorldSnapshot& snapshot,
+                                          const simulation::ControllerId controller) {
+  for (const auto& entry : snapshot.components<simulation::Controllable>()) {
+    if (entry.value.controller_id == controller) {
+      return true;
+    }
+  }
+  return false;
+}
+
+} // namespace
+
+TEST_CASE(
+    "SessionWebSocketSession leaves nothing behind when it closes while its spawn is in flight",
+    "[unit][server][v2][session][ownership][leave]") {
+  // Review finding 1, inverted. The socket closes between the presentation slot that submitted the
+  // spawn and the slot that would have observed the body; the leave the sink enqueues at close is
+  // what destroys the entity the queued spawn goes on to create.
+  constexpr std::string_view kRequestId = "unit.session.spawn-in-flight";
+  LiveRuntimeHarness harness;
+  const simulation::ControllerId issued = simulation::ControllerId::create(
+      harness.simulation_runtime().command_sink().next_controller_id());
+  const std::shared_ptr<server::SessionWebSocketSession> session =
+      harness.make_session(kRequestId, direct_identity());
+  SessionClient client{std::move(harness.client_socket())};
+
+  session->run(harness.request(kRequestId));
+  run_until_within(harness.server_io_context(), 2s, [&harness] {
+    return harness.simulation_runtime().controller_directory().size() == 1;
+  });
+  REQUIRE(harness.simulation_runtime().controller_directory().contains(issued));
+
+  // The first presentation slot, one second after the open, observes no body and submits the
+  // spawn. Wait for exactly that submission and then take the socket away before the next slot.
+  run_until_within(harness.server_io_context(), 3s, [&harness] {
+    return harness.simulation_runtime().command_mailbox_statistics().submitted_command_count >= 1;
+  });
+  REQUIRE(harness.simulation_runtime().command_mailbox_statistics().submitted_command_count == 1);
+  client.stream().next_layer().close();
+  run_until_within(harness.server_io_context(), 2s,
+                   [&harness] { return count_events(harness, "session.closed") == 1; });
+  REQUIRE(count_events(harness, "session.closed") == 1);
+  REQUIRE_FALSE(harness.simulation_runtime().controller_directory().contains(issued));
+
+  // Let the runtime commit the spawn and the leave, then look at what the world holds.
+  std::this_thread::sleep_for(100ms);
+  const std::shared_ptr<const simulation::WorldSnapshot> latest =
+      harness.simulation_runtime().snapshot_publication().latest();
+  const runtime::CommandMailbox::Statistics statistics =
+      harness.simulation_runtime().command_mailbox_statistics();
+
+  // Two submissions -- the spawn and the leave -- and no entity for the retired controller.
+  CHECK_FALSE(world_holds_controller(*latest, issued));
+  CHECK(statistics.submitted_command_count == 2);
+  CHECK(statistics.dropped_command_count == 0);
 }

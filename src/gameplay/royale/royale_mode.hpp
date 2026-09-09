@@ -35,7 +35,7 @@ namespace blob_royale::gameplay {
 //                           kPostKernel; placement_recorder, lifetime_expiry, hazard_spawn then
 //                           elimination_grace_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
-//   accepted_command_kinds  spawn, despawn, thrust, and the four lobby kinds
+//   accepted_command_kinds  spawn, despawn, leave, thrust, and the four lobby kinds
 //   spawn_policy()          RotatingRingSpawnPolicy
 //   objective()             RoyaleObjective
 //   validate_map()          at least `lobby_seat_count` spawn markers, and an arena whose
@@ -131,7 +131,7 @@ public:
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
          simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
          simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-         simulation::CommandKind::kStartMatch});
+         simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

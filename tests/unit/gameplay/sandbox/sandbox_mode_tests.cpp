@@ -44,9 +44,9 @@ TEST_CASE("SandboxMode declares free play as seven answers and one system",
   CHECK(mode.name() == std::string_view{"sandbox"});
   CHECK(mode.contact_rules() == simulation::ContactRuleTable::built_in());
   CHECK(mode.accepted_command_kinds() ==
-        simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
-                                             simulation::CommandKind::kDespawn,
-                                             simulation::CommandKind::kThrust}));
+        simulation::CommandKindMask::create(
+            {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
+             simulation::CommandKind::kLeave, simulation::CommandKind::kThrust}));
 
   const simulation::SystemPipeline systems = mode.systems();
   REQUIRE(systems.size() == 1);

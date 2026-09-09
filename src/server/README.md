@@ -105,6 +105,7 @@ The versioned JSON encoding seam remains in `blob_protocol`; server sessions do 
 domain values themselves. Protocol v2 answered the "future command protocol" this section reserved:
 it uses its own route and subprotocol, its ownership model is the socket rather than a credential,
 its ordering rule is "the last command of a kind in a tick wins", and its disconnect semantics are a
-server-issued despawn followed by controller retirement. A further command protocol must do the same
+server-issued `leave`, enqueued by `CommandSink::close_session` before the controller is retired,
+which destroys everything the controller drove. A further command protocol must do the same
 again on a new versioned route, and must not widen `MatchSessionContext` beyond the three operations
 `CommandSink` exposes.

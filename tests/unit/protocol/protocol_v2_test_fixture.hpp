@@ -269,8 +269,13 @@ public:
     return simulation::ContactRuleTable::built_in();
   }
 
+  // The three server-issued kinds every declared mode must accept, plus the one client kind. The
+  // welcome still publishes only `set_thrust`: it is the intersection with the client-sendable
+  // vocabulary, and `spawn`, `despawn`, and `leave` have no wire name.
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
-    return simulation::CommandKindMask::create({simulation::CommandKind::kThrust});
+    return simulation::CommandKindMask::create(
+        {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kThrust});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

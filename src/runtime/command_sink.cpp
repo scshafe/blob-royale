@@ -27,7 +27,8 @@ stamped_controller_of(const simulation::Command& command) noexcept {
                       std::is_same_v<CommandType, simulation::SetSeatCountCommand> ||
                       std::is_same_v<CommandType, simulation::ClearSeatCommand> ||
                       std::is_same_v<CommandType, simulation::SeatNpcCommand> ||
-                      std::is_same_v<CommandType, simulation::StartMatchCommand>) {
+                      std::is_same_v<CommandType, simulation::StartMatchCommand> ||
+                      std::is_same_v<CommandType, simulation::LeaveCommand>) {
           return value.controller;
         } else {
           return std::nullopt;
@@ -109,6 +110,19 @@ CommandSubmissionResult CommandSink::submit(const simulation::ControllerId contr
 }
 
 ControllerCloseResult CommandSink::close_session(const simulation::ControllerId controller) {
+  // The leave goes into the mailbox **before** the directory entry is retired, through the same
+  // `submit` a session's own commands take, so a second close is refused there as a closed session
+  // and enqueues nothing. The tick then destroys whatever this controller drove -- a body, a
+  // pending entity, or a spawn drained in the same batch -- and vacates its seat, which is what
+  // closes the window a session-side despawn could not: a spawn still queued at close time is
+  // applied and then undone by the leave that follows it in phase 0 order
+  // (`commands/leave_command.hpp`).
+  //
+  // The submission's result is deliberately not returned. It is an acceptance on every path but
+  // two: a mode whose accepted kinds omit `leave`, which `GameSimulation::create` refuses at
+  // startup, and a mailbox full of lifecycle commands, which the mailbox counts and the composition
+  // root reports at error severity as a lost entity-lifecycle command.
+  static_cast<void>(submit(controller, simulation::Command{simulation::LeaveCommand{controller}}));
   return controller_directory_->close(controller);
 }
 

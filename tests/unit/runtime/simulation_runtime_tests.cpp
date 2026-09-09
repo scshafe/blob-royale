@@ -653,11 +653,12 @@ TEST_CASE("SimulationRuntime accepts concurrent submissions while its worker tic
 
   const runtime::CommandMailbox::Statistics statistics =
       simulation_runtime.command_mailbox_statistics();
-  // Two live entities and one kind means at most two occupied slots, so nothing can overflow.
+  // Two live entities and one kind means at most two occupied thrust slots, and every submitter's
+  // close adds one leave under its own controller, so nothing can overflow.
   REQUIRE(statistics.dropped_command_count == 0);
   REQUIRE(statistics.rejected_unaccepted_kind_count == 0);
   REQUIRE(statistics.submitted_command_count ==
-          kConcurrentSubmitterCount * kSubmissionsPerSubmitter);
+          kConcurrentSubmitterCount * kSubmissionsPerSubmitter + kConcurrentSubmitterCount);
   REQUIRE(statistics.accepted_command_count == statistics.submitted_command_count);
   REQUIRE(statistics.drain_count ==
           simulation_runtime.snapshot_publication().latest()->tick_sequence().value());

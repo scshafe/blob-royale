@@ -61,11 +61,12 @@ namespace blob_royale::server {
 // reaches a log. A thrust arrives up to twenty times a second per session and says nothing a person
 // would look up, so it stays unlogged.
 //
-// **Disconnect despawns.** `CommandSink` holds no world state and so cannot despawn a body on
-// `close_session`; this session does know its current body, because it resolves one every
-// presentation slot to stamp commands with, so it submits a `DespawnCommand` immediately before
-// retiring. Submitting after retiring would be refused, which is why the order is fixed here and
-// not left to a caller.
+// **Disconnect leaves.** `CommandSink::close_session` enqueues the controller's `leave` before
+// retiring it, and the tick destroys everything the controller drove -- seated, pending, or still
+// queued as a spawn -- and vacates its seat. This session submits nothing on the way out and never
+// has to know its own entity to leave cleanly, which a session-side despawn could not promise: it
+// despawned only what the last presentation slot had observed
+// (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 1).
 //
 // The presentation half is protocol v1's algorithm unchanged -- one active write, one replaceable
 // pending immutable reference, replacement only by a newer tick, admission against the same global
@@ -150,7 +151,8 @@ private:
   void request_stop(SessionStopMode mode) noexcept;
   void release_active_payload() noexcept;
   void finish() noexcept;
-  // Submits the despawn, then retires the controller. Idempotent and total; never throws.
+  // Retires the controller through the sink, which leaves on its behalf. Idempotent and total;
+  // never throws.
   void leave_match() noexcept;
   void close_socket() noexcept;
   void report_session_failure(std::exception_ptr failure) noexcept;
@@ -195,11 +197,6 @@ private:
   // The body this session drives in the most recently observed snapshot. Absent is ordinary: a
   // spawn not yet seated, an elimination, and the lobby wipe all produce it.
   std::optional<simulation::EntityId> current_entity_;
-  // The entity this session owns, body or not. It is a second value rather than a widening of
-  // `current_entity_` because the two answer different questions and both are needed: the welcome
-  // and the command stamp want a body, and the close path wants ownership
-  // (`src/protocol/protocol_v2_json_encoding.hpp`, find_controlled_entity).
-  std::optional<simulation::EntityId> current_controlled_entity_;
   std::optional<simulation::TickSequence> last_spawn_request_tick_;
 
   bool handshake_completed_{false};

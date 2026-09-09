@@ -3,6 +3,7 @@
 #include "command_kind_mask.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
 #include "commands/spawn_command.hpp"
@@ -384,6 +385,19 @@ read_commands(const std::filesystem::path& path, const std::uint64_t tick_count)
       require_empty(columns, 7, "seat_count", where);
       require_empty(columns, 8, "npc_kind", where);
       tick_commands.push_back(simulation::Command{simulation::StartMatchCommand{
+          simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id"))}});
+      continue;
+    }
+    // A departed controller. In production the sink enqueues it on session close; in a replay it is
+    // the row that says a session ended, and the tick treats both identically.
+    if (kind == "leave") {
+      require_empty(columns, 1, "entity_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
+      tick_commands.push_back(simulation::Command{simulation::LeaveCommand{
           simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id"))}});
       continue;
     }

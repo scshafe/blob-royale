@@ -36,8 +36,15 @@ template <> struct CommandWireKind<simulation::SpawnCommand> {
   static constexpr std::optional<std::string_view> value = std::nullopt;
 };
 
-// Server-issued: a despawn is the server's own consequence of the socket closing.
+// Server-issued: a despawn names one entity, which is what a replay fixture or a test can do and a
+// client must not. No production path submits one since `leave` exists.
 template <> struct CommandWireKind<simulation::DespawnCommand> {
+  static constexpr std::optional<std::string_view> value = std::nullopt;
+};
+
+// Server-issued: a leave is the server's own consequence of a session closing, enqueued by
+// `CommandSink::close_session`, and a client that could send one could vacate somebody else's seat.
+template <> struct CommandWireKind<simulation::LeaveCommand> {
   static constexpr std::optional<std::string_view> value = std::nullopt;
 };
 

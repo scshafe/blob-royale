@@ -41,7 +41,7 @@ src/gameplay/
     royale_configuration.*      the validated `[royale]` section, in the units systems read
     zone_shrink_system.*        the zone's geometry, and the component it writes each tick
     zone_elimination_system.*   grace against the zone, and who is out
-    placement_recorder_system.* ranking, roster removal, and the restart wipe
+    placement_recorder_system.* ranking and roster removal
     elimination_grace_publisher_system.*  `G` on the wire, so a client can count down
     rotating_ring_spawn_policy.hpp  the next free point, and only between matches
     royale_objective.hpp        ending by attrition, as three total predicates
@@ -157,9 +157,9 @@ Thrust and drag inside a linearly shrinking circular safe zone, last blob standi
 engine's built-in contact rows unchanged beneath one row of its own, `lethal_hazard`, which computes
 no physics at all, so it is still structurally incapable of reaching a different collision equation
 for a pair of ordinary blobs; declares `thrust_steering` at `kPreKernel`, `zone_shrink` then
-`zone_elimination` at `kPostKernel`, and `placement_recorder`, `lifetime_expiry`, `hazard_spawn`
-then `elimination_grace_publisher` at `kLifecycle`; seats joiners on a rotating ring and only between
-matches; and ends when one blob or none is alive.
+`zone_elimination` at `kPostKernel`, and `placement_recorder`, `match_reset`, `lifetime_expiry`,
+`hazard_spawn` then `elimination_grace_publisher` at `kLifecycle`; seats joiners on a rotating ring
+and only between matches; and ends when one blob or none is alive.
 
 `RoyaleMode` is **137 lines** — a 69-line class block plus 68 lines of definitions — of which **89
 are code**, against `SandboxMode`'s 89 and 58 measured the same way. Their class blocks are 35 and
@@ -211,9 +211,10 @@ respawn with a body-bound counter of its own erases that counter in the system t
 `shared/match_reset_system` is royale's restart wipe generalized: on the single `lobby` tick whose
 `previous_phase` is `ended` it destroys every participant -- alive, respawning, or awaiting a seat
 -- so a score or a gate count on an entity with no body cannot leak into the next match. Royale
-keeps its own wipe inside `placement_recorder`; adopting the shared one is guarded by its replay
-fixtures' pinned counts (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "What is
-deliberately not built").
+declares it too, right after `placement_recorder`, whose own wipe it replaced; the replay fixtures'
+pinned counts proved the two agree on every tick royale has recorded, which is the guard
+`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "What is deliberately not built" set
+for the adoption.
 
 ## Steering
 

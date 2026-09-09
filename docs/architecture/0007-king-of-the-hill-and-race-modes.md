@@ -241,8 +241,9 @@ It is royale's restart wipe generalized from "every alive entity" to "every part
 respawning entity with a score and a pending joiner with race progress must not carry either into
 the next match. Sessions already re-request a spawn when they own no entity
 (`session_websocket_session.cpp`, `request_spawn_if_absent`), so the visible effect is the one the
-royale winner already sees. Royale keeps its own wipe inside `placement_recorder`; adopting the
-shared one is a follow-up guarded by the replay fixtures' pinned entity counts, and the plan says so.
+royale winner already sees. Royale declares it too, right after `placement_recorder`, whose own wipe
+it replaced; the replay fixtures' pinned entity counts, unchanged across the swap, are the proof that
+royale never held a participant without a body on a tick it wiped.
 
 ### King of the hill
 
@@ -655,8 +656,6 @@ Named so that nobody mistakes the first version for the whole design:
   are the capture-the-flag block ADR 0004 sketched.
 * **Per-room modes.** Every room still plays `[match] mode`; the directory already publishes `mode`
   per listing, and this is an ADR 0006 extension, not a mode question.
-* **Royale on the shared `match_reset`**, until its replay fixtures prove the wipe of a pending
-  joiner changes no pinned count.
 
 ### Where each new thing goes
 

@@ -32,8 +32,8 @@ namespace blob_royale::gameplay {
 // the world (`docs/architecture/0005-royale-mode.md` § "The mode declaration").
 //
 //   systems()               thrust_steering at kPreKernel; zone_shrink then zone_elimination at
-//                           kPostKernel; placement_recorder, lifetime_expiry, hazard_spawn then
-//                           elimination_grace_publisher at kLifecycle
+//                           kPostKernel; placement_recorder, match_reset, lifetime_expiry,
+//                           hazard_spawn then elimination_grace_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
 //   accepted_command_kinds  spawn, despawn, join, leave, thrust, and the four lobby kinds
 //   spawn_policy()          RotatingRingSpawnPolicy
@@ -66,8 +66,10 @@ namespace blob_royale::gameplay {
 // `MatchLifecycleSystem` last at `kLifecycle` and it is not removable, so `placement_recorder`
 // always runs before this tick's phase transition is evaluated.
 //
-// The four `kLifecycle` systems are ordered for the same kind of reason, remove then add then
+// The five `kLifecycle` systems are ordered for the same kind of reason, remove, reset, add, then
 // publish. `placement_recorder` runs first because it *destroys* this tick's eliminated entities,
+// `match_reset` second because the restart wipe is every ending mode's rule and not royale's
+// (`shared/match_reset_system.hpp`),
 // `lifetime_expiry` despawns whatever ran out, and `hazard_spawn` runs third so it sees the seats
 // that freed and the entity ids that did not; all three create or destroy roster entries, which is
 // what `kLifecycle` is for. `elimination_grace_publisher` runs last because it writes the

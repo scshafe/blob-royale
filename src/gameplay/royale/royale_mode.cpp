@@ -9,6 +9,7 @@
 #include "royale/zone_shrink_system.hpp"
 #include "shared/hazard_spawn_system.hpp"
 #include "shared/lifetime_expiry_system.hpp"
+#include "shared/match_reset_system.hpp"
 #include "shared/thrust_steering_system.hpp"
 
 #include <memory>
@@ -45,15 +46,18 @@ simulation::SystemPipeline RoyaleMode::systems() const {
       simulation::SystemStage::kPostKernel, ZoneShrinkSystem::create(configuration_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, ZoneEliminationSystem::create(configuration_)});
-  // The four `kLifecycle` systems are ordered remove, then add, then publish, and the order is
-  // load-bearing. `placement_recorder` destroys this tick's eliminated entities; `lifetime_expiry`
-  // emits the despawns for whatever ran out; `hazard_spawn` runs third so it draws from the entity
-  // id reservation only after every system that also creates one has taken what it needs; and
+  // The five `kLifecycle` systems are ordered remove, reset, then add, then publish, and the order
+  // is load-bearing. `placement_recorder` destroys this tick's eliminated entities; `match_reset`
+  // wipes every participant on the one lobby tick after a match ended; `lifetime_expiry` emits the
+  // despawns for whatever ran out; `hazard_spawn` runs fourth so it draws from the entity id
+  // reservation only after every system that also creates one has taken what it needs; and
   // `elimination_grace_publisher` runs last so it is the final writer of the mode-state block and
   // the grace a snapshot carries cannot depend on another system preserving a member it does not
   // know about.
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kLifecycle,
                                                               PlacementRecorderSystem::create()});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kLifecycle,
+                                                              MatchResetSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kLifecycle,
                                                               LifetimeExpirySystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kLifecycle,

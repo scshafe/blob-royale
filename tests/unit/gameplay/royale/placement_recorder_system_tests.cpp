@@ -190,8 +190,11 @@ TEST_CASE("the previous match's ranking is cleared before this match's first pla
   CHECK(ranking[0].placement == 3);
 }
 
-TEST_CASE("the restart wipe clears the arena on the one lobby tick after a match ended",
+TEST_CASE("the recorder no longer wipes the arena; the shared match_reset does",
           "[unit][gameplay][royale][placement]") {
+  // The restart wipe was this system's step 3 and is `shared/match_reset_system` now, declared by
+  // royale right after it (`match_reset_system_tests.cpp` pins the wipe itself). On the one lobby
+  // tick after `ended` the recorder leaves every entity where it found it.
   const testing::TickHarness harness{simulation::TickSequence::create(kRecordedTick)};
   const std::unique_ptr<const simulation::SimulationSystem> recorder =
       gameplay::PlacementRecorderSystem::create();
@@ -200,32 +203,9 @@ TEST_CASE("the restart wipe clears the arena on the one lobby tick after a match
 
   recorder->apply(world, harness.context());
 
-  // Without the wipe the winner would carry its position, velocity, and stored acceleration into
-  // the next match and would never be re-seated on the ring.
-  CHECK_FALSE(world.contains(simulation::EntityId::create(1)));
-  CHECK_FALSE(world.contains(simulation::EntityId::create(2)));
-  // The zone entity owns neither a body nor a controller, so it survives every match.
+  CHECK(world.contains(simulation::EntityId::create(1)));
+  CHECK(world.contains(simulation::EntityId::create(2)));
   CHECK(world.contains(simulation::EntityId::create(90)));
-}
-
-TEST_CASE("only an ended-to-lobby transition wipes, and every other lobby tick leaves the roster "
-          "alone",
-          "[unit][gameplay][royale][placement]") {
-  const testing::TickHarness harness{simulation::TickSequence::create(kRecordedTick)};
-  const std::unique_ptr<const simulation::SimulationSystem> recorder =
-      gameplay::PlacementRecorderSystem::create();
-
-  // `previous_phase` is what distinguishes `ended -> lobby` from `countdown -> lobby`, which
-  // changes nothing but the phase and its start tick.
-  for (const simulation::MatchPhase previous :
-       {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown,
-        simulation::MatchPhase::kRunning}) {
-    INFO("previous phase " << simulation::match_phase_name(previous));
-    simulation::GameWorld world = world_with_players(2, simulation::MatchPhase::kLobby, previous);
-    recorder->apply(world, harness.context());
-    CHECK(world.contains(simulation::EntityId::create(1)));
-    CHECK(world.contains(simulation::EntityId::create(2)));
-  }
 }
 
 TEST_CASE("the phase this system observed is what it records as previous_phase",

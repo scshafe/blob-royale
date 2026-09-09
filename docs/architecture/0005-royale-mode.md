@@ -887,3 +887,12 @@ reads back, exactly as `elimination_grace_ticks` is a published value nothing re
 wire and every fixture are unchanged. The two rules still cannot disagree about which tick is the
 post-`ended` lobby tick: both read one engine field that nothing rewrites between the end of one
 tick and the end of the next.
+
+**Amended 2026-09-09 (ADR 0007, plan Step 5):** The restart wipe is `shared/match_reset_system`,
+declared by royale right after `placement_recorder`, whose step 3 it replaced; the recorder now has
+three steps and § "Elimination and placement" and § "Match lifecycle" should be read with that
+system standing where "step 3" and "the one rule royale attaches to a transition" appear. The shared
+wipe destroys every participant -- every entity carrying a `Controllable` -- where the recorder's
+destroyed every alive one, and the replay fixtures' pinned entity counts, unchanged, are the proof
+that royale never held a participant without a body on the tick it wiped. No number, rule, or
+fixture horizon changes.

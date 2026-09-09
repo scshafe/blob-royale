@@ -66,10 +66,10 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
              simulation::CommandKind::kJoin}));
 }
 
-TEST_CASE("RoyaleMode declares seven systems in the order its rules depend on",
+TEST_CASE("RoyaleMode declares eight systems in the order its rules depend on",
           "[unit][gameplay][royale]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 7);
+  REQUIRE(systems.size() == 8);
 
   REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
@@ -83,21 +83,24 @@ TEST_CASE("RoyaleMode declares seven systems in the order its rules depend on",
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() ==
         std::string_view{"zone_elimination"});
 
-  // Remove, then add, then publish: `placement_recorder` destroys this tick's eliminated entities,
-  // then `lifetime_expiry` emits the despawns for whatever ran out, then `hazard_spawn` draws from
-  // the entity id reservation only after every other creating system has taken what it needs, and
+  // Remove, reset, then add, then publish: `placement_recorder` destroys this tick's eliminated
+  // entities, `match_reset` wipes every participant on the lobby tick after a match ended, then
+  // `lifetime_expiry` emits the despawns for whatever ran out, then `hazard_spawn` draws from the
+  // entity id reservation only after every other creating system has taken what it needs, and
   // `elimination_grace_publisher` runs last so it is the final writer of the mode-state block.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 4);
-  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[1].system->name() ==
-        std::string_view{"lifetime_expiry"});
-  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[2].system->name() ==
-        std::string_view{"hazard_spawn"});
+  REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 5);
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[0].system->name() ==
         std::string_view{"placement_recorder"});
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[1].system->name() ==
+        std::string_view{"match_reset"});
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[2].system->name() ==
+        std::string_view{"lifetime_expiry"});
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[3].system->name() ==
+        std::string_view{"hazard_spawn"});
   // Last, and the position is the rule rather than a preference: `placement_recorder` reads the
   // whole block out and assigns it back, so a publisher declared ahead of it would be relying on
   // another system to carry a member it does not know about.
-  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[3].system->name() ==
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[4].system->name() ==
         std::string_view{"elimination_grace_publisher"});
 }
 

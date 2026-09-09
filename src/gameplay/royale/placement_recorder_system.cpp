@@ -129,15 +129,7 @@ void PlacementRecorderSystem::apply(simulation::GameWorld& world,
     }
   }
 
-  // Step 3. The restart wipe, on the single `lobby` tick after `ended`. Collected before destroying
-  // because `destroy_entity` erases from the very stores the roster join walks.
-  if (phase == simulation::MatchPhase::kLobby && previous_phase == simulation::MatchPhase::kEnded) {
-    for (const simulation::EntityId entity : alive_entities(world)) {
-      world.destroy_entity(entity);
-    }
-  }
-
-  // Step 4. The phase `MatchState` holds while this system runs is the phase the previous tick
+  // Step 3. The phase `MatchState` holds while this system runs is the phase the previous tick
   // committed; the engine's transition for this tick has not run yet. It is the same observation
   // the lifecycle system records into `MatchState::previous_phase` at the end of this tick, kept
   // here as a published mirror so `royale-mode-state.schema.json` is unchanged; no royale rule

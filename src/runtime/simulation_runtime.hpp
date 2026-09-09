@@ -8,9 +8,11 @@
 #include "game_simulation.hpp"
 #include "simulation_runtime_state.hpp"
 #include "snapshot_publication.hpp"
+#include "tick_deadline.hpp"
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <exception>
 #include <mutex>
 #include <stop_token>
@@ -33,10 +35,39 @@ namespace blob_royale::runtime {
 // empty, because royale creates its zone entity from the tick's reservation on its first running
 // tick, so `InputBatch::empty()` -- which carries no reservation at all -- would be a hard failure
 // there rather than a quieter tick (`entity_id_allocator.hpp`).
+// **The clock is bounded, and tick numbers never skip.** The worker waits for each tick's deadline
+// and advances it by one fixed quantum; a late worker catches up back-to-back for at most
+// `kMaximumCatchUpTicks` quanta and is then re-based to now, so a stall becomes a moment of slow
+// motion rather than a sprint (`tick_deadline.hpp`). What the clock did is counted in
+// `TickStatistics`, which only rises: `blob_runtime` links no logger by contract, so the runtime
+// counts and the composition root logs, exactly as it does for a dropped command.
 // related: command_sink.hpp -- the only capability a command source is given.
 // related: command_mailbox.hpp -- the bounded buffer this drains.
 // related: entity_id_allocator.hpp -- the monotonic issuer of every tick's reservation.
 // related: controller_directory.hpp -- presentation values the encoding boundary joins.
+// related: tick_deadline.hpp -- the deadline policy the worker applies once per tick.
+
+// canonical: tick_statistics -- what the worker's clock did, as counters that only rise.
+struct TickStatistics final {
+  // Ticks committed since construction. A re-base moves the deadline, never this.
+  std::uint64_t committed_tick_count{0};
+  // Ticks that ended after the next tick was already due, whether the step was slow or the thread
+  // woke late; `maximum_tick_duration_nanoseconds` says which.
+  std::uint64_t tick_overrun_count{0};
+  // Deadlines re-based to now because the worker was more than `kMaximumCatchUpTicks` quanta
+  // behind.
+  std::uint64_t clock_rebase_count{0};
+  // The quanta the worker was behind at each re-base, summed: how far the room's clock has been
+  // moved behind wall time altogether.
+  std::uint64_t rebased_ticks_behind_total{0};
+  // The longest step-and-snapshot, in nanoseconds.
+  std::uint64_t maximum_tick_duration_nanoseconds{0};
+  // The furthest a tick ended past the next tick's due time, in nanoseconds.
+  std::uint64_t maximum_lateness_nanoseconds{0};
+
+  friend bool operator==(const TickStatistics&, const TickStatistics&) = default;
+};
+
 class SimulationRuntime final {
 public:
   // Takes exclusive ownership of a validated simulation and publishes its coherent initial state.
@@ -101,6 +132,11 @@ public:
     return command_mailbox_.statistics();
   }
 
+  // One coherent observation of what the worker's clock has done: committed ticks, overruns,
+  // re-bases, and the worst step and lateness seen. Readable from any thread at any lifecycle
+  // state; the counters only rise.
+  [[nodiscard]] TickStatistics tick_statistics() const;
+
   // The lowest EntityId no tick has been given yet, for diagnostics and boundary checks.
   [[nodiscard]] simulation::EntityId next_entity_id() const noexcept {
     return entity_id_allocator_.next_entity_id();
@@ -111,6 +147,9 @@ private:
 
   void transition_to_running(const char* operation);
   void run(std::stop_token stop_token) noexcept;
+  // Accounts one committed tick under `lifecycle_mutex_`.
+  void record_tick_locked(Clock::duration tick_duration,
+                          const TickDeadlineAdvance& advance) noexcept;
   void record_worker_failure(std::exception_ptr failure) noexcept;
   [[nodiscard]] bool is_terminal_state_locked() const noexcept;
 
@@ -128,6 +167,8 @@ private:
   mutable std::mutex lifecycle_mutex_;
   mutable std::condition_variable_any lifecycle_changed_;
   SimulationRuntimeState lifecycle_state_{SimulationRuntimeState::kReady};
+  // Written by the worker under `lifecycle_mutex_`, read by anyone under the same mutex.
+  TickStatistics tick_statistics_;
   std::exception_ptr worker_failure_;
   bool worker_joined_{false};
 

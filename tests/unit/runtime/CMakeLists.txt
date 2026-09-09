@@ -5,6 +5,7 @@ add_executable(blob_runtime_unit_tests
   entity_id_allocator_tests.cpp
   simulation_runtime_tests.cpp
   snapshot_publication_tests.cpp
+  tick_deadline_tests.cpp
 )
 
 blob_royale_configure_first_party_target(blob_runtime_unit_tests)

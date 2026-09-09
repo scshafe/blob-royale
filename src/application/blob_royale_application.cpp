@@ -237,8 +237,50 @@ private:
     }
   }
 
+  // What the worker's clock did since the last poll, in the same shape as a dropped command: the
+  // runtime counts, this loop logs the rise. An overrun is a tick that ended after the next was
+  // due; a re-base is a stall long enough that the runtime chose slow motion over a catch-up burst
+  // (`tick_deadline.hpp`). Both are warnings because both are the room asking for less load or more
+  // CPU, and neither loses a tick.
+  void observe_tick_statistics() noexcept {
+    const runtime::TickStatistics statistics = simulation_runtime_.tick_statistics();
+    if (statistics.tick_overrun_count != reported_tick_overrun_count_) {
+      const std::uint64_t newly_overrun =
+          statistics.tick_overrun_count - reported_tick_overrun_count_;
+      reported_tick_overrun_count_ = statistics.tick_overrun_count;
+      const std::string detail =
+          "tick_overrun_count=" + std::to_string(newly_overrun) +
+          " committed_tick_count=" + std::to_string(statistics.committed_tick_count) +
+          " maximum_tick_duration_nanoseconds=" +
+          std::to_string(statistics.maximum_tick_duration_nanoseconds) +
+          " maximum_lateness_nanoseconds=" +
+          std::to_string(statistics.maximum_lateness_nanoseconds);
+      logger_.write({.severity = observability::LogSeverity::kWarning,
+                     .event = "runtime.tick_overrun",
+                     .error_code = "RUNTIME.TICK_OVERRUN",
+                     .detail = detail});
+    }
+    if (statistics.clock_rebase_count != reported_clock_rebase_count_) {
+      const std::uint64_t newly_rebased =
+          statistics.clock_rebase_count - reported_clock_rebase_count_;
+      const std::uint64_t newly_behind =
+          statistics.rebased_ticks_behind_total - reported_rebased_ticks_behind_total_;
+      reported_clock_rebase_count_ = statistics.clock_rebase_count;
+      reported_rebased_ticks_behind_total_ = statistics.rebased_ticks_behind_total;
+      const std::string detail =
+          "clock_rebase_count=" + std::to_string(newly_rebased) +
+          " ticks_behind=" + std::to_string(newly_behind) +
+          " committed_tick_count=" + std::to_string(statistics.committed_tick_count);
+      logger_.write({.severity = observability::LogSeverity::kWarning,
+                     .event = "runtime.clock_rebased",
+                     .error_code = "RUNTIME.CLOCK_REBASED",
+                     .detail = detail});
+    }
+  }
+
   void observe_component_state() noexcept {
     observe_dropped_commands();
+    observe_tick_statistics();
     reconcile_bots();
     const server::GameServerState server_state = game_server_.state();
     if (server_state == server::GameServerState::kStopped ||
@@ -273,6 +315,9 @@ private:
   observability::StructuredLogger& logger_;
   std::uint64_t reported_dropped_command_count_{0};
   std::uint64_t reported_dropped_entity_lifecycle_command_count_{0};
+  std::uint64_t reported_tick_overrun_count_{0};
+  std::uint64_t reported_clock_rebase_count_{0};
+  std::uint64_t reported_rebased_ticks_behind_total_{0};
   std::uint64_t reported_failed_controller_count_{0};
   std::uint64_t reported_refused_command_count_{0};
   boost::asio::io_context control_context_{1};

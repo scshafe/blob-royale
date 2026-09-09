@@ -6,7 +6,9 @@
 #include "entity_id_reservation.hpp"
 #include "fixed_delta.hpp"
 #include "input_batch.hpp"
+#include "runtime_limits.hpp"
 #include "simulation_runtime_lifecycle_error.hpp"
+#include "tick_deadline.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -183,6 +185,11 @@ bool SimulationRuntime::wait_for_state(const SimulationRuntimeState expected_sta
   }) && lifecycle_state_ == expected_state;
 }
 
+TickStatistics SimulationRuntime::tick_statistics() const {
+  const std::lock_guard lock(lifecycle_mutex_);
+  return tick_statistics_;
+}
+
 void SimulationRuntime::rethrow_if_failed() const {
   std::exception_ptr failure;
   {
@@ -211,6 +218,7 @@ void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
     Clock::time_point next_tick = Clock::now();
     while (!stop_token.stop_requested() && lifecycle_state_ == SimulationRuntimeState::kRunning) {
       lock.unlock();
+      const Clock::time_point step_started_at = Clock::now();
       std::shared_ptr<const simulation::WorldSnapshot> completed_snapshot;
       try {
         // Exactly one drain per tick. A second drainer would hand one tick's commands to two ticks,
@@ -233,12 +241,21 @@ void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
         record_worker_failure(std::current_exception());
         return;
       }
+      const Clock::time_point step_ended_at = Clock::now();
       lock.lock();
 
       if (stop_token.stop_requested() || lifecycle_state_ == SimulationRuntimeState::kStopping) {
         return;
       }
       snapshot_publication_.publish(std::move(completed_snapshot));
+
+      // The bounded clock: one quantum later, unless this tick ended so far past its deadline that
+      // catching up would be the burst a CFS quota throttles, in which case the deadline is
+      // re-based to now and the tick number simply continues (`tick_deadline.hpp`). Accounted
+      // before the pause check so a tick that is committed is a tick that is counted.
+      const TickDeadlineAdvance advance =
+          advance_tick_deadline(next_tick, step_ended_at, tick_duration, kMaximumCatchUpTicks);
+      record_tick_locked(step_ended_at - step_started_at, advance);
 
       if (lifecycle_state_ == SimulationRuntimeState::kPausing) {
         snapshot_publication_.mark_not_ready();
@@ -247,7 +264,7 @@ void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
         break;
       }
 
-      next_tick += tick_duration;
+      next_tick = advance.deadline;
       lifecycle_changed_.wait_until(lock, stop_token, next_tick, [this] {
         return lifecycle_state_ != SimulationRuntimeState::kRunning;
       });
@@ -257,6 +274,26 @@ void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
         lifecycle_changed_.notify_all();
       }
     }
+  }
+}
+
+void SimulationRuntime::record_tick_locked(const Clock::duration tick_duration,
+                                           const TickDeadlineAdvance& advance) noexcept {
+  const auto nanoseconds = [](const Clock::duration duration) {
+    return static_cast<std::uint64_t>(std::max<std::int64_t>(
+        0, std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count()));
+  };
+  ++tick_statistics_.committed_tick_count;
+  tick_statistics_.maximum_tick_duration_nanoseconds =
+      std::max(tick_statistics_.maximum_tick_duration_nanoseconds, nanoseconds(tick_duration));
+  if (advance.lateness > Clock::duration::zero()) {
+    ++tick_statistics_.tick_overrun_count;
+    tick_statistics_.maximum_lateness_nanoseconds =
+        std::max(tick_statistics_.maximum_lateness_nanoseconds, nanoseconds(advance.lateness));
+  }
+  if (advance.rebased) {
+    ++tick_statistics_.clock_rebase_count;
+    tick_statistics_.rebased_ticks_behind_total += advance.ticks_behind;
   }
 }
 

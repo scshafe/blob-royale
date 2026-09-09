@@ -14,6 +14,20 @@ idempotent. A worker exception moves the runtime to `failed`, preserves the last
 and can be rethrown through `rethrow_if_failed`. Publication readiness is false until the first
 successful post-start tick, and it is cleared whenever the runtime becomes quiescent or terminal.
 
+## The clock
+
+The worker waits for each tick's deadline and advances it by exactly one fixed quantum, so the
+cadence is 400 Hz and not "as fast as the last tick allowed". A late worker -- a slow step, or a
+thread descheduled under the container's CPU quota -- ticks back-to-back until it has caught up,
+but only for `kMaximumCatchUpTicks` quanta (10 ms); further behind than that, the deadline is
+re-based to now and the room runs in slow motion for a moment instead of sprinting, because the
+sprint is exactly the burst a CFS quota throttles next (`tick_deadline.hpp`, a pure function of
+literal time points). **Tick numbers never skip**: a re-base moves the wall-clock deadline and
+nothing else, and determinism is per tick sequence. `TickStatistics` counts committed ticks,
+overruns, re-bases, and the worst step and lateness seen; the composition root logs
+`runtime.tick_overrun` and `runtime.clock_rebased` when they rise, because this library links no
+logger.
+
 ## The command path
 
 Every tick is built the same way. The worker drains `CommandMailbox` exactly once, asks

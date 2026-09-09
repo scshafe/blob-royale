@@ -52,6 +52,18 @@ inline constexpr std::size_t kMaximumControllerDirectoryEntryCount =
 inline constexpr std::size_t kMaximumControllerKindLength = 64;
 inline constexpr std::size_t kMaximumDisplayNameLength = 64;
 
+// How many quanta a late worker may tick back-to-back before its deadline is re-based to now
+// (`tick_deadline.hpp`). Four quanta is 10 ms at the fixed 400 Hz: well under the 100 ms CFS
+// throttle window the deployed container runs in, so a burst of catch-up ticks can never itself be
+// the burst that gets throttled next, and small enough that a re-based room falls behind wall time
+// by a few milliseconds rather than sprinting for a second. A stalled room runs slow; it does not
+// run fast to make up for it.
+inline constexpr std::uint64_t kMaximumCatchUpTicks = 4;
+static_assert(kMaximumCatchUpTicks >= 1,
+              "a worker must be allowed to absorb at least one late tick without re-basing");
+static_assert(kMaximumCatchUpTicks * 1'000 / simulation::kSimulationTicksPerSecond < 100,
+              "the catch-up burst must stay well inside one 100 ms CFS throttle window");
+
 } // namespace blob_royale::runtime
 
 #endif

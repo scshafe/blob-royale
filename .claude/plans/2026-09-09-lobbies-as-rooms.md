@@ -108,9 +108,10 @@ Facts the executor needs that the code does not say on its face, all verified on
 
 ### Phase 3 — The runtime learns to be late
 
-- [ ] **Step 9: Bounded catch-up and overrun accounting in `SimulationRuntime`**
+- [x] **Step 9: Bounded catch-up and overrun accounting in `SimulationRuntime`**
   - Verify: `./scripts/verify-focused 'unit.runtime|unit.application' && ./scripts/verify-focused 'unit.runtime|unit.application' linux-clang-asan-ubsan`
   - Notes: Review observation P1. The deadline policy becomes a pure function in `src/runtime/tick_deadline.hpp`, `advance_tick_deadline(previous, now, quantum, kMaximumCatchUpTicks) -> {deadline, rebased, ticks_behind}`, unit-tested with literal time points, and `simulation_runtime.cpp:250` calls it. `kMaximumCatchUpTicks = 4` in `runtime_limits.hpp` with the reason written there: 10 ms, well under a CFS throttle window, and a re-based clock runs slow rather than sprinting. `TickStatistics` (tick count, overruns, rebases, maximum step and lateness in nanoseconds) beside the mailbox statistics; the control loop logs `runtime.tick_overrun` and `runtime.clock_rebased` at warning when they rise, the same shape as `observe_dropped_commands`. Tick numbers never skip; say so in the header.
+  - Execution note (2026-09-09): Landed as described. `advance_tick_deadline` is a constexpr function in `src/runtime/tick_deadline.hpp` that also returns the lateness, so the overrun accounting and the re-base decision read one tested arithmetic; an overrun is a tick that ended after the next tick was already due, whether the step was slow or the thread woke late, and `maximum_tick_duration_nanoseconds` says which. `TickStatistics` (committed ticks, overruns, re-bases, the quanta given up at re-bases, maximum step and lateness) is written and read under the lifecycle mutex, and the control loop logs `runtime.tick_overrun` and `runtime.clock_rebased` at warning with the rise since the last poll. The runtime test asserts the arithmetic that must hold on any host -- every committed tick counted, a re-base implies an overrun, nothing rises while paused -- rather than an overrun this host may never produce. Verified at 314 tests on both lanes with the filter widened to the server and controller suites, which drive the runtime.
 
 ### Phase 4 — Rooms
 

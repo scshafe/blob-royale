@@ -419,6 +419,44 @@ TEST_CASE("SimulationRuntime observes the fixed cadence instead of free running"
   CHECK_FALSE(simulation_runtime.snapshot_publication().is_ready());
 }
 
+TEST_CASE("SimulationRuntime counts every committed tick and re-bases only when far behind",
+          "[unit][runtime][lifecycle][cadence][statistics]") {
+  // The counters are the wired-up form of `tick_deadline.hpp`: whether this host ever overran is
+  // the host's business, so what is asserted is the arithmetic that must hold on any host -- every
+  // committed tick is counted, a re-base implies an overrun, and nothing rises while paused.
+  runtime::SimulationRuntime simulation_runtime(empty_simulation_fixture());
+  CHECK(simulation_runtime.tick_statistics() == runtime::TickStatistics{});
+
+  simulation_runtime.start();
+  REQUIRE(wait_for_ready_tick(simulation_runtime.snapshot_publication(),
+                              kCadenceObservationTickTarget));
+  simulation_runtime.pause();
+
+  const runtime::TickStatistics paused = simulation_runtime.tick_statistics();
+  const std::shared_ptr<const simulation::WorldSnapshot> latest =
+      simulation_runtime.snapshot_publication().latest();
+  CHECK(paused.committed_tick_count == latest->tick_sequence().value());
+  CHECK(paused.committed_tick_count >= kCadenceObservationTickTarget);
+  CHECK(paused.maximum_tick_duration_nanoseconds > 0);
+  CHECK(paused.tick_overrun_count <= paused.committed_tick_count);
+  CHECK(paused.clock_rebase_count <= paused.tick_overrun_count);
+  if (paused.clock_rebase_count == 0) {
+    CHECK(paused.rebased_ticks_behind_total == 0);
+  } else {
+    CHECK(paused.rebased_ticks_behind_total > runtime::kMaximumCatchUpTicks);
+  }
+  if (paused.tick_overrun_count == 0) {
+    CHECK(paused.maximum_lateness_nanoseconds == 0);
+  }
+
+  // Paused is quiescent: the clock does nothing, so the counters do nothing.
+  std::this_thread::sleep_for(20ms);
+  CHECK(simulation_runtime.tick_statistics() == paused);
+
+  simulation_runtime.stop();
+  CHECK(simulation_runtime.tick_statistics() == paused);
+}
+
 TEST_CASE("SimulationRuntime preserves the last complete snapshot and original worker failure",
           "[unit][runtime][failure]") {
   runtime::SimulationRuntime simulation_runtime(failing_simulation_fixture());

@@ -174,7 +174,7 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
     }
     // First-wins: an occupied seat is left alone, so two clients seating one seat in one tick
     // resolve by this batch's order and the second press is a no-op rather than an eviction.
-    if (!seat_is_filled(match.seats.seats()[index])) {
+    if (!seat_is_occupied(match.seats.seats()[index])) {
       // The controller is absent because no bot exists yet. The runtime that creates one writes it
       // back; until it does, the seat is a declaration a client renders as joining
       // (`seat_roster.hpp`, NpcSeat).

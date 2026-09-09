@@ -495,7 +495,7 @@ modes and the match lifecycle").
 
 | Member | What `RoyaleObjective` returns |
 |---|---|
-| `can_start(world)` | true when every seat in `MatchState::seats` is filled **and** a start has been requested |
+| `can_start(world)` | true when every seat in `MatchState::seats` holds a controller -- a person's, or the bot created for a declared NPC seat -- **and** a start has been requested; a declared seat still waiting for its bot does not count (amended 2026-09-09, plan Step 7) |
 | `outcome(world)` | `won_by_entity` naming the single alive entity when the alive count is `1`; `drawn` when it is `0`; `undecided` otherwise |
 | `durations()` | `countdown_ticks` and `restart_delay_ticks` from `[royale]` |
 

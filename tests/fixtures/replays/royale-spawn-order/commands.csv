@@ -1,4 +1,4 @@
-# Four seats, filled and started on **tick 2**, and the tick is the whole derivation.
+# Four seats, taken and started on **tick 2**, and the tick is the whole derivation.
 #
 # Under the retired `lobby_minimum_players=4` this fixture crossed its threshold on tick 2: tick 1
 # seats three joiners, tick 2 seats the fourth on the last free ring point and defers the fifth, and
@@ -8,12 +8,21 @@
 # and the sixth joiner arrives on tick 4 into a running match and stays unseated for the rest of the
 # replay.
 #
-# **Filling the seats on tick 1 instead would have moved two horizons and broken the fixture's
+# **Taking the seats on tick 1 instead would have moved two horizons and broken the fixture's
 # subject.** `countdown` would commit on tick 1 and `running` on tick 2, so tick 3's despawn would
 # free a point during `running` and the deferred fifth joiner -- whose one-tick deferral is the
 # property this fixture exists to pin -- would never be seated at all. Tick 2 is therefore not a
 # transcription of the old number, it is the tick at which this fixture's field is complete, and it
 # reproduces the same phase on every tick.
+#
+# **The four who sit down are the first four who spawned, and they sit down as themselves.** Each
+# `join` row names no seat, so phase 0 of tick 2 seats controllers 1 to 4 in the lowest empty seats
+# in controller order, and the roster holds the players rather than declarations nobody builds a
+# bot for -- a declared seat counts as filled only once its bot exists (`seat_roster.hpp`,
+# seat_is_filled), and a replay has no runtime to build one. The rows changed and the tick did not:
+# a join is applied at phase 0 and observed at the same `kLifecycle` a `seat_npc` was. Controllers
+# 5 and 6 have no join rows because a join into a full lobby with no bot to displace changes
+# nothing; they remain exactly the deferred and the late joiner they were.
 #
 # The late joiner's assertion is unchanged and remains true for the original reason: controller 6
 # arrives on tick 4, the match is `running`, and `RotatingRingSpawnPolicy` defers every joiner
@@ -24,10 +33,10 @@ tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_
 1,,spawn,3,,,,,
 2,,spawn,4,,,,,
 2,,spawn,5,,,,,
-2,,seat_npc,1,,,0,,wanderer
-2,,seat_npc,2,,,1,,wanderer
-2,,seat_npc,3,,,2,,wanderer
-2,,seat_npc,4,,,3,,wanderer
+2,,join,1,,,,,
+2,,join,2,,,,,
+2,,join,3,,,,,
+2,,join,4,,,,,
 2,,start_match,1,,,,,
 3,1,despawn,,,,,,
 4,,spawn,6,,,,,

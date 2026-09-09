@@ -558,8 +558,10 @@ std::vector<simulation::WorldSnapshot> ReplayFixture::run() const {
   // The lobby is part of the state a match begins in, so it is seeded onto the initial world here
   // exactly as `BlobRoyaleApplication::create` seeds it in production. **Every seat starts empty
   // and no start is requested**, so no recorded replay leaves `lobby` on its own: a replay that
-  // needs a running match says so in its own `commands.csv`, with `seat_npc` rows that fill the
-  // field and a `start_match` row that presses the button, on the tick its own comment derives.
+  // needs a running match says so in its own `commands.csv`, with a `join` row for every player who
+  // sits down and a `start_match` row that presses the button, on the tick its own comment derives.
+  // A `seat_npc` row alone would not do it: a declared seat counts as filled only once a bot holds
+  // it, and a replay has no runtime to build one.
   world.mutable_match().seats =
       simulation::SeatRoster::of_size(static_cast<std::size_t>(royale_.lobby_seat_count()));
   simulation::GameSimulation game = simulation::GameSimulation::create(

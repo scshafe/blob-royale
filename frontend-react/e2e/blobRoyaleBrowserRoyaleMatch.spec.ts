@@ -27,7 +27,7 @@ import {
 /**
  * Its own configuration and its own map. See `fixtures/blob-royale-browser-e2e-royale.cfg` and
  * `fixtures/maps/e2e-royale-1920x1280/map.cfg` for why each number is the number it is; the two
- * that this file depends on by name are `lobby_seat_count=3` and the 9 wu/s speed cap.
+ * that this file depends on by name are `lobby_seat_count=4` and the 9 wu/s speed cap.
  */
 const ROYALE_FIXTURE = Object.freeze({
   configurationFileName: 'blob-royale-browser-e2e-royale.cfg',
@@ -38,11 +38,11 @@ const ROYALE_FIXTURE = Object.freeze({
 const BOT_DISPLAY_NAME = 'wanderer 1';
 
 /**
- * The lobby this flow fills, which is `[royale] lobby_seat_count` and the map's spawn-marker count
- * at once. `wanderer` is one of the kinds the server's `welcome.npc_controller_kinds` publishes;
- * naming an unpublished one would close the driver's session rather than fail silently.
+ * The kind the lobby driver would declare into any seat still empty when it presses Start. In this
+ * flow there is none: the bot, the two browsers, and the driver itself hold the four seats. It is
+ * one of the kinds the server's `welcome.npc_controller_kinds` publishes; naming an unpublished one
+ * would close the driver's session rather than fail silently.
  */
-const ROYALE_SEAT_COUNT = 3;
 const SEATED_NPC_KIND = 'wanderer';
 const SESSION_DISPLAY_NAME_PATTERN = /^player-[1-9][0-9]*$/;
 
@@ -322,15 +322,13 @@ test('two browsers and a bot play one royale match', async ({
     expect(displayNameB).not.toBe(displayNameA);
 
     // **The lobby is operated over the published wire, not by the client.** There is no lobby UI
-    // yet -- it is a later step of the same plan -- so this flow fills the three seats and presses
-    // Start itself, through a session that opens, sends four 2.3 command frames, and closes. It runs
-    // only after both browsers have connected, so neither is ever a mid-match joiner the spawn
-    // policy would defer, and `fillSeatsAndStart` resolves only once its own session's entity has
-    // been despawned, so the entity count below is not racing this teardown.
-    await BlobRoyaleLobbyDriver.fillSeatsAndStart(
-      ROYALE_SEAT_COUNT,
-      SEATED_NPC_KIND,
-    );
+    // yet -- it is a later step of the same plan -- so this flow presses Start itself, through a
+    // session that opens, is seated by the server in the fourth seat exactly as a browser is,
+    // presses Start, holds its seat through the countdown, and closes once the match is running.
+    // It runs only after both browsers have connected, so neither is ever a mid-match joiner the
+    // spawn policy would defer, and `fillSeatsAndStart` resolves only once its own session is
+    // closed, so the field the counts below describe is the bot and the two browsers.
+    await BlobRoyaleLobbyDriver.fillSeatsAndStart(SEATED_NPC_KIND);
 
     await expect(matchHudCell(pageA, 'Phase')).toHaveText('running', {
       timeout: MATCH_START_TIMEOUT_MILLISECONDS,

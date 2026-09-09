@@ -144,7 +144,9 @@ TEST_CASE("A seated NPC is recorded as a declaration with no controller yet",
   // The simulation cannot construct a controller, so the seat is a declaration the runtime has yet
   // to reconcile. The absent controller is what a reconciliation reads to decide it has work to do.
   CHECK_FALSE(std::get<simulation::NpcSeat>(roster.seats()[2]).controller.has_value());
-  CHECK(simulation::seat_is_filled(roster.seats()[2]));
+  // Occupied -- nobody may seat over it or resize it away -- but not filled until its bot exists.
+  CHECK(simulation::seat_is_occupied(roster.seats()[2]));
+  CHECK_FALSE(simulation::seat_is_filled(roster.seats()[2]));
   CHECK_FALSE(roster.is_full());
 }
 
@@ -183,11 +185,11 @@ TEST_CASE("Clearing empties a declared NPC seat and leaves a live controller's s
   simulation::GameSimulation game = lobby_simulation(2);
   step(game, {seat_npc(1, 0, "wanderer")});
   const simulation::SeatRoster seated = roster_of(game);
-  REQUIRE(simulation::seat_is_filled(seated.seats()[0]));
+  REQUIRE(simulation::seat_is_occupied(seated.seats()[0]));
 
   step(game, {clear_seat(1, 0)});
   const simulation::SeatRoster emptied = roster_of(game);
-  CHECK_FALSE(simulation::seat_is_filled(emptied.seats()[0]));
+  CHECK_FALSE(simulation::seat_is_occupied(emptied.seats()[0]));
 
   // A seat a live session holds is the runtime's to give and take. A tick that emptied one would be
   // contradicted by the next reconciliation, which seats that session again because it is still
@@ -288,7 +290,15 @@ TEST_CASE("Pressing Start records a request and commits no transition",
   step(game, {start_match(1), start_match(2)});
   CHECK(roster_of(game).start_requested());
 
+  // A declared seat whose bot does not exist yet does not complete the field: a match cannot start
+  // with nobody in it. The bot's own join, naming the seat that declared it, is what fills it.
   step(game, {seat_npc(1, 0, "wanderer")});
+  const simulation::SeatRoster declared = roster_of(game);
+  CHECK_FALSE(declared.is_full());
+  CHECK(declared.start_requested());
+
+  step(game,
+       {simulation::Command{simulation::JoinCommand{simulation::ControllerId::create(6), 0}}});
   const simulation::SeatRoster complete = roster_of(game);
   CHECK(complete.is_full());
   CHECK(complete.start_requested());

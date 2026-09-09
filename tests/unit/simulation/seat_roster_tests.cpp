@@ -90,13 +90,20 @@ TEST_CASE("a declared lobby begins empty and fills seat by seat",
   roster.assign_seat(2, controller_seat(9));
   CHECK_FALSE(roster.is_full());
 
-  // The third seat is filled by a *declaration* rather than by a live controller, and that fills it
-  // exactly as a controller does: the runtime has not created the bot yet and the lobby does not
-  // wait for it to.
+  // The third seat is declared for a bot the runtime has not created yet. That occupies it -- a
+  // resize may not drop it -- but does not fill it: a lobby of declarations cannot start a match
+  // with nobody in it, so the lobby waits for the bot to exist.
   roster.assign_seat(1, npc_seat("wanderer"));
-  CHECK(roster.is_full());
+  CHECK_FALSE(simulation::seat_is_filled(roster.seats()[1]));
+  CHECK(simulation::seat_is_occupied(roster.seats()[1]));
+  CHECK_FALSE(roster.is_full());
   CHECK(std::holds_alternative<simulation::NpcSeat>(roster.seats()[1]));
   CHECK(std::get<simulation::NpcSeat>(roster.seats()[1]).kind == std::string_view{"wanderer"});
+
+  // Once the reconciliation has built the bot, the seat is filled exactly as a person's is.
+  roster.assign_seat(1, seated_npc("wanderer", 12));
+  CHECK(simulation::seat_is_filled(roster.seats()[1]));
+  CHECK(roster.is_full());
 
   // Clearing one seat unfills the lobby, which is what returns a match in `countdown` to `lobby`.
   roster.assign_seat(1, simulation::Seat{simulation::EmptySeat{}});
@@ -211,7 +218,10 @@ TEST_CASE("an NPC seat remembers the bot the runtime built for it and keeps its 
   const simulation::Seat declared = npc_seat("wanderer");
   const simulation::Seat created = seated_npc("wanderer", 12);
   CHECK(declared != created);
-  CHECK(simulation::seat_is_filled(declared));
+  // Both are occupied -- the seat is spoken for either way -- and only the created one is filled.
+  CHECK(simulation::seat_is_occupied(declared));
+  CHECK(simulation::seat_is_occupied(created));
+  CHECK_FALSE(simulation::seat_is_filled(declared));
   CHECK(simulation::seat_is_filled(created));
 
   CHECK_FALSE(std::get<simulation::NpcSeat>(declared).controller.has_value());
@@ -237,9 +247,12 @@ TEST_CASE("a lobby grows freely and never shrinks past somebody sitting down",
     CHECK_FALSE(simulation::seat_is_filled(roster.seats()[index]));
   }
 
-  // Shrinking over empty seats is allowed and shrinking over a filled one is refused **and changes
-  // nothing**, which is the difference between a rule and a warning.
+  // Shrinking over empty seats is allowed and shrinking over an occupied one is refused **and
+  // changes nothing**, which is the difference between a rule and a warning. Occupied, not filled:
+  // a seat declared for a bot nobody has built yet is still somebody's decision, and a resize does
+  // not get to drop it.
   roster.assign_seat(3, npc_seat("wanderer"));
+  CHECK_FALSE(simulation::seat_is_filled(roster.seats()[3]));
   CHECK_FALSE(roster.try_set_seat_count(2));
   CHECK(roster.seat_count() == 5);
   CHECK(roster.seats()[3] == npc_seat("wanderer"));

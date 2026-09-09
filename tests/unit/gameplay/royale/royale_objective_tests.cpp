@@ -97,11 +97,13 @@ TEST_CASE("a world with no declared lobby never starts a match",
   CHECK_FALSE(objective.can_start(world));
 }
 
-TEST_CASE("a seat declared for an NPC fills that seat before its session exists",
+TEST_CASE("a seat declared for an NPC fills that seat only once its bot exists",
           "[unit][gameplay][royale][objective]") {
   // The simulation cannot construct a controller, so a seat that names a bot kind is a declaration
-  // the runtime has not yet reconciled. It still counts as filled: making Start wait on a runtime
-  // reconciliation would make the lobby's own rule unexplainable from the lobby.
+  // the runtime has not yet reconciled. It does not count as filled: a lobby of declarations could
+  // otherwise start a match with nobody in it
+  // (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 4), and the cost of waiting is
+  // the one control poll the reconciliation takes.
   const gameplay::RoyaleObjective objective = objective_for(2);
   simulation::GameWorld world = lobby_world(2, 1, true);
   CHECK_FALSE(objective.can_start(world));
@@ -109,14 +111,21 @@ TEST_CASE("a seat declared for an NPC fills that seat before its session exists"
   world.mutable_match().seats.assign_seat(
       1, simulation::Seat{
              simulation::NpcSeat{simulation::SeatKindName::create("wanderer"), std::nullopt}});
-  CHECK(objective.can_start(world));
+  CHECK_FALSE(objective.can_start(world));
 
-  // And it still counts as filled once the runtime has built the bot, so the transition from
-  // declaration to session never passes through a tick in which the lobby looks incomplete.
+  // Once the runtime has built the bot and its join has landed, the seat is filled exactly as a
+  // person's is.
   world.mutable_match().seats.assign_seat(
       1, simulation::Seat{simulation::NpcSeat{simulation::SeatKindName::create("wanderer"),
                                               simulation::ControllerId::create(9)}});
   CHECK(objective.can_start(world));
+
+  // And a bot that leaves -- retired by the reconciliation, or displaced -- unfills it again, which
+  // is what returns a match whose field broke up during the countdown to the lobby.
+  world.mutable_match().seats.assign_seat(
+      1, simulation::Seat{
+             simulation::NpcSeat{simulation::SeatKindName::create("wanderer"), std::nullopt}});
+  CHECK_FALSE(objective.can_start(world));
 }
 
 TEST_CASE("the alive count no longer decides whether a match may start",

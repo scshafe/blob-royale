@@ -22,7 +22,8 @@ namespace blob_royale::gameplay {
 // durations here and declares no transition logic of its own
 // (`docs/architecture/0004-gameplay-architecture.md` § "Game modes and the match lifecycle").
 //
-//   can_start   every seat in the lobby is filled **and** a start has been requested
+//   can_start   every seat in the lobby holds a controller -- a person's, or the bot created for a
+//               declared NPC seat -- **and** a start has been requested
 //   outcome     `won_by_entity` naming the single alive entity at an alive count of 1, `drawn` at
 //               0, `undecided` otherwise
 //   durations   `countdown_ticks` and `restart_delay_ticks` from `[royale]`
@@ -62,7 +63,10 @@ public:
     // "may it leave `lobby`" and as "may it stay in `countdown`", and the same conjunction answers
     // both. It stays true through the countdown because the flag is cleared on arrival *in* `lobby`
     // and never on departure from it (`match_lifecycle_system.cpp`), and it goes false the moment a
-    // seat empties, which is what returns a match whose field broke up to the lobby.
+    // seat empties or loses its bot, which is what returns a match whose field broke up to the
+    // lobby. A seat declared for a bot the runtime has not built yet is not filled
+    // (`seat_roster.hpp`, seat_is_filled), so a lobby of declarations cannot start a match with
+    // nobody in it.
     //
     // The alive count is deliberately not consulted. Who is *seated* is the lobby's business and
     // who is *alive* is the outcome's, and conflating them is what made a joiner's arrival start

@@ -149,11 +149,23 @@ struct NpcSeat final {
 
 using Seat = std::variant<EmptySeat, ControllerSeat, NpcSeat>;
 
-// A seat is filled when it is not empty. A declared NPC counts as filled before its session exists,
-// which is deliberate: the lobby is a statement of intent about who is playing, and making the
-// Start button wait on a runtime reconciliation would make a lobby's own rule unexplainable from
-// the lobby.
+// A seat is filled when somebody is actually in it: a person, or the bot the runtime has created
+// for a declared NPC seat. A declaration nobody has built a bot for is *occupied* -- it belongs to
+// somebody, and a resize must not drop it -- but it is not filled, so a lobby of declarations
+// cannot start a match with nobody in it (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`,
+// finding 4). The cost is that Start waits the one control poll the reconciliation takes to build
+// the bot, which the wire already renders as the seat's joining state.
 [[nodiscard]] constexpr bool seat_is_filled(const Seat& seat) noexcept {
+  if (const auto* declared = std::get_if<NpcSeat>(&seat); declared != nullptr) {
+    return declared->controller.has_value();
+  }
+  return std::holds_alternative<ControllerSeat>(seat);
+}
+
+// A seat is occupied when it is not empty: held by a person, or declared for a bot whether or not
+// the bot exists yet. This is the rule a resize and a seating respect, because a declaration is
+// somebody's decision even before the runtime has acted on it.
+[[nodiscard]] constexpr bool seat_is_occupied(const Seat& seat) noexcept {
   return !std::holds_alternative<EmptySeat>(seat);
 }
 
@@ -251,8 +263,9 @@ public:
   // Resizes the lobby, and reports whether it did.
   //
   // **The stated rule for shrinking is that a lobby never shrinks past somebody who is sitting
-  // down.** A shrink that would remove a filled seat changes nothing and returns false; every other
-  // resize happens and returns true. Growing appends empty seats at the high indices, so no
+  // down.** A shrink that would remove an occupied seat -- held by a person, or declared for a bot
+  // whether or not it exists yet -- changes nothing and returns false; every other resize happens
+  // and returns true. Growing appends empty seats at the high indices, so no
   // existing seat changes index and nobody's seat moves under them.
   //
   // The rule was chosen over the two alternatives for reasons worth recording, because **anyone in
@@ -284,7 +297,7 @@ public:
     }
     if (seat_count < seats_.size() &&
         std::any_of(seats_.cbegin() + static_cast<std::ptrdiff_t>(seat_count), seats_.cend(),
-                    seat_is_filled)) {
+                    seat_is_occupied)) {
       return false;
     }
     seats_.resize(seat_count, Seat{EmptySeat{}});

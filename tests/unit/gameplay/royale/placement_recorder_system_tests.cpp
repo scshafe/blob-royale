@@ -46,7 +46,10 @@ world_with_players(const std::uint64_t player_count, const simulation::MatchPhas
   }
   simulation::GameWorld world = simulation::GameWorld::create(std::move(seeds));
   world.mutable_match().phase = phase;
-  world.mutable_match().mode_state = simulation::RoyalePlacementsModeState{{}, previous_phase};
+  // The engine field is what steps 1 and 3 read. Royale's block starts at its default so a recorder
+  // that still read the block's mirror would see `lobby` there and neither clear nor wipe.
+  world.mutable_match().previous_phase = previous_phase;
+  world.mutable_match().mode_state = simulation::RoyalePlacementsModeState{};
   // The zone entity owns neither a body nor a controller, so it is never wiped and never ranked.
   world.mutable_store<simulation::Zone>().insert_or_assign(
       simulation::EntityId::create(90),

@@ -43,6 +43,7 @@ public:
   [[nodiscard]] std::string_view mode_name() const&& = delete;
 
   [[nodiscard]] MatchPhase phase() const noexcept { return state_.phase; }
+  [[nodiscard]] MatchPhase previous_phase() const noexcept { return state_.previous_phase; }
   [[nodiscard]] TickSequence phase_started_tick() const noexcept {
     return state_.phase_started_tick;
   }

@@ -107,6 +107,11 @@ void despawn(simulation::GameSimulation& game,
   return snapshot.match().phase();
 }
 
+[[nodiscard]] simulation::MatchPhase previous_phase_of(const simulation::GameSimulation& game) {
+  const simulation::WorldSnapshot snapshot = game.snapshot();
+  return snapshot.match().previous_phase();
+}
+
 [[nodiscard]] std::uint64_t phase_started_tick_of(const simulation::GameSimulation& game) {
   const simulation::WorldSnapshot snapshot = game.snapshot();
   return snapshot.match().phase_started_tick().value();
@@ -179,6 +184,8 @@ TEST_CASE("a default MatchState is the state every match begins in",
   const simulation::MatchState state;
 
   CHECK(state.phase == simulation::MatchPhase::kLobby);
+  // A match that has never run has never left `lobby`, so that is the phase before it too.
+  CHECK(state.previous_phase == simulation::MatchPhase::kLobby);
   CHECK(state.phase_started_tick == simulation::TickSequence::zero());
   CHECK(state.running_started_tick == simulation::TickSequence::zero());
   CHECK_FALSE(state.outcome.is_decided());
@@ -394,4 +401,70 @@ TEST_CASE("a mode's own lifecycle system runs before the engine's transition",
   REQUIRE(snapshot.components<simulation::Lifetime>().size() == 1);
   CHECK(snapshot.components<simulation::Lifetime>()[0].value.ticks_remaining ==
         static_cast<std::uint64_t>(simulation::MatchPhase::kLobby) + 1);
+}
+
+TEST_CASE("previous_phase is the phase the tick before last committed, recorded by the engine",
+          "[unit][simulation][match_lifecycle_system][match_state]") {
+  // The engine records the phase it observes before it evaluates this tick's transition, so on the
+  // next tick a declared system reads `phase` as the last commit and `previous_phase` as the one
+  // before it, and `phase != previous_phase` is exactly "a transition committed on the previous
+  // tick". Modes used to observe this for themselves; the probe proves the engine's copy says the
+  // same thing on every tick of one walk through the machine.
+  class PreviousPhaseProbeSystem final : public simulation::SimulationSystem {
+  public:
+    [[nodiscard]] std::string_view name() const noexcept override { return "previous_phase_probe"; }
+    void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+      const auto observed = static_cast<std::uint64_t>(world.match().previous_phase);
+      for (const simulation::EntityId entity : world.entities()) {
+        world.mutable_store<simulation::Lifetime>().insert_or_assign(
+            entity, simulation::Lifetime{observed + 1});
+      }
+    }
+  };
+  const auto probed_previous_phase = [](const simulation::GameSimulation& game) {
+    const simulation::WorldSnapshot snapshot = game.snapshot();
+    REQUIRE(snapshot.components<simulation::Lifetime>().size() == 1);
+    return static_cast<simulation::MatchPhase>(
+        snapshot.components<simulation::Lifetime>()[0].value.ticks_remaining - 1);
+  };
+
+  testing::TestGameMode::Declaration declaration;
+  declaration.minimum_players = 1;
+  declaration.durations = simulation::MatchLifecycleDurations{0, 0};
+  declaration.systems.push_back(testing::staged(
+      simulation::SystemStage::kLifecycle, std::make_unique<const PreviousPhaseProbeSystem>()));
+  simulation::GameSimulation game = simulation::GameSimulation::create(
+      configuration(), simulation::GameWorld::create({player(1, 50.0, 50.0)}),
+      simulation::GameSimulationSetup::of_mode(
+          simulation::MapDefinition::bare_arena(simulation::ArenaBounds::create(500.0, 500.0)),
+          testing::TestGameMode::create(std::move(declaration))));
+
+  // Tick 1: the probe sees the default; the engine records `lobby` and commits lobby -> countdown.
+  game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  CHECK(probed_previous_phase(game) == simulation::MatchPhase::kLobby);
+  CHECK(phase_of(game) == simulation::MatchPhase::kCountdown);
+  CHECK(previous_phase_of(game) == simulation::MatchPhase::kLobby);
+
+  // Tick 2: the probe reads what tick 1 recorded; countdown -> running with a zero countdown.
+  game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  CHECK(probed_previous_phase(game) == simulation::MatchPhase::kLobby);
+  CHECK(phase_of(game) == simulation::MatchPhase::kRunning);
+  CHECK(previous_phase_of(game) == simulation::MatchPhase::kCountdown);
+
+  // Tick 3: one alive entity decides the match; running -> ended.
+  game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  CHECK(probed_previous_phase(game) == simulation::MatchPhase::kCountdown);
+  CHECK(phase_of(game) == simulation::MatchPhase::kEnded);
+  CHECK(previous_phase_of(game) == simulation::MatchPhase::kRunning);
+
+  // Tick 4: a zero restart delay; ended -> lobby, and the pair a restart wipe would read next tick
+  // is exactly (lobby, ended).
+  game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  CHECK(probed_previous_phase(game) == simulation::MatchPhase::kRunning);
+  CHECK(phase_of(game) == simulation::MatchPhase::kLobby);
+  CHECK(previous_phase_of(game) == simulation::MatchPhase::kEnded);
+
+  // Tick 5: the probe reads (lobby, ended) as a declared restart wipe would.
+  game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  CHECK(probed_previous_phase(game) == simulation::MatchPhase::kEnded);
 }

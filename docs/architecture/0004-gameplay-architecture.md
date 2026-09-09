@@ -1215,3 +1215,15 @@ not widened: nothing about starting is timed by the objective. The alternative -
 stamping the elapsed tick count into its own mode-state block for the objective to read back -- was
 rejected in `0007-king-of-the-hill-and-race-modes.md` § "Considered Options" as a clock smuggled
 past an interface that should carry it.
+
+**Amended 2026-09-09 (ADR 0007, plan Step 2):** `MatchState` carries a fifth engine field,
+`previous_phase`: the phase the tick before last committed, recorded by `MatchLifecycleSystem` at
+the top of its `apply` before it evaluates this tick's transition. Because that system runs last at
+`kLifecycle`, every declared system on the next tick reads `phase` as the last commit and
+`previous_phase` as the one before it, and `phase != previous_phase` is exactly "a transition
+committed on the previous tick". Royale had observed this for itself in its mode-state block, and a
+second and a third competitive mode would each have observed it again; "which phase did the previous
+tick commit" is an engine fact, so it is engine state. Royale's block keeps the member as a
+published mirror that `placement_recorder` writes from the same observation, so
+`royale-mode-state.schema.json` and every frame on the wire are unchanged. The shared restart wipe
+`0007-king-of-the-hill-and-race-modes.md` declares is what needed the field.

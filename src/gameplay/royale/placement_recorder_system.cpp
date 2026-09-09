@@ -88,11 +88,14 @@ std::unique_ptr<const simulation::SimulationSystem> PlacementRecorderSystem::cre
 void PlacementRecorderSystem::apply(simulation::GameWorld& world,
                                     const simulation::TickContext& context) const {
   const simulation::MatchPhase phase = world.match().phase;
+  // The engine's record of what the tick before committed (`match_state.hpp`); the block's own
+  // member is the published mirror of it and is read back by nothing.
+  const simulation::MatchPhase previous_phase = world.match().previous_phase;
   simulation::RoyalePlacementsModeState mode_state = royale_mode_state_of(world);
 
   // Step 1. The first tick of a match, which is also the first tick that can append to the list.
   if (phase == simulation::MatchPhase::kRunning &&
-      mode_state.previous_phase == simulation::MatchPhase::kCountdown) {
+      previous_phase == simulation::MatchPhase::kCountdown) {
     mode_state.placements.clear();
   }
 
@@ -128,15 +131,17 @@ void PlacementRecorderSystem::apply(simulation::GameWorld& world,
 
   // Step 3. The restart wipe, on the single `lobby` tick after `ended`. Collected before destroying
   // because `destroy_entity` erases from the very stores the roster join walks.
-  if (phase == simulation::MatchPhase::kLobby &&
-      mode_state.previous_phase == simulation::MatchPhase::kEnded) {
+  if (phase == simulation::MatchPhase::kLobby && previous_phase == simulation::MatchPhase::kEnded) {
     for (const simulation::EntityId entity : alive_entities(world)) {
       world.destroy_entity(entity);
     }
   }
 
   // Step 4. The phase `MatchState` holds while this system runs is the phase the previous tick
-  // committed; the engine's transition for this tick has not run yet.
+  // committed; the engine's transition for this tick has not run yet. It is the same observation
+  // the lifecycle system records into `MatchState::previous_phase` at the end of this tick, kept
+  // here as a published mirror so `royale-mode-state.schema.json` is unchanged; no royale rule
+  // reads it back.
   mode_state.previous_phase = phase;
   world.mutable_match().mode_state = std::move(mode_state);
 }

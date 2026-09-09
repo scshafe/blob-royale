@@ -24,7 +24,7 @@ namespace blob_royale::simulation {
 // **Mode state should be a component wherever it can be.** A component is snapshot-visible,
 // erased by `destroy_entity`, and part of world equality for free, so only genuinely
 // non-entity-shaped state belongs here -- royale's ordered placement list and the
-// `previous_phase` it observes, capture the flag's per-team scores.
+// `previous_phase` it publishes as a mirror of the engine's, capture the flag's per-team scores.
 //
 // Adding a mode-state block:
 //

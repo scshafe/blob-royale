@@ -26,7 +26,8 @@ namespace blob_royale::gameplay {
 //      `DespawnEvent` for it, then computes one placement for the whole set and appends one entry
 //      per entity in ascending `EntityId` order.
 //   3. `lobby` with a `previous_phase` of `ended` destroys every alive entity: the restart wipe.
-//   4. Records the committed phase as `previous_phase`.
+//   4. Records the committed phase as the block's `previous_phase`, the published mirror of the
+//      engine field steps 1 and 3 read (`match_state.hpp`).
 //
 // The reason the order is written down is the one case where two steps coincide. Steps 1 and 3 are
 // mutually exclusive because one tick's phase cannot be both `running` and `lobby`, and step 3

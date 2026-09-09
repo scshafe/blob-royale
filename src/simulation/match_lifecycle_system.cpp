@@ -53,6 +53,12 @@ void MatchLifecycleSystem::apply(GameWorld& world, const TickContext& context) c
   MatchState& match = world.mutable_match();
   const TickSequence now = context.tick_sequence();
 
+  // Recorded before the switch, on every tick, so a declared system on the next tick can tell a
+  // phase that just began from one that has been in force: it reads `phase` as this tick's commit
+  // and `previous_phase` as the last one's. Modes used to observe this for themselves at
+  // `kLifecycle`; it is engine state now (`match_state.hpp`).
+  match.previous_phase = match.phase;
+
   // Exactly one arm runs and each arm commits at most one transition, which is where the
   // "at most one transition per tick" bound comes from -- it is structural rather than checked.
   switch (match.phase) {

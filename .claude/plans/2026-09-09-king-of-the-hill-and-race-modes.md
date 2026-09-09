@@ -76,13 +76,14 @@ Facts the executor needs that the code does not say on its face, all verified in
     the match lifecycle" with a dated entry in the same commit. No test may lose a case.
   - Execution note (2026-09-09): `outcome(const GameWorld&, const TickContext&)`; the lifecycle system passes its context; the idle, free-play, and royale objectives and the two test objectives take and ignore it. Royale's tests call through a `TickHarness`, and a new case pins that attrition ignores the tick. ADR 0004's objective block and a dated amendment at its foot record the change. Verified at 507 of 510 on both lanes, the three failures being the deployment fixtures that had been failing since the rooms plan's Step 10 for a reason unrelated to this step (the deploy launch still passed a scenario to a four-room configuration); that is fixed as Step 17b of `2026-09-09-lobbies-as-rooms.md`, after which the `fixtures` filter is 21 of 21 on both lanes. `unit.protocol`, which holds one of the test objectives, was compiled and run separately on linux-gcc-debug before this commit.
 
-- [ ] **Step 2: Make `previous_phase` engine state**
-  - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' linux-clang-asan-ubsan && git diff --stat -- docs/protocol/schema/ | wc -l | grep -qx 0`
+- [x] **Step 2: Make `previous_phase` engine state**
+  - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' linux-clang-asan-ubsan && git diff --quiet -- docs/protocol/schema/`
   - Notes: `MatchState::previous_phase`, written at the top of `MatchLifecycleSystem::apply`.
     Royale's policy and recorder read the engine field; `placement_recorder` copies it into the
     block's member, which stays on the wire unchanged. A lifecycle test pins the pair a declared
     system sees on the tick after a transition. Amend ADR 0004 § "Game modes and the match
     lifecycle" and ADR 0005 § "Where zone and elimination state live".
+  - Execution note (2026-09-09): `MatchState::previous_phase`, written at the top of `MatchLifecycleSystem::apply` before the switch; `MatchSnapshot::previous_phase()` exposes it. Royale's ring policy and `placement_recorder` steps 1 and 3 read the engine field; step 4 keeps writing the block's member as a published mirror, and the two tests that set `previous_phase` by hand now set the engine field and leave the block at its default, so a reader that still consulted the mirror would fail. A lifecycle test walks the machine and pins the (phase, previous_phase) pair a declared system sees on each of five ticks. ADR 0004 and ADR 0005 each gained a dated amendment. Verified at 608 of 608 on both lanes with `docs/protocol/schema/` unchanged.
 
 - [ ] **Step 3: Export the seating helpers**
   - Verify: `./scripts/verify-focused 'unit.simulation|fixtures' && ./scripts/verify-focused 'unit.simulation|fixtures' linux-clang-asan-ubsan`
@@ -141,7 +142,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     is measured for the README by the README's method.
 
 - [ ] **Step 9: Map and replay fixtures for the hill**
-  - Verify: `./scripts/verify-focused 'fixtures' && ./scripts/verify-focused 'fixtures' linux-clang-asan-ubsan && git diff --stat -- maps/arena-960x640 | wc -l | grep -qx 0`
+  - Verify: `./scripts/verify-focused 'fixtures' && ./scripts/verify-focused 'fixtures' linux-clang-asan-ubsan && git diff --quiet -- maps/arena-960x640`
   - Specialist: `testineer`
   - Notes: `maps/hills-960x640` with four `hill` markers and eight `spawn` markers, authored as
     literals with a README deriving them. The fixture reader gains `[king_of_the_hill]`; the
@@ -193,7 +194,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     one tick; a shared placement; the finish window and the clock ranking.
 
 - [ ] **Step 15: Map and replay fixtures for the race**
-  - Verify: `./scripts/verify-focused 'fixtures' && ./scripts/verify-focused 'fixtures' linux-clang-asan-ubsan && git diff --stat -- maps/arena-960x640 | wc -l | grep -qx 0`
+  - Verify: `./scripts/verify-focused 'fixtures' && ./scripts/verify-focused 'fixtures' linux-clang-asan-ubsan && git diff --quiet -- maps/arena-960x640`
   - Specialist: `testineer`
   - Notes: `maps/circuit-960x640`: a point-to-point course with one bend, three gates, a grid of
     four, two static obstacles, with a README deriving every literal. Fixtures:
@@ -257,3 +258,5 @@ oracle, every royale fixture, and every wall and pair fixture unchanged; `./scri
 and the browser gate pass with six flows; `GET /api/v2/lobbies` on the tailnet reports the mode
 the deployment names; ADR 0007 is Accepted with its execution amendments; and the playtest note
 for the hill exists. Commits are pushed only when the owner says so.
+
+**Amended 2026-09-09:** The three verify lines that asserted an empty `git diff --stat` through `wc -l | grep -qx 0` now use `git diff --quiet`, because macOS `wc` pads its count with spaces and the grep never matched even on a clean tree; the check was reporting a change that did not exist.

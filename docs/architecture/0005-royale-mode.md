@@ -876,3 +876,14 @@ step 3 of the recorder never coincides with step 2, and the winner receives no p
 gate is the row's rather than the recorder's so that an event nobody consumes stays a visible
 producer bug and a boulder does not vanish when a match ends. No number, rule, or fixture horizon
 changes, and the decision and its `Accepted` status are unchanged.
+
+**Amended 2026-09-09 (ADR 0007, plan Step 2):** `previous_phase` is engine state. § "Where zone
+and elimination state live" and § "Spawning" describe royale observing "the lifecycle phase this
+mode observed on the previous tick" into its own block and reading it back from two rules; the field
+now lives on `MatchState`, written by `MatchLifecycleSystem` before each tick's transition, and
+`RotatingRingSpawnPolicy` and `placement_recorder` read it there. The block's member stays as a
+published mirror that `placement_recorder` writes from the same observation and no royale rule
+reads back, exactly as `elimination_grace_ticks` is a published value nothing reads back, so the
+wire and every fixture are unchanged. The two rules still cannot disagree about which tick is the
+post-`ended` lobby tick: both read one engine field that nothing rewrites between the end of one
+tick and the end of the next.

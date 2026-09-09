@@ -13,11 +13,12 @@ namespace blob_royale::gameplay {
 // canonical: royale_mode_state_access -- the one answer to "what if the world holds another arm".
 //
 // `MatchState::mode_state` is a closed variant and every mode assigns its own arm the first tick it
-// observes another (`mode_match_state_registry.hpp`). Three royale rules touch it -- the spawn
-// policy reads `previous_phase` at kernel phase 0, `placement_recorder` reads and rewrites the
-// whole block at `kLifecycle`, and `elimination_grace_publisher` stamps one member at `kLifecycle`
-// after it -- so the "what if another arm is held" answer is written once, here, for readers and
-// writers alike.
+// observes another (`mode_match_state_registry.hpp`). Two royale rules touch it --
+// `placement_recorder` reads and rewrites the whole block at `kLifecycle`, and
+// `elimination_grace_publisher` stamps one member at `kLifecycle` after it -- so the "what if
+// another arm is held" answer is written once, here, for readers and writers alike. The spawn
+// policy used to read `previous_phase` here; it reads the engine's `MatchState::previous_phase`
+// now, and the block's member is a published mirror of that field (`match_state.hpp`).
 //
 // A world holding another arm reads as the default block: no placements, and a `previous_phase` of
 // `lobby`, which is the phase every match begins in. That is total rather than a fallback: the
@@ -25,9 +26,9 @@ namespace blob_royale::gameplay {
 // royale simulation behaves identically whether the world was default-constructed or arrived
 // carrying `NoModeState`.
 //
-// **Both readers are ordered so they cannot disagree.** The policy runs at phase 0 and the recorder
-// updates `previous_phase` at `kLifecycle` of the same tick, so within one tick both see the phase
-// the previous tick committed (`docs/architecture/0005-royale-mode.md` § "Spawning").
+// The mirror's `previous_phase` of `lobby` in that default block is also the engine field's
+// default, so the two never disagree about a match that has never run
+// (`docs/architecture/0005-royale-mode.md` § "Spawning").
 // related: mode_states/royale_placements_mode_state.hpp -- the value struct this reads.
 // related: placement_recorder_system.hpp -- the writer of the observed members.
 // related: elimination_grace_publisher_system.hpp -- the writer of the declared member.

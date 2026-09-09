@@ -312,7 +312,7 @@ namespace {
         0, simulation::Seat{simulation::ControllerSeat{simulation::ControllerId::create(10)}});
     match.seats.request_start();
   }
-  gameplay::royale_mode_state_in(world).previous_phase = phase;
+  match.previous_phase = phase;
 
   return simulation::GameSimulation::create(
       configuration, std::move(world),

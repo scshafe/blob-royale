@@ -5,7 +5,6 @@
 #include "game_world.hpp"
 #include "match_phase.hpp"
 #include "match_state.hpp"
-#include "royale/royale_mode_state.hpp"
 #include "spawn_policy.hpp"
 #include "tick_context.hpp"
 
@@ -34,9 +33,10 @@ namespace blob_royale::gameplay {
 // **Deferring during `running` and `ended` is the mode's rule, and it is what makes a match a
 // closed field.** A joiner who arrives mid-match waits for the next `lobby` rather than appearing
 // inside a shrinking circle with no chance of placing. The second deferral covers the single
-// `lobby` tick on which `placement_recorder` clears the arena; this policy reads the same
-// `previous_phase` the recorder does, at kernel phase 0 of the same tick and before the recorder
-// updates it, so the two rules cannot disagree about which tick that is.
+// `lobby` tick on which `placement_recorder` clears the arena; this policy and the recorder both
+// read the engine's `previous_phase`, which the lifecycle system recorded at the end of the
+// previous tick and nothing rewrites before the end of this one, so the two rules cannot disagree
+// about which tick that is (`match_state.hpp`).
 //
 // The rotation is the whole of the rest: consecutive joiners are spread around the map's points
 // instead of stacking on the first free one, and the counter is world state, so seating is a
@@ -67,7 +67,7 @@ public:
       return std::nullopt;
     }
     if (phase == simulation::MatchPhase::kLobby &&
-        royale_mode_state_of(world).previous_phase == simulation::MatchPhase::kEnded) {
+        world.match().previous_phase == simulation::MatchPhase::kEnded) {
       return std::nullopt;
     }
     const std::size_t point_count = spawn_point_is_free.size();

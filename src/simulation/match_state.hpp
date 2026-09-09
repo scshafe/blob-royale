@@ -18,7 +18,18 @@ namespace blob_royale::simulation {
 // committed outcome are all a reader needs to know what the next tick may do
 // (`docs/architecture/0004-gameplay-architecture.md` § "Game modes and the match lifecycle").
 //
-// The four engine fields are the ADR's four. Three more are here and each earns its place:
+// The four engine fields are the ADR's four. Four more are here and each earns its place:
+//
+//   * `previous_phase` is **the phase the tick before last committed**, recorded by the engine's
+//     lifecycle system at the top of its `apply`, before it evaluates this tick's transition. That
+//     system runs last at `kLifecycle`, so on the next tick every declared system reads `phase` as
+//     the last commit and this as the one before it, and `phase != previous_phase` is exactly "a
+//     transition committed on the previous tick" -- which pair it was says which one. Royale
+//     observed this for itself in its mode-state block, and the second and third competitive modes
+//     would each have observed it again; "which phase did the previous tick commit" is an engine
+//     fact, so it is engine state (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`
+//     § "Where the framework has to move"). Royale's block keeps a copy as a published mirror so
+//     the wire is unchanged.
 //
 //   * `seats` is **the lobby the first transition reads**. The four-phase machine is engine-owned
 //     and generic, and a mode supplies predicates rather than lifecycle machinery
@@ -41,12 +52,15 @@ namespace blob_royale::simulation {
 //     (`docs/architecture/0005-royale-mode.md` § "Where zone and elimination state live").
 //
 // A default-constructed value is the state every match begins in: `lobby`, started at tick zero,
-// undecided, with no seats declared, seating from the first spawn point, and no mode-state block
-// declared.
+// with `lobby` as the phase before it -- a match that has never run has never left it -- undecided,
+// with no seats declared, seating from the first spawn point, and no mode-state block declared.
 // related: match_lifecycle_system.hpp -- the only writer of the four engine fields.
 // related: spawn_system.hpp -- the only writer of the rotation counter.
 struct MatchState final {
   MatchPhase phase{MatchPhase::kLobby};
+  // The phase the tick before last committed; see the note above. Written by
+  // `MatchLifecycleSystem` on every tick, transition or not.
+  MatchPhase previous_phase{MatchPhase::kLobby};
   // The tick sequence at which `phase` began. A transition committed on tick N records N.
   TickSequence phase_started_tick{TickSequence::zero()};
   // The tick sequence at which the current match's `running` began. Meaningful from the first

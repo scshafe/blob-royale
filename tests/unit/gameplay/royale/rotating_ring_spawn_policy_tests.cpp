@@ -33,7 +33,11 @@ namespace {
                                              const simulation::MatchPhase previous_phase) {
   simulation::GameWorld world = simulation::GameWorld::create({});
   world.mutable_match().phase = phase;
-  world.mutable_match().mode_state = simulation::RoyalePlacementsModeState{{}, previous_phase};
+  // The engine field is what the policy reads. Royale's block is deliberately left at its default
+  // so a policy that still read the block's mirror would see `lobby` there and fail the
+  // post-`ended` case below.
+  world.mutable_match().previous_phase = previous_phase;
+  world.mutable_match().mode_state = simulation::RoyalePlacementsModeState{};
   return world;
 }
 

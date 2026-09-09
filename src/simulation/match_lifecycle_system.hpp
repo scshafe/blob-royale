@@ -34,7 +34,10 @@ namespace blob_royale::simulation {
 // A committed transition writes MatchState -- the phase, its start tick, the running start tick,
 // the committed MatchOutcome, and, on every transition **into** `lobby`, the clearing of the seat
 // roster's one-shot start request -- **and nothing else**. A consequence a mode wants from a
-// transition is that mode's own system, ordered ahead of this one by declaration.
+// transition is that mode's own system, ordered ahead of this one by declaration. One write is made
+// on every tick, transition or not: the phase this system observes is recorded as
+// `MatchState::previous_phase` before the transition is evaluated, so the next tick's declared
+// systems can tell a phase that just began from one that has been in force (`match_state.hpp`).
 //
 // The start request is cleared on arrival in `lobby` rather than on departure from it because
 // `can_start` is this machine's answer to two questions at once, "may it leave `lobby`" and "may it

@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_GAMEPLAY_SHARED_NEXT_FREE_SPAWN_POINT_POLICY_HPP
 #define BLOB_ROYALE_GAMEPLAY_SHARED_NEXT_FREE_SPAWN_POINT_POLICY_HPP
 
+#include "components/respawn_timer_component.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
 #include "match_phase.hpp"
@@ -25,12 +26,16 @@ namespace blob_royale::gameplay {
 // (`docs/architecture/0004-gameplay-architecture.md` § "Game modes and the match lifecycle";
 // `docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill").
 //
-// **The one phase it defers in is the single `lobby` tick after `ended`.** A mode whose match
-// ends wipes its field at `kLifecycle` of that tick, and a body seated at phase 0 of the same tick
-// would be destroyed before it had moved; deferring there is what lets the wipe and the seating
-// never meet, exactly as royale's ring policy defers on the same tick. It reads the engine's
-// `previous_phase` to know the tick (`match_state.hpp`). Sandbox never reaches `ended`, so for free
-// play the rule is what it always was: no phase is read that could ever say no.
+// **An entity carrying a `RespawnTimer` is deferred whatever the phase.** It is out of play and
+// counting down; the engine offers it because it has a controller and no body, and this is the one
+// predicate that says "not yet" (`shared/respawn_system.hpp`).
+//
+// **The one phase it defers everyone in is the single `lobby` tick after `ended`.** A mode whose
+// match ends wipes its field at `kLifecycle` of that tick, and a body seated at phase 0 of the same
+// tick would be destroyed before it had moved; deferring there is what lets the wipe and the
+// seating never meet, exactly as royale's ring policy defers on the same tick. It reads the
+// engine's `previous_phase` to know the tick (`match_state.hpp`). Sandbox never reaches `ended`, so
+// for free play the rule is what it always was: no phase is read that could ever say no.
 //
 // It is **pure**, as the seam requires: the engine's SpawnSystem owns which entities are offered,
 // the occupancy test that produced `spawn_point_is_free`, the counter and its advance, and the
@@ -49,8 +54,11 @@ public:
 
   [[nodiscard]] std::optional<std::size_t>
   choose_spawn_point(const simulation::GameWorld& world, const simulation::TickContext&,
-                     simulation::EntityId, const std::size_t rotation_counter,
+                     const simulation::EntityId entity, const std::size_t rotation_counter,
                      const std::span<const bool> spawn_point_is_free) const override {
+    if (world.store<simulation::RespawnTimer>().find(entity) != nullptr) {
+      return std::nullopt;
+    }
     const simulation::MatchState& match = world.match();
     if (match.phase == simulation::MatchPhase::kLobby &&
         match.previous_phase == simulation::MatchPhase::kEnded) {

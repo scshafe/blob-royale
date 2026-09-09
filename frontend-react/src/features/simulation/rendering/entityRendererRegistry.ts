@@ -47,6 +47,10 @@ export const entityRendererRegistry = Object.freeze({
     ENTITY_RENDER_LAYERS.body,
     drawPhysicsBody,
   ),
+  respawn_timer: nonVisualComponent(
+    'respawn_timer',
+    'A return countdown has no geometry; an entity carrying it has no body to draw, and the HUD counts it down.',
+  ),
   score: nonVisualComponent(
     'score',
     'A scoreboard cell belongs to the HUD, not to the arena.',

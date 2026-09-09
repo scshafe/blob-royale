@@ -7,8 +7,8 @@
   "$defs": {
     "protocol_version": {
       "type": "string",
-      "const": "2.4",
-      "$comment": "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds, and 2.4 added the lobby directory document, welcome.lobby_id and welcome.seat_count_maximum, and the three LOBBY.* error codes. A 2.4 client therefore rejects a 2.5 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
+      "const": "2.5",
+      "$comment": "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds, 2.4 added the lobby directory document, welcome.lobby_id and welcome.seat_count_maximum, and the three LOBBY.* error codes, and 2.5 adds the respawn_timer component kind and the further kinds and mode-state blocks of ADR 0007. A 2.5 client therefore rejects a 2.6 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'."
     },
     "request_id": {
       "type": "string",
@@ -151,6 +151,7 @@
         "lethal_on_contact",
         "lifetime",
         "physics_body",
+        "respawn_timer",
         "score",
         "team",
         "zone",

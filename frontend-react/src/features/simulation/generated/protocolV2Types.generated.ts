@@ -79,7 +79,7 @@ interface MutableBlobRoyaleProtocolV2HTTPErrorResponse {
   data: null;
   error: MutableError;
   meta: {
-    protocol_version: '2.4';
+    protocol_version: '2.5';
     schema_id: 'blob-royale://protocol/v2/error-response';
     request_id: string;
   };
@@ -132,7 +132,7 @@ interface MutableBlobRoyaleProtocolV2LobbyDirectoryResponse {
   data: MutableBlobRoyaleProtocolV2LobbyDirectoryData;
   error: null;
   meta: {
-    protocol_version: '2.4';
+    protocol_version: '2.5';
     schema_id: 'blob-royale://protocol/v2/lobby-directory';
     request_id: string;
   };
@@ -215,7 +215,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketSnapshotMessage {
   data: MutableBlobRoyaleProtocolV2WorldSnapshotData;
   error: null;
   meta: {
-    protocol_version: '2.4';
+    protocol_version: '2.5';
     schema_id: 'blob-royale://protocol/v2/snapshot-message';
     request_id: string;
     message_sequence: number;
@@ -243,6 +243,7 @@ interface MutableBlobRoyaleProtocolV2EntitySnapshot {
     lethal_on_contact?: MutableBlobRoyaleProtocolV2LethalOnContactComponent;
     lifetime?: MutableBlobRoyaleProtocolV2LifetimeComponent;
     physics_body?: MutableBlobRoyaleProtocolV2PhysicsBodyComponent;
+    respawn_timer?: MutableBlobRoyaleProtocolV2RespawnTimerComponent;
     score?: MutableBlobRoyaleProtocolV2ScoreComponent;
     team?: MutableBlobRoyaleProtocolV2TeamComponent;
     zone?: MutableBlobRoyaleProtocolV2ZoneComponent;
@@ -283,6 +284,12 @@ interface MutableBlobRoyaleProtocolV2PhysicsBodyComponent {
 interface MutableVector2 {
   x: number;
   y: number;
+}
+/**
+ * The committed ticks left before an entity that was knocked out of play is offered a seat again. An entity carrying it has no physics_body; an entity without it is not respawning, so absence is the whole of 'in play' and no member can hold zero on a committed tick.
+ */
+interface MutableBlobRoyaleProtocolV2RespawnTimerComponent {
+  ticks_remaining: number;
 }
 /**
  * One integer scoreboard cell carried by a player entity or a team entity.
@@ -347,7 +354,7 @@ interface MutableBlobRoyaleProtocolV2WebSocketWelcomeMessage {
   data: MutableBlobRoyaleProtocolV2WelcomeData;
   error: null;
   meta: {
-    protocol_version: '2.4';
+    protocol_version: '2.5';
     schema_id: 'blob-royale://protocol/v2/welcome-message';
     request_id: string;
     message_sequence: 1;
@@ -519,6 +526,8 @@ export type BlobRoyaleProtocolV2LifetimeComponent =
 export type BlobRoyaleProtocolV2PhysicsBodyComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2PhysicsBodyComponent>;
 export type Vector2 = DeepReadonly<MutableVector2>;
+export type BlobRoyaleProtocolV2RespawnTimerComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV2RespawnTimerComponent>;
 export type BlobRoyaleProtocolV2ScoreComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2ScoreComponent>;
 export type BlobRoyaleProtocolV2TeamComponent =

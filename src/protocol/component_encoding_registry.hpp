@@ -6,6 +6,7 @@
 #include "components/lethal_on_contact_component_encoding.hpp"
 #include "components/lifetime_component_encoding.hpp"
 #include "components/physics_body_component_encoding.hpp"
+#include "components/respawn_timer_component_encoding.hpp"
 #include "components/score_component_encoding.hpp"
 #include "components/team_component_encoding.hpp"
 #include "components/zone_component_encoding.hpp"

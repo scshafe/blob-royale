@@ -104,7 +104,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     lists are remeasured by their own stated method.
   - Execution note (2026-09-09): `shared/roster.hpp` (royale's alive functions plus `participant_count` and `participant_entities`), `shared/lobby_start_rule.hpp`, `shared/disc_geometry.hpp`, `shared/spawn_point_probe.hpp`, and `shared/next_free_spawn_point_policy.hpp` with the post-`ended` lobby deferral; royale's ring policy stays in `royale/` and calls the probe. Every moved expression is byte for byte what it was, and the five new test files pin the two populations, the start rule, the rim boundary, the probe's wrap, and the one tick the open-field policy defers in. One authoring slip fixed under this step: a test built a zero-seat lobby through `SeatRoster::of_size`, which refuses zero; the no-lobby world is the default roster. Verified at 135 of 135 on both lanes.
 
-- [ ] **Step 5: Add `RespawnTimer`, the `respawn` system, and `match_reset`; open protocol 2.5**
+- [x] **Step 5: Add `RespawnTimer`, the `respawn` system, and `match_reset`; open protocol 2.5**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|fixtures' linux-clang-asan-ubsan && ./scripts/verify-web`
   - Specialist: `testineer`
   - Notes: The kind, its schema, encoder, name-table entry, and the client's non-visual registry
@@ -115,6 +115,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     are both destroyed and a seat is not. Then try royale on `match_reset` in place of
     `placement_recorder` step 3: keep it only if every royale fixture's pinned count is unchanged,
     and record the outcome either way in an execution note.
+  - Execution note (2026-09-09): The kind, its schema, encoder, name-table entry, `entity-snapshot` property, `common.schema.json` enum member, and the client's non-visual registry entry landed together with the version const at 2.5 on both ends; the four golden examples, the C++ goldens, the router and integration version pins, and the three ahead-by-one cases (two of them in the client, one of which the first pass missed) all moved. The 2.5 row of `docs/protocol/v2.md` is opened with this kind, per the amended constraint. `respawn` and `match_reset` are `shared/` systems with the tests the notes asked for, and the open-field policy defers a timer-carrying entity. Verified at 746 of 746 on linux-gcc-debug with the filter widened to `unit.server` and `integration` because both pin the protocol version, 737 of 737 on linux-clang-asan-ubsan with `unit.server` added, and 225 of 225 client tests through `verify-web` with generation drift, schema examples, typecheck, lint, and the build green. One hiccup outside the change: a 2.6 GB gitignored core dump from this morning's vitest crash sat in `frontend-react/` and broke prettier's walk; it was deleted. The royale adoption of `match_reset` is the next commit and its own note.
 
 ### Phase 2 -- King of the hill, server
 

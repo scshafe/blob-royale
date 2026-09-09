@@ -31,6 +31,8 @@ src/gameplay/
     disc_geometry.hpp           whether a centre is outside a circle, written once
     spawn_point_probe.hpp       the forward probe from the rotation counter every policy shares
     next_free_spawn_point_policy.hpp  the next free point, in every phase but the wipe tick
+    respawn_system.*            an elimination erases the body and starts a `RespawnTimer`
+    match_reset_system.*        the restart wipe of every participant, on the lobby tick after ended
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations
@@ -192,6 +194,26 @@ tick's reservation on the first tick it observes no `Zone`, so a royale simulati
 with `InputBatch::empty()`: the no-input tick carries no reservation and a tick handed nothing may
 create nothing. That is a hard failure with `GAMEPLAY.ROYALE_ZONE_ENTITY_UNRESERVED` rather than a
 match quietly played with no zone and therefore no elimination.
+
+## Respawn and reset
+
+**What an elimination means is the consuming system's decision**, and the tree now has both
+answers. Royale's `placement_recorder` ranks and destroys. `shared/respawn_system` is the other
+answer, for a mode whose fallen come back: it erases the eliminated entity's `PhysicsBody`, attaches
+a `RespawnTimer` of the mode's configured delay, counts existing timers down first, and erases a
+timer at zero -- at which point the entity, still carrying its `Controllable` and everything else it
+owned, is exactly what the engine's `SpawnSystem` calls "awaiting a body". An entity eliminated on
+tick `N` with delay `D` is offered to the mode's spawn policy at phase 0 of tick `N + D + 1`; with
+`D = 0`, on `N + 1`. A policy defers an entity that carries a timer, which is one predicate
+(`shared/next_free_spawn_point_policy.hpp`). The body is the only thing erased; a mode that pairs
+respawn with a body-bound counter of its own erases that counter in the system that owns it.
+
+`shared/match_reset_system` is royale's restart wipe generalized: on the single `lobby` tick whose
+`previous_phase` is `ended` it destroys every participant -- alive, respawning, or awaiting a seat
+-- so a score or a gate count on an entity with no body cannot leak into the next match. Royale
+keeps its own wipe inside `placement_recorder`; adopting the shared one is guarded by its replay
+fixtures' pinned counts (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "What is
+deliberately not built").
 
 ## Steering
 

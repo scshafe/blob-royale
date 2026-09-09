@@ -2,6 +2,9 @@
 
 #include "gameplay_test_fixture.hpp"
 
+#include "components/controllable_component.hpp"
+#include "components/respawn_timer_component.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
 #include "match_phase.hpp"
@@ -67,4 +70,23 @@ TEST_CASE("the single lobby tick after ended seats nobody, so a wipe never meets
   // And `ended` itself, or a match that just ended and is still in `ended`, is not the wipe tick.
   CHECK(chosen_point(world_in(simulation::MatchPhase::kEnded, simulation::MatchPhase::kRunning), 0,
                      kAllFree) == 0);
+}
+
+TEST_CASE("an entity still counting down its respawn is deferred whatever the phase",
+          "[unit][gameplay][shared][spawn]") {
+  // The engine offers it because it has a controller and no body; this is the one predicate that
+  // says "not yet". The moment the timer is erased, the same entity is seated.
+  for (const simulation::MatchPhase phase : simulation::kMatchPhases) {
+    INFO("phase " << simulation::match_phase_name(phase));
+    simulation::GameWorld world = world_in(phase, simulation::MatchPhase::kLobby);
+    world.mutable_store<simulation::Controllable>().insert_or_assign(
+        simulation::EntityId::create(1),
+        simulation::Controllable{simulation::ControllerId::create(1)});
+    world.mutable_store<simulation::RespawnTimer>().insert_or_assign(
+        simulation::EntityId::create(1), simulation::RespawnTimer{5});
+    CHECK(chosen_point(world, 0, kAllFree) == std::nullopt);
+
+    world.mutable_store<simulation::RespawnTimer>().erase(simulation::EntityId::create(1));
+    CHECK(chosen_point(world, 0, kAllFree) == 0);
+  }
 }

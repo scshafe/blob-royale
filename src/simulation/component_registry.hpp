@@ -5,6 +5,7 @@
 #include "components/controllable_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
+#include "components/respawn_timer_component.hpp"
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
 #include "components/zone_component.hpp"
@@ -36,8 +37,13 @@ namespace blob_royale::simulation {
 // kills on touch is a mechanic any mode may field. It is also the first kind whose presence is its
 // whole value, which is why it publishes an empty object rather than a synthetic flag member
 // (`components/lethal_on_contact_component.hpp`).
+//
+// `RespawnTimer` is the fourth and belongs to `src/gameplay/shared/` for the same reason: a
+// player who comes back after being knocked out of play is a mechanic the second and third
+// competitive modes both field and royale never does
+// (`components/respawn_timer_component.hpp`).
 using ComponentRegistry = ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone,
-                                        ZoneExposure, LethalOnContact>;
+                                        ZoneExposure, LethalOnContact, RespawnTimer>;
 
 } // namespace blob_royale::simulation
 

@@ -283,7 +283,7 @@ require_body(const std::map<std::uint64_t, PublishedBody>& bodies, const std::ui
   const json::object& envelope = document.as_object();
   const json::object& meta = required_object(envelope, "meta", kOperation);
   if (required_string(meta, "schema_id", kOperation) != kLobbyDirectorySchemaId ||
-      required_string(meta, "protocol_version", kOperation) != "2.4") {
+      required_string(meta, "protocol_version", kOperation) != "2.5") {
     throw_contract_violation(kOperation, "the directory named the wrong schema or version");
   }
   const json::value* const error = envelope.if_contains("error");

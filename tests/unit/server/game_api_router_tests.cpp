@@ -416,7 +416,7 @@ TEST_CASE("GameApiRouter returns 426 in the v2 envelope for an ordinary session 
   CHECK(fixture::response_contains(response, "PROTOCOL.UPGRADE_REQUIRED"));
   // A `/api/v2/` target's failure must name v2, so the envelope is selected by the target's
   // version prefix and not by the route that answered it.
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.4\""));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.5\""));
   CHECK(fixture::response_contains(response, "blob-royale://protocol/v2/error-response"));
 }
 
@@ -426,7 +426,7 @@ TEST_CASE("GameApiRouter answers an unrouted v2 target in the v2 envelope",
   const server::GameApiHttpResponse response =
       route_response(state, fixture::request(http::verb::get, "/api/v2/nonsense"));
   CHECK(response.result() == http::status::not_found);
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.4\""));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.5\""));
 }
 
 TEST_CASE("GameApiRouter answers an unrouted v3 target in the v1 envelope",
@@ -712,7 +712,7 @@ TEST_CASE("GameApiRouter lists every room in the directory with its census and h
   CHECK(fixture::response_contains(response, R"("error":null)"));
   CHECK(fixture::response_contains(
       response,
-      R"("meta":{"protocol_version":"2.4","schema_id":"blob-royale://protocol/v2/lobby-directory","request_id":"server-test-request-1"})"));
+      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/lobby-directory","request_id":"server-test-request-1"})"));
   // Room 1 is serving, past tick zero, with the one session counted in. Room 2 never started, so it
   // lists its initial world -- the two seats it was configured with, nobody in them -- at tick zero
   // and unhealthy, which is exactly what a join to it would be told with `503`.

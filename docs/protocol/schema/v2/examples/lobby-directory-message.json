@@ -33,7 +33,7 @@
   },
   "error": null,
   "meta": {
-    "protocol_version": "2.4",
+    "protocol_version": "2.5",
     "schema_id": "blob-royale://protocol/v2/lobby-directory",
     "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"
   }

@@ -139,9 +139,9 @@ export const protocolV2Schemas = {
     $defs: {
       protocol_version: {
         type: 'string',
-        const: '2.4',
+        const: '2.5',
         $comment:
-          "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds, and 2.4 added the lobby directory document, welcome.lobby_id and welcome.seat_count_maximum, and the three LOBBY.* error codes. A 2.4 client therefore rejects a 2.5 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
+          "A minor revision republishes this schema set with the const bumped; 2.1 added the lethal_on_contact component kind, 2.2 added elimination_grace_ticks to the royale mode-state block, 2.3 added the four lobby command kinds, the match seat roster, and welcome.npc_controller_kinds, 2.4 added the lobby directory document, welcome.lobby_id and welcome.seat_count_maximum, and the three LOBBY.* error codes, and 2.5 adds the respawn_timer component kind and the further kinds and mode-state blocks of ADR 0007. A 2.5 client therefore rejects a 2.6 document by construction; see docs/protocol/v2.md section 'Versioning and fail-closed decoding'.",
       },
       request_id: {
         type: 'string',
@@ -288,6 +288,7 @@ export const protocolV2Schemas = {
           'lethal_on_contact',
           'lifetime',
           'physics_body',
+          'respawn_timer',
           'score',
           'team',
           'zone',
@@ -484,6 +485,9 @@ export const protocolV2Schemas = {
           },
           physics_body: {
             $ref: 'physics-body-component.schema.json',
+          },
+          respawn_timer: {
+            $ref: 'respawn-timer-component.schema.json',
           },
           score: {
             $ref: 'score-component.schema.json',
@@ -1074,6 +1078,24 @@ export const protocolV2Schemas = {
       },
       is_static: {
         type: 'boolean',
+      },
+    },
+  },
+  respawnTimerComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v2/respawn-timer-component.schema.json',
+    title: 'Blob Royale protocol v2 respawn_timer component',
+    description:
+      "The committed ticks left before an entity that was knocked out of play is offered a seat again. An entity carrying it has no physics_body; an entity without it is not respawning, so absence is the whole of 'in play' and no member can hold zero on a committed tick.",
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['ticks_remaining'],
+    properties: {
+      ticks_remaining: {
+        $ref: 'common.schema.json#/$defs/safe_integer',
+        $comment:
+          'Ticks, not seconds, because the simulation stores ticks and nothing else on this wire is expressed in seconds. Added in 2.5.',
       },
     },
   },

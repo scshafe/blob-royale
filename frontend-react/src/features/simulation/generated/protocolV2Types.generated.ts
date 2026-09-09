@@ -240,6 +240,8 @@ interface MutableBlobRoyaleProtocolV2EntitySnapshot {
   entity_id: number;
   components: {
     controllable?: MutableBlobRoyaleProtocolV2ControllableComponent;
+    hill?: MutableBlobRoyaleProtocolV2HillComponent;
+    hill_presence?: MutableBlobRoyaleProtocolV2HillPresenceComponent;
     lethal_on_contact?: MutableBlobRoyaleProtocolV2LethalOnContactComponent;
     lifetime?: MutableBlobRoyaleProtocolV2LifetimeComponent;
     physics_body?: MutableBlobRoyaleProtocolV2PhysicsBodyComponent;
@@ -257,6 +259,23 @@ interface MutableBlobRoyaleProtocolV2ControllableComponent {
   controller_id: number;
   controller_kind: string;
   display_name: string;
+}
+/**
+ * The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This component is the only place the hill is published.
+ */
+interface MutableBlobRoyaleProtocolV2HillComponent {
+  center: MutableVector2;
+  radius: number;
+}
+interface MutableVector2 {
+  x: number;
+  y: number;
+}
+/**
+ * How many consecutive committed ticks an entity has held the hill toward its next point. An absent component reads as zero; the bound it counts toward is the king_of_the_hill mode-state block's point_interval_ticks.
+ */
+interface MutableBlobRoyaleProtocolV2HillPresenceComponent {
+  inside_ticks: number;
 }
 /**
  * Touching this entity eliminates a player. The component is a marker: its presence under an entity's components map is the entire message, so the object carries no member and an absent component is the whole of 'harmless'. A synthetic boolean member was rejected because it could only ever hold true - an entity that is not lethal does not carry the kind at all - and a field with one possible value is a fact a client must trust rather than read.
@@ -280,10 +299,6 @@ interface MutableBlobRoyaleProtocolV2PhysicsBodyComponent {
   collision_layer: number;
   collision_mask: number;
   is_static: boolean;
-}
-interface MutableVector2 {
-  x: number;
-  y: number;
 }
 /**
  * The committed ticks left before an entity that was knocked out of play is offered a seat again. An entity carrying it has no physics_body; an entity without it is not respawning, so absence is the whole of 'in play' and no member can hold zero on a committed tick.
@@ -519,13 +534,17 @@ export type BlobRoyaleProtocolV2EntitySnapshot =
   DeepReadonly<MutableBlobRoyaleProtocolV2EntitySnapshot>;
 export type BlobRoyaleProtocolV2ControllableComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2ControllableComponent>;
+export type BlobRoyaleProtocolV2HillComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV2HillComponent>;
+export type Vector2 = DeepReadonly<MutableVector2>;
+export type BlobRoyaleProtocolV2HillPresenceComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV2HillPresenceComponent>;
 export type BlobRoyaleProtocolV2LethalOnContactComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2LethalOnContactComponent>;
 export type BlobRoyaleProtocolV2LifetimeComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2LifetimeComponent>;
 export type BlobRoyaleProtocolV2PhysicsBodyComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2PhysicsBodyComponent>;
-export type Vector2 = DeepReadonly<MutableVector2>;
 export type BlobRoyaleProtocolV2RespawnTimerComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2RespawnTimerComponent>;
 export type BlobRoyaleProtocolV2ScoreComponent =

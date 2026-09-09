@@ -7,6 +7,7 @@ import {
   visualEntityRenderers,
 } from './entityRendererRegistry';
 import type { EntityRenderFrame } from './entityRendering';
+import { HILL_FILL, HILL_STROKE } from './hillRenderer';
 import { LETHAL_HAZARD_RING_COLOR } from './lethalOnContactRenderer';
 import {
   EXPOSED_OWN_RING_COLOR,
@@ -105,6 +106,11 @@ const zoneEntity: SessionEntitySnapshot = {
   components: { zone: { center: { x: 10, y: 10 }, radius: 5 } },
 };
 
+const hillEntity: SessionEntitySnapshot = {
+  entity_id: 12,
+  components: { hill: { center: { x: 200, y: 150 }, radius: 90 } },
+};
+
 const bodilessControllerEntity: SessionEntitySnapshot = {
   entity_id: 11,
   components: {
@@ -169,6 +175,7 @@ describe('entityRendererRegistry', () => {
     // never land on one entity today -- a hazard carries no exposure counter -- but the order is
     // pinned here so that stops being an accident if one ever does.
     expect(visualEntityRenderers().map((renderer) => renderer.kind)).toEqual([
+      'hill',
       'zone',
       'physics_body',
       'lethal_on_contact',
@@ -233,6 +240,21 @@ describe('entityRendererRegistry', () => {
 
     entityRendererRegistry.zone.drawEntity(bodilessControllerEntity, frame);
     entityRendererRegistry.physics_body.drawEntity(zoneEntity, frame);
+    expect(arc).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the hill as one filled disc at its published centre and radius', () => {
+    const { arc, arcRadii, frame, surface } = createFrame();
+
+    entityRendererRegistry.hill.drawEntity(hillEntity, frame);
+
+    expect(arc).toHaveBeenCalledTimes(1);
+    expect(arcRadii).toEqual([90]);
+    expect(surface.fillStyle).toBe(HILL_FILL);
+    expect(surface.strokeStyle).toBe(HILL_STROKE);
+    // The hill and the zone share a layer and are told apart by kind, never by geometry: a hill
+    // entity carries no zone and draws nothing through the zone renderer.
+    entityRendererRegistry.zone.drawEntity(hillEntity, frame);
     expect(arc).toHaveBeenCalledTimes(1);
   });
 

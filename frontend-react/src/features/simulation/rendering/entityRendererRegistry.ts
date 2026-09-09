@@ -7,6 +7,7 @@ import {
   entityRenderer,
   nonVisualComponent,
 } from './entityRendering';
+import { drawHill } from './hillRenderer';
 import { drawPhysicsBody } from './physicsBodyRenderer';
 import { drawZone } from './zoneRenderer';
 import { drawLethalOnContact } from './lethalOnContactRenderer';
@@ -32,6 +33,11 @@ export const entityRendererRegistry = Object.freeze({
     'controllable',
     ENTITY_RENDER_LAYERS.label,
     drawControllableLabel,
+  ),
+  hill: entityRenderer('hill', ENTITY_RENDER_LAYERS.zone, drawHill),
+  hill_presence: nonVisualComponent(
+    'hill_presence',
+    'Progress toward the next point belongs to the HUD, as a ring against the published interval.',
   ),
   lifetime: nonVisualComponent(
     'lifetime',

@@ -5,6 +5,8 @@
 #include "component_registry.hpp"
 #include "component_store.hpp"
 #include "components/controllable_component.hpp"
+#include "components/hill_component.hpp"
+#include "components/hill_presence_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "components/respawn_timer_component.hpp"
@@ -36,9 +38,10 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
   // the seam hardest: it belongs to **no mode at all** but to `src/gameplay/shared/`, and it cost
   // the same one header plus one line here. That is the measurement the `entity_component` seam's
   // claim is answerable to (`docs/architecture/0005-royale-mode.md` § "Where zone and elimination
-  // state live"). `RespawnTimer` is the fourth, also `shared/`'s, and cost the same
+  // state live"). `RespawnTimer` is the fourth, also `shared/`'s, and cost the same; `Hill` and
+  // `HillPresence` are king of the hill's, the way the zone pair is royale's
   // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`).
-  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 9);
+  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 11);
   STATIC_REQUIRE(std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
                                 std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
                                            simulation::ComponentStore<simulation::Controllable>,
@@ -48,7 +51,9 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
                                            simulation::ComponentStore<simulation::Zone>,
                                            simulation::ComponentStore<simulation::ZoneExposure>,
                                            simulation::ComponentStore<simulation::LethalOnContact>,
-                                           simulation::ComponentStore<simulation::RespawnTimer>>>);
+                                           simulation::ComponentStore<simulation::RespawnTimer>,
+                                           simulation::ComponentStore<simulation::Hill>,
+                                           simulation::ComponentStore<simulation::HillPresence>>>);
 }
 
 TEST_CASE("Every registered component kind declares its own wire name",
@@ -60,7 +65,7 @@ TEST_CASE("Every registered component kind declares its own wire name",
 
   CHECK(names == std::vector<std::string_view>{"physics_body", "controllable", "lifetime", "score",
                                                "team", "zone", "zone_exposure", "lethal_on_contact",
-                                               "respawn_timer"});
+                                               "respawn_timer", "hill", "hill_presence"});
 }
 
 TEST_CASE("Registry visitation reaches every kind exactly once in declared order",

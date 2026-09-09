@@ -128,13 +128,14 @@ Facts the executor needs that the code does not say on its face, all verified in
     converting to zero ticks is refused.
   - Execution note (2026-09-09): `KingOfTheHillConfiguration` with the eleven keys and the rules of ADR 0007's table, four `GAMEPLAY.KING_OF_THE_HILL_*` codes, the member on `GameModeConfiguration`, the loader's enum entries, spec rows, a fixed-section boolean parser, and the section in every configuration file: the shipped and deployed configurations, five browser fixtures, five fuzz corpus files, and the unit template. The loader tests pin the converted values, that the section is required (refused as its eleven missing keys, which is how a fixed section's absence has always been reported), and that the boolean has one spelling; the configuration tests pin the defaults, every rejection's key, the dwell-plus-travel rule, the hop and the never-stopping glide, and `points_to_win` at least one. Verified at 230 of 230 on both lanes.
 
-- [ ] **Step 7: Add `Hill` and `HillPresence`, and `hill_movement`**
+- [x] **Step 7: Add `Hill` and `HillPresence`, and `hill_movement`**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol' linux-clang-asan-ubsan && ./scripts/verify-web`
   - Notes: Two kinds with their wire halves and client entries (`hill` visual at the zone layer,
     `hill_presence` non-visual). `hill_center(markers, dwell, travel, elapsed)` is a pure function
     with its own tests: one marker never moves, `travel = 0` hops, the glide's division precedes
     its multiplication, and the phase table's four rows. The entity creation fails hard on an
     empty reservation exactly as `zone_shrink` does.
+  - Execution note (2026-09-09): Both kinds with their schemas, encoders, kind-name entries, the entity-snapshot properties, and the client entries -- `hill` visual at the zone layer with an amber disc, `hill_presence` non-visual -- under the open 2.5. `hill_geometry` holds the tour as a pure function and the marker projection; `hill_movement` creates the hill entity from the reservation and writes `Hill` every tick by the four-row phase table. Its tests pin one marker never moving, the hop, the exact midpoint of a glide, the cycle, the phase table, the empty-reservation rejection, and the missing-marker rejection; the creation path is proven through the mode in Step 8, because a hand-built world holds no reservation. Verified at 623 of 623 on both lanes and 226 of 226 client tests with the registry's kind set and visual order pinned.
 
 - [ ] **Step 8: Declare `king_of_the_hill`**
   - Verify: `./scripts/verify-focused 'unit.gameplay|unit.protocol' && ./scripts/verify-focused 'unit.gameplay|unit.protocol' linux-clang-asan-ubsan`

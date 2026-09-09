@@ -148,6 +148,8 @@
       "type": "string",
       "enum": [
         "controllable",
+        "hill",
+        "hill_presence",
         "lethal_on_contact",
         "lifetime",
         "physics_body",

@@ -285,6 +285,8 @@ export const protocolV2Schemas = {
         type: 'string',
         enum: [
           'controllable',
+          'hill',
+          'hill_presence',
           'lethal_on_contact',
           'lifetime',
           'physics_body',
@@ -477,6 +479,12 @@ export const protocolV2Schemas = {
           controllable: {
             $ref: 'controllable-component.schema.json',
           },
+          hill: {
+            $ref: 'hill-component.schema.json',
+          },
+          hill_presence: {
+            $ref: 'hill-presence-component.schema.json',
+          },
           lethal_on_contact: {
             $ref: 'lethal-on-contact-component.schema.json',
           },
@@ -539,6 +547,43 @@ export const protocolV2Schemas = {
             $ref: 'common.schema.json#/$defs/request_id',
           },
         },
+      },
+    },
+  },
+  hillComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v2/hill-component.schema.json',
+    title: 'Blob Royale protocol v2 hill component',
+    description:
+      'The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This component is the only place the hill is published.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['center', 'radius'],
+    properties: {
+      center: {
+        $ref: 'common.schema.json#/$defs/vector2',
+      },
+      radius: {
+        $ref: 'common.schema.json#/$defs/nonnegative_world_scalar',
+      },
+    },
+    $comment: 'Added in 2.5.',
+  },
+  hillPresenceComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v2/hill-presence-component.schema.json',
+    title: 'Blob Royale protocol v2 hill_presence component',
+    description:
+      "How many consecutive committed ticks an entity has held the hill toward its next point. An absent component reads as zero; the bound it counts toward is the king_of_the_hill mode-state block's point_interval_ticks.",
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['inside_ticks'],
+    properties: {
+      inside_ticks: {
+        $ref: 'common.schema.json#/$defs/safe_integer',
+        $comment: 'Added in 2.5.',
       },
     },
   },

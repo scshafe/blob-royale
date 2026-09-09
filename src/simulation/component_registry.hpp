@@ -3,6 +3,8 @@
 
 #include "component_list.hpp"
 #include "components/controllable_component.hpp"
+#include "components/hill_component.hpp"
+#include "components/hill_presence_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "components/respawn_timer_component.hpp"
@@ -42,8 +44,12 @@ namespace blob_royale::simulation {
 // player who comes back after being knocked out of play is a mechanic the second and third
 // competitive modes both field and royale never does
 // (`components/respawn_timer_component.hpp`).
-using ComponentRegistry = ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone,
-                                        ZoneExposure, LethalOnContact, RespawnTimer>;
+//
+// `Hill` and `HillPresence` are king of the hill's, the way `Zone` and `ZoneExposure` are royale's:
+// two headers and this one line (`components/hill_component.hpp`).
+using ComponentRegistry =
+    ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
+                  LethalOnContact, RespawnTimer, Hill, HillPresence>;
 
 } // namespace blob_royale::simulation
 

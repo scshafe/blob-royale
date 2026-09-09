@@ -1,5 +1,7 @@
 add_library(blob_gameplay STATIC
   game_mode_registry.cpp
+  king_of_the_hill/hill_geometry.cpp
+  king_of_the_hill/hill_movement_system.cpp
   king_of_the_hill/king_of_the_hill_configuration.cpp
   royale/elimination_grace_publisher_system.cpp
   royale/placement_recorder_system.cpp

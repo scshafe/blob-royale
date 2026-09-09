@@ -6,6 +6,7 @@ import {
   describeRoomRefusal,
   findLobbyListing,
   lobbyJoinRefusal,
+  lobbySeatRefusal,
 } from './lobbyDirectorySelectors';
 import { validateLobbyDirectoryMessage } from './sessionProtocolValidation';
 import type { SessionLobbyListing } from './simulationProtocolTypes';
@@ -70,6 +71,50 @@ describe('lobbyJoinRefusal', () => {
   });
 });
 
+describe('lobbySeatRefusal', () => {
+  it('predicts nothing while a seat is unfilled', () => {
+    expect(lobbySeatRefusal(goldenRoom(1))).toBeNull();
+    expect(lobbySeatRefusal(goldenRoom(2))).toBeNull();
+  });
+
+  it('predicts no seat once every seat is filled and the match is past countdown', () => {
+    expect(lobbySeatRefusal({ ...goldenRoom(1), filled_seat_count: 4 })).toBe(
+      'room_seats_taken',
+    );
+    expect(
+      lobbySeatRefusal({
+        ...goldenRoom(1),
+        filled_seat_count: 4,
+        phase: 'ended',
+      }),
+    ).toBe('room_seats_taken');
+  });
+
+  it('predicts a seat in the lobby while a bot can be displaced, and none without one', () => {
+    expect(
+      lobbySeatRefusal({ ...goldenRoom(2), filled_seat_count: 4 }),
+    ).toBeNull();
+    expect(
+      lobbySeatRefusal({
+        ...goldenRoom(2),
+        filled_seat_count: 4,
+        npc_seat_count: 0,
+      }),
+    ).toBe('room_seats_taken');
+  });
+
+  it('never predicts it for a room with no lobby', () => {
+    expect(
+      lobbySeatRefusal({
+        ...goldenRoom(1),
+        filled_seat_count: 0,
+        npc_seat_count: 0,
+        seat_count: 0,
+      }),
+    ).toBeNull();
+  });
+});
+
 describe('describeRoomRefusal', () => {
   it('names the room and what to do next, for every refusal', () => {
     expect(describeRoomRefusal('lobby_full', 2)).toBe(
@@ -80,6 +125,9 @@ describe('describeRoomRefusal', () => {
     );
     expect(describeRoomRefusal('room_missing', 9)).toBe(
       'Room 9 does not exist on this server.',
+    );
+    expect(describeRoomRefusal('room_seats_taken', 1)).toBe(
+      'Room 1 has every seat taken. Choose another room, or wait for its next lobby.',
     );
     expect(describeRoomRefusal('room_unavailable', 1)).toBe(
       'Room 1 is not serving right now. Choose another room, or try again later.',
@@ -113,6 +161,16 @@ describe('describeLobbyListing', () => {
     expect(
       describeLobbyListing({ ...goldenRoom(2), session_count: 4 }),
     ).toMatchObject({ joinable: false, refusal: 'room_full' });
+    // A running match of one person and one bot is not full at the door, and has no seat to give.
+    expect(
+      describeLobbyListing({
+        ...goldenRoom(1),
+        filled_seat_count: 2,
+        npc_seat_count: 1,
+        seat_count: 2,
+        session_count: 1,
+      }),
+    ).toMatchObject({ joinable: false, refusal: 'room_seats_taken' });
     expect(
       describeLobbyListing({
         ...goldenRoom(2),

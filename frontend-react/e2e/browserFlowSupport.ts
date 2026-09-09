@@ -105,6 +105,26 @@ export async function waitForReadyServer(
   );
 }
 
+/** One room's card on the directory, addressed by the room's heading. */
+export function roomCard(page: Page, lobbyId: number): Locator {
+  return page.getByRole('listitem').filter({
+    has: page.getByRole('heading', { level: 3, name: `Room ${lobbyId}` }),
+  });
+}
+
+/** The value of one fact on a room's card, addressed by its term: `Mode`, `Phase`, `Seats`, ... */
+export function roomFact(card: Locator, term: string): Locator {
+  return card
+    .locator('.LobbyFacts div')
+    .filter({ has: card.page().getByText(term, { exact: true }) })
+    .locator('dd');
+}
+
+/** The directory's Join control for one room, disabled with a reason when the room refuses. */
+export function joinRoomButton(page: Page, lobbyId: number): Locator {
+  return page.getByRole('button', { name: `Join Room ${lobbyId}` });
+}
+
 /** The lobby's Start control, which is enabled exactly when every seat is filled. */
 export function lobbyStartButton(page: Page): Locator {
   return page.getByRole('button', { name: 'Start match' });

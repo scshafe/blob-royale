@@ -10,10 +10,11 @@ export type LobbyJoinRefusal =
   'room_full' | 'room_missing' | 'room_unavailable';
 
 /**
- * Every way a room can turn a joiner away: the three the directory predicts, and the one only the
+ * Every way a room can turn a joiner away: the three admission predicts, the one the census
+ * predicts (`room_seats_taken`, every seat filled and nothing to displace), and the one only the
  * tick can decide -- `1013 lobby_full`, the last-seat race lost after admission.
  */
-export type RoomRefusal = LobbyJoinRefusal | 'lobby_full';
+export type RoomRefusal = LobbyJoinRefusal | 'lobby_full' | 'room_seats_taken';
 
 export function findLobbyListing(
   listings: readonly SessionLobbyListing[],
@@ -49,6 +50,29 @@ export function lobbyJoinRefusal(
   return null;
 }
 
+/**
+ * The refusal the tick would make of a join admission lets through, predicted from the census: every
+ * seat is filled, and there is no declared bot's seat to displace because the match is past
+ * `countdown` or no seat is a bot's. Admission counts sessions and a bot is not one, so a room of
+ * one person and one bot in a running match is not full at the door and yet has no seat to give;
+ * the directory says so rather than letting a hopeful join be closed `1013 lobby_full`. `null`
+ * means a join could take a seat this instant, which is still advice and not admission.
+ */
+export function lobbySeatRefusal(
+  listing: SessionLobbyListing,
+): 'room_seats_taken' | null {
+  if (
+    listing.seat_count === 0 ||
+    listing.filled_seat_count < listing.seat_count
+  ) {
+    return null;
+  }
+  const botSeatDisplaceable =
+    (listing.phase === 'lobby' || listing.phase === 'countdown') &&
+    listing.npc_seat_count > 0;
+  return botSeatDisplaceable ? null : 'room_seats_taken';
+}
+
 /** The one sentence a player is told about a refusal, on the directory they are sent back to. */
 export function describeRoomRefusal(
   refusal: RoomRefusal,
@@ -61,6 +85,8 @@ export function describeRoomRefusal(
       return `Room ${lobbyId} is full. Choose another room, or try again once somebody leaves.`;
     case 'room_missing':
       return `Room ${lobbyId} does not exist on this server.`;
+    case 'room_seats_taken':
+      return `Room ${lobbyId} has every seat taken. Choose another room, or wait for its next lobby.`;
     case 'room_unavailable':
       return `Room ${lobbyId} is not serving right now. Choose another room, or try again later.`;
   }
@@ -85,7 +111,7 @@ export interface LobbyListingDescription {
   readonly modeAndMap: string;
   readonly occupancyLabel: string;
   readonly phaseLabel: string;
-  readonly refusal: LobbyJoinRefusal | null;
+  readonly refusal: RoomRefusal | null;
   readonly seatsLabel: string;
   readonly title: string;
 }
@@ -98,7 +124,7 @@ export interface LobbyListingDescription {
 export function describeLobbyListing(
   listing: SessionLobbyListing,
 ): LobbyListingDescription {
-  const refusal = lobbyJoinRefusal(listing);
+  const refusal = lobbyJoinRefusal(listing) ?? lobbySeatRefusal(listing);
   return Object.freeze({
     joinable: refusal === null,
     lobbyId: listing.lobby_id,

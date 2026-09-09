@@ -9,6 +9,8 @@
 #include "snapshot_delivery_state.hpp"
 #include "snapshot_egress_budget.hpp"
 
+#include "command_registry.hpp"
+#include "command_submission_result.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "tick_sequence.hpp"
@@ -48,6 +50,16 @@ namespace blob_royale::server {
 // is already the one idempotent terminal path for the transport, the leases, and the session
 // registration -- an abnormal transport close, a rejected command, shutdown, a stalled write, and
 // a handshake failure all reach it and none of them reaches it twice.
+//
+// **A lobby command is logged, a thrust is not.** Anyone in the lobby may resize it, seat or clear
+// a bot, and press Start, and the tick logs nothing by contract, so without a line here nobody
+// could say afterwards who started a match early or emptied a seat -- which is the whole cost of
+// "anyone may" the moment a stranger reaches the listener
+// (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 6). The line carries the request
+// id, the kind, the closed payload values, and the sink's answer; every value in it is a bounded
+// integer or a registered kind name the boundary already validated, so no client-chosen byte
+// reaches a log. A thrust arrives up to twenty times a second per session and says nothing a person
+// would look up, so it stays unlogged.
 //
 // **Disconnect despawns.** `CommandSink` holds no world state and so cannot despawn a body on
 // `close_session`; this session does know its current body, because it resolves one every
@@ -108,6 +120,10 @@ private:
   void client_frame_read(const boost::system::error_code& error,
                          std::size_t transferred_byte_count);
   void admit_client_command(std::string_view frame);
+  // One `info` line per lobby command that reached the sink, naming the sender, the kind, the
+  // closed payload, and what the sink said. Nothing for a kind that is not a lobby command.
+  void log_lobby_command(const simulation::Command& command,
+                         runtime::CommandSubmissionResult result) const;
   void observe_control_frame(boost::beast::websocket::frame_type frame_type,
                              boost::beast::string_view payload);
 

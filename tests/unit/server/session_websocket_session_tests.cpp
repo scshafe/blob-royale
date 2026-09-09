@@ -7,9 +7,11 @@
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
 
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/socket_base.hpp>
+#include <boost/asio/write.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/http/verb.hpp>
@@ -361,4 +363,40 @@ TEST_CASE("The command budget and the control budget are separate ledgers",
     CHECK(control.consume(opened_at));
   }
   CHECK_FALSE(control.consume(opened_at));
+}
+
+TEST_CASE("SessionWebSocketSession logs every lobby command it submits, with the sink's answer",
+          "[unit][server][v2][session][lobby]") {
+  constexpr std::string_view kRequestId = "unit.session.lobby-command-log";
+  SessionHarness harness;
+  const std::shared_ptr<server::SessionWebSocketSession> session =
+      harness.make_session(kRequestId, direct_identity());
+  session->run(harness.request(kRequestId));
+  run_until(harness.server_io_context(),
+            [&harness] { return harness.controller_directory().size() == 1; });
+  REQUIRE(harness.controller_directory().size() == 1);
+
+  // One masked text frame, written raw. The server accepted a pre-parsed upgrade and never reads a
+  // client handshake from this socket, so the first bytes it reads may be a frame; a client MUST
+  // mask (RFC 6455 § 5.1), and an all-zero key is a legal key that leaves the payload readable
+  // here. The frame is 34 bytes of payload, well inside the 1,024-byte inbound bound.
+  const std::string envelope = R"({"kind":"start_match","payload":{}})";
+  std::string frame;
+  frame.push_back(static_cast<char>(0x81));
+  frame.push_back(static_cast<char>(0x80U | static_cast<unsigned>(envelope.size())));
+  frame.append(4, '\0');
+  frame.append(envelope);
+  boost::asio::write(harness.client_socket(), boost::asio::buffer(frame));
+
+  run_until(harness.server_io_context(),
+            [&harness] { return harness.log_capture().contains_event("session.lobby_command"); });
+  const std::optional<blob_royale::test_support::CapturedStructuredLogEvent> logged =
+      harness.log_capture().find_event("session.lobby_command");
+  REQUIRE(logged.has_value());
+  CHECK(logged->severity == "info");
+  CHECK(logged->request_id == std::string{kRequestId});
+  CHECK(logged->connection_id == std::string{kRequestId});
+  REQUIRE(logged->detail.has_value());
+  CHECK(logged->detail->find("kind=start_match") != std::string::npos);
+  CHECK(logged->detail->find("result=accepted") != std::string::npos);
 }

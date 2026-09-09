@@ -35,7 +35,9 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace blob_royale::server {
@@ -305,8 +307,45 @@ void SessionWebSocketSession::admit_client_command(const std::string_view frame)
     // connection: closing here would disconnect honest clients at the most visible moment.
     return;
   }
-  static_cast<void>(
-      server_context_->match_session().command_sink().submit(*controller_, *decoded.command()));
+  const runtime::CommandSubmissionResult result =
+      server_context_->match_session().command_sink().submit(*controller_, *decoded.command());
+  log_lobby_command(*decoded.command(), result);
+}
+
+void SessionWebSocketSession::log_lobby_command(
+    const simulation::Command& command, const runtime::CommandSubmissionResult result) const {
+  // The payload half of the line, or nothing at all for a kind that is not a lobby command. Total
+  // over the closed variant: a kind added later is unlogged until somebody decides here that it
+  // should be, which is the same decision `command_wire_kind.hpp` forces for the wire.
+  const std::optional<std::string> payload = std::visit(
+      []<typename CommandType>(const CommandType& value) -> std::optional<std::string> {
+        if constexpr (std::is_same_v<CommandType, simulation::SetSeatCountCommand>) {
+          return " seat_count=" + std::to_string(value.seat_count);
+        } else if constexpr (std::is_same_v<CommandType, simulation::ClearSeatCommand>) {
+          return " seat_index=" + std::to_string(value.seat_index);
+        } else if constexpr (std::is_same_v<CommandType, simulation::SeatNpcCommand>) {
+          return " seat_index=" + std::to_string(value.seat_index) +
+                 " npc_kind=" + std::string(value.kind.value());
+        } else if constexpr (std::is_same_v<CommandType, simulation::StartMatchCommand>) {
+          return std::string{};
+        } else {
+          return std::nullopt;
+        }
+      },
+      command);
+  if (!payload.has_value()) {
+    return;
+  }
+  const std::string detail =
+      "kind=" +
+      std::string(simulation::command_kind_name_of(simulation::command_kind_of(command))) +
+      " result=" + std::string(runtime::command_submission_result_name(result)) + *payload;
+  server_context_->logger().write({.severity = observability::LogSeverity::kInfo,
+                                   .event = "session.lobby_command",
+                                   .request_id = request_id_.value(),
+                                   .connection_id = request_id_.value(),
+                                   .context = "session.lobby_command",
+                                   .detail = detail});
 }
 
 void SessionWebSocketSession::observe_control_frame(const websocket::frame_type frame_type,

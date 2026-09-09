@@ -78,7 +78,7 @@ Facts the executor needs that the code does not say on its face, all verified on
   - Notes: Review finding 5. `blob_royale_application.cpp:300` seeds `SeatRoster::of_size` only when `mode->accepted_command_kinds().contains(kStartMatch)`; `[royale]` stays required for every mode, only the seeding is conditional. The application tests already run `sandbox` on a bare arena, so the test is "the published roster is empty". Rewrite `docs/operations/tailnet.md:65` and `scripts/reconfigure-tailnet:10`, which still say "lobby minimum".
   - Execution note (2026-09-09): The application tests cannot observe a published roster -- `BlobRoyaleApplication` exposes only `create` and `run` -- so the rule was extracted as `initial_seat_roster_for(mode, count)` beside the other cross-value startup rules in `match_startup_validation.hpp` and tested there directly against `SandboxMode` and `RoyaleMode`; the composition root calls it. Verified at 93 application tests on both lanes.
 
-- [ ] **Step 4: Log every accepted lobby command at the session**
+- [x] **Step 4: Log every accepted lobby command at the session**
   - Verify: `./scripts/verify-focused 'unit.server' && ./scripts/verify-focused 'unit.server' linux-clang-asan-ubsan`
   - Notes: Review finding 6. After the submit in `admit_client_command` (`src/server/session_websocket_session.cpp:308`), one `info` event `session.lobby_command` per lobby kind with the request id, the kind, the closed payload values, and `command_submission_result_name`. Nothing client-chosen reaches the line except a bounded integer or a registered kind name, both already validated. Test with the existing `SessionHarness`: handshake, write one `start_match` frame, run until the event appears.
 

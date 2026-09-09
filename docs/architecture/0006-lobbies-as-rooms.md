@@ -196,9 +196,19 @@ Release, **not** the native runner -- nine samples measured a per-tick step of *
 every sample hash-matching the untimed reference; the deployed comet is lethal and the field thins
 from eight blobs to four across the window, which the output records. That is 36× inside the mean
 budget and 98× inside the p99 budget on a host slower than `cole-ubuntu-pc`, so nothing in this
-section changes and `[lobbies] count=4` deployed with 8 compiled stands provisionally. The native
-measurement this decision is stated against is still owed: `./scripts/run-benchmarks-linux` on
-`cole-ubuntu-pc` at this commit or later, recorded here as a second dated line.
+section changed on that evidence alone.
+
+**Amended 2026-09-09 (plan Step 8, native measurement).** `./scripts/run-benchmarks-linux` on
+`cole-ubuntu-pc` at commit `380b5c9` -- `AMD Ryzen 5 5600G`, 12 logical CPUs, governor
+`powersave`, kernel 6.17, GCC 13.3 Release, inside the pinned container -- measured the same case
+at **5.2 µs mean, 4.8 µs median, 7.8 µs p99, 15 µs maximum** per tick (median across nine samples;
+the worst sample's p99 was 8.0 µs) and 0.34 µs per snapshot, with the same final snapshot hash as
+the Mac run. That is 48× inside the mean budget and 128× inside the p99 budget, so **the decision
+stands: `[lobbies] count=4` deployed and 8 compiled.** Eight rooms at that cost are about 42 µs of
+every 2.5 ms quantum across two cores, under 1 % of one core, which leaves the room-count knob a
+matter of how many lobbies a wall should show rather than of what the host can step. The trip-wire
+for option B is unchanged: `maximum_lateness` above one quantum on a room whose own step is under
+budget.
 
 Option B is the fallback if a native measurement ever shows the N-thread scheduler jitter itself
 costing more than the steps: the trip-wire is `maximum_lateness` above one quantum on a room whose

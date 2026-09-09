@@ -4,6 +4,7 @@
 #include "command_sink.hpp"
 #include "command_sink_error.hpp"
 #include "command_submission_result.hpp"
+#include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
@@ -260,7 +261,15 @@ TEST_CASE("CommandSink refuses a lobby command stamped with a foreign controller
   CHECK(fixture.sink.submit(
             controller, simulation::SetSeatCountCommand{.controller = other, .seat_count = 4}) ==
         runtime::CommandSubmissionResult::kRejectedForeignController);
+  // A join is server-issued, and the rule still holds: the reconciliation that joins a bot to its
+  // seat submits as that bot, never as somebody else.
+  CHECK(fixture.sink.submit(
+            controller, simulation::JoinCommand{.controller = other, .seat_index = std::nullopt}) ==
+        runtime::CommandSubmissionResult::kRejectedForeignController);
   CHECK(fixture.sink.submit(controller, simulation::StartMatchCommand{.controller = controller}) ==
+        runtime::CommandSubmissionResult::kAccepted);
+  CHECK(fixture.sink.submit(controller, simulation::JoinCommand{.controller = controller,
+                                                                .seat_index = std::nullopt}) ==
         runtime::CommandSubmissionResult::kAccepted);
 }
 
@@ -283,6 +292,9 @@ TEST_CASE("CommandSink refuses a seat index or a seat count outside the engine's
   CHECK(fixture.sink.submit(controller, simulation::ClearSeatCommand{.controller = controller,
                                                                      .seat_index = kSeatCeiling}) ==
         runtime::CommandSubmissionResult::kRejectedSeatIndexOutOfRange);
+  CHECK(fixture.sink.submit(controller, simulation::JoinCommand{.controller = controller,
+                                                                .seat_index = kSeatCeiling}) ==
+        runtime::CommandSubmissionResult::kRejectedSeatIndexOutOfRange);
   CHECK(fixture.sink.submit(controller, simulation::SetSeatCountCommand{.controller = controller,
                                                                         .seat_count = 0}) ==
         runtime::CommandSubmissionResult::kRejectedSeatCountOutOfRange);
@@ -295,6 +307,9 @@ TEST_CASE("CommandSink refuses a seat index or a seat count outside the engine's
   CHECK(fixture.sink.submit(controller,
                             simulation::ClearSeatCommand{.controller = controller,
                                                          .seat_index = kSeatCeiling - 1}) ==
+        runtime::CommandSubmissionResult::kAccepted);
+  CHECK(fixture.sink.submit(controller, simulation::JoinCommand{.controller = controller,
+                                                                .seat_index = kSeatCeiling - 1}) ==
         runtime::CommandSubmissionResult::kAccepted);
   CHECK(fixture.sink.submit(controller,
                             simulation::SetSeatCountCommand{.controller = controller,

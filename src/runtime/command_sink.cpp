@@ -28,7 +28,8 @@ stamped_controller_of(const simulation::Command& command) noexcept {
                       std::is_same_v<CommandType, simulation::ClearSeatCommand> ||
                       std::is_same_v<CommandType, simulation::SeatNpcCommand> ||
                       std::is_same_v<CommandType, simulation::StartMatchCommand> ||
-                      std::is_same_v<CommandType, simulation::LeaveCommand>) {
+                      std::is_same_v<CommandType, simulation::LeaveCommand> ||
+                      std::is_same_v<CommandType, simulation::JoinCommand>) {
           return value.controller;
         } else {
           return std::nullopt;
@@ -146,6 +147,12 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
           // cannot reach a future block by guessing.
           if (value.entity.value() >= entity_id_allocator_->next_entity_id().value()) {
             return CommandSubmissionResult::kRejectedUnissuedEntityId;
+          }
+          return CommandSubmissionResult::kAccepted;
+        } else if constexpr (std::is_same_v<CommandType, simulation::JoinCommand>) {
+          if (value.seat_index.has_value() &&
+              *value.seat_index >= simulation::kMaximumLobbySeatCount) {
+            return CommandSubmissionResult::kRejectedSeatIndexOutOfRange;
           }
           return CommandSubmissionResult::kAccepted;
         } else if constexpr (std::is_same_v<CommandType, simulation::SeatNpcCommand> ||

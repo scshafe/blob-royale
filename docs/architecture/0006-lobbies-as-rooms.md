@@ -219,7 +219,11 @@ Two server-issued command kinds join `spawn` and `despawn` in the closed registr
 existing kind so no fixture's canonical order moves, and both classified as entity-lifecycle
 commands in the mailbox so neither is ever evicted.
 
-* **`join {controller, seat}`.** Enqueued by `CommandSink::open_session`. `seat` is absent for a
+* **`join {controller, seat}`.** Submitted for itself by the session that wants a seat, at the
+  same presentation slot and cadence it asks for a missing body, and by the reconciliation for the
+  bot it is creating; `CommandSink::open_session` stays the identity-issuing call it is and takes no
+  seat request (amended 2026-09-09 at plan Step 6, where the symmetry with `spawn` turned out to be
+  the whole implementation). `seat` is absent for a
   person and names the declared seat for a bot the reconciliation is creating. Phase 0 seats a
   person in the lowest empty seat, else displaces the lowest-indexed NPC seat, else leaves the
   roster unchanged; it fills a bot into its declared `NpcSeat` only if that seat still declares its

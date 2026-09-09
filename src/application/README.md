@@ -43,9 +43,12 @@ would otherwise only fail once a match was being played.
 
 `BlobRoyaleApplication` owns immutable configuration, then `SimulationRuntime`, then
 `ControllerHost`, then `GameServer` in destruction-safe order. It is the only file that knows every
-registry: it resolves the mode, hands the simulation the map and the mode, opens one `CommandSink`
-session per configured bot, and drives the host one decision pass per presentation frame on its own
-control thread. `blob_controllers` and `blob_runtime` link no logger by contract, so this is also
+registry: it resolves the mode, hands the simulation the map and the mode, declares the `[match]
+bots` roster into the first seats of a mode that has a lobby -- or opens one `CommandSink` session
+per configured bot for a mode that has none -- and drives the host one decision pass per
+presentation frame on its own control thread. `SeatBotReconciler` runs on the same control poll and
+makes the live bots match the committed seats: one bot for every declared seat nobody holds, joined
+to exactly that seat, and none for a seat that was cleared, resized away, or taken by a person. `blob_controllers` and `blob_runtime` link no logger by contract, so this is also
 where a rising dropped-command count, a controller failure, and a refused bot submission become
 structured log lines. It installs process signal handling on the caller thread, starts the runtime,
 runs the server on its owned `std::jthread`, and coordinates idempotent shutdown. Network acceptance

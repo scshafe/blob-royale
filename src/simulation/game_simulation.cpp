@@ -200,6 +200,69 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
   return false;
 }
 
+// Whether some seat already belongs to this controller, as a person or as a created bot.
+[[nodiscard]] bool controller_holds_a_seat(const SeatRoster& seats, const ControllerId controller) {
+  for (const Seat& seat : seats.seats()) {
+    if (const auto* held = std::get_if<ControllerSeat>(&seat);
+        held != nullptr && held->controller == controller) {
+      return true;
+    }
+    if (const auto* declared = std::get_if<NpcSeat>(&seat);
+        declared != nullptr && declared->controller == controller) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Phase 0's arm for a controller that wants a seat (`commands/join_command.hpp`).
+//
+// A bot's join names the seat that declared it and fills exactly that seat, only while it still
+// declares a kind and has no controller; anything else -- cleared, resized away, already filled --
+// changes nothing, and the reconciliation that created the bot retires it. A person's join names no
+// seat: the lowest empty one, or, before a match has started, the lowest-indexed NPC seat, which
+// the person takes from its bot. Displacement stops at `countdown` because a match in `running` or
+// `ended` is a closed field: taking a bot's seat there would retire a bot that is playing.
+//
+// A controller already seated is left exactly where it is, so a session that keeps asking never
+// moves, and a join that finds nothing to take is the no-op that lets it ask again.
+void apply_join(GameWorld& world, const ControllerId controller,
+                const std::optional<std::uint64_t> seat_index) {
+  SeatRoster& seats = world.mutable_match().seats;
+  if (controller_holds_a_seat(seats, controller)) {
+    return;
+  }
+  if (seat_index.has_value()) {
+    if (*seat_index >= seats.seat_count()) {
+      return;
+    }
+    const auto index = static_cast<std::size_t>(*seat_index);
+    const auto* declared = std::get_if<NpcSeat>(&seats.seats()[index]);
+    if (declared == nullptr || declared->controller.has_value()) {
+      return;
+    }
+    const SeatKindName kind = declared->kind;
+    seats.assign_seat(index, Seat{NpcSeat{kind, controller}});
+    return;
+  }
+  for (std::size_t index = 0; index < seats.seat_count(); ++index) {
+    if (std::holds_alternative<EmptySeat>(seats.seats()[index])) {
+      seats.assign_seat(index, Seat{ControllerSeat{controller}});
+      return;
+    }
+  }
+  const MatchPhase phase = world.match().phase;
+  if (phase != MatchPhase::kLobby && phase != MatchPhase::kCountdown) {
+    return;
+  }
+  for (std::size_t index = 0; index < seats.seat_count(); ++index) {
+    if (std::holds_alternative<NpcSeat>(seats.seats()[index])) {
+      seats.assign_seat(index, Seat{ControllerSeat{controller}});
+      return;
+    }
+  }
+}
+
 // Phase 0's arm for a departed controller. Every entity whose `Controllable` names it is destroyed,
 // pending or seated, and any seat it holds is vacated: a person's seat empties, an NPC seat keeps
 // its declared kind and loses its bot, so the reconciliation that created the bot can create
@@ -265,6 +328,10 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
       continue;
     }
     if (apply_lobby_command(world, command, seat_ceiling)) {
+      continue;
+    }
+    if (const auto* join = std::get_if<JoinCommand>(&command); join != nullptr) {
+      apply_join(world, join->controller, join->seat_index);
       continue;
     }
     if (const auto* leave = std::get_if<LeaveCommand>(&command); leave != nullptr) {
@@ -631,6 +698,16 @@ void require_mode_accepts_server_issued_kinds(const CommandKindMask accepted,
         "game_simulation.setup.accepted_command_kinds",
         "mode " + std::string(mode_name) + " does not accept the server-issued command kind " +
             std::string(command_kind_name_of(kind)));
+  }
+  // A mode with a lobby is one whose seats people and bots must be able to take: accepting
+  // `start_match` without `join` would be a lobby nobody can ever fill.
+  if (accepted.contains(CommandKind::kStartMatch) && !accepted.contains(CommandKind::kJoin)) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kGameSimulationModeRefusesServerIssuedKind,
+        "game_simulation.setup.accepted_command_kinds",
+        "mode " + std::string(mode_name) +
+            " accepts start_match but not the server-issued command kind join, so its lobby could "
+            "never be filled");
   }
 }
 

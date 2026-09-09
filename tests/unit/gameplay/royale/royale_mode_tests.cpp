@@ -62,7 +62,8 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
              simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave}));
+             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
+             simulation::CommandKind::kJoin}));
 }
 
 TEST_CASE("RoyaleMode declares seven systems in the order its rules depend on",

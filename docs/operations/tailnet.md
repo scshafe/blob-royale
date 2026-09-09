@@ -81,8 +81,9 @@ agree.
 
 The number that decides who a match waits for is `[royale] lobby_seat_count`: it is how many seats
 the pre-match lobby is created with, and a match starts only when every seat is filled and somebody
-presses Start. The shipped value is four seats. `[match] bots` still seats its roster at startup and
-is a separate question from who the lobby is waiting for.
+presses Start. The shipped value is four seats. `[match] bots` declares NPCs into the first seats of
+that lobby and the server creates a bot for every declared seat, so the roster is part of the field
+the lobby waits for and a person who joins a full lobby takes an NPC's seat.
 
 ## Verify
 

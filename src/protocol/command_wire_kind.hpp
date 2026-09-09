@@ -48,6 +48,12 @@ template <> struct CommandWireKind<simulation::LeaveCommand> {
   static constexpr std::optional<std::string_view> value = std::nullopt;
 };
 
+// Server-issued: a session asks for a seat for itself and the bot reconciliation asks for a bot's,
+// and a client that could name a seat could name somebody else's.
+template <> struct CommandWireKind<simulation::JoinCommand> {
+  static constexpr std::optional<std::string_view> value = std::nullopt;
+};
+
 // The whole 2.0 client vocabulary. The wire name differs from the simulation kind name on purpose:
 // `set_thrust` says the command *replaces* a steering intent that otherwise persists, which is the
 // property a client must know to release a key correctly (`docs/protocol/v2.md` § "set_thrust").

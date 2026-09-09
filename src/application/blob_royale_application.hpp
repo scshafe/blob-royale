@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_APPLICATION_BLOB_ROYALE_APPLICATION_HPP
 
 #include "application_config.hpp"
+#include "bot_reconciliation.hpp"
 #include "command_kind_mask.hpp"
 #include "controller_host.hpp"
 #include "game_server.hpp"
@@ -13,6 +14,7 @@
 #include "structured_logger.hpp"
 
 #include <atomic>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -64,9 +66,10 @@ private:
                         simulation::CommandKindMask accepted_command_kinds,
                         observability::StructuredLogger& logger);
 
-  // Opens one `CommandSink` session per configured bot and files the constructed controller with
-  // the host, in roster order and then in count order, so the `ControllerId` a bot receives is a
-  // function of the configuration alone.
+  // For a mode without a lobby only: opens one `CommandSink` session per configured bot and files
+  // the constructed controller with the host, in roster order and then in count order, so the
+  // `ControllerId` a bot receives is a function of the configuration alone. A mode with a lobby
+  // gets its bots from `SeatBotReconciler` instead, one per declared seat.
   // The registered bot kinds, as the `welcome` publishes them. Static because it reads only the
   // constexpr registry table and is needed inside the member-initializer list, before any member
   // exists.
@@ -86,6 +89,9 @@ private:
   const ApplicationConfig application_config_;
   runtime::SimulationRuntime simulation_runtime_;
   controllers::ControllerHost controller_host_;
+  // Present exactly when the mode has a lobby. It holds the sink and the host above, so it is
+  // declared after them and destroyed before them.
+  std::optional<SeatBotReconciler> bot_reconciler_;
   server::GameServer game_server_;
   std::jthread server_thread_;
 

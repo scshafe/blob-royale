@@ -66,21 +66,31 @@ void require_match_fits_snapshot_bound(
 void require_map_matches_published_world(const simulation::SimulationConfig& simulation_config,
                                          const simulation::MapDefinition& map);
 
-// The seat roster a match starts with: `lobby_seat_count` empty seats for a mode that has a lobby,
-// and no roster at all for one that does not.
+// The seat roster a match starts with: `lobby_seat_count` seats for a mode that has a lobby, the
+// first of them declared for the `[match] bots` roster in its written order, and no roster at all
+// for a mode that does not.
 //
 // Whether a mode has a lobby is its own declaration -- it accepts `start_match` -- while the size
-// of that lobby is a configuration key, so neither value can own the rule and the composition
-// root, which holds both, applies it here. A mode that accepts no `start_match` never reads a
-// seat, and the roster it starts with is the default-constructed one with no seats: the empty
-// array protocol v2 promises for a world that declared no lobby, rather than the four inert seats
-// `sandbox` used to publish because the key was read whatever `[match] mode` named
-// (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 5).
+// of that lobby and the bots are configuration keys, so no one value can own the rule and the
+// composition root, which holds all three, applies it here. A mode that accepts no `start_match`
+// never reads a seat, and the roster it starts with is the default-constructed one with no seats:
+// the empty array protocol v2 promises for a world that declared no lobby, rather than the four
+// inert seats `sandbox` used to publish because the key was read whatever `[match] mode` named
+// (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 5). For such a mode the bots are
+// not this rule's business: the composition root opens their sessions at startup, seatless.
+//
+// **For a mode with a lobby, `[match] bots` is not a startup roster but the initial declarations
+// of the first seats.** A bot then exists only through a seat, created by `SeatBotReconciler` for
+// every declared seat that holds none and retired when its seat is gone, so a bot a player clears
+// from the lobby and a bot the configuration named are one kind of thing. More bots than seats is
+// a configuration that could never be seated in full and is refused with
+// `APPLICATION.MATCH.BOTS_EXCEED_SEATS`.
 //
 // Throws SimulationValidationError, through `SeatRoster::of_size`, for a count outside the
 // engine's bound; the configuration loader has already refused one.
-[[nodiscard]] simulation::SeatRoster initial_seat_roster_for(const simulation::GameMode& mode,
-                                                             std::uint64_t lobby_seat_count);
+[[nodiscard]] simulation::SeatRoster
+initial_seat_roster_for(const simulation::GameMode& mode, std::uint64_t lobby_seat_count,
+                        std::span<const MatchConfiguration::BotRosterEntry> bot_roster);
 
 } // namespace blob_royale::application
 

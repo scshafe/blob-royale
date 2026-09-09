@@ -140,6 +140,11 @@ public:
 
   [[nodiscard]] std::size_t size() const noexcept { return controllers_.size(); }
 
+  // Releases the hosted controller with this identity and reports whether there was one. The
+  // caller retires its session separately: the host runs deciders and never opens or closes
+  // anything, which is what keeps the two capabilities it holds the only two it needs.
+  bool remove(simulation::ControllerId controller);
+
   // Whether a hosted controller claims this durable identity.
   [[nodiscard]] bool contains(simulation::ControllerId controller) const noexcept;
 

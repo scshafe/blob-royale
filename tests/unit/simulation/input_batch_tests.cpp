@@ -2,6 +2,7 @@
 #include "command_registry.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/join_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
 #include "commands/spawn_command.hpp"
@@ -341,6 +342,9 @@ TEST_CASE("InputBatch rejects a lobby command whose seat value is outside the en
                   simulation::SimulationValidationError);
   CHECK_THROWS_AS(rejected(simulation::ClearSeatCommand{simulation::ControllerId::create(1),
                                                         simulation::kMaximumLobbySeatCount})(),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(rejected(simulation::JoinCommand{simulation::ControllerId::create(1),
+                                                   simulation::kMaximumLobbySeatCount})(),
                   simulation::SimulationValidationError);
   CHECK_THROWS_AS(
       rejected(simulation::SetSeatCountCommand{simulation::ControllerId::create(1), 0})(),

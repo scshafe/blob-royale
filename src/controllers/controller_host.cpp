@@ -45,6 +45,15 @@ void ControllerHost::add(std::unique_ptr<Controller> controller) {
                       std::move(controller));
 }
 
+bool ControllerHost::remove(const simulation::ControllerId controller) {
+  const std::size_t position = ascending_position_of(controller);
+  if (position >= controllers_.size() || controllers_[position]->controller() != controller) {
+    return false;
+  }
+  controllers_.erase(controllers_.begin() + static_cast<std::ptrdiff_t>(position));
+  return true;
+}
+
 bool ControllerHost::contains(const simulation::ControllerId controller) const noexcept {
   const std::size_t position = ascending_position_of(controller);
   return position < controllers_.size() && controllers_[position]->controller() == controller;

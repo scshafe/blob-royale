@@ -61,6 +61,12 @@ namespace blob_royale::server {
 // reaches a log. A thrust arrives up to twenty times a second per session and says nothing a person
 // would look up, so it stays unlogged.
 //
+// **A seat is asked for, the way a body is.** Whenever a presentation slot observes a lobby with
+// seats in which this controller sits nowhere, the session submits a server-issued `join` naming no
+// seat, and asks again a tenth of a second later until it observes its seat; the tick chooses the
+// seat, so nothing on the wire can. The ask is logged, because a session that keeps asking is a
+// lobby that is full with nobody to displace, and that is worth seeing.
+//
 // **Disconnect leaves.** `CommandSink::close_session` enqueues the controller's `leave` before
 // retiring it, and the tick destroys everything the controller drove -- seated, pending, or still
 // queued as a spawn -- and vacates its seat. This session submits nothing on the way out and never
@@ -134,6 +140,11 @@ private:
   void presentation_slot(const boost::system::error_code& error);
   void observe_own_entity(const simulation::WorldSnapshot& snapshot) noexcept;
   void request_body_if_absent(simulation::TickSequence observed) noexcept;
+  // Submits a server-issued `join` when the snapshot's lobby has seats and none of them is this
+  // session's, at the same cadence a missing body is asked for, and logs `session.seat_requested`
+  // with the sink's answer. A person takes a seat by asking, never by naming one
+  // (`src/simulation/commands/join_command.hpp`).
+  void request_seat_if_absent(const simulation::WorldSnapshot& snapshot) noexcept;
   void start_welcome_write(simulation::EntityId entity, SnapshotEgressLease egress_lease);
   void welcome_written(const boost::system::error_code& error, std::size_t transferred_byte_count);
   void start_snapshot_write(SnapshotDelivery delivery, SnapshotEgressLease egress_lease);
@@ -198,6 +209,7 @@ private:
   // spawn not yet seated, an elimination, and the lobby wipe all produce it.
   std::optional<simulation::EntityId> current_entity_;
   std::optional<simulation::TickSequence> last_spawn_request_tick_;
+  std::optional<simulation::TickSequence> last_seat_request_tick_;
 
   bool handshake_completed_{false};
   bool control_write_active_{false};

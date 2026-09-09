@@ -1,6 +1,7 @@
 #include "blob_royale_application.hpp"
 
 #include "application_lifecycle_error.hpp"
+#include "bot_reconciliation.hpp"
 #include "command_mailbox.hpp"
 #include "controller_host.hpp"
 #include "controller_registry.hpp"
@@ -69,12 +70,14 @@ public:
   ApplicationControlWait(const runtime::SimulationRuntime& simulation_runtime,
                          const server::GameServer& game_server,
                          controllers::ControllerHost& controller_host,
+                         SeatBotReconciler* const bot_reconciler,
                          const std::chrono::steady_clock::duration presentation_interval,
                          observability::StructuredLogger& logger)
       : simulation_runtime_(simulation_runtime), game_server_(game_server),
-        controller_host_(controller_host), presentation_interval_(presentation_interval),
-        logger_(logger), process_signals_(control_context_, SIGINT, SIGTERM),
-        status_poll_(control_context_), controller_pass_(control_context_) {}
+        controller_host_(controller_host), bot_reconciler_(bot_reconciler),
+        presentation_interval_(presentation_interval), logger_(logger),
+        process_signals_(control_context_, SIGINT, SIGTERM), status_poll_(control_context_),
+        controller_pass_(control_context_) {}
 
   [[nodiscard]] ControlWakeReason wait() {
     process_signals_.async_wait(
@@ -220,8 +223,23 @@ private:
                    .detail = detail});
   }
 
+  // Makes the live bots match the committed seat roster, on the same poll that watches everything
+  // else. A mode without a lobby has no reconciler and nothing to match.
+  void reconcile_bots() noexcept {
+    if (bot_reconciler_ == nullptr || !simulation_runtime_.snapshot_publication().is_ready()) {
+      return;
+    }
+    try {
+      bot_reconciler_->reconcile(*simulation_runtime_.snapshot_publication().latest());
+    } catch (...) {
+      // `reconcile` contains every failure it can name; anything else is a process-level condition
+      // the next poll will meet again, and a control poll may not propagate.
+    }
+  }
+
   void observe_component_state() noexcept {
     observe_dropped_commands();
+    reconcile_bots();
     const server::GameServerState server_state = game_server_.state();
     if (server_state == server::GameServerState::kStopped ||
         server_state == server::GameServerState::kFailed) {
@@ -250,6 +268,7 @@ private:
   const runtime::SimulationRuntime& simulation_runtime_;
   const server::GameServer& game_server_;
   controllers::ControllerHost& controller_host_;
+  SeatBotReconciler* bot_reconciler_;
   std::chrono::steady_clock::duration presentation_interval_;
   observability::StructuredLogger& logger_;
   std::uint64_t reported_dropped_command_count_{0};
@@ -297,9 +316,11 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
   // `[royale]` is required whatever `[match] mode` names (`application_config_loader.cpp`), so the
   // key is always there to read; whether it is *applied* is the mode's declaration. A mode that
   // accepts no `start_match` starts with no roster, which is the empty array protocol v2 promises
-  // for a world that declared no lobby (`match_startup_validation.hpp`).
+  // for a world that declared no lobby, and for a mode that does the `[match] bots` roster is the
+  // declaration of the first seats rather than a startup roster (`match_startup_validation.hpp`).
   initial_world.mutable_match().seats = initial_seat_roster_for(
-      *mode, application_config.game_mode_configuration().royale.lobby_seat_count());
+      *mode, application_config.game_mode_configuration().royale.lobby_seat_count(),
+      application_config.match_configuration().bot_roster());
 
   // The accepted command mask is copied out **before** the mode is moved into the engine, which
   // destroys it once it has read its seven declarations. It is the set a protocol v2 `welcome`
@@ -336,11 +357,17 @@ BlobRoyaleApplication::BlobRoyaleApplication(
                        std::string{application_config_.match_configuration().map_name()},
                        accepted_command_kinds, registered_npc_controller_kinds()),
                    logger_) {
-  // Seated in the constructor rather than in `create`, because this class is non-movable and a
-  // factory that configured a local could not return it. Every bot therefore exists before any
-  // caller can observe the object, which is also what makes the roster part of construction rather
-  // than a second step a caller could forget.
-  seat_configured_bots();
+  // A mode with a lobby gets its bots from the reconciler, one per declared seat, on the control
+  // loop's first poll and every poll after; the roster was declared into the seats in `create`. A
+  // mode without one seats its roster here, in the constructor rather than in `create`, because
+  // this class is non-movable and a factory that configured a local could not return it -- every
+  // startup bot therefore exists before any caller can observe the object.
+  if (accepted_command_kinds.contains(simulation::CommandKind::kStartMatch)) {
+    bot_reconciler_.emplace(simulation_runtime_.command_sink(), controller_host_,
+                            application_config_.match_configuration().seed(), logger_);
+  } else {
+    seat_configured_bots();
+  }
 }
 
 std::vector<std::string> BlobRoyaleApplication::registered_npc_controller_kinds() {
@@ -403,6 +430,7 @@ void BlobRoyaleApplication::run() {
   try {
     control_wait.emplace(
         simulation_runtime_, game_server_, controller_host_,
+        bot_reconciler_.has_value() ? &*bot_reconciler_ : nullptr,
         presentation_interval_of(application_config_.server_config().snapshots_per_second()),
         logger_);
     simulation_runtime_.start();

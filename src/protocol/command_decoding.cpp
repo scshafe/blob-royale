@@ -241,6 +241,7 @@ decode_payload(const simulation::CommandKind kind, const json::object& payload,
   case simulation::CommandKind::kSpawn:
   case simulation::CommandKind::kDespawn:
   case simulation::CommandKind::kLeave:
+  case simulation::CommandKind::kJoin:
     break;
   }
   return CommandDecodeResult::rejected(CommandDecodeRejection::kKindRejected);

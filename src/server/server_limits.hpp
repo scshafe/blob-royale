@@ -58,6 +58,9 @@ struct ServerLimits final {
   // arithmetic.
   static constexpr std::uint64_t kSessionSpawnRequestRetryTicks =
       simulation::kSimulationTicksPerSecond / 10;
+  // The same cadence for the same reason applied to a seat: a session that observes a lobby in
+  // which it holds no seat asks for one, and asks again only once the tick has had time to answer.
+  static constexpr std::uint64_t kSessionSeatRequestRetryTicks = kSessionSpawnRequestRetryTicks;
   static_assert(kSessionSpawnRequestRetryTicks >= 2,
                 "a spawn request is in flight for at least one tick, so a retry interval below two "
                 "committed ticks would ask again while the engine was already seating the body");

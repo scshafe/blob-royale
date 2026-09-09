@@ -30,7 +30,7 @@ namespace blob_royale::simulation {
 // stages"):
 //
 //   phase 0            despawns, spawn creation, spawn seating (SpawnPolicy), lobby commands,
-//                      leaves, command recording
+//                      joins, leaves, command recording
 //   ---- kPreKernel -- the mode's systems, declared order
 //   phase 1            stored acceleration, then drag
 //   phase 2            canonical candidate pairs

@@ -127,6 +127,11 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
   if (const auto* seat_count = std::get_if<SetSeatCountCommand>(&command); seat_count != nullptr) {
     validate_seat_count(seat_count->seat_count, submission_index);
   }
+  if (const auto* join = std::get_if<JoinCommand>(&command);
+      join != nullptr && join->seat_index.has_value()) {
+    validate_seat_index(*join->seat_index, "input_batch.commands.join.seat_index",
+                        command_kind_name<JoinCommand>, submission_index);
+  }
   // `start_match` carries no value beyond the sender the boundary stamped it with, so there is
   // nothing here for it to fail: it is validated entirely by being a kind the mode accepts.
 }

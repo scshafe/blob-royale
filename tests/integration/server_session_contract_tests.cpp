@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <unistd.h>
+#include <vector>
 
 namespace blob_royale::integration_test {
 namespace {
@@ -33,6 +34,14 @@ constexpr auto kTransportOperationTimeout = std::chrono::seconds{5};
 // spawn markers -- so the commanding blob provably moved and provably did not reach anyone else.
 constexpr std::uint64_t kTicksAwaitedAfterCommand = 40;
 constexpr std::uint16_t kPolicyErrorCloseCode = 1'008;
+
+// One published seat, exactly as `match-data.schema.json` shapes it: every member present, the ones
+// that do not apply null.
+struct PublishedSeat final {
+  std::string kind;
+  std::optional<std::uint64_t> controller_id;
+  std::optional<std::string> npc_kind;
+};
 
 // One published body, keyed by entity id, as this contract needs to read it.
 struct PublishedBody final {
@@ -145,6 +154,51 @@ published_bodies(const std::string& snapshot_frame, const std::string_view opera
   return bodies;
 }
 
+[[nodiscard]] std::vector<PublishedSeat> published_seats(const std::string& snapshot_frame,
+                                                         const std::string_view operation) {
+  const json::value document = json::parse(snapshot_frame);
+  const json::object& data = required_object(document.as_object(), "data", operation);
+  const json::object& match = required_object(data, "match", operation);
+  const json::value* const seats = match.if_contains("seats");
+  if (seats == nullptr || !seats->is_array()) {
+    throw_contract_violation(operation, "snapshot match is missing its seat array");
+  }
+
+  std::vector<PublishedSeat> published;
+  for (const json::value& entry : seats->as_array()) {
+    if (!entry.is_object()) {
+      throw_contract_violation(operation, "snapshot seat entry is not an object");
+    }
+    const json::object& seat = entry.as_object();
+    const json::value* const controller_id = seat.if_contains("controller_id");
+    const json::value* const npc_kind = seat.if_contains("npc_kind");
+    if (controller_id == nullptr || npc_kind == nullptr ||
+        !(controller_id->is_null() || controller_id->is_int64()) ||
+        !(npc_kind->is_null() || npc_kind->is_string())) {
+      throw_contract_violation(operation, "snapshot seat is missing a member every seat carries");
+    }
+    published.push_back(PublishedSeat{
+        .kind = required_string(seat, "kind", operation),
+        .controller_id = controller_id->is_null()
+                             ? std::nullopt
+                             : std::optional{static_cast<std::uint64_t>(controller_id->as_int64())},
+        .npc_kind = npc_kind->is_null() ? std::nullopt
+                                        : std::optional{std::string{npc_kind->as_string()}}});
+  }
+  return published;
+}
+
+// Whether some `controller` seat is held by this controller.
+[[nodiscard]] bool person_is_seated(const std::vector<PublishedSeat>& seats,
+                                    const std::uint64_t controller_id) {
+  for (const PublishedSeat& seat : seats) {
+    if (seat.kind == "controller" && seat.controller_id == controller_id) {
+      return true;
+    }
+  }
+  return false;
+}
+
 [[nodiscard]] std::uint64_t snapshot_tick(const std::string& snapshot_frame,
                                           const std::string_view operation) {
   const json::value document = json::parse(snapshot_frame);
@@ -209,9 +263,10 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
 
   const std::string seated_frame =
       await_seated_entity(first, first.entity_id(), "session_contracts.seating");
+  const std::string roster_frame =
+      await_seated_entity(first, second.entity_id(), "session_contracts.seating");
   const std::map<std::uint64_t, PublishedBody> seated =
-      published_bodies(await_seated_entity(first, second.entity_id(), "session_contracts.seating"),
-                       "session_contracts.seating");
+      published_bodies(roster_frame, "session_contracts.seating");
   static_cast<void>(seated_frame);
 
   // Two sessions and one bot, distinguishable to a client by exactly one string and identical to
@@ -234,6 +289,27 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
       first.controller_id()) {
     throw_contract_violation("session_contracts.roster",
                              "the welcome's entity is not linked to the welcome's controller");
+  }
+
+  // Everyone in the arena sits in the lobby it will start from, by the time their body is seated:
+  // each session in a `controller` seat the server-issued join it submitted for itself took, and
+  // the bot in the `npc` seat the `[match] bots` roster declared, its controller filled in by the
+  // join the reconciliation submitted for it. The fixture declares one bot, so it is seat 0.
+  const std::vector<PublishedSeat> seats = published_seats(roster_frame, "session_contracts.seats");
+  if (seats.size() != 6) {
+    throw_contract_violation("session_contracts.seats",
+                             "the lobby did not publish the six seats the fixture configured");
+  }
+  if (seats[0].kind != "npc" || seats[0].npc_kind != "wanderer" ||
+      seats[0].controller_id !=
+          require_body(seated, bot_entity_id, "session_contracts.seats").controller_id) {
+    throw_contract_violation("session_contracts.seats",
+                             "the declared NPC seat does not hold the bot that was created for it");
+  }
+  if (!person_is_seated(seats, first.controller_id()) ||
+      !person_is_seated(seats, second.controller_id())) {
+    throw_contract_violation("session_contracts.seats",
+                             "a session's controller holds no seat although its body is seated");
   }
 
   // A thrust from the first session moves only that session's entity. The stamp is the server's

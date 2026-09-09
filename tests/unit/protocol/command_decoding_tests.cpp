@@ -182,10 +182,15 @@ TEST_CASE("Command decoder rejects the server-issued kinds the wire deliberately
                     protocol::CommandDecodeRejection::kKindRejected);
   require_rejection(R"({"kind":"leave","payload":{}})",
                     protocol::CommandDecodeRejection::kKindRejected);
+  // A client that could send a join could name a seat, which is exactly what the kind exists to
+  // keep out of a client's hands.
+  require_rejection(R"({"kind":"join","payload":{"seat_index":0}})",
+                    protocol::CommandDecodeRejection::kKindRejected);
 
   CHECK_FALSE(protocol::client_command_wire_name(simulation::CommandKind::kSpawn).has_value());
   CHECK_FALSE(protocol::client_command_wire_name(simulation::CommandKind::kDespawn).has_value());
   CHECK_FALSE(protocol::client_command_wire_name(simulation::CommandKind::kLeave).has_value());
+  CHECK_FALSE(protocol::client_command_wire_name(simulation::CommandKind::kJoin).has_value());
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kThrust) == "set_thrust");
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kSetSeatCount) ==
         "set_seat_count");

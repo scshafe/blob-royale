@@ -3,6 +3,7 @@
 #include "command_kind_mask.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
@@ -386,6 +387,24 @@ read_commands(const std::filesystem::path& path, const std::uint64_t tick_count)
       require_empty(columns, 8, "npc_kind", where);
       tick_commands.push_back(simulation::Command{simulation::StartMatchCommand{
           simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id"))}});
+      continue;
+    }
+    // A controller asking for a seat: a person's names no seat, a bot's names the seat that
+    // declared it. In production a session or the bot reconciliation submits it; in a replay it is
+    // the row that says who sat down, and where.
+    if (kind == "join") {
+      require_empty(columns, 1, "entity_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
+      std::optional<std::uint64_t> seat_index;
+      if (!columns[6].empty()) {
+        seat_index = parse_unsigned(columns[6], where + " seat_index");
+      }
+      tick_commands.push_back(simulation::Command{simulation::JoinCommand{
+          simulation::ControllerId::create(parse_unsigned(columns[3], where + " controller_id")),
+          seat_index}});
       continue;
     }
     // A departed controller. In production the sink enqueues it on session close; in a replay it is

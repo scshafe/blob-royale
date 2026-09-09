@@ -14,8 +14,10 @@
 #include "command_sink_error.hpp"
 
 #include "command_registry.hpp"
+#include "commands/join_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "controller_id.hpp"
+#include "seat_roster.hpp"
 #include "world_snapshot.hpp"
 
 #include <boost/asio/buffer.hpp>
@@ -425,6 +427,7 @@ void SessionWebSocketSession::presentation_slot(const boost::system::error_code&
           server_context_->publication().latest();
       observe_own_entity(*latest);
       request_body_if_absent(latest->tick_sequence());
+      request_seat_if_absent(*latest);
 
       if (!welcome_delivered_) {
         // The welcome precedes every snapshot, and it cannot be built before this session has a
@@ -492,6 +495,50 @@ void SessionWebSocketSession::request_body_if_absent(
   last_spawn_request_tick_ = observed;
   static_cast<void>(server_context_->match_session().command_sink().submit(
       *controller_, simulation::Command{simulation::SpawnCommand{*controller_}}));
+}
+
+void SessionWebSocketSession::request_seat_if_absent(
+    const simulation::WorldSnapshot& snapshot) noexcept {
+  if (!controller_.has_value()) {
+    return;
+  }
+  // A world with no lobby has no seat to ask for: `sandbox` publishes the empty roster and accepts
+  // no join, so asking would only be refused.
+  const simulation::SeatRoster& seats = snapshot.match().seats();
+  if (seats.seat_count() == 0) {
+    return;
+  }
+  for (const simulation::Seat& seat : seats.seats()) {
+    const auto* held = std::get_if<simulation::ControllerSeat>(&seat);
+    const auto* declared = std::get_if<simulation::NpcSeat>(&seat);
+    if ((held != nullptr && held->controller == *controller_) ||
+        (declared != nullptr && declared->controller == *controller_)) {
+      last_seat_request_tick_.reset();
+      return;
+    }
+  }
+  const simulation::TickSequence observed = snapshot.tick_sequence();
+  if (last_seat_request_tick_.has_value() &&
+      observed.value() <
+          last_seat_request_tick_->value() + ServerLimits::kSessionSeatRequestRetryTicks) {
+    return;
+  }
+  last_seat_request_tick_ = observed;
+  // No seat is named: the tick takes the lowest empty one, or a bot's before a match starts, and a
+  // join that finds nothing to take is the no-op that lets this ask again. Each ask is one `info`
+  // line, so a session that keeps asking -- a full lobby with nobody to displace -- is visible as
+  // exactly that, ten lines a second, rather than as a player who silently never sat down.
+  const runtime::CommandSubmissionResult result =
+      server_context_->match_session().command_sink().submit(
+          *controller_, simulation::Command{simulation::JoinCommand{*controller_, std::nullopt}});
+  server_context_->logger().write(
+      {.severity = observability::LogSeverity::kInfo,
+       .event = "session.seat_requested",
+       .request_id = request_id_.value(),
+       .connection_id = request_id_.value(),
+       .tick_sequence = observed.value(),
+       .context = "session.seat_requested",
+       .detail = "result=" + std::string(runtime::command_submission_result_name(result))});
 }
 
 void SessionWebSocketSession::start_welcome_write(const simulation::EntityId entity,

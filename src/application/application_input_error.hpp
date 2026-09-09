@@ -45,6 +45,7 @@ enum class ApplicationInputErrorCode {
   kMatchBotRosterTooLarge,
   kMatchMapBoundsMismatch,
   kMatchEntityBudgetExceeded,
+  kMatchBotsExceedSeats,
   kMapFileMissing,
   kMapPathNotRegularFile,
   kMapFileTooLarge,
@@ -134,6 +135,8 @@ application_input_error_code_name(const ApplicationInputErrorCode code) noexcept
     return "APPLICATION.MATCH.MAP_BOUNDS_MISMATCH";
   case ApplicationInputErrorCode::kMatchEntityBudgetExceeded:
     return "APPLICATION.MATCH.ENTITY_BUDGET_EXCEEDED";
+  case ApplicationInputErrorCode::kMatchBotsExceedSeats:
+    return "APPLICATION.MATCH.BOTS_EXCEED_SEATS";
   case ApplicationInputErrorCode::kMapFileMissing:
     return "APPLICATION.MAP.FILE_MISSING";
   case ApplicationInputErrorCode::kMapPathNotRegularFile:

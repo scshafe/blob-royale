@@ -9,7 +9,10 @@
 #include "components/controllable_component.hpp"
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
+#include "game_simulation.hpp"
+#include "game_world.hpp"
 #include "match_session_context.hpp"
+#include "seat_roster.hpp"
 #include "server_config.hpp"
 #include "simulation_runtime.hpp"
 #include "world_snapshot.hpp"
@@ -417,8 +420,8 @@ namespace {
 // submitted" and "body observed" from ~33 ms into ~1 s so the test can close inside it reliably.
 class LiveRuntimeHarness final {
 public:
-  LiveRuntimeHarness()
-      : simulation_runtime_(fixture::game_simulation()),
+  explicit LiveRuntimeHarness(simulation::GameSimulation game = fixture::game_simulation())
+      : simulation_runtime_(std::move(game)),
         acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
         server_context_(std::make_shared<server::ServerExecutionContext>(
             server_io_context_, server_config(acceptor_.local_endpoint().port()),
@@ -530,7 +533,75 @@ void run_until_within(boost::asio::io_context& io_context,
   return false;
 }
 
+// The fixture world with a lobby of `seat_count` empty seats declared on it. No mode, so the phase
+// stays `lobby` and the only thing a join can change is the roster.
+[[nodiscard]] simulation::GameSimulation lobby_game_simulation(const std::size_t seat_count) {
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_match().seats = simulation::SeatRoster::of_size(seat_count);
+  return simulation::GameSimulation::create(fixture::simulation_config(), std::move(world));
+}
+
+[[nodiscard]] simulation::SeatRoster latest_seats(LiveRuntimeHarness& harness) {
+  const std::shared_ptr<const simulation::WorldSnapshot> latest =
+      harness.simulation_runtime().snapshot_publication().latest();
+  return latest->match().seats();
+}
+
 } // namespace
+
+TEST_CASE("SessionWebSocketSession asks for a seat it does not hold and leaves it on close",
+          "[unit][server][v2][session][lobby][join]") {
+  // The seat is taken the way the body is: the first presentation slot observes a lobby in which
+  // this controller sits nowhere and submits a server-issued join naming no seat, and the tick
+  // gives it the lowest empty one. Nothing on the wire chose it.
+  constexpr std::string_view kRequestId = "unit.session.seat-request";
+  LiveRuntimeHarness harness{lobby_game_simulation(2)};
+  const simulation::ControllerId issued = simulation::ControllerId::create(
+      harness.simulation_runtime().command_sink().next_controller_id());
+  const std::shared_ptr<server::SessionWebSocketSession> session =
+      harness.make_session(kRequestId, direct_identity());
+  SessionClient client{std::move(harness.client_socket())};
+
+  session->run(harness.request(kRequestId));
+  run_until_within(harness.server_io_context(), 2s, [&harness] {
+    return harness.simulation_runtime().controller_directory().size() == 1;
+  });
+  REQUIRE(harness.simulation_runtime().controller_directory().contains(issued));
+
+  // One slot, two asks: the spawn for the missing body and the join for the missing seat, and one
+  // logged seat request whose answer is the sink's acceptance.
+  run_until_within(harness.server_io_context(), 3s, [&harness] {
+    return harness.simulation_runtime().command_mailbox_statistics().submitted_command_count >= 2;
+  });
+  REQUIRE(harness.simulation_runtime().command_mailbox_statistics().submitted_command_count == 2);
+  REQUIRE(count_events(harness, "session.seat_requested") == 1);
+  run_until_within(harness.server_io_context(), 2s, [&harness, issued] {
+    const simulation::SeatRoster seats = latest_seats(harness);
+    return seats.seats()[0] == simulation::Seat{simulation::ControllerSeat{issued}};
+  });
+  const simulation::SeatRoster seated = latest_seats(harness);
+  REQUIRE(seated.seats()[0] == simulation::Seat{simulation::ControllerSeat{issued}});
+  CHECK(seated.seats()[1] == simulation::Seat{simulation::EmptySeat{}});
+
+  // The next slot observes the seat and asks for no other. (It does ask for a body again: this
+  // world has no mode, so the engine's idle policy never seats the spawned entity, and a session
+  // whose body is not seated keeps asking for one -- which is why the seat request is counted
+  // through its own log line rather than through the mailbox.)
+  run_until_within(harness.server_io_context(), 1500ms, [] { return false; });
+  CHECK(count_events(harness, "session.seat_requested") == 1);
+
+  // Closing leaves: the seat is empty again without the session having submitted anything.
+  client.stream().next_layer().close();
+  run_until_within(harness.server_io_context(), 2s,
+                   [&harness] { return count_events(harness, "session.closed") == 1; });
+  REQUIRE(count_events(harness, "session.closed") == 1);
+  run_until_within(harness.server_io_context(), 2s, [&harness] {
+    return latest_seats(harness) == simulation::SeatRoster::of_size(2);
+  });
+  CHECK(latest_seats(harness) == simulation::SeatRoster::of_size(2));
+  CHECK_FALSE(harness.simulation_runtime().controller_directory().contains(issued));
+  CHECK(count_events(harness, "session.seat_requested") == 1);
+}
 
 TEST_CASE(
     "SessionWebSocketSession leaves nothing behind when it closes while its spawn is in flight",

@@ -8,9 +8,11 @@
 
 #include "command_registry.hpp"
 #include "fixed_delta.hpp"
+#include "seat_roster.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -108,12 +110,33 @@ void require_map_matches_published_world(const simulation::SimulationConfig& sim
           " one; the kernel folds against the map and every client draws the published scalars"};
 }
 
-simulation::SeatRoster initial_seat_roster_for(const simulation::GameMode& mode,
-                                               const std::uint64_t lobby_seat_count) {
+simulation::SeatRoster
+initial_seat_roster_for(const simulation::GameMode& mode, const std::uint64_t lobby_seat_count,
+                        const std::span<const MatchConfiguration::BotRosterEntry> bot_roster) {
   if (!mode.accepted_command_kinds().contains(simulation::CommandKind::kStartMatch)) {
     return simulation::SeatRoster{};
   }
-  return simulation::SeatRoster::of_size(static_cast<std::size_t>(lobby_seat_count));
+  simulation::SeatRoster roster =
+      simulation::SeatRoster::of_size(static_cast<std::size_t>(lobby_seat_count));
+  std::size_t next_seat = 0;
+  for (const MatchConfiguration::BotRosterEntry& entry : bot_roster) {
+    for (std::uint64_t ordinal = 0; ordinal < entry.count; ++ordinal) {
+      if (next_seat >= roster.seat_count()) {
+        throw ApplicationInputError{
+            ApplicationInputErrorCode::kMatchBotsExceedSeats, "match.bots",
+            "[match] bots declares more bots than the " + std::to_string(roster.seat_count()) +
+                " seats of [royale] lobby_seat_count, so the field could never be seated in full"};
+      }
+      // The kind was checked against the controller registry when the roster was parsed, and the
+      // registry's names satisfy the published kind-name grammar by construction
+      // (`match_session_context.cpp`), so this cannot throw for a loaded configuration.
+      roster.assign_seat(
+          next_seat, simulation::Seat{simulation::NpcSeat{
+                         simulation::SeatKindName::create(entry.controller_kind), std::nullopt}});
+      ++next_seat;
+    }
+  }
+  return roster;
 }
 
 } // namespace blob_royale::application

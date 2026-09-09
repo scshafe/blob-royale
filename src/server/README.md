@@ -106,6 +106,8 @@ domain values themselves. Protocol v2 answered the "future command protocol" thi
 it uses its own route and subprotocol, its ownership model is the socket rather than a credential,
 its ordering rule is "the last command of a kind in a tick wins", and its disconnect semantics are a
 server-issued `leave`, enqueued by `CommandSink::close_session` before the controller is retired,
-which destroys everything the controller drove. A further command protocol must do the same
+which destroys everything the controller drove. A seat is likewise taken with a server-issued
+`join` the session submits for itself, never with a client command that could name a seat. A
+further command protocol must do the same
 again on a new versioned route, and must not widen `MatchSessionContext` beyond the three operations
 `CommandSink` exposes.

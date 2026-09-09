@@ -2,6 +2,7 @@
 
 #include "command_registry.hpp"
 #include "command_sink.hpp"
+#include "commands/leave_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller.hpp"
 #include "controller_id.hpp"
@@ -318,7 +319,12 @@ TEST_CASE("ControllerHost counts a submission from a session the sink has closed
   CHECK(pass.deciding_controller_count == 1);
   CHECK(pass.refused_command_count == 1);
   CHECK(pass.accepted_command_count == 0);
-  CHECK(fixture.mailbox().drain().empty());
+  // What the close enqueued is the closed session's own leave, and nothing the bot decided after
+  // it: the mailbox holds exactly that one command.
+  const std::vector<simulation::Command> drained = fixture.mailbox().drain();
+  REQUIRE(drained.size() == 1);
+  CHECK(drained[0] == simulation::Command{simulation::LeaveCommand{
+                          simulation::ControllerId::create(kFirstController)}});
 }
 
 TEST_CASE("ControllerHost accumulates every pass into its statistics",
@@ -352,6 +358,29 @@ TEST_CASE("ControllerHost refuses an absent controller and a duplicated identity
     CHECK(error.code() == "CONTROLLERS.CONTROLLER_ID_DUPLICATE");
   }
   CHECK(fixture.host().size() == 1);
+}
+
+TEST_CASE("ControllerHost releases a controller by identity and reports whether there was one",
+          "[unit][controllers][controller_host]") {
+  // The reconciliation that retires a bot closes its session and takes it out of the host; the
+  // host only releases, so the same identity may be filed again only by something that issued it.
+  testing::ControllersFixture fixture(testing::controllers_map_of(4), 2);
+  fixture.host().add(recording(kFirstController, RecordingOptions{}));
+  fixture.host().add(recording(kSecondController, RecordingOptions{}));
+
+  CHECK(fixture.host().remove(simulation::ControllerId::create(kFirstController)));
+  CHECK(fixture.host().size() == 1);
+  CHECK_FALSE(fixture.host().contains(simulation::ControllerId::create(kFirstController)));
+  CHECK(fixture.host().contains(simulation::ControllerId::create(kSecondController)));
+
+  // A second release finds nothing, and so does one for an identity never hosted.
+  CHECK_FALSE(fixture.host().remove(simulation::ControllerId::create(kFirstController)));
+  CHECK_FALSE(fixture.host().remove(simulation::ControllerId::create(kThirdController)));
+  CHECK(fixture.host().size() == 1);
+
+  // The released identity is no longer a duplicate.
+  fixture.host().add(recording(kFirstController, RecordingOptions{}));
+  CHECK(fixture.host().size() == 2);
 }
 
 TEST_CASE("ControllerHost refuses a roster above the accepted maximum",

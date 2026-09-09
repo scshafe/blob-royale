@@ -18,6 +18,10 @@ namespace blob_royale::runtime {
 // a dropped spawn leaves a connected player with no body -- both are visible, persistent
 // corruptions of the roster, while a dropped thrust is one missed 2.5 ms of steering.
 //
+// **A `join` answers `true` because a dropped one is a person or a bot with no seat**, and while
+// a session asks again a tenth of a second later, a bot's join is asked exactly once by the
+// reconciliation that created it.
+//
 // **A `leave` answers `true` for the reason a despawn does, only more so.** It is the one command
 // that removes a departed session's entities and vacates its seat, and a dropped one is exactly the
 // body nobody owns that review finding 1 describes; the session that could have re-sent it is gone.
@@ -45,6 +49,7 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   case simulation::CommandKind::kSpawn:
   case simulation::CommandKind::kDespawn:
   case simulation::CommandKind::kLeave:
+  case simulation::CommandKind::kJoin:
     return true;
   case simulation::CommandKind::kThrust:
   case simulation::CommandKind::kSetSeatCount:
@@ -56,7 +61,7 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   return false;
 }
 
-static_assert(simulation::kCommandKindCount == 8,
+static_assert(simulation::kCommandKindCount == 9,
               "a new CommandKind must declare in is_entity_lifecycle_command whether losing it "
               "changes whether an entity exists");
 

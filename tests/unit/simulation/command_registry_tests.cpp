@@ -2,6 +2,7 @@
 #include "command_registry.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
@@ -37,6 +38,12 @@ namespace {
 [[nodiscard]] simulation::Command leave_command(const simulation::ControllerId::Value controller) {
   return simulation::Command{
       simulation::LeaveCommand{simulation::ControllerId::create(controller)}};
+}
+
+[[nodiscard]] simulation::Command join_command(const simulation::ControllerId::Value controller,
+                                               const std::optional<std::uint64_t> seat_index) {
+  return simulation::Command{
+      simulation::JoinCommand{simulation::ControllerId::create(controller), seat_index}};
 }
 
 [[nodiscard]] simulation::Command despawn_command(const simulation::EntityId::Value entity) {
@@ -81,14 +88,15 @@ start_match_command(const simulation::ControllerId::Value controller) {
 
 TEST_CASE("CommandRegistry declares the engine command kinds in a closed ordered variant",
           "[unit][simulation][command_registry]") {
-  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 8);
-  STATIC_REQUIRE(simulation::kCommandKindCount == 8);
+  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 9);
+  STATIC_REQUIRE(simulation::kCommandKindCount == 9);
   STATIC_REQUIRE(
       std::is_same_v<simulation::Command,
                      std::variant<simulation::SpawnCommand, simulation::DespawnCommand,
                                   simulation::ThrustCommand, simulation::SetSeatCountCommand,
                                   simulation::ClearSeatCommand, simulation::SeatNpcCommand,
-                                  simulation::StartMatchCommand, simulation::LeaveCommand>>);
+                                  simulation::StartMatchCommand, simulation::LeaveCommand,
+                                  simulation::JoinCommand>>);
 }
 
 TEST_CASE("Every command kind occupies its own bit so a set of kinds is one integer",
@@ -125,7 +133,8 @@ TEST_CASE("Every registered command kind declares its own wire name",
   }
 
   CHECK(names == std::vector<std::string_view>{"spawn", "despawn", "thrust", "set_seat_count",
-                                               "clear_seat", "seat_npc", "start_match", "leave"});
+                                               "clear_seat", "seat_npc", "start_match", "leave",
+                                               "join"});
 }
 
 TEST_CASE("command_kind_of maps every command value to its own declared kind",
@@ -164,10 +173,31 @@ TEST_CASE("Command application ranks are the phase 0 order of despawn, spawn, th
   STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kSeatNpc) <
                  simulation::command_kind_application_rank(simulation::CommandKind::kStartMatch));
 
-  // `leave` runs last of all, so a spawn drained into the same batch has created its entity before
-  // the leave destroys it and a departed session's spawn cannot outlive its leave.
+  // `join` runs after every lobby command, so a seat cleared, declared, or resized in the same tick
+  // is the seat a join sees; `leave` runs last of all, so a spawn drained into the same batch has
+  // created its entity before the leave destroys it, a departed session's spawn cannot outlive its
+  // leave, and neither can its join.
   STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kStartMatch) <
+                 simulation::command_kind_application_rank(simulation::CommandKind::kJoin));
+  STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kJoin) <
                  simulation::command_kind_application_rank(simulation::CommandKind::kLeave));
+}
+
+TEST_CASE("A join addresses the controller that asked and is never a wire kind",
+          "[unit][simulation][command_registry][join]") {
+  const simulation::AddressedIdentity identity =
+      simulation::addressed_identity_of(join_command(7, std::nullopt));
+  CHECK_FALSE(identity.entity().has_value());
+  CHECK(identity.ordering_key() == 7);
+  CHECK(simulation::command_kind_of(join_command(7, 2)) == simulation::CommandKind::kJoin);
+  CHECK(simulation::command_kind_name<simulation::JoinCommand> == "join");
+  CHECK(simulation::command_kind_name_of(simulation::CommandKind::kJoin) == "join");
+  // Two joins for one controller in one tick are one join whichever seat each named: a controller
+  // asks for one seat, and the last ask wins exactly as it does for every other kind.
+  CHECK(simulation::addressed_identity_of(join_command(7, std::nullopt)) ==
+        simulation::addressed_identity_of(join_command(7, 3)));
+  CHECK(simulation::addressed_identity_of(join_command(7, std::nullopt)) !=
+        simulation::addressed_identity_of(join_command(8, std::nullopt)));
 }
 
 TEST_CASE("A leave addresses the controller that left and is never a wire kind",
@@ -198,6 +228,10 @@ TEST_CASE("Every command kind is a comparable value struct",
   CHECK(thrust_command(4, 0.25, -0.5) != thrust_command(5, 0.25, -0.5));
   CHECK(set_seat_count_command(4, 2) == set_seat_count_command(4, 2));
   CHECK(set_seat_count_command(4, 2) != set_seat_count_command(4, 3));
+  CHECK(join_command(4, std::nullopt) == join_command(4, std::nullopt));
+  CHECK(join_command(4, 1) == join_command(4, 1));
+  CHECK(join_command(4, std::nullopt) != join_command(4, 1));
+  CHECK(join_command(4, 1) != join_command(5, 1));
   CHECK(clear_seat_command(4, 1) == clear_seat_command(4, 1));
   CHECK(clear_seat_command(4, 1) != clear_seat_command(4, 2));
   CHECK(seat_npc_command(4, 1, "wanderer") == seat_npc_command(4, 1, "wanderer"));
@@ -307,7 +341,8 @@ TEST_CASE("The command kind list is derived from the variant rather than typed b
          static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kClearSeat) |
          static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSeatNpc) |
          static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kStartMatch) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kLeave)));
+         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kLeave) |
+         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kJoin)));
 }
 
 TEST_CASE("No two command kinds share a phase 0 application rank",

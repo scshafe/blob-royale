@@ -3,6 +3,7 @@
 
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
+#include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
@@ -52,8 +53,9 @@ namespace blob_royale::simulation {
 // related: command_kind_mask.hpp -- the set of kinds a mode accepts.
 // related: input_batch.hpp -- the one validated command value a tick may read.
 // related: kind_registry.hpp -- the derivation that keeps the kind list honest.
-using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand,
-                             ClearSeatCommand, SeatNpcCommand, StartMatchCommand, LeaveCommand>;
+using Command =
+    std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand, ClearSeatCommand,
+                 SeatNpcCommand, StartMatchCommand, LeaveCommand, JoinCommand>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -77,6 +79,9 @@ enum class CommandKind : std::uint32_t {
   // Server-issued on session close and applied after every other kind
   // (`commands/leave_command.hpp`).
   kLeave = 1u << 7,
+  // Server-issued when a controller wants a seat, applied after the lobby kinds and before a leave
+  // (`commands/join_command.hpp`).
+  kJoin = 1u << 8,
 };
 
 // canonical: command_kind_of_type -- the enumerator of one command value type.
@@ -115,6 +120,10 @@ template <> struct CommandKindOf<StartMatchCommand> {
 
 template <> struct CommandKindOf<LeaveCommand> {
   static constexpr CommandKind value = CommandKind::kLeave;
+};
+
+template <> struct CommandKindOf<JoinCommand> {
+  static constexpr CommandKind value = CommandKind::kJoin;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through CommandKindOf.
@@ -179,6 +188,10 @@ template <> struct CommandKindName<LeaveCommand> {
   static constexpr std::string_view value = "leave";
 };
 
+template <> struct CommandKindName<JoinCommand> {
+  static constexpr std::string_view value = "join";
+};
+
 // The declared wire name of one command kind, for encoders, diagnostics, and fixtures.
 template <typename CommandType>
 inline constexpr std::string_view command_kind_name = CommandKindName<CommandType>::value;
@@ -210,6 +223,8 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
     return command_kind_name<StartMatchCommand>;
   case CommandKind::kLeave:
     return command_kind_name<LeaveCommand>;
+  case CommandKind::kJoin:
+    return command_kind_name<JoinCommand>;
   }
   return "command_kind_invalid";
 }
@@ -285,7 +300,8 @@ private:
                       std::is_same_v<CommandType, ClearSeatCommand> ||
                       std::is_same_v<CommandType, SeatNpcCommand> ||
                       std::is_same_v<CommandType, StartMatchCommand> ||
-                      std::is_same_v<CommandType, LeaveCommand>) {
+                      std::is_same_v<CommandType, LeaveCommand> ||
+                      std::is_same_v<CommandType, JoinCommand>) {
           return AddressedIdentity::of_controller(value.controller);
         } else {
           return AddressedIdentity::of_entity(value.entity);
@@ -326,11 +342,17 @@ command_kind_application_rank(const CommandKind kind) noexcept {
     return 5;
   case CommandKind::kStartMatch:
     return 6;
-  // `leave` runs last of all. A spawn drained into the same batch must have created its entity
-  // before the leave destroys it, or a departed session's spawn would survive it; and a seating or
-  // a Start the leaver sent alongside is still the decision it made while present.
-  case CommandKind::kLeave:
+  // `join` runs after every lobby command, so the seat a join takes is the seat the same tick's
+  // resize, clear, or declaration left: a bot joining the seat that declared it sees the
+  // declaration, and a person joining sees the lobby as everyone else will publish it.
+  case CommandKind::kJoin:
     return 7;
+  // `leave` runs last of all. A spawn drained into the same batch must have created its entity
+  // before the leave destroys it, or a departed session's spawn would survive it; a join alongside
+  // is seated and then vacated rather than seated after it left; and a seating or a Start the
+  // leaver sent alongside is still the decision it made while present.
+  case CommandKind::kLeave:
+    return 8;
   }
   return static_cast<std::uint32_t>(kCommandKindCount);
 }

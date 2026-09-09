@@ -43,6 +43,9 @@ reverse. No drop is silent: every refusal is returned to the caller and counted 
 identity is the only one a session can hold across an elimination. `close_session` enqueues the
 controller's `leave` before retiring it, so the tick, not the session, destroys whatever the
 controller drove and vacates its seat; a session needs to know nothing about the world to leave it.
+The seat itself is taken with a server-issued `join`, which a session submits for itself whenever it
+observes that it holds none, exactly as it submits a `spawn` whenever it has no body
+(`commands/join_command.hpp`).
 
 ## Dependencies
 

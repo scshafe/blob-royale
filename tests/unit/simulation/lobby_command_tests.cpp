@@ -1,6 +1,7 @@
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
 #include "commands/clear_seat_command.hpp"
+#include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
@@ -35,6 +36,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <string>
@@ -349,6 +351,25 @@ namespace {
       simulation::SpawnCommand{simulation::ControllerId::create(controller)}};
 }
 
+// A person's join names no seat; a bot's names the one that declared it.
+[[nodiscard]] simulation::Command
+join(const std::uint64_t controller, const std::optional<std::uint64_t> seat_index = std::nullopt) {
+  return simulation::Command{
+      simulation::JoinCommand{simulation::ControllerId::create(controller), seat_index}};
+}
+
+[[nodiscard]] simulation::Seat person_at(const std::uint64_t controller) {
+  return simulation::Seat{simulation::ControllerSeat{simulation::ControllerId::create(controller)}};
+}
+
+[[nodiscard]] simulation::Seat bot_at(const std::string_view kind,
+                                      const std::optional<std::uint64_t> controller) {
+  return simulation::Seat{simulation::NpcSeat{
+      simulation::SeatKindName::create(kind),
+      controller.has_value() ? std::optional{simulation::ControllerId::create(*controller)}
+                             : std::nullopt}};
+}
+
 // A tick that may create: the plain `batch` above carries no reservation, which is right for a
 // roster-only tick and a hard failure for a spawn.
 void step_creating(simulation::GameSimulation& game, std::vector<simulation::Command> commands,
@@ -371,8 +392,9 @@ void step_creating(simulation::GameSimulation& game, std::vector<simulation::Com
 }
 
 // A world with one seated body driven by controller 5 in seat 0, and an NPC seat whose bot is
-// controller 6 in seat 1, on the same marker map every lobby here runs on.
-[[nodiscard]] simulation::GameSimulation seated_lobby_simulation() {
+// controller 6 in seat 1, on the same marker map every lobby here runs on, in the phase named.
+[[nodiscard]] simulation::GameSimulation
+seated_lobby_simulation(const simulation::MatchPhase phase = simulation::MatchPhase::kLobby) {
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
   simulation::GameWorld world =
       simulation::GameWorld::create({simulation::GameWorld::EntitySeed::create(
@@ -386,16 +408,21 @@ void step_creating(simulation::GameSimulation& game, std::vector<simulation::Com
       1, simulation::Seat{simulation::NpcSeat{simulation::SeatKindName::create("wanderer"),
                                               simulation::ControllerId::create(6)}});
   world.mutable_match().seats = std::move(roster);
+  world.mutable_match().phase = phase;
   return simulation::GameSimulation::create(
       simulation::SimulationConfig::create(500.0, 500.0, 10.0, 400, 8, 8), std::move(world),
       simulation::GameSimulationSetup::engine_defaults().with_map(lobby_map()));
 }
 
-// A mode that accepts a thrust and nothing the server issues, which is the mistake the startup
-// check exists to refuse.
-class ThrustOnlyMode final : public simulation::GameMode {
+// A mode that accepts exactly the kinds it is given, which is how a test states the mistake the
+// startup check exists to refuse: a mode that lets a session in and refuses what the server issues
+// on its behalf.
+class RefusingMode final : public simulation::GameMode {
 public:
-  [[nodiscard]] std::string_view name() const noexcept override { return "thrust_only"; }
+  explicit RefusingMode(const simulation::CommandKindMask accepted) noexcept
+      : accepted_(accepted) {}
+
+  [[nodiscard]] std::string_view name() const noexcept override { return "refusing"; }
   [[nodiscard]] simulation::SystemPipeline systems() const override {
     return simulation::SystemPipeline::empty();
   }
@@ -403,7 +430,7 @@ public:
     return simulation::ContactRuleTable::built_in();
   }
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
-    return simulation::CommandKindMask::create({simulation::CommandKind::kThrust});
+    return accepted_;
   }
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {
     return std::make_unique<const simulation::IdleSpawnPolicy>();
@@ -412,7 +439,25 @@ public:
     return std::make_unique<const simulation::IdleMatchObjective>();
   }
   void validate_map(const simulation::MapDefinition&) const override {}
+
+private:
+  simulation::CommandKindMask accepted_;
 };
+
+// Whether `GameSimulation::create` refuses a mode with this mask, and with which code.
+[[nodiscard]] std::optional<simulation::SimulationValidationCode>
+startup_refusal_of(const simulation::CommandKindMask accepted) {
+  try {
+    static_cast<void>(simulation::GameSimulation::create(
+        simulation::SimulationConfig::create(500.0, 500.0, 10.0, 400, 8, 8),
+        simulation::GameWorld::create({}),
+        simulation::GameSimulationSetup::of_mode(lobby_map(),
+                                                 std::make_unique<const RefusingMode>(accepted))));
+    return std::nullopt;
+  } catch (const simulation::SimulationValidationError& error) {
+    return error.validation_code();
+  }
+}
 
 } // namespace
 
@@ -479,14 +524,115 @@ TEST_CASE("A leave for a controller that drives nothing and sits nowhere changes
 }
 
 TEST_CASE("A declared mode that refuses a server-issued kind is refused at startup",
-          "[unit][simulation][lobby][leave]") {
+          "[unit][simulation][lobby][leave][join]") {
   // Refusing `leave` would have the mailbox drop it on every disconnect and leave a body nobody
   // owns in the arena; the engine refuses the mode before a session can exist.
-  simulation::GameWorld world = simulation::GameWorld::create({});
-  CHECK_THROWS_AS(
-      simulation::GameSimulation::create(
-          simulation::SimulationConfig::create(500.0, 500.0, 10.0, 400, 8, 8), std::move(world),
-          simulation::GameSimulationSetup::of_mode(lobby_map(),
-                                                   std::make_unique<const ThrustOnlyMode>())),
-      simulation::SimulationValidationError);
+  CHECK(
+      startup_refusal_of(simulation::CommandKindMask::create({simulation::CommandKind::kThrust})) ==
+      simulation::SimulationValidationCode::kGameSimulationModeRefusesServerIssuedKind);
+
+  // A mode with a lobby -- it accepts `start_match` -- must accept the join that fills it, or no
+  // session and no bot could ever take a seat and the lobby would wait forever.
+  CHECK(startup_refusal_of(simulation::CommandKindMask::create(
+            {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
+             simulation::CommandKind::kLeave, simulation::CommandKind::kThrust,
+             simulation::CommandKind::kStartMatch})) ==
+        simulation::SimulationValidationCode::kGameSimulationModeRefusesServerIssuedKind);
+
+  // A mode without a lobby owes no join, and one with a lobby that accepts it is accepted.
+  CHECK_FALSE(
+      startup_refusal_of(simulation::CommandKindMask::create(
+                             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
+                              simulation::CommandKind::kLeave, simulation::CommandKind::kThrust}))
+          .has_value());
+  CHECK_FALSE(startup_refusal_of(simulation::CommandKindMask::all()).has_value());
+}
+
+TEST_CASE("A person's join takes the lowest empty seat and a second join leaves them there",
+          "[unit][simulation][lobby][join]") {
+  simulation::GameSimulation game = lobby_simulation(3);
+  step(game, {join(7)});
+  const simulation::SeatRoster after_first = roster_of(game);
+  CHECK(after_first.seats()[0] == person_at(7));
+  CHECK(after_first.seats()[1] == simulation::Seat{simulation::EmptySeat{}});
+
+  // The session asks again every tenth of a second until it observes its seat; asking while seated
+  // moves nobody.
+  step(game, {join(7)});
+  CHECK(roster_of(game) == after_first);
+
+  // Two people in one tick take the next two seats in the batch's order, which is controller order.
+  step(game, {join(9), join(8)});
+  const simulation::SeatRoster after_both = roster_of(game);
+  CHECK(after_both.seats()[1] == person_at(8));
+  CHECK(after_both.seats()[2] == person_at(9));
+  CHECK(after_both.is_full());
+}
+
+TEST_CASE("A bot's join fills exactly the seat that declared its kind and nothing else",
+          "[unit][simulation][lobby][join]") {
+  simulation::GameSimulation game = lobby_simulation(2);
+  step(game, {seat_npc(1, 1, "wanderer")});
+  const simulation::SeatRoster declared = roster_of(game);
+  REQUIRE(declared.seats()[1] == bot_at("wanderer", std::nullopt));
+
+  step(game, {join(6, 1)});
+  const simulation::SeatRoster seated = roster_of(game);
+  CHECK(seated.seats()[1] == bot_at("wanderer", 6));
+  CHECK(seated.seats()[0] == simulation::Seat{simulation::EmptySeat{}});
+
+  // A named seat that is empty, one that already holds a bot, and one this roster does not have:
+  // the bot seats nowhere, and the reconciliation that created it will retire it. An index inside
+  // the wire bound but outside the roster is the same no-op every lobby command makes of it.
+  step(game, {join(7, 0)});
+  step(game, {join(8, 1)});
+  step(game, {join(9, kSpawnPointCount - 1)});
+  CHECK(roster_of(game) == seated);
+
+  // The bot that holds the seat and asks again is left where it is.
+  step(game, {join(6, 1)});
+  CHECK(roster_of(game) == seated);
+}
+
+TEST_CASE("A person displaces the lowest NPC seat before a match starts, and nobody after",
+          "[unit][simulation][lobby][join]") {
+  for (const simulation::MatchPhase phase :
+       {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown}) {
+    simulation::GameSimulation game = seated_lobby_simulation(phase);
+    step(game, {join(7)});
+    const simulation::SeatRoster roster = roster_of(game);
+    // The person's seat was the bot's; the person already seated is untouched.
+    CHECK(roster.seats()[0] == person_at(5));
+    CHECK(roster.seats()[1] == person_at(7));
+    // The displaced bot asking for its declared seat back finds a person in it.
+    step(game, {join(6, 1)});
+    CHECK(roster_of(game) == roster);
+  }
+
+  for (const simulation::MatchPhase phase :
+       {simulation::MatchPhase::kRunning, simulation::MatchPhase::kEnded}) {
+    simulation::GameSimulation game = seated_lobby_simulation(phase);
+    const simulation::SeatRoster before = roster_of(game);
+    step(game, {join(7)});
+    CHECK(roster_of(game) == before);
+  }
+}
+
+TEST_CASE("A join into a full lobby with no NPC to displace changes nothing",
+          "[unit][simulation][lobby][join]") {
+  simulation::GameSimulation game = lobby_simulation(1);
+  step(game, {join(5)});
+  const simulation::SeatRoster full = roster_of(game);
+  REQUIRE(full.seats()[0] == person_at(5));
+  step(game, {join(7)});
+  CHECK(roster_of(game) == full);
+}
+
+TEST_CASE("A join and a leave for one controller in one batch net to no seat",
+          "[unit][simulation][lobby][join][leave]") {
+  // The session's first presentation slot submits the join and the socket closes before the next
+  // drain: `leave` ranks after `join`, so the seat is taken and vacated inside one phase 0 pass.
+  simulation::GameSimulation game = lobby_simulation(2);
+  step(game, {join(7), leave(7)});
+  CHECK(roster_of(game) == simulation::SeatRoster::of_size(2));
 }

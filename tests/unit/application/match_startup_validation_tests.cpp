@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -253,7 +254,8 @@ TEST_CASE("a mode with a lobby starts with the configured seats and a mode witho
           "[unit][application][startup][lobby]") {
   // Royale accepts `start_match`, so it has a lobby and starts with the configured seats, all
   // empty and none of them a start request.
-  const simulation::SeatRoster royale = initial_seat_roster_for(*gameplay::RoyaleMode::create(), 4);
+  const simulation::SeatRoster royale =
+      initial_seat_roster_for(*gameplay::RoyaleMode::create(), 4, {});
   CHECK(royale.seat_count() == 4);
   CHECK_FALSE(royale.is_full());
   CHECK_FALSE(royale.start_requested());
@@ -262,9 +264,45 @@ TEST_CASE("a mode with a lobby starts with the configured seats and a mode witho
   // empty array protocol v2 promises for a world that declared no lobby, not four seats no client
   // has a command to operate.
   const simulation::SeatRoster sandbox =
-      initial_seat_roster_for(*gameplay::SandboxMode::create(), 4);
+      initial_seat_roster_for(*gameplay::SandboxMode::create(), 4, {});
   CHECK(sandbox.seat_count() == 0);
   CHECK(sandbox == simulation::SeatRoster{});
+}
+
+TEST_CASE("the bot roster is the declaration of a lobby's first seats, in its written order",
+          "[unit][application][startup][lobby]") {
+  const std::vector<MatchConfiguration::BotRosterEntry> roster =
+      MatchConfiguration::parse_bot_roster("wanderer:2, chaser:1");
+  const simulation::SeatRoster royale =
+      initial_seat_roster_for(*gameplay::RoyaleMode::create(), 4, roster);
+  REQUIRE(royale.seat_count() == 4);
+  const simulation::Seat wanderer{
+      simulation::NpcSeat{simulation::SeatKindName::create("wanderer"), std::nullopt}};
+  const simulation::Seat chaser{
+      simulation::NpcSeat{simulation::SeatKindName::create("chaser"), std::nullopt}};
+  CHECK(royale.seats()[0] == wanderer);
+  CHECK(royale.seats()[1] == wanderer);
+  CHECK(royale.seats()[2] == chaser);
+  CHECK(royale.seats()[3] == simulation::Seat{simulation::EmptySeat{}});
+  // Declared, not yet created: every bot exists through its seat, and none exists before the first
+  // control poll builds it. Three declared seats and one empty is not a full lobby.
+  CHECK_FALSE(royale.is_full());
+  CHECK_FALSE(royale.start_requested());
+
+  // A lobby every bot fills is full of bots that do not exist yet, which is still a lobby -- the
+  // reconciliation fills it -- and one bot more than the seats is a field that could never sit
+  // down.
+  CHECK(initial_seat_roster_for(*gameplay::RoyaleMode::create(), 3, roster).seat_count() == 3);
+  require_application_input_error_code(
+      [&] {
+        static_cast<void>(initial_seat_roster_for(*gameplay::RoyaleMode::create(), 2, roster));
+      },
+      ApplicationInputErrorCode::kMatchBotsExceedSeats);
+
+  // A mode without a lobby declares nothing into seats it does not have: its bots are a startup
+  // roster, seated seatless by the composition root.
+  CHECK(initial_seat_roster_for(*gameplay::SandboxMode::create(), 1, roster) ==
+        simulation::SeatRoster{});
 }
 
 } // namespace blob_royale::application

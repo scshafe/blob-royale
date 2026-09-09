@@ -51,12 +51,14 @@ void fill_with_distinct_thrusts(runtime::CommandMailbox& mailbox, const std::siz
 
 } // namespace
 
-TEST_CASE("CommandMailbox classifies spawn, despawn, and leave as entity lifecycle commands",
+TEST_CASE("CommandMailbox classifies spawn, despawn, join, and leave as entity lifecycle commands",
           "[unit][runtime][mailbox]") {
   REQUIRE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kSpawn));
   REQUIRE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kDespawn));
   // A dropped leave is a body nobody owns, and the session that could have re-sent it is gone.
   REQUIRE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kLeave));
+  // A dropped join is a bot that sits nowhere for a second and is then retired for nothing.
+  REQUIRE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kJoin));
   REQUIRE_FALSE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kThrust));
 }
 

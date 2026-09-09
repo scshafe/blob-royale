@@ -284,7 +284,8 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
       gameplay::GameModeRegistry::create(application_config.match_configuration().mode_name(),
                                          application_config.game_mode_configuration());
 
-  // **The lobby is seeded here, into the world, before the engine ever sees it.**
+  // **The lobby is seeded here, into the world, before the engine ever sees it, and only for a
+  // mode that has one.**
   //
   // `MatchState::seats` is engine state -- it is the input to the machine's first transition -- but
   // its *initial* size is a required configuration key that only a mode's section carries, so the
@@ -293,12 +294,12 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
   // match begins with, and `GameSimulation::create` neither invents nor overwrites it
   // (`src/simulation/seat_roster.hpp`).
   //
-  // Seeded from `[royale]` whatever `[match] mode` names, for the reason that section is required
-  // whatever the mode is (`application_config_loader.cpp`): a mode that does not read a seat
-  // ignores this roster exactly as `sandbox` ignores every other `[royale]` key, and an ignored
-  // roster is inert.
-  initial_world.mutable_match().seats = simulation::SeatRoster::of_size(static_cast<std::size_t>(
-      application_config.game_mode_configuration().royale.lobby_seat_count()));
+  // `[royale]` is required whatever `[match] mode` names (`application_config_loader.cpp`), so the
+  // key is always there to read; whether it is *applied* is the mode's declaration. A mode that
+  // accepts no `start_match` starts with no roster, which is the empty array protocol v2 promises
+  // for a world that declared no lobby (`match_startup_validation.hpp`).
+  initial_world.mutable_match().seats = initial_seat_roster_for(
+      *mode, application_config.game_mode_configuration().royale.lobby_seat_count());
 
   // The accepted command mask is copied out **before** the mode is moved into the engine, which
   // destroys it once it has read its seven declarations. It is the set a protocol v2 `welcome`

@@ -5,9 +5,12 @@
 
 #include "shared/hazard_archetype.hpp"
 
+#include "game_mode.hpp"
 #include "map_definition.hpp"
+#include "seat_roster.hpp"
 #include "simulation_config.hpp"
 
+#include <cstdint>
 #include <span>
 
 namespace blob_royale::application {
@@ -62,6 +65,22 @@ void require_match_fits_snapshot_bound(
 // Throws ApplicationInputError with `APPLICATION.MATCH.MAP_BOUNDS_MISMATCH`.
 void require_map_matches_published_world(const simulation::SimulationConfig& simulation_config,
                                          const simulation::MapDefinition& map);
+
+// The seat roster a match starts with: `lobby_seat_count` empty seats for a mode that has a lobby,
+// and no roster at all for one that does not.
+//
+// Whether a mode has a lobby is its own declaration -- it accepts `start_match` -- while the size
+// of that lobby is a configuration key, so neither value can own the rule and the composition
+// root, which holds both, applies it here. A mode that accepts no `start_match` never reads a
+// seat, and the roster it starts with is the default-constructed one with no seats: the empty
+// array protocol v2 promises for a world that declared no lobby, rather than the four inert seats
+// `sandbox` used to publish because the key was read whatever `[match] mode` named
+// (`docs/reviews/2026-09-08-lobby-and-hazard-review.md`, finding 5).
+//
+// Throws SimulationValidationError, through `SeatRoster::of_size`, for a count outside the
+// engine's bound; the configuration loader has already refused one.
+[[nodiscard]] simulation::SeatRoster initial_seat_roster_for(const simulation::GameMode& mode,
+                                                             std::uint64_t lobby_seat_count);
 
 } // namespace blob_royale::application
 

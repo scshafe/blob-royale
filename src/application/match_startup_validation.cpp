@@ -6,8 +6,10 @@
 #include "server_limits.hpp"
 #include "shared/hazard_crossing.hpp"
 
+#include "command_registry.hpp"
 #include "fixed_delta.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -104,6 +106,14 @@ void require_map_matches_published_world(const simulation::SimulationConfig& sim
           std::to_string(simulation_config.world_width()) + " by " +
           std::to_string(simulation_config.world_height()) +
           " one; the kernel folds against the map and every client draws the published scalars"};
+}
+
+simulation::SeatRoster initial_seat_roster_for(const simulation::GameMode& mode,
+                                               const std::uint64_t lobby_seat_count) {
+  if (!mode.accepted_command_kinds().contains(simulation::CommandKind::kStartMatch)) {
+    return simulation::SeatRoster{};
+  }
+  return simulation::SeatRoster::of_size(static_cast<std::size_t>(lobby_seat_count));
 }
 
 } // namespace blob_royale::application

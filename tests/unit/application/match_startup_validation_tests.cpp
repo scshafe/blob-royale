@@ -1,6 +1,8 @@
 #include "application_input_error.hpp"
 #include "match_configuration.hpp"
 #include "match_startup_validation.hpp"
+#include "royale/royale_mode.hpp"
+#include "sandbox/sandbox_mode.hpp"
 
 #include "shared/hazard_archetype.hpp"
 #include "shared/hazard_crossing.hpp"
@@ -9,6 +11,7 @@
 #include "map_definition.hpp"
 #include "physics_body.hpp"
 #include "protocol_v2_constants.hpp"
+#include "seat_roster.hpp"
 #include "server_limits.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
@@ -243,6 +246,25 @@ TEST_CASE("a map whose arena disagrees with the published world scalars is rejec
   require_application_input_error_code(
       [&] { require_map_matches_published_world(configuration(), narrower); },
       ApplicationInputErrorCode::kMatchMapBoundsMismatch);
+}
+
+TEST_CASE("a mode with a lobby starts with the configured seats and a mode without one starts "
+          "with none",
+          "[unit][application][startup][lobby]") {
+  // Royale accepts `start_match`, so it has a lobby and starts with the configured seats, all
+  // empty and none of them a start request.
+  const simulation::SeatRoster royale = initial_seat_roster_for(*gameplay::RoyaleMode::create(), 4);
+  CHECK(royale.seat_count() == 4);
+  CHECK_FALSE(royale.is_full());
+  CHECK_FALSE(royale.start_requested());
+
+  // Sandbox accepts no `start_match`, so the same key seeds nothing: its published `seats` is the
+  // empty array protocol v2 promises for a world that declared no lobby, not four seats no client
+  // has a command to operate.
+  const simulation::SeatRoster sandbox =
+      initial_seat_roster_for(*gameplay::SandboxMode::create(), 4);
+  CHECK(sandbox.seat_count() == 0);
+  CHECK(sandbox == simulation::SeatRoster{});
 }
 
 } // namespace blob_royale::application

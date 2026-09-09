@@ -62,7 +62,7 @@ commit that passed yesterday; fix the pin in a separate commit and redeploy, nev
 
 ## Change balance without redeploying
 
-Bot roster, lobby minimum, drag, zone shrink, and every other match number live in
+Bot roster, lobby seat count, drag, zone shrink, and every other match number live in
 `deploy/ubuntu-pc/blob-royale.cfg`, not in code. Editing one and running the full deploy would
 re-verify the entire tree, which is right for a code change and far too slow for a number. Use:
 

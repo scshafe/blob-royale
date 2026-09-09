@@ -7,7 +7,7 @@
 # Idempotent: yes.
 #
 # Why this exists separately from scripts/deploy-tailnet: balance is configuration, so trying a
-# different bot roster, lobby minimum, drag, or zone shrink should cost seconds. `deploy-tailnet`
+# different bot roster, lobby seat count, drag, or zone shrink should cost seconds. `deploy-tailnet`
 # re-runs the whole release profile, which is right when code changes and far too heavy when a
 # number changes. This script deliberately cannot change code: it reuses the published image and
 # refuses to run if none is published, so what it restarts is exactly what was certified.

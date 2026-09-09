@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 
+import { LobbyPanel } from './LobbyPanel';
 import { MatchOverlay } from './MatchOverlay';
 import { SimulationCanvas } from './SimulationCanvas';
 import { SimulationDebugPanel } from './SimulationDebugPanel';
@@ -44,6 +45,16 @@ export function SimulationViewer({
   const debugPanelId = useId();
   const statusLabel = connectionStatusLabels[connection.status];
   const controllerId = connection.session?.controllerId ?? null;
+  // The lobby is operable exactly while the match is in `lobby` and this session may start one:
+  // a mode with no lobby publishes an empty roster and no `start_match`, and the tick ignores every
+  // lobby command outside `lobby`, so the panel is not drawn where nothing it does could land.
+  const operableLobby =
+    connection.match !== null &&
+    connection.match.phase === 'lobby' &&
+    connection.session !== null &&
+    connection.session.acceptedCommandKinds.includes('start_match')
+      ? { match: connection.match, session: connection.session }
+      : null;
 
   return (
     <section aria-labelledby="simulation-viewer-heading">
@@ -77,6 +88,16 @@ export function SimulationViewer({
             />
           </div>
           <div className="SimulationSidebar">
+            {operableLobby === null ? null : (
+              <LobbyPanel
+                entities={connection.entities}
+                match={operableLobby.match}
+                npcControllerKinds={operableLobby.session.npcControllerKinds}
+                ownControllerId={controllerId}
+                seatCountMaximum={operableLobby.session.seatCountMaximum}
+                sendCommand={connection.sendCommand}
+              />
+            )}
             <SimulationHud
               aliveCount={countAlivePlayers(connection.entities)}
               displayName={connection.session?.displayName ?? null}

@@ -7,7 +7,6 @@ import {
   type Page,
 } from '@playwright/test';
 
-import { BlobRoyaleLobbyDriver } from './BlobRoyaleLobbyDriver';
 import {
   BlobRoyaleServerProcess,
   type BlobRoyaleServerFixture,
@@ -25,6 +24,8 @@ import {
   type RecordedArc,
   type RecordedFrame,
   type RecordedLabel,
+  lobbyStartButton,
+  startMatchFromLobby,
 } from './browserFlowSupport';
 
 /**
@@ -40,17 +41,6 @@ import {
  * caption assertion and a hazard is an entity: adding one there would make the count fluctuate and
  * that assertion would be asserting the weather. Neither existing flow is touched by this file.
  */
-/**
- * The kind the lobby driver would declare into any seat still empty when it presses Start. Both
- * fixtures declare three seats -- the two the browsers take on admission and one for the driver,
- * because since protocol 2.4 a room refuses a session past its seat count at the door -- and
- * `[match] bots` is empty, so the driver takes the last seat, finds nothing empty to declare into,
- * and only presses Start. No bot session is ever created. The driver's own blob sits at the map's
- * third marker for the countdown and is gone within a frame of `running`, so the two browsers are
- * the only bodies in the arena by the time a hazard can exist, which is what keeps the drawn
- * crossing a two-body geometry.
- */
-const SEATED_NPC_KIND = 'wanderer';
 
 const LETHAL_FIXTURE: BlobRoyaleServerFixture = Object.freeze({
   configurationFileName: 'blob-royale-browser-e2e-hazard-lethal.cfg',
@@ -334,10 +324,10 @@ async function startMatchWithTwoBrowsers(
   await server.start();
   await waitForReadyServer(request, server);
 
-  // `lobby_seat_count` is the two browsers plus the driver's seat and there is no bot, so the match
-  // cannot leave the lobby until every seat is taken and somebody presses Start -- which this flow
-  // does below, after both browsers have connected, so neither is ever a mid-match joiner the spawn
-  // policy would defer.
+  // `lobby_seat_count` is the whole field and there is no bot, so the match cannot leave the lobby
+  // until both seats are taken and somebody presses Start -- which this flow does below, through
+  // the lobby panel, after both browsers have connected, so neither is ever a mid-match joiner the
+  // spawn policy would defer.
   const contextA = await browser.newContext({ baseURL: PRODUCTION_ORIGIN });
   contexts.push(contextA);
   const pageA = await openSessionPage(contextA, pageErrors);
@@ -345,6 +335,10 @@ async function startMatchWithTwoBrowsers(
   await expect(matchHudCell(pageA, 'Phase')).toHaveText('lobby');
   await expect(matchHudCell(pageA, 'Alive')).toHaveText('1');
   const nameA = await readOwnDisplayName(pageA);
+  await expect(lobbyStartButton(pageA)).toBeDisabled();
+  await expect(
+    pageA.getByText('Waiting for 1 empty seat to be filled.'),
+  ).toBeVisible();
 
   const contextB = await browser.newContext({ baseURL: PRODUCTION_ORIGIN });
   contexts.push(contextB);
@@ -353,12 +347,10 @@ async function startMatchWithTwoBrowsers(
   const nameB = await readOwnDisplayName(pageB);
   expect(nameB).not.toBe(nameA);
 
-  // **The lobby is operated over the published wire, not by the client.** Since protocol 2.3 a match
-  // starts only when every seat is filled and somebody sends `start_match`, and the lobby UI that
-  // would do it is a later step of the same plan. The driver opens its own session, presses Start,
-  // waits for `running`, and closes; the server destroys whatever it drove when it leaves, so
-  // nothing it did is still in the world when the geometry below is read.
-  await BlobRoyaleLobbyDriver.fillSeatsAndStart(SEATED_NPC_KIND);
+  // **The lobby is operated through the client.** Both seats are held, so Start is enabled on both
+  // browsers; A presses it. Nothing else ever enters the field, so the geometry below is a two-body
+  // geometry by construction rather than by a third session's timely exit.
+  await startMatchFromLobby(pageA);
 
   for (const page of [pageA, pageB]) {
     await expect(matchHudCell(page, 'Phase')).toHaveText('running', {

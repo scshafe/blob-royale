@@ -14,6 +14,7 @@ export type {
   BlobRoyaleProtocolV2HTTPErrorResponse as SessionHttpErrorResponse,
   BlobRoyaleProtocolV2LobbyDirectoryResponse as SessionLobbyDirectoryMessage,
   LobbyListing as SessionLobbyListing,
+  Seat as SessionSeat,
   BlobRoyaleProtocolV2LifetimeComponent as SessionLifetimeComponent,
   BlobRoyaleProtocolV2MatchSection as SessionMatchSection,
   BlobRoyaleProtocolV2PhysicsBodyComponent as SessionPhysicsBodyComponent,
@@ -51,14 +52,43 @@ export type SessionCommandKind =
   BlobRoyaleProtocolV2WelcomeData['accepted_command_kinds'][number];
 
 /**
- * The one command a v2 client may send today. The generated envelope type is deliberately looser
- * than the schema — json-schema-to-typescript cannot express the if/then payload correlation — so
- * the outbound shape is stated exactly here and validated against the schema before it is sent.
+ * The commands a v2 client may send. The generated envelope type is deliberately looser than the
+ * schema — json-schema-to-typescript cannot express the if/then payload correlation — so each
+ * outbound shape is stated exactly here and validated against the schema before it is sent.
  */
 export interface SessionSetThrustCommand {
   readonly kind: 'set_thrust';
   readonly payload: { readonly x: number; readonly y: number };
 }
 
+/** A count, not a delta: two clients who both choose four agree rather than compounding. */
+export interface SessionSetSeatCountCommand {
+  readonly kind: 'set_seat_count';
+  readonly payload: { readonly seat_count: number };
+}
+
+/** Fills an empty seat with a bot of a kind the welcome published; never replaces an occupant. */
+export interface SessionSeatNpcCommand {
+  readonly kind: 'seat_npc';
+  readonly payload: { readonly npc_kind: string; readonly seat_index: number };
+}
+
+/** Empties an NPC seat; a person's seat belongs to a live session and is left alone. */
+export interface SessionClearSeatCommand {
+  readonly kind: 'clear_seat';
+  readonly payload: { readonly seat_index: number };
+}
+
+/** Records a request; the server commits the start only once the field is complete. */
+export interface SessionStartMatchCommand {
+  readonly kind: 'start_match';
+  readonly payload: Readonly<Record<string, never>>;
+}
+
 /** @extension-point session_command -- a new client command kind adds one member to this union. */
-export type SessionCommand = SessionSetThrustCommand;
+export type SessionCommand =
+  | SessionSetThrustCommand
+  | SessionSetSeatCountCommand
+  | SessionSeatNpcCommand
+  | SessionClearSeatCommand
+  | SessionStartMatchCommand;

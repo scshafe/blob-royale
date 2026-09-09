@@ -386,3 +386,42 @@ describe('validateSessionHttpErrorResponse', () => {
     );
   });
 });
+
+describe('validateSessionCommand for the lobby kinds', () => {
+  it('accepts every lobby command at its closed shape', () => {
+    const commands: readonly SessionCommand[] = [
+      { kind: 'set_seat_count', payload: { seat_count: 4 } },
+      { kind: 'seat_npc', payload: { npc_kind: 'wanderer', seat_index: 3 } },
+      { kind: 'clear_seat', payload: { seat_index: 1 } },
+      { kind: 'start_match', payload: {} },
+    ];
+    for (const command of commands) {
+      expect(() => {
+        validateSessionCommand(command);
+      }).not.toThrow();
+    }
+  });
+
+  it('refuses a lobby command outside its schema bound before it reaches the wire', () => {
+    // Each of these is a value the published contract does not describe, which the server would
+    // answer with `command_payload_invalid` and a closed connection.
+    const commands: readonly unknown[] = [
+      { kind: 'set_seat_count', payload: { seat_count: 0 } },
+      { kind: 'set_seat_count', payload: { seat_count: 65 } },
+      { kind: 'set_seat_count', payload: { seat_count: 2.5 } },
+      { kind: 'seat_npc', payload: { npc_kind: 'Wanderer', seat_index: 0 } },
+      { kind: 'seat_npc', payload: { npc_kind: 'wanderer', seat_index: 64 } },
+      { kind: 'clear_seat', payload: { seat_index: -1 } },
+      { kind: 'start_match', payload: { now: true } },
+    ];
+    for (const command of commands) {
+      expect(() => {
+        validateSessionCommand(command as SessionCommand);
+      }).toThrow(
+        expect.objectContaining({
+          code: 'SIMULATION.COMMAND_REJECTED',
+        }) as SimulationApiError,
+      );
+    }
+  });
+});

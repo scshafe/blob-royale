@@ -16,15 +16,20 @@ Phase time is reported as elapsed rather than remaining, and the reason is avail
 
 Zone exposure was the same until protocol 2.2, and is no longer. `elimination_grace_ticks` now travels in the royale mode-state block, so the HUD counts the real remainder down and the exposure ring thickens against the same denominator `zone_elimination` enforces. The elapsed reading survives as the fallback for a mode that publishes no grace — `sandbox` publishes the `none` block — because the one rule that has not changed is that this client never renders a duration the server did not send.
 
-**Protocol 2.3 is on the wire and this domain does not yet use it.** The generated schemas and types
-carry the four lobby command kinds, the `match.seats` roster with `match.start_requested`, and
-`welcome.npc_controller_kinds`, and the client validates every one of them because the schemas are
-closed and validation is not optional. Nothing renders them: the lobby view, the seat grid, the
-right-click NPC menu, and the Start control are a later step, and until they land a royale match is
-started by a client that is not this one. Two consequences are worth knowing before that work begins.
-`welcome.npc_controller_kinds` is the menu — it is read from the server's controller registry, so a
-new bot appears in it with no change here at all. And the overlay copy "The match starts once enough
-blobs have joined the arena" is no longer true of the server it describes; a match now starts when
-every seat is filled and somebody presses Start, and that sentence is the seat grid's to replace.
+**The lobby is operated here, through `LobbyPanel`.** While a match is in `lobby` and the welcome
+advertised `start_match`, the sidebar shows the seat grid read from `match.seats` -- each seat empty,
+a named person, or a named bot, with the session's own seat marked -- a seat-count control, a bot
+menu, and Start. Every rule the panel renders is a selector in `lobbySelectors.ts` so it is testable
+without a renderer, and every press is one closed command through `sendCommand`. Right-click on an
+empty seat opens the bot menu and suppresses the browser's own; the seat is also a button, so the
+same menu opens from the keyboard, and Escape or a click outside closes it. The menu is walked with
+Tab, never the arrow keys, because `useThrustInput` owns the arrows and WASD for the whole window.
+`welcome.npc_controller_kinds` is the whole menu, read from the server's registry, so a new bot
+appears in it with no change here. The seat-count control is floored one above the highest occupied
+seat and capped at `welcome.seat_count_maximum`, which are the two asks the tick would ignore, and it
+sends one `set_seat_count` a quarter of a second after the last change: a dragged control emits a
+change per step and the session's command bucket holds thirty tokens. Start is enabled exactly when
+every seat is filled and every NPC seat has its controller, which is the server's own start
+condition, so the button is never enabled for a press the tick would only remember.
 
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v2`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

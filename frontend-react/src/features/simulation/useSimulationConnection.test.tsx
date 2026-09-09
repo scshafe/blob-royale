@@ -233,6 +233,7 @@ describe('useSimulationConnection', () => {
       lobbyId: 1,
       map: 'arena-960x640',
       mode: 'royale',
+      npcControllerKinds: ['wanderer', 'chaser'],
       seatCountMaximum: 32,
     });
     expect(result.current.ownEntityId).toBeNull();

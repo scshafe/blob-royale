@@ -25,6 +25,7 @@ const session: SimulationSessionIdentity = Object.freeze({
   lobbyId: 1,
   map: 'arena-960x640',
   mode: 'royale',
+  npcControllerKinds: ['wanderer', 'chaser'],
   seatCountMaximum: 32,
 });
 

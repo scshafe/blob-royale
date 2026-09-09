@@ -32,6 +32,7 @@ const session: SimulationSessionIdentity = Object.freeze({
   lobbyId: 1,
   map: 'arena-960x640',
   mode: 'royale',
+  npcControllerKinds: ['wanderer', 'chaser'],
   seatCountMaximum: 32,
 });
 
@@ -346,5 +347,52 @@ describe('SimulationViewer', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('could not connect');
     expect(screen.getByText(/SIMULATION.RECONNECT_EXHAUSTED/)).toBeVisible();
+  });
+
+  it('shows the lobby panel exactly while the match is in lobby and the session may start one', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const lobbyMatch = { ...snapshot.data.match, phase: 'lobby' as const };
+    const startingSession: SimulationSessionIdentity = {
+      ...session,
+      acceptedCommandKinds: ['set_thrust', 'start_match'],
+    };
+
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          match: lobbyMatch,
+          session: startingSession,
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { level: 3, name: 'Lobby' }),
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Start match' })).toBeDisabled();
+
+    // A running match has no lobby to operate, and neither does a session whose welcome advertised
+    // no `start_match`: `sandbox` publishes only `set_thrust`.
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({ session: startingSession })}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(
+      screen.queryByRole('heading', { level: 3, name: 'Lobby' }),
+    ).toBeNull();
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({ match: lobbyMatch })}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(
+      screen.queryByRole('heading', { level: 3, name: 'Lobby' }),
+    ).toBeNull();
   });
 });

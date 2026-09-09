@@ -105,6 +105,27 @@ export async function waitForReadyServer(
   );
 }
 
+/** The lobby's Start control, which is enabled exactly when every seat is filled. */
+export function lobbyStartButton(page: Page): Locator {
+  return page.getByRole('button', { name: 'Start match' });
+}
+
+/** The lobby's seat-count control, floored one above the highest occupied seat. */
+export function seatCountControl(page: Page): Locator {
+  return page.getByRole('spinbutton', { name: 'Seats' });
+}
+
+/**
+ * Presses Start through the lobby UI once it is enabled. Since protocol 2.3 a match starts only
+ * when every seat is filled and somebody presses Start, and the lobby panel is the client that
+ * does: a flow that wants a running match earns it the way a player does, with no wire seam.
+ */
+export async function startMatchFromLobby(page: Page): Promise<void> {
+  const start = lobbyStartButton(page);
+  await expect(start).toBeEnabled();
+  await start.click();
+}
+
 /** The value cell of one row of the player-facing match HUD, addressed by its row header. */
 export function matchHudCell(page: Page, rowHeader: string): Locator {
   return page

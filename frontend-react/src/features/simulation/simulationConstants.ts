@@ -29,6 +29,9 @@ export const WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS = 10_000;
 // A thrust is a level, not an impulse: it persists on the server until the next command, so the
 // client sends only on change and never once per animation frame.
 export const THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS = 50;
+// A seat count is sent once, a quarter of a second after the last change: a dragged control emits
+// a change per step, and thirty steps in a burst would spend the session's whole command bucket.
+export const SEAT_COUNT_COMMAND_DEBOUNCE_MILLISECONDS = 250;
 
 export const CANVAS_MAX_WIDTH_PIXELS = 960;
 export const CANVAS_MAX_HEIGHT_PIXELS = 640;

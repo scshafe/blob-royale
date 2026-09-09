@@ -7,6 +7,7 @@ const webRoot = process.cwd();
 const simulationSourceRoot = resolve(webRoot, 'src/features/simulation');
 const productionSourceFiles = Object.freeze([
   'LobbyDirectoryView.tsx',
+  'LobbyPanel.tsx',
   'SimulationApi.ts',
   'SimulationCanvas.tsx',
   'SimulationFeature.tsx',

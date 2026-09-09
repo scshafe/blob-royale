@@ -45,6 +45,8 @@ export interface SimulationSessionIdentity {
   readonly lobbyId: number;
   readonly map: string;
   readonly mode: string;
+  /** The NPC kinds a `seat_npc` may name, in the server's registry order: the whole bot menu. */
+  readonly npcControllerKinds: readonly string[];
   /** The most seats the room's map can seat, which is what bounds a seat-count control. */
   readonly seatCountMaximum: number;
 }
@@ -153,6 +155,7 @@ export function simulationConnectionReducer(
           lobbyId: action.welcome.data.lobby_id,
           map: action.welcome.data.map,
           mode: action.welcome.data.mode,
+          npcControllerKinds: action.welcome.data.npc_controller_kinds,
           seatCountMaximum: action.welcome.data.seat_count_maximum,
         }),
         status: 'connected',

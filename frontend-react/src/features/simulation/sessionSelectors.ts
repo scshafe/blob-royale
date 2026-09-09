@@ -303,7 +303,8 @@ export function describeMatchOverlay(
   }
   if (match.phase === 'lobby') {
     return {
-      detail: 'The match starts once enough blobs have joined the arena.',
+      detail:
+        'The match starts when every seat is filled and somebody presses Start.',
       title: 'Waiting for players',
     };
   }

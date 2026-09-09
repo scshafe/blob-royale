@@ -57,8 +57,11 @@ describe('useThrustInput', () => {
     await advance(THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS);
 
     const diagonal = sendCommand.mock.calls[1]?.[0];
-    expect(diagonal?.payload.x).toBeCloseTo(Math.SQRT1_2, 12);
-    expect(diagonal?.payload.y).toBeCloseTo(-Math.SQRT1_2, 12);
+    if (diagonal?.kind !== 'set_thrust') {
+      throw new Error('TEST.THRUST_NOT_SENT');
+    }
+    expect(diagonal.payload.x).toBeCloseTo(Math.SQRT1_2, 12);
+    expect(diagonal.payload.y).toBeCloseTo(-Math.SQRT1_2, 12);
     expect(result.current.x).toBeCloseTo(Math.SQRT1_2, 12);
   });
 

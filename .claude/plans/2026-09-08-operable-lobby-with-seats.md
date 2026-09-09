@@ -20,10 +20,20 @@ Four facts from the tree on 2026-09-08 decide the shape.
 - **Anyone in the lobby** may change the seat count, seat an NPC, clear a seat, and press Start. No host, no ready-check. Accept the accidental-start risk.
 - **A human who connects to a full lobby takes an NPC's seat.** A person displaces a bot. If no seat holds an NPC, the lobby is genuinely full and the connection is refused with a diagnostic.
 
+## The fixture problem, found while planning
+
+**Making Start explicit changes when every royale match begins, including the seven recorded replays.** All seven `tests/fixtures/replays/*/match.ini` declare `lobby_minimum_players`, and several spawn exactly enough players to cross it and then rely on the match progressing — `royale-scripted-match`, `royale-simultaneous-draw`, `royale-spawn-order`, `royale-transition-per-tick` and `royale-elimination-timing` all set `countdown_seconds=0` so the transition is immediate, and five assertions in `tests/fixtures/` name `kCountdown` or `kRunning`.
+
+Under this plan none of them would ever leave `lobby`, because nothing presses Start. So this is a **versioned gameplay change** and the fixtures need deliberate migration, not a compatibility escape hatch.
+
+The escape hatch was considered and rejected: a `[royale] auto_start` flag would keep the fixtures untouched at the price of two start behaviours to maintain forever, one of which exists only so tests need not be edited. This tree refuses that kind of thing elsewhere and should refuse it here.
+
+The migration also carries a real risk worth naming in advance. A `start_match` command applies at **phase 0**, while the old threshold was observed by the lifecycle machinery. If the transition lands one tick later than it used to, every expected value after it shifts. Do not assume it does not — measure it, and if a horizon moves, re-derive the new value and say in the fixture's own comment why it moved.
+
 ## Execution constraints
 
 - **Seats are engine state, not royale's.** Argued in Step 1; if that argument fails under contact with the code, stop and re-plan rather than quietly moving them into royale's mode state.
-- **The accepted baseline does not move.** `git diff --stat -- tests/fixtures/replays/ maps/` stays empty and the `AcceptedBaselineTick` oracle keeps its exact values. Adding commands and match state must not change one committed velocity.
+- **The physics baseline does not move, but the replay fixtures must.** `AcceptedBaselineTick` keeps its exact values and `maps/` stays empty: adding commands and match state must not change one committed velocity. **`tests/fixtures/replays/` is a different matter and the earlier plans' "must stay empty" rule is explicitly lifted here** — see "The fixture problem" below. Every changed fixture value must be re-derived and explained, never regenerated to make a test pass.
 - Every constraint from the 2026-09-07 plan still binds: format with `find` (never `git ls-files`), verify a Clang lane as well as GCC, read CI after every push, stage explicit paths, serialize builds across parallel agents, and re-run every gate a behaviour change can reach.
 - **One protocol minor for the whole feature.** Commands, match fields and the welcome all land together at 2.3 rather than bumping three times.
 
@@ -59,6 +69,12 @@ Four facts from the tree on 2026-09-08 decide the shape.
   - Verify: `./scripts/verify-focused 'unit.protocol'` and `cd frontend-react && npm run generate:protocol:check`
   - Notes: The match section gains the seat roster; the welcome gains the NPC kinds a client may name, **read from `ControllerRegistry`**, so registering a new bot costs no client change — that is the acceptance test for this step. `accepted_command_kinds` grows from one entry to five, so `welcome-data.schema.json`'s `maxItems: 1` and its comment both move.
   - Follow the 2.1 and 2.2 bumps exactly (`git show f3628ba` and `e2083dc`), including moving every "one minor ahead" rejection case from 2.3 to 2.4 on both sides.
+
+- [ ] **Step 5b: Migrate the seven replay fixtures to an explicit start**
+  - Verify: `./scripts/verify-focused 'fixtures'` with every horizon either unchanged or re-derived and explained
+  - Notes: Each `match.ini` swaps `lobby_minimum_players` for `lobby_seat_count`, and each `commands.csv` that relies on the match running gains a `start_match` row once the seats it needs are filled. `royale-transition-per-tick` is the one to do first and read hardest — it exists to pin one transition per tick, so it is the fixture most likely to expose a one-tick shift, and it is the cheapest place to discover one.
+  - Do this **before** Phase 3, so the fixtures are honest while the runtime work lands rather than being retrofitted to whatever the runtime turned out to do.
+  - `tests/fixtures/replay_fixture.cpp` reads `lobby_minimum_players` by name; it moves with the key. `application_input_test_fixture.hpp`, `server_process_fixture.cpp` and `deploy/ubuntu-pc/blob-royale.cfg` all name it too.
 
 ### Phase 3 — NPCs and late arrivals
 
@@ -96,5 +112,7 @@ Four facts from the tree on 2026-09-08 decide the shape.
 - Start Game is disabled until every seat is full and starts the match when pressed.
 - A person joining a full lobby takes a bot's seat rather than being turned away.
 - Registering a new bot kind puts it in the client's menu with no client change.
-- Every accepted fixture horizon and the baseline oracle pass unmodified.
+- The baseline oracle passes unmodified. Every replay-fixture value that changed is re-derived and carries a written reason.
 - The full pull-request profile passes on a native runner.
+
+**Amended 2026-09-08:** Planning found that an explicit Start breaks all seven recorded replays, which cross `lobby_minimum_players` and then rely on the match progressing. That makes this a versioned gameplay change rather than an additive one; a compatibility flag was considered and rejected, and Step 5b migrates the fixtures deliberately ahead of the runtime work.

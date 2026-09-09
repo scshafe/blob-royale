@@ -29,8 +29,10 @@ const session: SimulationSessionIdentity = Object.freeze({
   controllerId: 3,
   displayName: 'Cole Shaffer',
   firstEntityId: 7,
+  lobbyId: 1,
   map: 'arena-960x640',
   mode: 'royale',
+  seatCountMaximum: 32,
 });
 
 const zeroThrust = Object.freeze({ x: 0, y: 0 });
@@ -79,11 +81,16 @@ describe('SimulationViewer', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
 
     render(
-      <SimulationViewer connection={createConnection()} thrust={zeroThrust} />,
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection()}
+        thrust={zeroThrust}
+      />,
     );
 
+    // The app's own name is the shell's h1; a room view is one level down.
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Blob Royale' }),
+      screen.getByRole('heading', { level: 2, name: 'Room 1' }),
     ).toBeVisible();
     expect(screen.getByRole('status')).toHaveTextContent(
       'Connected to the match session.',
@@ -121,6 +128,7 @@ describe('SimulationViewer', () => {
 
     render(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({
           entities: [],
           match: null,
@@ -150,6 +158,7 @@ describe('SimulationViewer', () => {
 
     render(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({
           ownEntityId: null,
           session: eliminatedSession,
@@ -169,6 +178,7 @@ describe('SimulationViewer', () => {
 
     render(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({
           match: {
             ...snapshot.data.match,
@@ -200,12 +210,17 @@ describe('SimulationViewer', () => {
 
     // The golden own blob is inside the zone, so there is nothing to warn about.
     const view = render(
-      <SimulationViewer connection={createConnection()} thrust={zeroThrust} />,
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection()}
+        thrust={zeroThrust}
+      />,
     );
     expect(hudRowHeader()).toBeNull();
 
     view.rerender(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({
           entities: entitiesWithOwnExposure(200),
         })}
@@ -225,6 +240,7 @@ describe('SimulationViewer', () => {
 
     view.rerender(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({ entities: entitiesWithOwnExposure(0) })}
         thrust={zeroThrust}
       />,
@@ -241,6 +257,7 @@ describe('SimulationViewer', () => {
 
     render(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({
           entities: entitiesWithOwnExposure(1_200),
           match: {
@@ -269,6 +286,7 @@ describe('SimulationViewer', () => {
 
     render(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({
           entities: entitiesWithOwnExposure(5_000),
         })}
@@ -287,7 +305,11 @@ describe('SimulationViewer', () => {
 
     // Entity 8 in the golden snapshot has been outside for 214 ticks; entity 7 is this session.
     render(
-      <SimulationViewer connection={createConnection()} thrust={zeroThrust} />,
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection()}
+        thrust={zeroThrust}
+      />,
     );
 
     expect(
@@ -306,6 +328,7 @@ describe('SimulationViewer', () => {
 
     render(
       <SimulationViewer
+        lobbyId={1}
         connection={createConnection({
           configuration: null,
           entities: [],

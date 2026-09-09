@@ -6,6 +6,13 @@ import {
   type SimulationDisconnection,
 } from './SimulationApi';
 import { SimulationApiError } from './SimulationApiError';
+import {
+  describeRoomRefusal,
+  findLobbyListing,
+  lobbyJoinRefusal,
+  type LobbyJoinRefusal,
+  type RoomRefusal,
+} from './lobbyDirectorySelectors';
 import { RECONNECT_BACKOFF_MILLISECONDS } from './simulationConstants';
 import type {
   SessionCommand,
@@ -19,11 +26,13 @@ import type {
 import { findOwnEntityId } from './sessionSelectors';
 
 export type SimulationConnectionStatus =
+  | 'idle'
   | 'loading_configuration'
   | 'connecting'
   | 'awaiting_match'
   | 'connected'
   | 'retrying'
+  | 'refused'
   | 'failed';
 
 /** What the welcome told this session about itself. Fixed for the life of one connection. */
@@ -32,8 +41,12 @@ export interface SimulationSessionIdentity {
   readonly controllerId: number;
   readonly displayName: string;
   readonly firstEntityId: number;
+  /** The room this session was admitted into: the number the directory lists it under. */
+  readonly lobbyId: number;
   readonly map: string;
   readonly mode: string;
+  /** The most seats the room's map can seat, which is what bounds a seat-count control. */
+  readonly seatCountMaximum: number;
 }
 
 export interface SimulationConnectionState {
@@ -74,9 +87,14 @@ type SimulationConnectionAction =
       readonly attempt: number;
       readonly error: SimulationApiError;
     }
-  | { readonly type: 'failed'; readonly error: SimulationApiError };
+  | { readonly type: 'refused'; readonly error: SimulationApiError }
+  | { readonly type: 'failed'; readonly error: SimulationApiError }
+  | { readonly type: 'left' };
 
 export type SimulationApiFactory = () => SimulationApiBoundary;
+
+/** The stable close reason of `1013 lobby_full`, the one refusal the tick makes after admission. */
+const LOBBY_FULL_CLOSE_REASON = 'lobby_full';
 
 const NO_ENTITIES: readonly SessionEntitySnapshot[] = Object.freeze([]);
 
@@ -90,7 +108,7 @@ export const initialSimulationConnectionState: SimulationConnectionState =
     reconnectAttempt: 0,
     session: null,
     snapshot: null,
-    status: 'loading_configuration',
+    status: 'idle',
   });
 
 /** Reduces the complete connection state so incompatible booleans cannot exist. */
@@ -132,8 +150,10 @@ export function simulationConnectionReducer(
           controllerId: action.welcome.data.controller_id,
           displayName: action.welcome.data.display_name,
           firstEntityId: action.welcome.data.entity_id,
+          lobbyId: action.welcome.data.lobby_id,
           map: action.welcome.data.map,
           mode: action.welcome.data.mode,
+          seatCountMaximum: action.welcome.data.seat_count_maximum,
         }),
         status: 'connected',
       });
@@ -164,8 +184,22 @@ export function simulationConnectionReducer(
         snapshot: null,
         status: 'retrying',
       });
+    case 'refused':
+      return Object.freeze({
+        ...state,
+        configuration: null,
+        entities: NO_ENTITIES,
+        error: action.error,
+        match: null,
+        ownEntityId: null,
+        session: null,
+        snapshot: null,
+        status: 'refused',
+      });
     case 'failed':
       return Object.freeze({ ...state, error: action.error, status: 'failed' });
+    case 'left':
+      return initialSimulationConnectionState;
   }
 }
 
@@ -205,8 +239,40 @@ function errorFromDisconnection(
   );
 }
 
-/** @canonical simulation_connection -- owns config, join, retry, and cleanup policy. */
+function roomRefusedError(
+  refusal: RoomRefusal,
+  lobbyId: number,
+  cause: SimulationApiError | null,
+): SimulationApiError {
+  return new SimulationApiError(
+    'SIMULATION.ROOM_REFUSED',
+    describeRoomRefusal(refusal, lobbyId),
+    {
+      cause: cause ?? undefined,
+      context: { lobby_id: lobbyId, refusal },
+      retryable: false,
+    },
+  );
+}
+
+/**
+ * @canonical simulation_connection -- owns config, join, retry, refusal, and cleanup policy.
+ *
+ * `lobbyId` is the room to be in, or `null` to be in none. Changing it is a leave and a join: the
+ * old socket is disposed and a fresh attempt is made against the new room, and nothing carries
+ * over, because a socket is bound to one room for its life (`docs/protocol/v2.md` § "The lobby
+ * directory").
+ *
+ * **A refusal is not a failure and is never retried.** The server answers a join it will not admit
+ * with `404`, `409`, or `503`, and the tick answers the last-seat race with `1013 lobby_full`; the
+ * player's next move after any of them is to choose another room, which the backoff would only
+ * delay. A browser sees the close reason but never the HTTP response a declined upgrade was refused
+ * with, so a socket that closed before it opened is explained by reading the directory once: the
+ * listing says full, unavailable, or missing, and if it says none of those -- or cannot be read --
+ * the close was transport and keeps the existing backoff.
+ */
 export function useSimulationConnection(
+  lobbyId: number | null,
   apiFactory: SimulationApiFactory = createDefaultSimulationApi,
 ): SimulationConnection {
   const [state, dispatch] = useReducer(
@@ -216,6 +282,12 @@ export function useSimulationConnection(
   const sendingApi = useRef<SimulationApiBoundary | null>(null);
 
   useEffect(() => {
+    if (lobbyId === null) {
+      dispatch({ type: 'left' });
+      return undefined;
+    }
+    const roomId = lobbyId;
+
     let activeAbortController: AbortController | null = null;
     let activeApi: SimulationApiBoundary | null = null;
     let activeAttemptId = 0;
@@ -250,6 +322,15 @@ export function useSimulationConnection(
       terminal = true;
       disposeActiveAttempt();
       dispatch({ error, type: 'failed' });
+    };
+
+    const refuse = (error: SimulationApiError): void => {
+      if (!mounted || terminal) {
+        return;
+      }
+      terminal = true;
+      disposeActiveAttempt();
+      dispatch({ error, type: 'refused' });
     };
 
     const scheduleRetry = (
@@ -299,6 +380,31 @@ export function useSimulationConnection(
       }, retryDelay);
     };
 
+    // The socket closed before it ever opened, which is what a declined upgrade looks like from a
+    // browser. One read of the directory says which refusal it was, if it was one at all.
+    const explainCloseBeforeOpen = async (
+      apiForAttempt: SimulationApiBoundary,
+      attemptId: number,
+      signal: AbortSignal,
+      error: SimulationApiError,
+    ): Promise<void> => {
+      let refusal: LobbyJoinRefusal | null = null;
+      try {
+        const listings = await apiForAttempt.fetchLobbies(signal);
+        refusal = lobbyJoinRefusal(findLobbyListing(listings, roomId));
+      } catch {
+        // The directory is unreachable too: the server, not the room, is what is not answering.
+      }
+      if (!isCurrentAttempt(apiForAttempt, attemptId)) {
+        return;
+      }
+      if (refusal !== null) {
+        refuse(roomRefusedError(refusal, roomId, error));
+        return;
+      }
+      scheduleRetry(apiForAttempt, attemptId, error);
+    };
+
     const beginConnectionAttempt = async (): Promise<void> => {
       if (!mounted || terminal) {
         return;
@@ -324,7 +430,7 @@ export function useSimulationConnection(
 
         // A reconnect is a new join by contract: new request id, new controller id, new entity id,
         // and message_sequence restarting at one. Nothing is resumed.
-        apiForAttempt.openSession(configuration, {
+        apiForAttempt.openSession(configuration, roomId, {
           onConnected: () => {
             if (isCurrentAttempt(apiForAttempt, attemptId)) {
               sendingApi.current = apiForAttempt;
@@ -332,11 +438,24 @@ export function useSimulationConnection(
             }
           },
           onDisconnected: (disconnection) => {
-            scheduleRetry(
-              apiForAttempt,
-              attemptId,
-              errorFromDisconnection(disconnection),
-            );
+            if (!isCurrentAttempt(apiForAttempt, attemptId)) {
+              return;
+            }
+            if (disconnection.reason === LOBBY_FULL_CLOSE_REASON) {
+              refuse(roomRefusedError('lobby_full', roomId, null));
+              return;
+            }
+            const error = errorFromDisconnection(disconnection);
+            if (!disconnection.opened && error.retryable) {
+              void explainCloseBeforeOpen(
+                apiForAttempt,
+                attemptId,
+                abortControllerForAttempt.signal,
+                error,
+              );
+              return;
+            }
+            scheduleRetry(apiForAttempt, attemptId, error);
           },
           onFailure: (error) => {
             if (isCurrentAttempt(apiForAttempt, attemptId)) {
@@ -374,7 +493,7 @@ export function useSimulationConnection(
       }
       disposeActiveAttempt();
     };
-  }, [apiFactory]);
+  }, [apiFactory, lobbyId]);
 
   /**
    * Stable for the life of the hook and a no-op unless a session is open and welcomed: the boundary

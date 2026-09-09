@@ -1,10 +1,18 @@
-import { SimulationApiError } from './SimulationApiError';
+import {
+  SimulationApiError,
+  type SimulationApiErrorCode,
+} from './SimulationApiError';
 import {
   COMMAND_MESSAGE_MAX_BYTES,
   CONFIGURATION_ENDPOINT_PATH,
   CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS,
   CONFIGURATION_RESPONSE_MAX_BYTES,
-  SESSION_ENDPOINT_PATH,
+  LOBBY_DIRECTORY_ENDPOINT_PATH,
+  LOBBY_DIRECTORY_FETCH_TIMEOUT_MILLISECONDS,
+  LOBBY_DIRECTORY_RESPONSE_MAX_BYTES,
+  LOBBY_ID_PATTERN,
+  ROOM_SESSION_ENDPOINT_PATH_PREFIX,
+  ROOM_SESSION_ENDPOINT_PATH_SUFFIX,
   SESSION_FRAME_MAX_BYTES,
   SESSION_WEBSOCKET_SUBPROTOCOL,
   WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS,
@@ -12,6 +20,7 @@ import {
 import type {
   SessionCommand,
   SessionCommandKind,
+  SessionLobbyListing,
   SessionSnapshotMessage,
   SessionWelcomeMessage,
   SimulationConfiguration,
@@ -22,7 +31,9 @@ import {
 } from './simulationProtocolValidation';
 import {
   type SessionSequenceState,
+  validateLobbyDirectoryMessage,
   validateSessionCommand,
+  validateSessionHttpErrorResponse,
   validateSessionSnapshotMessage,
   validateSessionWelcomeMessage,
 } from './sessionProtocolValidation';
@@ -38,7 +49,9 @@ export interface SimulationBrowserLocation {
 
 export interface SimulationEndpoints {
   readonly configurationUrl: string;
-  readonly sessionWebSocketUrl: string;
+  readonly lobbyDirectoryUrl: string;
+  /** `ws:` or `wss:` on the page's own authority; a room's session target is appended per join. */
+  readonly webSocketOrigin: string;
 }
 
 export interface SimulationWebSocket {
@@ -60,6 +73,12 @@ export type SimulationWebSocketFactory = (
 export interface SimulationDisconnection {
   readonly code: number | null;
   readonly error: SimulationApiError | null;
+  /**
+   * Whether the socket had opened before it closed. A browser never sees the HTTP response a
+   * declined upgrade was refused with, so "closed without ever opening" is the whole of what a
+   * `404`, `409`, or `503` looks like from here; the caller reads the directory to say which.
+   */
+  readonly opened: boolean;
   readonly reason: string;
   readonly retryable: boolean;
   readonly wasClean: boolean;
@@ -75,8 +94,10 @@ export interface SimulationSessionCallbacks {
 
 export interface SimulationApiBoundary {
   loadConfiguration(signal: AbortSignal): Promise<SimulationConfiguration>;
+  fetchLobbies(signal: AbortSignal): Promise<readonly SessionLobbyListing[]>;
   openSession(
     configuration: SimulationConfiguration,
+    lobbyId: number,
     callbacks: SimulationSessionCallbacks,
   ): void;
   sendCommand(command: SessionCommand): boolean;
@@ -90,9 +111,9 @@ export interface SimulationApiDependencies {
 }
 
 /**
- * Derives the exact configuration and session endpoints from one validated browser authority.
- * Configuration stays on protocol v1 because v2 deliberately adds no second source for one set of
- * numbers; the session socket is the only v2 target.
+ * Derives the exact configuration, directory, and WebSocket endpoints from one validated browser
+ * authority. Configuration stays on protocol v1 because v2 deliberately adds no second source for
+ * one set of numbers; the directory and the room session targets are v2's.
  */
 export function deriveSimulationEndpoints(
   location: SimulationBrowserLocation,
@@ -137,29 +158,74 @@ export function deriveSimulationEndpoints(
   }
 
   const configurationUrl = new URL(CONFIGURATION_ENDPOINT_PATH, pageOrigin);
-  const sessionWebSocketUrl = new URL(SESSION_ENDPOINT_PATH, pageOrigin);
-  sessionWebSocketUrl.protocol =
-    location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const lobbyDirectoryUrl = new URL(LOBBY_DIRECTORY_ENDPOINT_PATH, pageOrigin);
+  const webSocketOrigin = new URL(pageOrigin);
+  webSocketOrigin.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
 
   return Object.freeze({
     configurationUrl: configurationUrl.href,
-    sessionWebSocketUrl: sessionWebSocketUrl.href,
+    lobbyDirectoryUrl: lobbyDirectoryUrl.href,
+    webSocketOrigin: webSocketOrigin.origin,
   });
+}
+
+/**
+ * The session target of one room, `/api/v2/lobbies/<lobby_id>/session`. The id must already be
+ * one the grammar admits: this client never builds a target from a string the server did not
+ * publish, and a number outside `[1-9][0-9]{0,2}` is a defect in whatever produced it.
+ */
+export function roomSessionWebSocketUrl(
+  endpoints: SimulationEndpoints,
+  lobbyId: number,
+): string {
+  if (
+    !Number.isSafeInteger(lobbyId) ||
+    !LOBBY_ID_PATTERN.test(String(lobbyId))
+  ) {
+    throw new SimulationApiError(
+      'SIMULATION.ENDPOINT_INVALID',
+      'A room session target needs a lobby id in [1-9][0-9]{0,2}.',
+      { context: { lobby_id: lobbyId } },
+    );
+  }
+  return `${endpoints.webSocketOrigin}${ROOM_SESSION_ENDPOINT_PATH_PREFIX}${lobbyId}${ROOM_SESSION_ENDPOINT_PATH_SUFFIX}`;
 }
 
 function isRetryableCloseCode(closeCode: number): boolean {
   return [1001, 1006, 1011, 1012, 1013].includes(closeCode);
 }
 
-function parseContentLength(contentLength: string | null): number | null {
+/** Which HTTP document a bounded read is reading, for the error it raises when it cannot. */
+interface BoundedResponseSubject {
+  readonly invalidCode: SimulationApiErrorCode;
+  readonly label: string;
+  readonly tooLargeCode: SimulationApiErrorCode;
+}
+
+const CONFIGURATION_RESPONSE_SUBJECT: BoundedResponseSubject = Object.freeze({
+  invalidCode: 'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
+  label: 'Configuration',
+  tooLargeCode: 'SIMULATION.CONFIGURATION_RESPONSE_TOO_LARGE',
+});
+
+const LOBBY_DIRECTORY_RESPONSE_SUBJECT: BoundedResponseSubject = Object.freeze({
+  invalidCode: 'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+  label: 'Lobby directory',
+  tooLargeCode: 'SIMULATION.LOBBY_DIRECTORY_RESPONSE_TOO_LARGE',
+});
+
+function parseContentLength(
+  contentLength: string | null,
+  subject: BoundedResponseSubject,
+): number | null {
   if (contentLength === null) {
     return null;
   }
 
   if (!/^(?:0|[1-9][0-9]*)$/.test(contentLength)) {
     throw new SimulationApiError(
-      'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
-      'Configuration response Content-Length is invalid.',
+      subject.invalidCode,
+      `${subject.label} response Content-Length is invalid.`,
       { context: { content_length: contentLength } },
     );
   }
@@ -167,8 +233,8 @@ function parseContentLength(contentLength: string | null): number | null {
   const parsedContentLength = Number(contentLength);
   if (!Number.isSafeInteger(parsedContentLength)) {
     throw new SimulationApiError(
-      'SIMULATION.CONFIGURATION_RESPONSE_TOO_LARGE',
-      'Configuration response Content-Length exceeds the safe integer range.',
+      subject.tooLargeCode,
+      `${subject.label} response Content-Length exceeds the safe integer range.`,
       { context: { content_length: contentLength } },
     );
   }
@@ -179,14 +245,16 @@ function parseContentLength(contentLength: string | null): number | null {
 async function readBoundedResponseBytes(
   response: Response,
   maximumBytes: number,
+  subject: BoundedResponseSubject,
 ): Promise<Uint8Array> {
   const declaredLength = parseContentLength(
     response.headers.get('content-length'),
+    subject,
   );
   if (declaredLength !== null && declaredLength > maximumBytes) {
     throw new SimulationApiError(
-      'SIMULATION.CONFIGURATION_RESPONSE_TOO_LARGE',
-      'Configuration response exceeds the protocol body limit.',
+      subject.tooLargeCode,
+      `${subject.label} response exceeds the protocol body limit.`,
       {
         context: {
           declared_bytes: declaredLength,
@@ -200,8 +268,8 @@ async function readBoundedResponseBytes(
     const responseBytes = new Uint8Array(await response.arrayBuffer());
     if (responseBytes.byteLength > maximumBytes) {
       throw new SimulationApiError(
-        'SIMULATION.CONFIGURATION_RESPONSE_TOO_LARGE',
-        'Configuration response exceeds the protocol body limit.',
+        subject.tooLargeCode,
+        `${subject.label} response exceeds the protocol body limit.`,
         {
           context: {
             actual_bytes: responseBytes.byteLength,
@@ -224,8 +292,8 @@ async function readBoundedResponseBytes(
     }
     if (readResult.value === undefined) {
       throw new SimulationApiError(
-        'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
-        'Configuration response stream returned an empty chunk.',
+        subject.invalidCode,
+        `${subject.label} response stream returned an empty chunk.`,
       );
     }
 
@@ -235,8 +303,8 @@ async function readBoundedResponseBytes(
         await reader.cancel('configuration_response_too_large');
       } catch (cause) {
         throw new SimulationApiError(
-          'SIMULATION.CONFIGURATION_RESPONSE_TOO_LARGE',
-          'Configuration response exceeded the protocol body limit and stream cancellation failed.',
+          subject.tooLargeCode,
+          `${subject.label} response exceeded the protocol body limit and stream cancellation failed.`,
           {
             cause,
             context: {
@@ -248,8 +316,8 @@ async function readBoundedResponseBytes(
       }
 
       throw new SimulationApiError(
-        'SIMULATION.CONFIGURATION_RESPONSE_TOO_LARGE',
-        'Configuration response exceeds the protocol body limit.',
+        subject.tooLargeCode,
+        `${subject.label} response exceeds the protocol body limit.`,
         {
           context: { actual_bytes: receivedBytes, maximum_bytes: maximumBytes },
         },
@@ -270,6 +338,7 @@ async function readBoundedResponseBytes(
 async function readBoundedJsonDocument(
   response: Response,
   maximumBytes: number,
+  subject: BoundedResponseSubject,
 ): Promise<unknown> {
   const contentType = response.headers
     .get('content-type')
@@ -278,13 +347,17 @@ async function readBoundedJsonDocument(
     .toLowerCase();
   if (contentType !== 'application/json') {
     throw new SimulationApiError(
-      'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
-      'Configuration response must use application/json.',
+      subject.invalidCode,
+      `${subject.label} response must use application/json.`,
       { context: { content_type: contentType ?? null } },
     );
   }
 
-  const responseBytes = await readBoundedResponseBytes(response, maximumBytes);
+  const responseBytes = await readBoundedResponseBytes(
+    response,
+    maximumBytes,
+    subject,
+  );
   let responseText: string;
   try {
     responseText = new TextDecoder('utf-8', {
@@ -293,16 +366,16 @@ async function readBoundedJsonDocument(
     }).decode(responseBytes);
   } catch (cause) {
     throw new SimulationApiError(
-      'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
-      'Configuration response is not valid UTF-8.',
+      subject.invalidCode,
+      `${subject.label} response is not valid UTF-8.`,
       { cause },
     );
   }
 
   if (responseText.startsWith('\uFEFF')) {
     throw new SimulationApiError(
-      'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
-      'Configuration response must not contain a byte-order mark.',
+      subject.invalidCode,
+      `${subject.label} response must not contain a byte-order mark.`,
     );
   }
 
@@ -310,8 +383,8 @@ async function readBoundedJsonDocument(
     return JSON.parse(responseText) as unknown;
   } catch (cause) {
     throw new SimulationApiError(
-      'SIMULATION.CONFIGURATION_RESPONSE_INVALID',
-      'Configuration response is not one complete JSON document.',
+      subject.invalidCode,
+      `${subject.label} response is not one complete JSON document.`,
       { cause },
     );
   }
@@ -346,7 +419,7 @@ export class SimulationApi implements SimulationApiBoundary {
   private readonly fetchImplementation: typeof fetch;
   private readonly webSocketFactory: SimulationWebSocketFactory;
   private acceptedCommandKinds: ReadonlySet<SessionCommandKind> | null = null;
-  private activeConfigurationAbortController: AbortController | null = null;
+  private readonly activeAbortControllers = new Set<AbortController>();
   private configuration: SimulationConfiguration | null = null;
   private configurationPromise: Promise<SimulationConfiguration> | null = null;
   private disposed = false;
@@ -390,11 +463,30 @@ export class SimulationApi implements SimulationApiBoundary {
   }
 
   /**
-   * Joins the match. Connecting is joining and closing is leaving, so this method is the whole join
-   * lifecycle; a reconnect is a new join with a new controller id and nothing resumed.
+   * Reads the lobby directory: every room the server runs, as of the instant it was read. Never
+   * cached, because it is advice about where to ask and a second's staleness is its whole value.
+   */
+  async fetchLobbies(
+    externalSignal: AbortSignal,
+  ): Promise<readonly SessionLobbyListing[]> {
+    this.assertNotDisposed();
+    return this.fetchWithTimeout(
+      externalSignal,
+      LOBBY_DIRECTORY_FETCH_TIMEOUT_MILLISECONDS,
+      'SIMULATION.LOBBY_DIRECTORY_REQUEST_TIMED_OUT',
+      'Lobby directory request did not complete before the timeout.',
+      (signal) => this.fetchAndValidateLobbyDirectory(signal),
+    );
+  }
+
+  /**
+   * Joins one room. Connecting is joining and closing is leaving, so this method is the whole join
+   * lifecycle; a reconnect is a new join with a new controller id and nothing resumed, and the room
+   * is fixed for the socket's life.
    */
   openSession(
     configuration: SimulationConfiguration,
+    lobbyId: number,
     callbacks: SimulationSessionCallbacks,
   ): void {
     this.assertNotDisposed();
@@ -411,10 +503,14 @@ export class SimulationApi implements SimulationApiBoundary {
       );
     }
 
+    const sessionWebSocketUrl = roomSessionWebSocketUrl(
+      this.endpoints,
+      lobbyId,
+    );
     let socket: SimulationWebSocket;
     try {
       socket = this.webSocketFactory(
-        this.endpoints.sessionWebSocketUrl,
+        sessionWebSocketUrl,
         SESSION_WEBSOCKET_SUBPROTOCOL,
       );
     } catch (cause) {
@@ -428,6 +524,7 @@ export class SimulationApi implements SimulationApiBoundary {
     this.socket = socket;
     this.sequenceState = null;
     this.acceptedCommandKinds = null;
+    let opened = false;
 
     socket.onopen = () => {
       if (this.socket !== socket) {
@@ -444,6 +541,7 @@ export class SimulationApi implements SimulationApiBoundary {
         return;
       }
       this.clearSocketConnectTimeout();
+      opened = true;
       // An open socket with no frames is a joiner the mode has deferred until the next lobby, not a
       // stalled connection: the welcome cannot exist before the session owns a body.
       callbacks.onConnected();
@@ -485,6 +583,7 @@ export class SimulationApi implements SimulationApiBoundary {
         Object.freeze({
           code: null,
           error,
+          opened,
           reason: 'transport_failure',
           retryable: true,
           wasClean: false,
@@ -504,6 +603,7 @@ export class SimulationApi implements SimulationApiBoundary {
         Object.freeze({
           code: event.code,
           error: null,
+          opened,
           reason: event.reason,
           retryable: isRetryableCloseCode(event.code),
           wasClean: event.wasClean,
@@ -530,6 +630,7 @@ export class SimulationApi implements SimulationApiBoundary {
         Object.freeze({
           code: null,
           error,
+          opened: false,
           reason: 'connect_timeout',
           retryable: true,
           wasClean: false,
@@ -660,8 +761,10 @@ export class SimulationApi implements SimulationApiBoundary {
       return;
     }
     this.disposed = true;
-    this.activeConfigurationAbortController?.abort();
-    this.activeConfigurationAbortController = null;
+    for (const abortController of this.activeAbortControllers) {
+      abortController.abort('disposed');
+    }
+    this.activeAbortControllers.clear();
 
     if (this.socket !== null) {
       this.releaseSocket(this.socket, 1000, 'normal');
@@ -677,11 +780,31 @@ export class SimulationApi implements SimulationApiBoundary {
     }
   }
 
-  private async fetchConfiguration(
+  private fetchConfiguration(
     externalSignal: AbortSignal,
   ): Promise<SimulationConfiguration> {
+    return this.fetchWithTimeout(
+      externalSignal,
+      CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS,
+      'SIMULATION.CONFIGURATION_REQUEST_TIMED_OUT',
+      'Configuration request did not complete before the timeout.',
+      (signal) => this.fetchAndValidateConfiguration(signal),
+    );
+  }
+
+  /**
+   * One HTTP read under one deadline and one abort: the caller's signal, disposal, and the timeout
+   * all abort the same internal controller, and the timeout is the retryable error it names.
+   */
+  private async fetchWithTimeout<T>(
+    externalSignal: AbortSignal,
+    timeoutMilliseconds: number,
+    timeoutCode: SimulationApiErrorCode,
+    timeoutMessage: string,
+    operation: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     const internalAbortController = new AbortController();
-    this.activeConfigurationAbortController = internalAbortController;
+    this.activeAbortControllers.add(internalAbortController);
     const abortInternalRequest = () => {
       internalAbortController.abort(externalSignal.reason);
     };
@@ -693,39 +816,112 @@ export class SimulationApi implements SimulationApiBoundary {
       });
     }
 
-    let configurationTimeout: ReturnType<typeof setTimeout> | null = null;
+    let requestTimeout: ReturnType<typeof setTimeout> | null = null;
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
-      configurationTimeout = setTimeout(() => {
+      requestTimeout = setTimeout(() => {
         reject(
-          new SimulationApiError(
-            'SIMULATION.CONFIGURATION_REQUEST_TIMED_OUT',
-            'Configuration request did not complete before the timeout.',
-            {
-              context: {
-                timeout_milliseconds: CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS,
-              },
-              retryable: true,
-            },
-          ),
+          new SimulationApiError(timeoutCode, timeoutMessage, {
+            context: { timeout_milliseconds: timeoutMilliseconds },
+            retryable: true,
+          }),
         );
-        internalAbortController.abort('configuration_request_timeout');
-      }, CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS);
+        internalAbortController.abort('request_timeout');
+      }, timeoutMilliseconds);
     });
 
     try {
       return await Promise.race([
-        this.fetchAndValidateConfiguration(internalAbortController.signal),
+        operation(internalAbortController.signal),
         timeoutPromise,
       ]);
     } finally {
-      if (configurationTimeout !== null) {
-        clearTimeout(configurationTimeout);
+      if (requestTimeout !== null) {
+        clearTimeout(requestTimeout);
       }
       externalSignal.removeEventListener('abort', abortInternalRequest);
-      if (this.activeConfigurationAbortController === internalAbortController) {
-        this.activeConfigurationAbortController = null;
-      }
+      this.activeAbortControllers.delete(internalAbortController);
     }
+  }
+
+  private async fetchAndValidateLobbyDirectory(
+    signal: AbortSignal,
+  ): Promise<readonly SessionLobbyListing[]> {
+    let response: Response;
+    try {
+      response = await this.fetchImplementation(
+        this.endpoints.lobbyDirectoryUrl,
+        {
+          cache: 'no-store',
+          credentials: 'omit',
+          headers: { Accept: 'application/json' },
+          method: 'GET',
+          redirect: 'error',
+          signal,
+        },
+      );
+    } catch (cause) {
+      if (signal.aborted) {
+        throw new SimulationApiError(
+          'SIMULATION.LOBBY_DIRECTORY_REQUEST_ABORTED',
+          'Lobby directory request was aborted.',
+          { cause },
+        );
+      }
+      throw new SimulationApiError(
+        'SIMULATION.LOBBY_DIRECTORY_REQUEST_FAILED',
+        'Lobby directory request failed before a response was received.',
+        { cause, retryable: true },
+      );
+    }
+
+    let responseDocument: unknown;
+    try {
+      responseDocument = await readBoundedJsonDocument(
+        response,
+        LOBBY_DIRECTORY_RESPONSE_MAX_BYTES,
+        LOBBY_DIRECTORY_RESPONSE_SUBJECT,
+      );
+    } catch (error) {
+      if (error instanceof SimulationApiError) {
+        throw error;
+      }
+      if (signal.aborted) {
+        throw new SimulationApiError(
+          'SIMULATION.LOBBY_DIRECTORY_REQUEST_ABORTED',
+          'Lobby directory response read was aborted.',
+          { cause: error },
+        );
+      }
+      throw new SimulationApiError(
+        'SIMULATION.LOBBY_DIRECTORY_REQUEST_FAILED',
+        'Lobby directory response body could not be read.',
+        { cause: error, retryable: true },
+      );
+    }
+    if (response.status !== 200) {
+      // A `/api/v2/` target fails in the v2 envelope, whose registry is v1's plus the lobby rows.
+      const errorResponse = validateSessionHttpErrorResponse(
+        responseDocument,
+        response.status,
+        response.headers.get('x-request-id'),
+      );
+      throw new SimulationApiError(
+        'SIMULATION.LOBBY_DIRECTORY_REQUEST_FAILED',
+        errorResponse.error.message,
+        {
+          context: {
+            http_status: response.status,
+            protocol_error_code: errorResponse.error.code,
+          },
+          retryable: errorResponse.error.retryable,
+        },
+      );
+    }
+
+    return validateLobbyDirectoryMessage(
+      responseDocument,
+      response.headers.get('x-request-id'),
+    ).data.lobbies;
   }
 
   private async fetchAndValidateConfiguration(
@@ -764,6 +960,7 @@ export class SimulationApi implements SimulationApiBoundary {
       responseDocument = await readBoundedJsonDocument(
         response,
         CONFIGURATION_RESPONSE_MAX_BYTES,
+        CONFIGURATION_RESPONSE_SUBJECT,
       );
     } catch (error) {
       if (error instanceof SimulationApiError) {

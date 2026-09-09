@@ -18,7 +18,7 @@ const CONFIGURATION_SCHEMA_ID =
 const ERROR_RESPONSE_SCHEMA_ID =
   'https://schemas.blob-royale.invalid/protocol/v1/error-response.schema.json';
 
-const HTTP_ERROR_REGISTRY = Object.freeze({
+export const HTTP_ERROR_REGISTRY = Object.freeze({
   'PROTOCOL.CONNECTION_LIMIT_REACHED': { retryable: true, status: 429 },
   'PROTOCOL.HEADER_TOO_LARGE': { retryable: false, status: 431 },
   'PROTOCOL.INVALID_REQUEST': { retryable: false, status: 400 },

@@ -80,6 +80,14 @@ export function SimulationDebugPanel({
             </td>
           </tr>
           <tr>
+            <th scope="row">Room</th>
+            <td>
+              {session === null
+                ? AWAITING
+                : `${session.lobbyId} (up to ${session.seatCountMaximum} seats)`}
+            </td>
+          </tr>
+          <tr>
             <th scope="row">Accepted commands</th>
             <td>
               {session === null || session.acceptedCommandKinds.length === 0

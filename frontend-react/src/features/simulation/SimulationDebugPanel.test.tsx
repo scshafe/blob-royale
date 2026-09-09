@@ -22,8 +22,10 @@ const session: SimulationSessionIdentity = Object.freeze({
   controllerId: 3,
   displayName: 'Cole Shaffer',
   firstEntityId: 7,
+  lobbyId: 1,
   map: 'arena-960x640',
   mode: 'royale',
+  seatCountMaximum: 32,
 });
 
 describe('SimulationDebugPanel', () => {
@@ -70,6 +72,7 @@ describe('SimulationDebugPanel', () => {
     expect(
       within(identityTable).getByText('royale / arena-960x640'),
     ).toBeVisible();
+    expect(within(identityTable).getByText('1 (up to 32 seats)')).toBeVisible();
     expect(within(identityTable).getByText('set_thrust')).toBeVisible();
 
     const metadataTable = screen.getByRole('table', {
@@ -122,8 +125,9 @@ describe('SimulationDebugPanel', () => {
     const identityTable = screen.getByRole('table', {
       name: 'Session identity',
     });
+    // Display name, controller, first entity, mode and map, and since 2.4 the room.
     expect(within(identityTable).getAllByText('Awaiting frame')).toHaveLength(
-      4,
+      5,
     );
     expect(
       screen.getByRole('table', { name: 'Entities — showing 0 of 0' }),

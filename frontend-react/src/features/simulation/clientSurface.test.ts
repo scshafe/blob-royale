@@ -6,10 +6,14 @@ import { describe, expect, it } from 'vitest';
 const webRoot = process.cwd();
 const simulationSourceRoot = resolve(webRoot, 'src/features/simulation');
 const productionSourceFiles = Object.freeze([
+  'LobbyDirectoryView.tsx',
   'SimulationApi.ts',
   'SimulationCanvas.tsx',
   'SimulationFeature.tsx',
+  'SimulationShell.tsx',
   'SimulationViewer.tsx',
+  'useLobbyDirectory.ts',
+  'useRoomNavigation.ts',
   'useSimulationConnection.ts',
   'useThrustInput.ts',
 ]);
@@ -19,7 +23,7 @@ async function readSimulationSource(sourceFile: string): Promise<string> {
 }
 
 describe('protocol v2 session client surface', () => {
-  it('has one transport that sends, no lifecycle control, and no polling loop', async () => {
+  it('has one transport that sends, no lifecycle control, and no interval', async () => {
     const sourcesByFile = new Map(
       await Promise.all(
         productionSourceFiles.map(
@@ -32,11 +36,22 @@ describe('protocol v2 session client surface', () => {
     );
     const sourceText = [...sourcesByFile.values()].join('\n');
 
-    // Protocol v2 adds commands and nothing else: there is still no lifecycle route, no client
-    // poll, and no second place that writes to a socket.
+    // Protocol v2 adds commands and, since 2.4, one HTTP read: there is still no lifecycle route
+    // and no second place that writes to a socket. The directory is read on a timeout chain that
+    // is rescheduled after each read completes, never on an interval, so a slow server is asked at
+    // most once at a time and only by `useLobbyDirectory`.
     expect(sourceText).not.toMatch(
       /(?:start-sim|pause-sim|game-config|game-state|setInterval\s*\()/,
     );
+    for (const [sourceFile, source] of sourcesByFile) {
+      const readsDirectory = /\.fetchLobbies\s*\(/.test(source);
+      expect({ sourceFile, readsDirectory }).toEqual({
+        sourceFile,
+        readsDirectory:
+          sourceFile === 'useLobbyDirectory.ts' ||
+          sourceFile === 'useSimulationConnection.ts',
+      });
+    }
     for (const [sourceFile, source] of sourcesByFile) {
       const writesToSocket = /\.send\s*\(/.test(source);
       expect({ sourceFile, writesToSocket }).toEqual({
@@ -46,11 +61,19 @@ describe('protocol v2 session client surface', () => {
     }
   });
 
-  it('opens the v2 session route and no longer opens the v1 snapshot socket', async () => {
+  it('opens the v2 room session route and no longer opens the v1 snapshot socket', async () => {
     const constants = await readSimulationSource('simulationConstants.ts');
     const transport = await readSimulationSource('SimulationApi.ts');
 
-    expect(constants).toContain("SESSION_ENDPOINT_PATH = '/api/v2/session'");
+    expect(constants).toContain(
+      "LOBBY_DIRECTORY_ENDPOINT_PATH = '/api/v2/lobbies'",
+    );
+    expect(constants).toContain(
+      "ROOM_SESSION_ENDPOINT_PATH_PREFIX = '/api/v2/lobbies/'",
+    );
+    expect(constants).toContain(
+      "ROOM_SESSION_ENDPOINT_PATH_SUFFIX = '/session'",
+    );
     expect(constants).toContain(
       "SESSION_WEBSOCKET_SUBPROTOCOL = 'blob-royale.session.v2'",
     );

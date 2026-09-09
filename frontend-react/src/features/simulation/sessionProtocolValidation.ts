@@ -9,9 +9,12 @@ import {
 } from './protocolValidationSupport';
 import type {
   SessionCommand,
+  SessionHttpErrorResponse,
+  SessionLobbyDirectoryMessage,
   SessionSnapshotMessage,
   SessionWelcomeMessage,
 } from './simulationProtocolTypes';
+import { HTTP_ERROR_REGISTRY } from './simulationProtocolValidation';
 
 const WELCOME_MESSAGE_SCHEMA_ID =
   'https://schemas.blob-royale.invalid/protocol/v2/welcome-message.schema.json';
@@ -19,6 +22,27 @@ const SNAPSHOT_MESSAGE_SCHEMA_ID =
   'https://schemas.blob-royale.invalid/protocol/v2/snapshot-message.schema.json';
 const COMMAND_ENVELOPE_SCHEMA_ID =
   'https://schemas.blob-royale.invalid/protocol/v2/command-envelope.schema.json';
+const LOBBY_DIRECTORY_MESSAGE_SCHEMA_ID =
+  'https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-message.schema.json';
+const HTTP_ERROR_RESPONSE_SCHEMA_ID =
+  'https://schemas.blob-royale.invalid/protocol/v2/error-response.schema.json';
+
+/**
+ * Status and retryability per v2 error code: v1's registry, which v2 accepts unchanged, plus the
+ * one row v2.0 added and the three lobby rows 2.4 added (`docs/protocol/v2.md` § "Error registry
+ * additions"). `satisfies` over the generated enum is what makes a code the schema names and this
+ * table forgets a build failure rather than an envelope the client cannot check.
+ */
+const V2_HTTP_ERROR_REGISTRY = Object.freeze({
+  ...HTTP_ERROR_REGISTRY,
+  'LOBBY.FULL': { retryable: true, status: 409 },
+  'LOBBY.NOT_FOUND': { retryable: false, status: 404 },
+  'LOBBY.UNAVAILABLE': { retryable: true, status: 503 },
+  'PROTOCOL.INVALID_FORWARDED_CLIENT': { retryable: false, status: 400 },
+} as const satisfies Record<
+  SessionHttpErrorResponse['error']['code'],
+  { readonly retryable: boolean; readonly status: number }
+>);
 
 /**
  * The kind vocabularies come from the generated schema bundle, never from a second hand-written
@@ -71,6 +95,13 @@ const validateSnapshotSchema = requireValidator<SessionSnapshotMessage>(
 // narrowing guard would make the failure branch unreachable rather than checked.
 const validateCommandEnvelopeSchema = requireValidator<unknown>(
   COMMAND_ENVELOPE_SCHEMA_ID,
+);
+const validateLobbyDirectorySchema =
+  requireValidator<SessionLobbyDirectoryMessage>(
+    LOBBY_DIRECTORY_MESSAGE_SCHEMA_ID,
+  );
+const validateHttpErrorSchema = requireValidator<SessionHttpErrorResponse>(
+  HTTP_ERROR_RESPONSE_SCHEMA_ID,
 );
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
@@ -445,4 +476,119 @@ export function validateSessionCommand(command: SessionCommand): void {
       },
     );
   }
+}
+
+/**
+ * Validates and freezes one lobby directory document, `GET /api/v2/lobbies`. Version first, then
+ * the closed schema, then the two facts the schema cannot state: the response's `X-Request-ID`
+ * echoes the envelope's, and the rooms are numbered `1..N` in order -- the directory that Step 13's
+ * router serves is exactly that, and a client that trusted a disordered one would join the wrong
+ * room by index.
+ */
+export function validateLobbyDirectoryMessage(
+  document: unknown,
+  responseRequestId: string | null,
+): SessionLobbyDirectoryMessage {
+  assertSupportedProtocolVersion(document);
+
+  if (!validateLobbyDirectorySchema(document)) {
+    throw new SimulationApiError(
+      'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+      'Lobby directory does not match protocol v2.',
+      {
+        context: {
+          validation_errors: formatValidationErrors(
+            validateLobbyDirectorySchema.errors,
+          ),
+        },
+      },
+    );
+  }
+
+  if (responseRequestId !== document.meta.request_id) {
+    throw new SimulationApiError(
+      'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+      'X-Request-ID must exactly match lobby directory meta.request_id.',
+      {
+        context: {
+          envelope_request_id: document.meta.request_id,
+          response_request_id: responseRequestId,
+        },
+      },
+    );
+  }
+
+  document.data.lobbies.forEach((listing, index) => {
+    if (listing.lobby_id !== index + 1) {
+      throw new SimulationApiError(
+        'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+        'Lobby directory rooms must be numbered 1..N in order.',
+        {
+          context: { actual_lobby_id: listing.lobby_id, position: index + 1 },
+        },
+      );
+    }
+  });
+
+  return deepFreeze(document);
+}
+
+/**
+ * Validates and freezes the v2 failure envelope of a `/api/v2/` target, holding it to the same
+ * registry discipline as v1's: the status, the code, and the retryable flag must agree with what
+ * the protocol registers for that code, and the request id must be echoed.
+ */
+export function validateSessionHttpErrorResponse(
+  document: unknown,
+  httpStatus: number,
+  responseRequestId: string | null,
+): SessionHttpErrorResponse {
+  if (!validateHttpErrorSchema(document)) {
+    throw new SimulationApiError(
+      'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
+      'HTTP error response does not match protocol v2.',
+      {
+        context: {
+          validation_errors: formatValidationErrors(
+            validateHttpErrorSchema.errors,
+          ),
+        },
+      },
+    );
+  }
+
+  const registeredError = V2_HTTP_ERROR_REGISTRY[document.error.code];
+  if (
+    httpStatus !== registeredError.status ||
+    document.error.retryable !== registeredError.retryable
+  ) {
+    throw new SimulationApiError(
+      'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
+      'HTTP status, protocol error code, and retryable flag do not match the protocol v2 registry.',
+      {
+        context: {
+          actual_http_status: httpStatus,
+          actual_retryable: document.error.retryable,
+          expected_http_status: registeredError.status,
+          expected_retryable: registeredError.retryable,
+          protocol_error_code: document.error.code,
+        },
+      },
+    );
+  }
+
+  if (responseRequestId !== document.meta.request_id) {
+    throw new SimulationApiError(
+      'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
+      'X-Request-ID must exactly match error-envelope meta.request_id.',
+      {
+        context: {
+          envelope_request_id: document.meta.request_id,
+          response_request_id: responseRequestId,
+        },
+      },
+    );
+  }
+
+  return deepFreeze(document);
 }

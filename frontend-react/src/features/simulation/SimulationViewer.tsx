@@ -17,6 +17,8 @@ import type { ThrustDirection } from './useThrustInput';
 
 export interface SimulationViewerProps {
   readonly connection: SimulationConnection;
+  /** The room this view is in, which is the shell's decision and not the socket's. */
+  readonly lobbyId: number;
   readonly thrust: ThrustDirection;
 }
 
@@ -26,13 +28,16 @@ const connectionStatusLabels = Object.freeze({
   connected: 'Connected to the match session.',
   connecting: 'Connecting to the match session…',
   failed: 'The simulation viewer could not connect.',
+  idle: 'Not in a room.',
   loading_configuration: 'Loading public simulation configuration…',
+  refused: 'This room refused the join.',
   retrying: 'The match session disconnected. Retrying with bounded backoff…',
 });
 
 /** Renders match state and steering feedback from validated values it does not own. */
 export function SimulationViewer({
   connection,
+  lobbyId,
   thrust,
 }: SimulationViewerProps) {
   const [debugPanelVisible, setDebugPanelVisible] = useState(false);
@@ -42,7 +47,7 @@ export function SimulationViewer({
 
   return (
     <section aria-labelledby="simulation-viewer-heading">
-      <h1 id="simulation-viewer-heading">Blob Royale</h1>
+      <h2 id="simulation-viewer-heading">Room {lobbyId}</h2>
       <p
         aria-live={connection.status === 'failed' ? 'assertive' : 'polite'}
         role={connection.status === 'failed' ? 'alert' : 'status'}

@@ -42,12 +42,13 @@ import {
  */
 /**
  * The kind the lobby driver would declare into any seat still empty when it presses Start. Both
- * fixtures declare exactly the two seats the two browsers take on admission and `[match] bots` is
- * empty, so the driver is admitted into a full lobby with no bot to displace: it holds no seat,
- * declares nothing, and only presses Start. No bot session is ever created. The driver's own blob
- * sits at the map's third marker for the countdown and is gone within a frame of `running`, so the
- * two browsers are the only bodies in the arena by the time a hazard can exist, which is what keeps
- * the drawn crossing a two-body geometry.
+ * fixtures declare three seats -- the two the browsers take on admission and one for the driver,
+ * because since protocol 2.4 a room refuses a session past its seat count at the door -- and
+ * `[match] bots` is empty, so the driver takes the last seat, finds nothing empty to declare into,
+ * and only presses Start. No bot session is ever created. The driver's own blob sits at the map's
+ * third marker for the countdown and is gone within a frame of `running`, so the two browsers are
+ * the only bodies in the arena by the time a hazard can exist, which is what keeps the drawn
+ * crossing a two-body geometry.
  */
 const SEATED_NPC_KIND = 'wanderer';
 
@@ -247,7 +248,8 @@ async function openSessionPage(
     pageErrors.push(error.message);
   });
   await installCanvasRecorder(page);
-  const navigationResponse = await page.goto('/', {
+  // Room 1 by its URL: the directory in front of it is Step 15's to drive through the UI.
+  const navigationResponse = await page.goto('/?lobby=1', {
     waitUntil: 'domcontentloaded',
   });
   expect(navigationResponse?.status()).toBe(200);
@@ -332,9 +334,10 @@ async function startMatchWithTwoBrowsers(
   await server.start();
   await waitForReadyServer(request, server);
 
-  // `lobby_seat_count` is the whole field and there is no bot, so the match cannot leave the lobby
-  // until both seats are taken and somebody presses Start -- which this flow does below, after both
-  // browsers have connected, so neither is ever a mid-match joiner the spawn policy would defer.
+  // `lobby_seat_count` is the two browsers plus the driver's seat and there is no bot, so the match
+  // cannot leave the lobby until every seat is taken and somebody presses Start -- which this flow
+  // does below, after both browsers have connected, so neither is ever a mid-match joiner the spawn
+  // policy would defer.
   const contextA = await browser.newContext({ baseURL: PRODUCTION_ORIGIN });
   contexts.push(contextA);
   const pageA = await openSessionPage(contextA, pageErrors);

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SimulationApi,
   deriveSimulationEndpoints,
+  roomSessionWebSocketUrl,
   type SimulationSessionCallbacks,
   type SimulationWebSocket,
 } from './SimulationApi';
@@ -10,6 +11,10 @@ import {
   configurationResponseExample,
   errorResponseExample,
 } from './fixtures/protocolV1Examples';
+import {
+  lobbyDirectoryMessageExample,
+  sessionErrorResponseExample,
+} from './fixtures/protocolV2Examples';
 import {
   firstEntity,
   snapshotDocument,
@@ -110,7 +115,8 @@ describe('deriveSimulationEndpoints', () => {
   it('derives the exact HTTP and WebSocket paths on one HTTPS authority', () => {
     expect(deriveSimulationEndpoints(secureLocation)).toEqual({
       configurationUrl: 'https://game.example.test:8443/api/v1/config',
-      sessionWebSocketUrl: 'wss://game.example.test:8443/api/v2/session',
+      lobbyDirectoryUrl: 'https://game.example.test:8443/api/v2/lobbies',
+      webSocketOrigin: 'wss://game.example.test:8443',
     });
   });
 
@@ -123,7 +129,8 @@ describe('deriveSimulationEndpoints', () => {
       }),
     ).toEqual({
       configurationUrl: 'http://127.0.0.1:5173/api/v1/config',
-      sessionWebSocketUrl: 'ws://127.0.0.1:5173/api/v2/session',
+      lobbyDirectoryUrl: 'http://127.0.0.1:5173/api/v2/lobbies',
+      webSocketOrigin: 'ws://127.0.0.1:5173',
     });
   });
 
@@ -143,6 +150,126 @@ describe('deriveSimulationEndpoints', () => {
         protocol: 'https:',
       }),
     ).toThrow(/inconsistent/);
+  });
+});
+
+describe('roomSessionWebSocketUrl', () => {
+  it('builds the parametric room target only for ids the grammar admits', () => {
+    const endpoints = deriveSimulationEndpoints(secureLocation);
+    expect(roomSessionWebSocketUrl(endpoints, 1)).toBe(
+      'wss://game.example.test:8443/api/v2/lobbies/1/session',
+    );
+    expect(roomSessionWebSocketUrl(endpoints, 999)).toBe(
+      'wss://game.example.test:8443/api/v2/lobbies/999/session',
+    );
+    for (const lobbyId of [0, -1, 1.5, 1_000, Number.NaN]) {
+      expect(() => roomSessionWebSocketUrl(endpoints, lobbyId)).toThrow(
+        /lobby id/,
+      );
+    }
+  });
+});
+
+describe('SimulationApi lobby directory', () => {
+  function directoryResponse(requestId?: string): Response {
+    return jsonResponse(
+      structuredClone(lobbyDirectoryMessageExample),
+      200,
+      requestId ?? lobbyDirectoryMessageExample.meta.request_id,
+    );
+  }
+
+  function createDirectoryApi(response: Response) {
+    const fetchMock = createFetchMock(response);
+    const api = new SimulationApi({
+      fetchImplementation: fetchMock,
+      location: secureLocation,
+      webSocketFactory: () => new FakeSimulationWebSocket(),
+    });
+    return { api, fetchMock };
+  }
+
+  it('reads the exact same-origin directory and returns its frozen listings', async () => {
+    const { api, fetchMock } = createDirectoryApi(directoryResponse());
+
+    const listings = await api.fetchLobbies(new AbortController().signal);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://game.example.test:8443/api/v2/lobbies',
+      expect.objectContaining({
+        cache: 'no-store',
+        credentials: 'omit',
+        method: 'GET',
+        redirect: 'error',
+      }),
+    );
+    expect(listings.map((listing) => listing.lobby_id)).toEqual([1, 2]);
+    expect(Object.isFrozen(listings)).toBe(true);
+    expect(Object.isFrozen(listings[0])).toBe(true);
+  });
+
+  it('reads the directory again on every call rather than caching it', async () => {
+    const { api, fetchMock } = createDirectoryApi(directoryResponse());
+    fetchMock.mockImplementation(() => Promise.resolve(directoryResponse()));
+
+    await api.fetchLobbies(new AbortController().signal);
+    await api.fetchLobbies(new AbortController().signal);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a directory whose X-Request-ID does not echo the envelope', async () => {
+    const { api } = createDirectoryApi(directoryResponse('some-other-request'));
+
+    await expect(
+      api.fetchLobbies(new AbortController().signal),
+    ).rejects.toMatchObject({
+      code: 'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+    });
+  });
+
+  it('reports a v2 failure envelope with its registered retryability', async () => {
+    const { api } = createDirectoryApi(
+      jsonResponse(
+        structuredClone(sessionErrorResponseExample),
+        400,
+        sessionErrorResponseExample.meta.request_id,
+      ),
+    );
+
+    await expect(
+      api.fetchLobbies(new AbortController().signal),
+    ).rejects.toMatchObject({
+      code: 'SIMULATION.LOBBY_DIRECTORY_REQUEST_FAILED',
+      context: {
+        http_status: 400,
+        protocol_error_code: 'PROTOCOL.INVALID_FORWARDED_CLIENT',
+      },
+      retryable: false,
+    });
+  });
+
+  it('rejects a failure envelope whose status disagrees with its code', async () => {
+    const { api } = createDirectoryApi(
+      jsonResponse(
+        structuredClone(sessionErrorResponseExample),
+        503,
+        sessionErrorResponseExample.meta.request_id,
+      ),
+    );
+
+    await expect(
+      api.fetchLobbies(new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'SIMULATION.HTTP_ERROR_RESPONSE_INVALID' });
+  });
+
+  it('refuses to read after disposal', async () => {
+    const { api } = createDirectoryApi(directoryResponse());
+    api.dispose();
+
+    await expect(
+      api.fetchLobbies(new AbortController().signal),
+    ).rejects.toMatchObject({ code: 'SIMULATION.SOCKET_DISPOSED' });
   });
 });
 
@@ -389,7 +516,9 @@ describe('SimulationApi session lifecycle', () => {
       ),
       location: secureLocation,
       webSocketFactory: (url, subprotocol) => {
-        expect(url).toBe('wss://game.example.test:8443/api/v2/session');
+        expect(url).toBe(
+          'wss://game.example.test:8443/api/v2/lobbies/1/session',
+        );
         expect(subprotocol).toBe('blob-royale.session.v2');
         const socket = new FakeSimulationWebSocket();
         sockets.push(socket);
@@ -413,10 +542,10 @@ describe('SimulationApi session lifecycle', () => {
   it('owns one socket and delivers a welcome before validated monotonic snapshots', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
 
-    expect(() => api.openSession(configuration, callbacks)).toThrow(
+    expect(() => api.openSession(configuration, 1, callbacks)).toThrow(
       /only one WebSocket/,
     );
 
@@ -441,7 +570,7 @@ describe('SimulationApi session lifecycle', () => {
   it('stays open and frameless for a joiner the match has deferred', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
 
     socket.open();
@@ -457,7 +586,7 @@ describe('SimulationApi session lifecycle', () => {
   it('refuses a snapshot that arrives before the welcome', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.open();
 
@@ -474,7 +603,7 @@ describe('SimulationApi session lifecycle', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.open();
     socket.receive(JSON.stringify(welcomeDocument()));
@@ -495,7 +624,7 @@ describe('SimulationApi session lifecycle', () => {
   it('fails closed with client_version_unsupported on a newer protocol minor', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.open();
 
@@ -523,7 +652,7 @@ describe('SimulationApi session lifecycle', () => {
   it('rejects an oversized frame before parsing or rendering', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.open();
 
@@ -542,7 +671,7 @@ describe('SimulationApi session lifecycle', () => {
   it('closes malformed protocol payloads with a protocol-error close', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.open();
 
@@ -559,7 +688,7 @@ describe('SimulationApi session lifecycle', () => {
   it('sends an accepted command only on an open welcomed session', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
 
     const thrust = { kind: 'set_thrust', payload: { x: 1, y: 0 } } as const;
@@ -583,7 +712,7 @@ describe('SimulationApi session lifecycle', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.open();
     socket.receive(JSON.stringify(welcomeDocument()));
@@ -598,7 +727,7 @@ describe('SimulationApi session lifecycle', () => {
   it('refuses a command kind this match did not accept', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.open();
     const welcome = welcomeDocument();
@@ -614,13 +743,13 @@ describe('SimulationApi session lifecycle', () => {
   it('reports retryable server loss after releasing the active socket', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const firstCallbacks = createCallbacks();
-    api.openSession(configuration, firstCallbacks);
+    api.openSession(configuration, 1, firstCallbacks);
     const firstSocket = requireSocket(sockets);
     firstSocket.open();
     firstSocket.serverClose(1013, 'slow_consumer', false);
 
     expect(firstCallbacks.onDisconnected).toHaveBeenCalledWith(
-      expect.objectContaining({ code: 1013, retryable: true }),
+      expect.objectContaining({ code: 1013, opened: true, retryable: true }),
     );
     api.dispose();
   });
@@ -628,7 +757,7 @@ describe('SimulationApi session lifecycle', () => {
   it('rejects a socket that did not negotiate the exact subprotocol', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     socket.protocol = 'blob-royale.snapshot.v1';
     socket.open();
@@ -646,7 +775,7 @@ describe('SimulationApi session lifecycle', () => {
     vi.useFakeTimers();
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
 
     await vi.advanceTimersByTimeAsync(WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS);
@@ -656,6 +785,7 @@ describe('SimulationApi session lifecycle', () => {
     const disconnection = vi.mocked(callbacks.onDisconnected).mock
       .calls[0]?.[0];
     expect(disconnection).toMatchObject({
+      opened: false,
       reason: 'connect_timeout',
       retryable: true,
     });
@@ -669,7 +799,7 @@ describe('SimulationApi session lifecycle', () => {
   it('cleans up idempotently and ignores callbacks from the released socket', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
-    api.openSession(configuration, callbacks);
+    api.openSession(configuration, 1, callbacks);
     const socket = requireSocket(sockets);
     const staleMessageHandler = socket.onmessage;
 

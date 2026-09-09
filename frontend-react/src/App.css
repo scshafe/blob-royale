@@ -3,6 +3,99 @@
   padding: clamp(1rem, 3vw, 2rem);
 }
 
+/* The persistent frame: identity on the left, where the player is in the middle, up on the right. */
+.AppHeader {
+  align-items: center;
+  border-bottom: 1px solid #cbd5e1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin-block-end: 1.5rem;
+  padding-block-end: 0.75rem;
+}
+
+.AppTitle {
+  font-size: 1.5rem;
+  margin: 0;
+}
+
+.AppBreadcrumbs ol {
+  display: flex;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.AppBreadcrumbs li + li::before {
+  color: #64748b;
+  content: '›';
+  margin-inline-end: 0.5rem;
+}
+
+.AppBreadcrumbs [aria-current='page'] {
+  font-weight: 600;
+}
+
+.LeaveButton {
+  margin-inline-start: auto;
+}
+
+.LobbyList {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.LobbyCard {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.LobbyCard h3 {
+  margin: 0;
+}
+
+.LobbyFacts {
+  display: grid;
+  gap: 0.25rem 0.75rem;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0;
+}
+
+.LobbyFacts div {
+  display: contents;
+}
+
+.LobbyFacts dt {
+  color: #475569;
+}
+
+.LobbyFacts dd {
+  margin: 0;
+}
+
+.LobbyRefusal {
+  color: #991b1b;
+  margin: 0;
+}
+
+.RoomNotice {
+  background: #fef3c7;
+  border: 1px solid #d97706;
+  border-radius: 0.5rem;
+  color: #92400e;
+  padding: 0.75rem 1rem;
+}
+
 .SimulationLayout {
   display: grid;
   gap: 1.5rem;

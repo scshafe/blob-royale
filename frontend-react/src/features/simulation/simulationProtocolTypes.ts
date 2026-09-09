@@ -6,10 +6,14 @@ export type {
   BlobRoyaleProtocolV1PublicConfigurationData as SimulationConfiguration,
 } from './generated/protocolV1Types.generated';
 
-// Protocol v2 owns every session frame and every command.
+// Protocol v2 owns every session frame, every command, and since 2.4 the lobby directory and the
+// HTTP failure envelope of every `/api/v2/` target.
 export type {
   BlobRoyaleProtocolV2ControllableComponent as SessionControllableComponent,
   BlobRoyaleProtocolV2EntitySnapshot as SessionEntitySnapshot,
+  BlobRoyaleProtocolV2HTTPErrorResponse as SessionHttpErrorResponse,
+  BlobRoyaleProtocolV2LobbyDirectoryResponse as SessionLobbyDirectoryMessage,
+  LobbyListing as SessionLobbyListing,
   BlobRoyaleProtocolV2LifetimeComponent as SessionLifetimeComponent,
   BlobRoyaleProtocolV2MatchSection as SessionMatchSection,
   BlobRoyaleProtocolV2PhysicsBodyComponent as SessionPhysicsBodyComponent,

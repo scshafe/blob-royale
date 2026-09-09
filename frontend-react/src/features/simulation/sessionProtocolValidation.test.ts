@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationApiError } from './SimulationApiError';
 import {
+  lobbyDirectoryMessageExample,
   sessionCommandEnvelopeExample,
+  sessionErrorResponseExample,
   sessionWelcomeMessageExample,
 } from './fixtures/protocolV2Examples';
 import {
@@ -14,7 +16,9 @@ import {
 import {
   SUPPORTED_PROTOCOL_VERSION,
   type SessionSequenceState,
+  validateLobbyDirectoryMessage,
   validateSessionCommand,
+  validateSessionHttpErrorResponse,
   validateSessionSnapshotMessage,
   validateSessionWelcomeMessage,
 } from './sessionProtocolValidation';
@@ -240,6 +244,145 @@ describe('validateSessionCommand', () => {
       expect.objectContaining<Partial<SimulationApiError>>({
         code: 'SIMULATION.COMMAND_REJECTED',
       }),
+    );
+  });
+});
+
+describe('validateLobbyDirectoryMessage', () => {
+  const requestId = lobbyDirectoryMessageExample.meta.request_id;
+
+  it('accepts the golden directory and freezes it deeply', () => {
+    const directory = validateLobbyDirectoryMessage(
+      structuredClone(lobbyDirectoryMessageExample),
+      requestId,
+    );
+
+    expect(directory.data.lobbies.map((listing) => listing.lobby_id)).toEqual([
+      1, 2,
+    ]);
+    expect(Object.isFrozen(directory)).toBe(true);
+    expect(Object.isFrozen(directory.data.lobbies)).toBe(true);
+    expect(Object.isFrozen(directory.data.lobbies[0])).toBe(true);
+  });
+
+  it('rejects a response whose X-Request-ID does not echo the envelope', () => {
+    expect(() =>
+      validateLobbyDirectoryMessage(
+        structuredClone(lobbyDirectoryMessageExample),
+        'another-request',
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+      }) as SimulationApiError,
+    );
+  });
+
+  it('rejects rooms that are not numbered 1..N in order', () => {
+    const document = structuredClone(lobbyDirectoryMessageExample);
+    const second = document.data.lobbies[1];
+    if (second === undefined) {
+      throw new Error('TEST.DIRECTORY_FIXTURE_TOO_SHORT');
+    }
+    second.lobby_id = 3;
+
+    expect(() => validateLobbyDirectoryMessage(document, requestId)).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+        context: { actual_lobby_id: 3, position: 2 },
+      }) as SimulationApiError,
+    );
+  });
+
+  it('fails closed on a newer protocol minor before shape validation', () => {
+    const document = structuredClone(lobbyDirectoryMessageExample);
+    document.meta.protocol_version = '2.5';
+
+    expect(() => validateLobbyDirectoryMessage(document, requestId)).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.SESSION_VERSION_UNSUPPORTED',
+      }) as SimulationApiError,
+    );
+  });
+
+  it('rejects a listing carrying a member the closed schema does not name', () => {
+    const document = structuredClone(lobbyDirectoryMessageExample);
+    const first: Record<string, unknown> = document.data.lobbies[0] ?? {};
+    first.spectator_count = 1;
+
+    expect(() => validateLobbyDirectoryMessage(document, requestId)).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
+      }) as SimulationApiError,
+    );
+  });
+});
+
+describe('validateSessionHttpErrorResponse', () => {
+  const requestId = sessionErrorResponseExample.meta.request_id;
+
+  function lobbyFullEnvelope() {
+    return {
+      ...structuredClone(sessionErrorResponseExample),
+      error: {
+        code: 'LOBBY.FULL',
+        details: { lobby_id: 2 },
+        message:
+          'Every seat in this lobby is taken; read the directory and choose another.',
+        retryable: true,
+      },
+    };
+  }
+
+  it('accepts the golden v2 failure envelope and a lobby refusal at their registered statuses', () => {
+    const forwarded = validateSessionHttpErrorResponse(
+      structuredClone(sessionErrorResponseExample),
+      400,
+      requestId,
+    );
+    expect(forwarded.error.code).toBe('PROTOCOL.INVALID_FORWARDED_CLIENT');
+    expect(Object.isFrozen(forwarded.error)).toBe(true);
+
+    const full = validateSessionHttpErrorResponse(
+      lobbyFullEnvelope(),
+      409,
+      requestId,
+    );
+    expect(full.error.details.lobby_id).toBe(2);
+    expect(full.error.retryable).toBe(true);
+  });
+
+  it('rejects a status or a retryable flag that disagrees with the code', () => {
+    expect(() =>
+      validateSessionHttpErrorResponse(lobbyFullEnvelope(), 404, requestId),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
+      }) as SimulationApiError,
+    );
+
+    const envelope = lobbyFullEnvelope();
+    envelope.error.retryable = false;
+    expect(() =>
+      validateSessionHttpErrorResponse(envelope, 409, requestId),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
+      }) as SimulationApiError,
+    );
+  });
+
+  it('rejects an envelope whose X-Request-ID does not echo', () => {
+    expect(() =>
+      validateSessionHttpErrorResponse(
+        lobbyFullEnvelope(),
+        409,
+        'another-request',
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
+      }) as SimulationApiError,
     );
   });
 });

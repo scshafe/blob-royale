@@ -259,7 +259,8 @@ async function openSessionPage(
     pageErrors.push(error.message);
   });
   await installCanvasRecorder(page);
-  const navigationResponse = await page.goto('/', {
+  // Room 1 by its URL: the directory in front of it is Step 15's to drive through the UI.
+  const navigationResponse = await page.goto('/?lobby=1', {
     waitUntil: 'domcontentloaded',
   });
   expect(navigationResponse?.status()).toBe(200);

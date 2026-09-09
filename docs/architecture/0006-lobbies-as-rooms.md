@@ -184,6 +184,22 @@ eight rooms are 8 × 10 % of one core's quantum, on two cores. If the measuremen
 `[lobbies] count` is lowered in configuration, and the design does not change. If a single room
 cannot meet it, the entity or hazard bound is wrong, not the loop.
 
+**Amended 2026-09-09 (plan Step 8, advisory measurement).** `royale_deployed_roster` exists in
+`benchmarks/blob_simulation_benchmarks.cpp`: it reads the deployed `[simulation]`, `[royale]`, and
+`[hazard.*]` sections and the 32-marker map from the repository through the production loaders,
+widens the lobby to the eight seats above, spawns and joins eight controllers, presses Start,
+carries the match through the deployed five-second countdown, and times every `step` of 6,400
+running ticks -- sixteen seconds, across every spawn tick of both deployed hazard kinds. On the
+maintainer's Mac -- `VirtualApple @ 2.50GHz` under Rosetta inside the pinned container, GCC 13.3
+Release, **not** the native runner -- nine samples measured a per-tick step of **6.9 µs mean,
+6.6 µs median, 10.2 µs p99, 22 µs maximum** (median across samples) and 0.3 µs per snapshot, with
+every sample hash-matching the untimed reference; the deployed comet is lethal and the field thins
+from eight blobs to four across the window, which the output records. That is 36× inside the mean
+budget and 98× inside the p99 budget on a host slower than `cole-ubuntu-pc`, so nothing in this
+section changes and `[lobbies] count=4` deployed with 8 compiled stands provisionally. The native
+measurement this decision is stated against is still owed: `./scripts/run-benchmarks-linux` on
+`cole-ubuntu-pc` at this commit or later, recorded here as a second dated line.
+
 Option B is the fallback if a native measurement ever shows the N-thread scheduler jitter itself
 costing more than the steps: the trip-wire is `maximum_lateness` above one quantum on a room whose
 own step time is under budget.

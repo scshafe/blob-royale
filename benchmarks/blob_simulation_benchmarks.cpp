@@ -1,14 +1,36 @@
+#include "application_config.hpp"
+#include "application_config_loader.hpp"
 #include "candidate_pair.hpp"
+#include "command_kind_mask.hpp"
+#include "command_registry.hpp"
+#include "commands/join_command.hpp"
+#include "commands/spawn_command.hpp"
+#include "commands/start_match_command.hpp"
+#include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "entity_id_reservation.hpp"
 #include "fixed_delta.hpp"
+#include "game_mode.hpp"
+#include "game_mode_configuration.hpp"
+#include "game_mode_registry.hpp"
 #include "game_simulation.hpp"
+#include "game_simulation_setup.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "map_definition.hpp"
+#include "map_loader.hpp"
+#include "match_configuration.hpp"
+#include "match_phase.hpp"
+#include "match_snapshot.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
 #include "protocol_json_encoding.hpp"
 #include "request_id.hpp"
+#include "royale/royale_configuration.hpp"
+#include "seat_roster.hpp"
+#include "shared/hazard_archetype.hpp"
 #include "simulation_config.hpp"
+#include "simulation_limits.hpp"
 #include "snapshot_delivery_state.hpp"
 #include "spatial_grid.hpp"
 #include "vector2.hpp"
@@ -25,6 +47,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -40,6 +63,7 @@
 #include <sys/utsname.h>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #if defined(__GLIBC__)
@@ -76,6 +100,30 @@ constexpr std::string_view kProtocolTimestamp = "2026-08-05T00:00:00.000Z";
 constexpr std::string_view kExpectedToolchainId = "ubuntu-24.04-amd64-20260804";
 constexpr std::string_view kExpectedBaseImageDigest =
     "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467";
+
+// The royale case: the deployed match, at the roster ADR 0006 budgets a room for.
+//
+// `docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision" sets the acceptance
+// number for one room at **a mean step of at most 250 µs and a p99 of at most 1 ms** at the
+// deployed roster -- eight seats, the deployed hazard table, the 32-marker map -- measured on the
+// native runner. The kernel cases above are the engine's floor and say nothing about a live match
+// (`benchmarks/README.md`); this case is the live match. Every number but the seat count is read
+// from `deploy/ubuntu-pc/blob-royale.cfg` and the map it names, so the case cannot drift from the
+// deployment; the seat count is widened from the deployed four to the eight the budget is stated
+// for, and both values are in the output.
+constexpr std::string_view kRoyaleCaseName = "royale_deployed_roster";
+constexpr std::uint64_t kRoyaleSeatCount = 8;
+// Sixteen seconds of `running`. The countdown holds the match for the deployed five seconds, so
+// the timed ticks run from about tick 2,001 to about tick 8,400 and cross every spawn tick of both
+// deployed hazard kinds -- the comet every 2,400 ticks and the boulder at tick 8,000 -- which a
+// ten-second window would not. Nobody thrusts, and the 32 markers all sit within 233 wu of the
+// centre while the zone is still above 480 wu at the end, so the zone eliminates nobody; the
+// deployed comet is lethal, though, and the field thins as comets cross it, which is what a
+// deployed match does. The output carries the player count at both ends of the window.
+constexpr std::size_t kRoyaleRunningTicksPerSample = 6'400;
+constexpr std::size_t kRoyaleSnapshotsPerSample = 200;
+constexpr double kRoyaleStepMeanBudgetNanoseconds = 250'000.0;
+constexpr double kRoyaleStepPercentile99BudgetNanoseconds = 1'000'000.0;
 
 class BenchmarkError final : public std::runtime_error {
 public:
@@ -637,6 +685,329 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
   return measurement;
 }
 
+// ---------------------------------------------------------------------------------------------
+// The royale case.
+
+// Where the deployment's inputs are on this machine: the runner passes both paths.
+struct RoyaleCaseInputs final {
+  std::filesystem::path deployment_configuration;
+  std::filesystem::path maps_directory;
+};
+
+// Everything one identical royale simulation is built from, resolved once from the deployment.
+struct RoyaleMatch final {
+  SimulationConfig configuration;
+  simulation::MapDefinition map;
+  gameplay::GameModeConfiguration mode_configuration;
+  std::string mode_name;
+  std::uint64_t seed;
+  std::uint64_t deployed_lobby_seat_count;
+  std::string configuration_path;
+};
+
+// Per-tick step statistics of one timed sample, in nanoseconds.
+struct TickStatistics final {
+  double mean;
+  double median;
+  double percentile_99;
+  double maximum;
+};
+
+[[nodiscard]] double ticks_to_seconds(const std::uint64_t ticks) {
+  return static_cast<double>(ticks) /
+         static_cast<double>(SimulationConfig::kRequiredTicksPerSecond);
+}
+
+// Reads the deployed configuration through the production loader and the named map through the
+// production map loader, then widens the lobby to the budgeted seat count and nothing else.
+[[nodiscard]] RoyaleMatch load_royale_match(const RoyaleCaseInputs& inputs) {
+  const std::string configuration_path = inputs.deployment_configuration.string();
+  const char* const arguments[] = {"blob_simulation_benchmarks", "--config",
+                                   configuration_path.c_str()};
+  application::ApplicationConfigLoader::Result loaded =
+      application::ApplicationConfigLoader::load(3, arguments);
+  const auto* const run_request =
+      std::get_if<application::ApplicationConfigLoader::RunRequest>(&loaded);
+  require(run_request != nullptr, "BENCHMARK.DEPLOYMENT_CONFIGURATION_INVALID",
+          "the deployment configuration did not load as a run request");
+  const application::ApplicationConfig& configuration = run_request->application_config();
+  const application::MatchConfiguration& match = configuration.match_configuration();
+  require(match.mode_name() == "royale", "BENCHMARK.DEPLOYMENT_MODE_UNEXPECTED",
+          "the royale case requires a deployment whose [match] mode is royale");
+
+  // The map is read from the repository's `maps/`, not from the container path the deployed
+  // configuration names, which exists only inside the deployed container.
+  simulation::MapDefinition map =
+      application::MapLoader::load(inputs.maps_directory / match.map_name());
+
+  const gameplay::RoyaleConfiguration& deployed = configuration.game_mode_configuration().royale;
+  gameplay::GameModeConfiguration widened = configuration.game_mode_configuration();
+  widened.royale = gameplay::RoyaleConfiguration::create(gameplay::RoyaleConfiguration::Section{
+      .thrust_max_world_units_per_second_squared = deployed.thrust_maximum(),
+      .zone_minimum_radius_world_units = deployed.zone_minimum_radius(),
+      .zone_shrink_seconds = ticks_to_seconds(deployed.zone_shrink_ticks()),
+      .elimination_grace_seconds = ticks_to_seconds(deployed.elimination_grace_ticks()),
+      .lobby_seat_count = kRoyaleSeatCount,
+      .countdown_seconds = ticks_to_seconds(deployed.countdown_ticks()),
+      .restart_delay_seconds = ticks_to_seconds(deployed.restart_delay_ticks())});
+  require(!widened.hazards.empty(), "BENCHMARK.DEPLOYMENT_HAZARDS_MISSING",
+          "the royale case expects the deployment to declare at least one hazard kind");
+
+  return RoyaleMatch{.configuration = configuration.simulation_config(),
+                     .map = std::move(map),
+                     .mode_configuration = std::move(widened),
+                     .mode_name = match.mode_name(),
+                     .seed = match.seed(),
+                     .deployed_lobby_seat_count = deployed.lobby_seat_count(),
+                     .configuration_path = configuration_path};
+}
+
+// One royale simulation driven the way the runtime drives it: a reservation of
+// `spawn_count + kSystemCreatedEntityHeadroom` ids on every tick, opening above the map's static
+// bodies, exactly as `runtime::EntityIdAllocator` and the replay fixture size it.
+class RoyaleRun final {
+public:
+  explicit RoyaleRun(const RoyaleMatch& match)
+      : simulation_(create_simulation(match)),
+        next_entity_id_(simulation::kMinimumEntityId +
+                        static_cast<std::uint64_t>(match.map.static_bodies().size())),
+        countdown_ticks_(match.mode_configuration.royale.countdown_ticks()) {}
+
+  // Tick 1 is the whole lobby: eight spawns, eight joins naming no seat, and one Start. The joins
+  // take seats 0 to 7 in controller order and the objective commits `countdown` at the end of the
+  // tick; empty ticks then carry the match to `running`.
+  void reach_running() {
+    std::vector<simulation::Command> commands;
+    commands.reserve(2U * kRoyaleSeatCount + 1U);
+    for (std::uint64_t controller = 1; controller <= kRoyaleSeatCount; ++controller) {
+      const simulation::ControllerId id = simulation::ControllerId::create(controller);
+      commands.emplace_back(simulation::SpawnCommand{id});
+      commands.emplace_back(simulation::JoinCommand{id, std::nullopt});
+    }
+    commands.emplace_back(simulation::StartMatchCommand{simulation::ControllerId::create(1)});
+    simulation_.step(FixedDelta::canonical(), batch(std::move(commands), kRoyaleSeatCount));
+
+    const std::uint64_t deadline = simulation_.tick_sequence().value() + countdown_ticks_ + 16U;
+    while (committed_phase() != simulation::MatchPhase::kRunning) {
+      require(simulation_.tick_sequence().value() < deadline, "BENCHMARK.ROYALE_NEVER_RAN",
+              "the royale match did not reach running within its countdown");
+      step_empty();
+    }
+  }
+
+  void step_empty() { simulation_.step(FixedDelta::canonical(), batch({}, 0)); }
+
+  [[nodiscard]] WorldSnapshot snapshot() const { return simulation_.snapshot(); }
+  [[nodiscard]] std::uint64_t tick_sequence() const noexcept {
+    return simulation_.tick_sequence().value();
+  }
+
+private:
+  [[nodiscard]] static GameSimulation create_simulation(const RoyaleMatch& match) {
+    GameWorld world = GameWorld::create(match.configuration, match.map, match.seed);
+    world.mutable_match().seats =
+        simulation::SeatRoster::of_size(static_cast<std::size_t>(kRoyaleSeatCount));
+    std::unique_ptr<const simulation::GameMode> mode =
+        gameplay::GameModeRegistry::create(match.mode_name, match.mode_configuration);
+    return GameSimulation::create(
+        match.configuration, std::move(world),
+        simulation::GameSimulationSetup::of_mode(match.map, std::move(mode)));
+  }
+
+  [[nodiscard]] InputBatch batch(std::vector<simulation::Command> commands,
+                                 const std::uint64_t spawn_count) {
+    const std::uint64_t width = spawn_count + simulation::kSystemCreatedEntityHeadroom;
+    const simulation::EntityIdReservation reservation =
+        simulation::EntityIdReservation::create(EntityId::create(next_entity_id_), width);
+    next_entity_id_ += width;
+    return InputBatch::create(std::move(commands), simulation_.accepted_command_kinds(),
+                              reservation);
+  }
+
+  [[nodiscard]] simulation::MatchPhase committed_phase() const {
+    const WorldSnapshot current = simulation_.snapshot();
+    return current.match().phase();
+  }
+
+  GameSimulation simulation_;
+  std::uint64_t next_entity_id_;
+  std::uint64_t countdown_ticks_;
+};
+
+[[nodiscard]] TickStatistics summarize_ticks(std::vector<double> tick_nanoseconds) {
+  require(!tick_nanoseconds.empty(), "BENCHMARK.EMPTY_SUMMARY", "cannot summarize zero ticks");
+  double total = 0.0;
+  for (const double value : tick_nanoseconds) {
+    total += value;
+  }
+  std::ranges::sort(tick_nanoseconds);
+  return TickStatistics{.mean = total / static_cast<double>(tick_nanoseconds.size()),
+                        .median = linear_quantile(tick_nanoseconds, 0.5),
+                        .percentile_99 = linear_quantile(tick_nanoseconds, 0.99),
+                        .maximum = tick_nanoseconds.back()};
+}
+
+// The untimed reference: the world the timed samples must reproduce bit for bit.
+[[nodiscard]] WorldSnapshot run_royale_reference(const RoyaleMatch& match) {
+  RoyaleRun run(match);
+  run.reach_running();
+  for (std::size_t tick = 0; tick < kRoyaleRunningTicksPerSample; ++tick) {
+    run.step_empty();
+  }
+  return run.snapshot();
+}
+
+[[nodiscard]] json::object encode_tick_statistics(const TickStatistics& statistics) {
+  json::object encoded;
+  encoded.emplace("mean", statistics.mean);
+  encoded.emplace("median", statistics.median);
+  encoded.emplace("percentile_99", statistics.percentile_99);
+  encoded.emplace("maximum", statistics.maximum);
+  return encoded;
+}
+
+[[nodiscard]] json::object benchmark_royale_case(const RoyaleCaseInputs& inputs) {
+  const RoyaleMatch match = load_royale_match(inputs);
+  const WorldSnapshot reference = run_royale_reference(match);
+  const std::string reference_hash = snapshot_hash(reference);
+  require(snapshot_hash(run_royale_reference(match)) == reference_hash,
+          "BENCHMARK.ROYALE_REFERENCE_HASH_MISMATCH",
+          "independent untimed royale matches produced different final snapshots");
+  const std::uint64_t expected_final_tick = reference.tick_sequence().value();
+  const std::uint64_t first_timed_tick = expected_final_tick - kRoyaleRunningTicksPerSample + 1U;
+
+  for (std::size_t warmup = 0; warmup < kWarmupRunCount; ++warmup) {
+    static_cast<void>(run_royale_reference(match));
+  }
+
+  // Timed: every `step` of the running window individually, so the mean the budget is stated in
+  // and the p99 it is stated in are both per tick. The region includes building the tick's empty
+  // batch and reservation, which every production tick builds too.
+  std::vector<TickStatistics> step_samples;
+  step_samples.reserve(kTimedSampleCount);
+  Measurement snapshots{.operations_per_sample = kRoyaleSnapshotsPerSample,
+                        .nanoseconds_per_operation = {}};
+  snapshots.nanoseconds_per_operation.reserve(kTimedSampleCount);
+  for (std::size_t sample = 0; sample < kTimedSampleCount; ++sample) {
+    RoyaleRun run(match);
+    run.reach_running();
+    require(run.tick_sequence() + 1U == first_timed_tick, "BENCHMARK.ROYALE_START_TICK_MISMATCH",
+            "a timed royale match reached running on a different tick than the reference");
+    std::vector<double> tick_nanoseconds;
+    tick_nanoseconds.reserve(kRoyaleRunningTicksPerSample);
+    for (std::size_t tick = 0; tick < kRoyaleRunningTicksPerSample; ++tick) {
+      const auto start = Clock::now();
+      run.step_empty();
+      const auto end = Clock::now();
+      tick_nanoseconds.push_back(duration_nanoseconds_per_operation(start, end, 1U));
+    }
+    require(run.tick_sequence() == expected_final_tick, "BENCHMARK.FINAL_TICK_MISMATCH",
+            "timed royale match ended at the wrong tick");
+    require(snapshot_hash(run.snapshot()) == reference_hash,
+            "BENCHMARK.FINAL_SNAPSHOT_HASH_MISMATCH",
+            "timed royale match final snapshot differs from the untimed reference");
+    step_samples.push_back(summarize_ticks(std::move(tick_nanoseconds)));
+
+    // The snapshot of a running royale world, timed on the same world the steps just produced.
+    std::optional<WorldSnapshot> last_snapshot;
+    const auto snapshots_start = Clock::now();
+    for (std::size_t index = 0; index < kRoyaleSnapshotsPerSample; ++index) {
+      last_snapshot = run.snapshot();
+    }
+    const auto snapshots_end = Clock::now();
+    require(last_snapshot.has_value() && snapshot_hash(*last_snapshot) == reference_hash,
+            "BENCHMARK.SNAPSHOT_HASH_MISMATCH",
+            "royale snapshot creation returned a state different from the untimed reference");
+    snapshots.nanoseconds_per_operation.push_back(duration_nanoseconds_per_operation(
+        snapshots_start, snapshots_end, kRoyaleSnapshotsPerSample));
+  }
+
+  std::vector<double> means;
+  std::vector<double> medians;
+  std::vector<double> percentiles_99;
+  std::vector<double> maxima;
+  json::array step_sample_documents;
+  for (const TickStatistics& statistics : step_samples) {
+    means.push_back(statistics.mean);
+    medians.push_back(statistics.median);
+    percentiles_99.push_back(statistics.percentile_99);
+    maxima.push_back(statistics.maximum);
+    step_sample_documents.emplace_back(encode_tick_statistics(statistics));
+  }
+  const RobustSummary mean_summary = summarize(means);
+  const RobustSummary percentile_99_summary = summarize(percentiles_99);
+
+  json::object step_summary;
+  step_summary.emplace("mean", encode_summary(mean_summary));
+  step_summary.emplace("median", encode_summary(summarize(medians)));
+  step_summary.emplace("percentile_99", encode_summary(percentile_99_summary));
+  step_summary.emplace("maximum", encode_summary(summarize(maxima)));
+
+  json::object step_measurement;
+  step_measurement.emplace("unit", "nanoseconds_per_tick");
+  step_measurement.emplace("sample_count", step_samples.size());
+  step_measurement.emplace("ticks_per_sample", kRoyaleRunningTicksPerSample);
+  step_measurement.emplace("samples", std::move(step_sample_documents));
+  step_measurement.emplace("summary", std::move(step_summary));
+
+  json::object measurements;
+  measurements.emplace("simulation_step_per_tick", std::move(step_measurement));
+  measurements.emplace("snapshot_creation", encode_measurement(snapshots, "snapshot", "snapshots"));
+
+  // The ADR's budget, read against the median across samples of each per-sample statistic. It is
+  // reported, never enforced: whether the host is the one the budget is stated for is a fact about
+  // the run's `platform` block, which the README says to read first.
+  json::object budget;
+  budget.emplace("mean_nanoseconds_per_tick_at_most", kRoyaleStepMeanBudgetNanoseconds);
+  budget.emplace("percentile_99_nanoseconds_per_tick_at_most",
+                 kRoyaleStepPercentile99BudgetNanoseconds);
+  budget.emplace("mean_within_budget", mean_summary.median <= kRoyaleStepMeanBudgetNanoseconds);
+  budget.emplace("percentile_99_within_budget",
+                 percentile_99_summary.median <= kRoyaleStepPercentile99BudgetNanoseconds);
+  budget.emplace("stated_in", "docs/architecture/0006-lobbies-as-rooms.md");
+
+  json::array hazards;
+  for (const gameplay::HazardArchetype& archetype : match.mode_configuration.hazards) {
+    json::object hazard;
+    hazard.emplace("kind", archetype.kind_name());
+    hazard.emplace("radius", archetype.radius());
+    hazard.emplace("mass", archetype.mass());
+    hazard.emplace("speed", archetype.speed());
+    hazard.emplace("spawn_interval_ticks", archetype.spawn_interval_ticks());
+    hazard.emplace("lethal_on_contact", archetype.lethal_on_contact());
+    hazards.emplace_back(std::move(hazard));
+  }
+
+  json::object deployment;
+  deployment.emplace("configuration", match.configuration_path);
+  deployment.emplace("mode", match.mode_name);
+  deployment.emplace("map", match.map.name());
+  deployment.emplace("spawn_marker_count", match.map.spawn_points().size());
+  deployment.emplace("seed", match.seed);
+  deployment.emplace("drag_per_second", match.configuration.drag_per_second());
+  deployment.emplace("deployed_lobby_seat_count", match.deployed_lobby_seat_count);
+  deployment.emplace("benchmark_lobby_seat_count", kRoyaleSeatCount);
+  deployment.emplace("countdown_ticks", match.mode_configuration.royale.countdown_ticks());
+  deployment.emplace("hazards", std::move(hazards));
+
+  json::object correctness;
+  correctness.emplace("first_timed_tick_sequence", first_timed_tick);
+  correctness.emplace("expected_final_tick_sequence", expected_final_tick);
+  correctness.emplace("initial_player_count", kRoyaleSeatCount);
+  correctness.emplace("final_player_count", reference.players().size());
+  correctness.emplace("final_entity_count", reference.entities().size());
+  correctness.emplace("final_snapshot_hash", reference_hash);
+
+  json::object result;
+  result.emplace("name", kRoyaleCaseName);
+  result.emplace("player_count", kRoyaleSeatCount);
+  result.emplace("deployment", std::move(deployment));
+  result.emplace("correctness", std::move(correctness));
+  result.emplace("measurements", std::move(measurements));
+  result.emplace("budget", std::move(budget));
+  return result;
+}
+
 void record_retained_snapshot_count(const SnapshotLifetimeTracker& lifetime_tracker,
                                     const std::size_t future_input_count,
                                     std::size_t& maximum_retained_snapshot_count) {
@@ -995,7 +1366,7 @@ void run_warmup(const Scenario& scenario, const WorldSnapshot& reference_snapsho
   return metadata;
 }
 
-[[nodiscard]] json::object run_benchmarks() {
+[[nodiscard]] json::object run_benchmarks(const RoyaleCaseInputs& royale_inputs) {
   constexpr Scenario scenarios[] = {
       {.name = "sparse_64",
        .player_count = 64,
@@ -1066,6 +1437,7 @@ void run_warmup(const Scenario& scenario, const WorldSnapshot& reference_snapsho
   for (const Scenario& scenario : scenarios) {
     case_results.emplace_back(benchmark_scenario(scenario));
   }
+  case_results.emplace_back(benchmark_royale_case(royale_inputs));
 
   json::object output;
   output.emplace("schema", kBenchmarkSchema);
@@ -1095,20 +1467,27 @@ void run_warmup(const Scenario& scenario, const WorldSnapshot& reference_snapsho
 } // namespace
 } // namespace blob_royale::benchmarks
 
-int main(const int argument_count, const char* const[]) {
+int main(const int argument_count, const char* const arguments[]) {
   namespace json = boost::json;
   using blob_royale::benchmarks::BenchmarkError;
   using blob_royale::benchmarks::error_output;
+  using blob_royale::benchmarks::RoyaleCaseInputs;
   using blob_royale::benchmarks::run_benchmarks;
 
   try {
-    if (argument_count != 1) {
-      std::cerr << json::serialize(error_output("BENCHMARK.ARGUMENTS_UNSUPPORTED",
-                                                "blob_simulation_benchmarks accepts no arguments"))
+    // Exactly the two inputs the royale case reads, passed by `scripts/run-benchmarks-linux`.
+    if (argument_count != 5 || std::string_view(arguments[1]) != "--deployment-config" ||
+        std::string_view(arguments[3]) != "--maps-directory") {
+      std::cerr << json::serialize(
+                       error_output("BENCHMARK.ARGUMENTS_UNSUPPORTED",
+                                    "usage: blob_simulation_benchmarks --deployment-config <path> "
+                                    "--maps-directory <path>"))
                 << '\n';
       return 64;
     }
-    std::cout << json::serialize(run_benchmarks()) << '\n';
+    const RoyaleCaseInputs royale_inputs{.deployment_configuration = arguments[2],
+                                         .maps_directory = arguments[4]};
+    std::cout << json::serialize(run_benchmarks(royale_inputs)) << '\n';
     return 0;
   } catch (const BenchmarkError& error) {
     std::cerr << json::serialize(error_output(error.code(), error.what())) << '\n';

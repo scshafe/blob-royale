@@ -30,6 +30,34 @@ cutover even at identical player counts.
 The protocol case measures **v1** `encode_snapshot_message`. Protocol v2 snapshot encoding, command
 decoding, and the `SessionWebSocketSession` path are not measured by this suite.
 
+## The royale case
+
+`royale_deployed_roster` is the one case that **is** a live match, and it is the measurement ADR
+0006 (`docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision") states its per-room
+budget against: **a mean step of at most 250 µs and a p99 of at most 1 ms** at the deployed roster.
+The runner passes the executable `--deployment-config deploy/ubuntu-pc/blob-royale.cfg` and
+`--maps-directory maps`, and the case reads the deployed `[simulation]`, `[royale]`, and
+`[hazard.*]` sections through the production `ApplicationConfigLoader` and the named map through
+the production `MapLoader`, so it cannot drift from the deployment. The one value it changes is the
+lobby: the deployed four seats are widened to the eight the budget is stated for, and the output
+carries both numbers.
+
+Each sample builds a fresh simulation, spawns and joins eight controllers and presses Start on tick
+1, carries the match through the deployed countdown with empty ticks, and then times **each
+`step` individually** for 6,400 running ticks -- sixteen seconds, which crosses every spawn tick of
+both deployed hazard kinds. Every tick carries the reservation the runtime would give it, so the
+zone entity and the hazards are created exactly as in production; the deployed comet is lethal,
+so the field thins as comets cross it, and the output carries the player count at both ends of the
+window. The per-sample mean, median,
+p99, and maximum are reported as raw samples and as robust summaries across the nine samples; the
+`budget` block compares the median-across-samples mean and p99 against the ADR's numbers and
+**reports** the answer without enforcing it. Snapshot creation of the running world is timed
+separately. The final snapshot of every timed sample must hash-match an untimed reference, which
+is what makes a seeded hazard table a benchmark rather than a random one.
+
+The number is authoritative only on `cole-ubuntu-pc`; read the `platform` block before believing
+it anywhere else, and record the native result in ADR 0006 as a dated amendment.
+
 ## Measurement contract
 
 - Run `./scripts/run-benchmarks-linux`. Host invocations re-enter through the pinned Linux/amd64
@@ -92,6 +120,7 @@ add_subdirectory(benchmarks)
 ```
 
 `benchmarks/CMakeLists.txt` declares `blob_simulation_benchmarks` and links the canonical
-simulation, protocol, and server targets plus Boost.JSON for the machine-readable report. The
-server link exists solely to exercise its production bounded delivery state; the benchmark opens
-no listener and owns no transport or runtime clock.
+simulation, gameplay, application-input, protocol, and server targets plus Boost.JSON for the
+machine-readable report. The server link exists solely to exercise its production bounded delivery
+state, and the application-input link solely to read the deployed configuration and map for the
+royale case; the benchmark opens no listener and owns no transport or runtime clock.

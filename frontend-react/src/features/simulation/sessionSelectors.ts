@@ -1,7 +1,9 @@
+import { SimulationApiError } from './SimulationApiError';
 import type {
   SessionEntitySnapshot,
   SessionMatchSection,
   SessionPlacement,
+  SessionVector2,
 } from './simulationProtocolTypes';
 
 /**
@@ -491,6 +493,202 @@ export function hillHudReport({
   };
 }
 
+/** A finish record survives the entity it names; controller identity recognizes the own result. */
+export interface RaceStanding {
+  readonly entity_id: number;
+  readonly controller_id: number;
+  readonly placement: number;
+  readonly finished_tick: number;
+}
+
+/** The schema-correlated race block shared by the course renderer, HUD, and results. */
+export interface RaceModeState {
+  readonly track_half_width: number;
+  readonly checkpoint_radius: number;
+  readonly track: readonly SessionVector2[];
+  readonly checkpoints: readonly SessionVector2[];
+  readonly time_limit_ticks: number;
+  readonly finish_window_ticks: number;
+  readonly standings: readonly RaceStanding[];
+}
+
+const RACE_MODE_STATE_SCHEMA_ID: SessionMatchSection['mode_state']['schema_id'] =
+  'blob-royale://protocol/v2/mode-state/race';
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0;
+}
+
+function isRacePoint(value: unknown): value is SessionVector2 {
+  return (
+    isRecord(value) &&
+    typeof value.x === 'number' &&
+    Number.isFinite(value.x) &&
+    typeof value.y === 'number' &&
+    Number.isFinite(value.y)
+  );
+}
+
+function isRaceStanding(value: unknown): value is RaceStanding {
+  return (
+    isRecord(value) &&
+    [
+      value.entity_id,
+      value.controller_id,
+      value.placement,
+      value.finished_tick,
+    ].every((member) => (publishedCount(member) ?? 0) > 0)
+  );
+}
+
+/**
+ * @canonical race_mode_state -- resolves the schema/value correlation once for every client reader.
+ * Input is a schema-validated match or null. Other modes return null; a malformed known block is an
+ * internal invariant failure, never an apparently successful frame with its race section missing.
+ */
+export function raceModeState(
+  match: SessionMatchSection | null,
+): RaceModeState | null {
+  if (
+    match === null ||
+    match.mode_state.schema_id !== RACE_MODE_STATE_SCHEMA_ID
+  ) {
+    return null;
+  }
+  const block: unknown = match.mode_state.value;
+  if (
+    !isRecord(block) ||
+    !isPositiveNumber(block.track_half_width) ||
+    !isPositiveNumber(block.checkpoint_radius) ||
+    !Array.isArray(block.track) ||
+    block.track.length < 2 ||
+    !block.track.every(isRacePoint) ||
+    !Array.isArray(block.checkpoints) ||
+    block.checkpoints.length < 1 ||
+    !block.checkpoints.every(isRacePoint) ||
+    publishedCount(block.time_limit_ticks) === null ||
+    publishedCount(block.finish_window_ticks) === null ||
+    !Array.isArray(block.standings) ||
+    !block.standings.every(isRaceStanding)
+  ) {
+    throw new SimulationApiError(
+      'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      'Cannot read the race mode state from a malformed validated match.',
+      { context: { schema_id: match.mode_state.schema_id } },
+    );
+  }
+  // JSON Schema validates the full closed shape at ingress. These guards make the generated open
+  // value type usable and expose internal callers that bypass that boundary.
+  return block as unknown as RaceModeState;
+}
+
+/** The recorded finish order with names from live entities when they still exist. */
+export interface RaceStandingsRow {
+  readonly controllerId: number;
+  readonly displayName: string;
+  readonly entityId: number;
+  readonly isOwn: boolean;
+  readonly placement: number;
+}
+
+/** Everything the race HUD says, resolved from committed ticks and the recorded finish order. */
+export interface RaceHudReport {
+  readonly checkpointCount: number;
+  readonly ownCheckpointCount: number | null;
+  readonly ownStanding: RaceStanding | null;
+  readonly respawnSeconds: number | null;
+  readonly awaitingReturn: 'checkpoint' | 'grid' | null;
+  readonly standings: readonly RaceStandingsRow[];
+  readonly timeRemainingSeconds: number | null;
+  readonly finishWindowRemainingSeconds: number | null;
+}
+
+export interface RaceHudInput extends HillHudInput {
+  readonly ownControllerId: number | null;
+}
+
+/**
+ * Resolves the local racer's gates and return state, plus every recorded finisher without creating
+ * a distance ranking. Once a finish is recorded its window replaces the running time limit, as in
+ * RaceObjective. A bodyless participant whose timer is gone is still waiting for a clear return
+ * point, including the tick between timer expiry and the next seating attempt.
+ */
+export function raceHudReport({
+  entities,
+  match,
+  ownControllerId,
+  ownEntityId,
+  tickSequence,
+  ticksPerSecond,
+}: RaceHudInput): RaceHudReport | null {
+  const state = raceModeState(match);
+  if (state === null) {
+    return null;
+  }
+  const ownEntity = findEntityById(entities, ownEntityId);
+  const ownStanding =
+    state.standings.find(
+      (standing) => standing.controller_id === ownControllerId,
+    ) ?? null;
+  const ownProgress = ownEntity?.components.race_progress;
+  const waitingForReturn =
+    match?.phase === 'running' &&
+    ownProgress !== undefined &&
+    ownEntity?.components.physics_body === undefined;
+  const timerSeconds = respawnCountdownSeconds(
+    entities,
+    ownEntityId,
+    ticksPerSecond,
+  );
+  const firstFinish = state.standings[0];
+  return {
+    checkpointCount: state.checkpoints.length,
+    ownCheckpointCount:
+      ownStanding !== null
+        ? state.checkpoints.length
+        : (ownProgress?.next_checkpoint ?? null),
+    ownStanding,
+    respawnSeconds:
+      waitingForReturn && ticksPerSecond > 0 ? (timerSeconds ?? 0) : null,
+    awaitingReturn:
+      waitingForReturn && timerSeconds === null
+        ? ownProgress.next_checkpoint === 0
+          ? 'grid'
+          : 'checkpoint'
+        : null,
+    standings: state.standings.map((standing) => ({
+      controllerId: standing.controller_id,
+      displayName:
+        findEntityById(entities, standing.entity_id)?.components.controllable
+          ?.display_name ?? `entity ${standing.entity_id}`,
+      entityId: standing.entity_id,
+      isOwn: standing.controller_id === ownControllerId,
+      placement: standing.placement,
+    })),
+    timeRemainingSeconds:
+      firstFinish === undefined
+        ? runningTimeRemainingSeconds(
+            match,
+            tickSequence,
+            ticksPerSecond,
+            state.time_limit_ticks,
+          )
+        : null,
+    finishWindowRemainingSeconds:
+      firstFinish !== undefined &&
+      match?.phase === 'running' &&
+      tickSequence !== null &&
+      tickSequence >= firstFinish.finished_tick &&
+      ticksPerSecond > 0
+        ? Math.max(
+            0,
+            state.finish_window_ticks -
+              (tickSequence - firstFinish.finished_tick),
+          ) / ticksPerSecond
+        : null,
+  };
+}
+
 export interface MatchOverlayDescription {
   readonly detail: string;
   readonly title: string;
@@ -534,11 +732,49 @@ function pointsLabel(points: number): string {
 function describeEndedMatch({
   entities,
   match,
+  ownControllerId,
   ownEntityId,
 }: MatchOverlayInput & {
   readonly match: SessionMatchSection;
 }): MatchOverlayDescription {
   const { outcome } = match;
+  const race = raceModeState(match);
+  if (race !== null) {
+    if (outcome.kind === 'drawn') {
+      return {
+        title: 'Draw',
+        detail: !entities.some(
+          (entity) => entity.components.controllable !== undefined,
+        )
+          ? 'No racers remained. The next lobby opens shortly.'
+          : race.standings.some((standing) => standing.placement === 1)
+            ? 'The first finishers crossed on the same tick. The next lobby opens shortly.'
+            : 'Time ran out with the lead tied on gates taken. The next lobby opens shortly.',
+      };
+    }
+    if (outcome.kind === 'won_by_entity' && outcome.winner_entity_id !== null) {
+      const winningStanding = race.standings.find(
+        (standing) => standing.entity_id === outcome.winner_entity_id,
+      );
+      const isOwnWin =
+        outcome.winner_entity_id === ownEntityId ||
+        (ownControllerId !== null &&
+          winningStanding?.controller_id === ownControllerId);
+      const winner = isOwnWin
+        ? 'You'
+        : winnerLabel(entities, outcome.winner_entity_id);
+      const winningProgress = findEntityById(entities, outcome.winner_entity_id)
+        ?.components.race_progress;
+      return {
+        title: isOwnWin ? 'You win' : 'Winner',
+        detail:
+          winningStanding !== undefined
+            ? `${winner} finished #${winningStanding.placement}.`
+            : `${winner} led on gates taken when time ran out${winningProgress === undefined ? '' : ` (${winningProgress.next_checkpoint} of ${race.checkpoints.length})`}.`,
+      };
+    }
+    return { title: 'Match over', detail: 'The next lobby opens shortly.' };
+  }
   const isHill = kingOfTheHillRules(match) !== null;
   if (outcome.kind === 'drawn') {
     return {
@@ -599,15 +835,26 @@ export function describeMatchOverlay(
   if (match.phase === 'countdown') {
     return {
       detail:
-        kingOfTheHillRules(match) === null
-          ? 'Get ready: the zone starts shrinking when the match begins.'
-          : 'Get ready: hold the hill to score once the match begins.',
+        raceModeState(match) !== null
+          ? 'Get ready: take each gate in order and stay on the road.'
+          : kingOfTheHillRules(match) === null
+            ? 'Get ready: the zone starts shrinking when the match begins.'
+            : 'Get ready: hold the hill to score once the match begins.',
       title: 'Match starting',
     };
   }
 
   if (ownEntityId !== null) {
     return null;
+  }
+  const ownFinish = raceModeState(match)?.standings.find(
+    (standing) => standing.controller_id === ownControllerId,
+  );
+  if (ownFinish !== undefined) {
+    return {
+      title: 'Finished',
+      detail: `You finished #${ownFinish.placement}. The other racers can finish until the window closes.`,
+    };
   }
   const placement = findPlacementForController(match, ownControllerId);
   if (placement !== null) {

@@ -13,6 +13,7 @@ import {
   findPlacementForController,
   hillHudReport,
   phaseElapsedSeconds,
+  raceHudReport,
   zoneExposureReport,
 } from './sessionSelectors';
 import type { SimulationConnection } from './useSimulationConnection';
@@ -130,6 +131,15 @@ export function SimulationViewer({
                 tickSequence,
                 connection.configuration.simulation.ticks_per_second,
               )}
+              race={raceHudReport({
+                entities: connection.entities,
+                match: connection.match,
+                ownControllerId: controllerId,
+                ownEntityId: connection.ownEntityId,
+                tickSequence,
+                ticksPerSecond:
+                  connection.configuration.simulation.ticks_per_second,
+              })}
               thrust={thrust}
               zoneExposure={zoneExposureReport(
                 connection.entities,

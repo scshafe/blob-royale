@@ -10,6 +10,7 @@ import type {
   SessionWorldSnapshot,
 } from './simulationProtocolTypes';
 import { visualEntityRenderers } from './rendering/entityRendererRegistry';
+import { modeStateRendererRegistry } from './rendering/modeStateRendererRegistry';
 import { countAlivePlayers, eliminationGraceTicks } from './sessionSelectors';
 
 export interface SimulationCanvasProps {
@@ -47,8 +48,8 @@ function calculateCanvasViewport(
 
 /**
  * Draws only validated immutable values and never owns transport state. It names no component kind:
- * every pixel comes from `entityRendererRegistry`, so a new kind is a renderer file plus one
- * registration and this file does not change.
+ * geometry comes from `modeStateRendererRegistry` once per frame, then `entityRendererRegistry`
+ * across each entity layer. New kinds and blocks add registrations rather than canvas branches.
  */
 export function SimulationCanvas({
   configuration,
@@ -89,6 +90,12 @@ export function SimulationCanvas({
       surface: context,
     };
     const renderedEntities = snapshot.entities.slice(0, SESSION_ENTITY_LIMIT);
+
+    const modeStateRenderer =
+      modeStateRendererRegistry[snapshot.match.mode_state.schema_id];
+    if (modeStateRenderer.renders) {
+      modeStateRenderer.drawModeState(snapshot.match, frame);
+    }
 
     for (const renderer of visualEntityRenderers()) {
       for (const entity of renderedEntities) {

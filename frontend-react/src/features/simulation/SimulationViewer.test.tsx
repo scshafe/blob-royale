@@ -11,6 +11,8 @@ import type { SessionEntitySnapshot } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import {
   hillSnapshotDocument,
+  raceScenarioDocument,
+  type RaceSnapshotScenario,
   snapshotDocument,
 } from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
@@ -62,6 +64,29 @@ function createConnection(
     snapshot,
     status: 'connected',
     ...overrides,
+  });
+}
+
+function createRaceConnection(
+  scenario: RaceSnapshotScenario = 'running',
+  controllerId = 3,
+): SimulationConnection {
+  const document = raceScenarioDocument(scenario);
+  const frame = validateSessionSnapshotMessage(document, {
+    messageSequence: 1,
+    requestId: document.meta.request_id,
+    tickSequence: null,
+  });
+  return createConnection({
+    entities: frame.data.entities,
+    match: frame.data.match,
+    ownEntityId:
+      frame.data.entities.find(
+        (entity) =>
+          entity.components.controllable?.controller_id === controllerId,
+      )?.entity_id ?? null,
+    session: { ...session, controllerId, mode: 'race' },
+    snapshot: frame,
   });
 }
 
@@ -541,5 +566,147 @@ describe('SimulationViewer', () => {
     expect(
       screen.getByText('wanderer-1 held the hill with 6 points.'),
     ).toBeVisible();
+  });
+
+  it('shows race gates and its clock while keeping unfinished racers out of the standings', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection()}
+        thrust={zeroThrust}
+      />,
+    );
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(within(hud).getByRole('row', { name: 'Gate 1 of 3' })).toBeVisible();
+    expect(
+      within(hud).getByRole('row', { name: 'Time left 235.0 s' }),
+    ).toBeVisible();
+    expect(
+      within(hud).queryByRole('rowheader', { name: 'Placement' }),
+    ).toBeNull();
+    expect(
+      within(screen.getByRole('table', { name: 'Standings' })).getByText(
+        'No finishers yet',
+      ),
+    ).toBeVisible();
+  });
+
+  it('switches from the race clock to the finish window when the first standing arrives', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection()}
+        thrust={zeroThrust}
+      />,
+    );
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection('finish_window')}
+        thrust={zeroThrust}
+      />,
+    );
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).queryByRole('rowheader', { name: 'Time left' }),
+    ).toBeNull();
+    expect(
+      within(hud).getByRole('row', { name: 'Finish window 4.0 s' }),
+    ).toBeVisible();
+    expect(within(hud).getByRole('row', { name: 'Gate 3 of 3' })).toBeVisible();
+    expect(
+      within(screen.getByRole('table', { name: 'Standings' })).getByRole(
+        'row',
+        { name: 'You #1' },
+      ),
+    ).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('keeps a bodyless racer visible through timer expiry and an occupied checkpoint wait', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection('running', 5)}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(
+      screen.getByRole('row', { name: 'Return Back on the road in 0.8 s' }),
+    ).toHaveClass('MatchHudDanger');
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection('awaiting_checkpoint', 5)}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(
+      screen.getByRole('row', {
+        name: 'Return Back on the road in 0.0 s · waiting for a clear checkpoint',
+      }),
+    ).toBeVisible();
+    expect(screen.queryByText('Eliminated')).toBeNull();
+    expect(screen.queryByText('Waiting for the next match')).toBeNull();
+  });
+
+  it('announces an own race finish from the recorded controller after its entity is absent', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection('own_finish_after_wipe')}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(screen.getByText('You win')).toBeVisible();
+    expect(screen.getByText('You finished #1.')).toBeVisible();
+    expect(
+      within(screen.getByRole('table', { name: 'Standings' })).getByRole(
+        'row',
+        { name: 'You #1' },
+      ),
+    ).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('renders shared finish ranks and the race draw instead of elimination results', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection('tied_finish')}
+        thrust={zeroThrust}
+      />,
+    );
+    const standings = screen.getByRole('table', { name: 'Standings' });
+    expect(
+      within(standings)
+        .getAllByRole('row')
+        .map((row) => row.textContent),
+    ).toEqual(['You#1', 'wanderer-1#1']);
+    expect(
+      screen.getByText(
+        'The first finishers crossed on the same tick. The next lobby opens shortly.',
+      ),
+    ).toBeVisible();
+  });
+
+  it('announces a gate leader when the clock ends a race without a finisher', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createRaceConnection('clock_win')}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(
+      screen.getByText(
+        'wanderer-1 led on gates taken when time ran out (2 of 3).',
+      ),
+    ).toBeVisible();
+    expect(screen.getByText('No finishers yet')).toBeVisible();
   });
 });

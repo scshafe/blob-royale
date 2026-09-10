@@ -1,5 +1,6 @@
 import type {
   HillHudReport,
+  RaceHudReport,
   ScoreboardRow,
   ZoneExposureReport,
 } from './sessionSelectors';
@@ -20,6 +21,8 @@ export interface SimulationHudProps {
   readonly ownEntityId: number | null;
   readonly ownPlacement: SessionPlacement | null;
   readonly phaseElapsedSeconds: number | null;
+  /** The race section, present exactly when the frame carries the race schema id. */
+  readonly race: RaceHudReport | null;
   readonly thrust: ThrustDirection;
   readonly zoneExposure: ZoneExposureReport | null;
 }
@@ -164,6 +167,76 @@ function ScoreboardTable({
   );
 }
 
+function RaceRows({ race }: { readonly race: RaceHudReport }) {
+  return (
+    <>
+      <tr>
+        <th scope="row">Gate</th>
+        <td>
+          {race.ownCheckpointCount === null
+            ? '—'
+            : `${race.ownCheckpointCount} of ${race.checkpointCount}`}
+        </td>
+      </tr>
+      {race.timeRemainingSeconds === null ? null : (
+        <tr>
+          <th scope="row">Time left</th>
+          <td>{formatSeconds(race.timeRemainingSeconds)}</td>
+        </tr>
+      )}
+      {race.finishWindowRemainingSeconds === null ? null : (
+        <tr>
+          <th scope="row">Finish window</th>
+          <td>{formatSeconds(race.finishWindowRemainingSeconds)}</td>
+        </tr>
+      )}
+      {race.ownStanding === null ? null : (
+        <tr>
+          <th scope="row">Finish</th>
+          <td>#{race.ownStanding.placement}</td>
+        </tr>
+      )}
+      {race.respawnSeconds === null ? null : (
+        <tr className="MatchHudDanger">
+          <th scope="row">Return</th>
+          <td>
+            Back on the road in {formatSeconds(race.respawnSeconds)}
+            {race.awaitingReturn === null
+              ? null
+              : ` · waiting for a clear ${race.awaitingReturn === 'grid' ? 'starting grid space' : 'checkpoint'}`}
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function RaceStandingsTable({ race }: { readonly race: RaceHudReport }) {
+  return (
+    <table className="MatchHud Scoreboard">
+      <caption>Standings</caption>
+      <tbody>
+        {race.standings.length === 0 ? (
+          <tr>
+            <td colSpan={2}>No finishers yet</td>
+          </tr>
+        ) : (
+          race.standings.map((row) => (
+            <tr
+              aria-current={row.isOwn ? 'true' : undefined}
+              className={row.isOwn ? 'MatchHudOwn' : undefined}
+              key={row.entityId}
+            >
+              <th scope="row">{row.isOwn ? 'You' : row.displayName}</th>
+              <td>#{row.placement}</td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  );
+}
+
 function formatThrust(thrust: ThrustDirection): string {
   return thrust.x === 0 && thrust.y === 0
     ? 'idle'
@@ -202,6 +275,7 @@ export function SimulationHud({
   ownEntityId,
   ownPlacement,
   phaseElapsedSeconds,
+  race,
   thrust,
   zoneExposure,
 }: SimulationHudProps) {
@@ -237,6 +311,7 @@ export function SimulationHud({
           {hill === null ? null : (
             <HillRow hill={hill} isOwnBodyPresent={isOwnBodyPresent} />
           )}
+          {race === null ? null : <RaceRows race={race} />}
           {zoneExposure === null ? null : (
             <tr className="MatchHudDanger">
               <th scope="row">Zone exposure</th>
@@ -247,7 +322,7 @@ export function SimulationHud({
             <th scope="row">Alive</th>
             <td>{aliveCount}</td>
           </tr>
-          {hill === null ? (
+          {hill === null && race === null ? (
             <tr>
               <th scope="row">Placement</th>
               <td>{formatPlacement(ownPlacement, isOwnBodyPresent)}</td>
@@ -262,6 +337,7 @@ export function SimulationHud({
       {hill === null ? null : (
         <ScoreboardTable ownEntityId={ownEntityId} rows={hill.scoreboard} />
       )}
+      {race === null ? null : <RaceStandingsTable race={race} />}
     </>
   );
 }

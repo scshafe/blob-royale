@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   hillSnapshotDocument,
+  raceScenarioDocument,
+  type RaceSnapshotScenario,
   snapshotDocument,
 } from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
@@ -17,6 +19,8 @@ import {
   hillProgressFraction,
   kingOfTheHillRules,
   phaseElapsedSeconds,
+  raceHudReport,
+  raceModeState,
   respawnCountdownSeconds,
   runningTimeRemainingSeconds,
   scoreboard,
@@ -50,6 +54,40 @@ function hillMatchWith(
   overrides: Partial<SessionMatchSection>,
 ): SessionMatchSection {
   return { ...hill.match, ...overrides };
+}
+
+function raceFrame(scenario: RaceSnapshotScenario = 'running') {
+  const document = raceScenarioDocument(scenario);
+  return validateSessionSnapshotMessage(document, {
+    messageSequence: 1,
+    requestId: document.meta.request_id,
+    tickSequence: null,
+  }).data;
+}
+
+function raceReport(
+  scenario: RaceSnapshotScenario = 'running',
+  ownControllerId = 3,
+) {
+  const frame = raceFrame(scenario);
+  return raceHudReport({
+    entities: frame.entities,
+    match: frame.match,
+    ownControllerId,
+    ownEntityId: findOwnEntityId(frame.entities, ownControllerId),
+    tickSequence: frame.tick_sequence,
+    ticksPerSecond: 400,
+  });
+}
+
+function raceOverlay(scenario: RaceSnapshotScenario, ownControllerId = 3) {
+  const frame = raceFrame(scenario);
+  return describeMatchOverlay({
+    entities: frame.entities,
+    match: frame.match,
+    ownControllerId,
+    ownEntityId: findOwnEntityId(frame.entities, ownControllerId),
+  });
 }
 
 describe('sessionSelectors', () => {
@@ -542,6 +580,187 @@ describe('sessionSelectors for the hill', () => {
     ).toEqual({
       detail: 'Nobody took the hill outright. The next lobby opens shortly.',
       title: 'Draw',
+    });
+  });
+});
+
+describe('sessionSelectors for the race', () => {
+  it('selects the complete course by schema id independently of the open mode name', () => {
+    const frame = raceFrame();
+    expect(raceModeState({ ...frame.match, mode: 'custom_race_name' })).toEqual(
+      frame.match.mode_state.value,
+    );
+    expect(raceModeState(snapshot.match)).toBeNull();
+    expect(raceModeState(hill.match)).toBeNull();
+    expect(raceModeState(null)).toBeNull();
+  });
+
+  it('fails visibly if an internal caller supplies a malformed known race block', () => {
+    const frame = raceFrame();
+    expect(() =>
+      raceModeState({
+        ...frame.match,
+        mode_state: { ...frame.match.mode_state, value: {} },
+      }),
+    ).toThrow('Cannot read the race mode state');
+  });
+
+  it('reports gates taken and tick-derived running time without inventing standings', () => {
+    expect(raceReport()).toMatchObject({
+      checkpointCount: 3,
+      ownCheckpointCount: 1,
+      ownStanding: null,
+      standings: [],
+      timeRemainingSeconds: 235,
+      finishWindowRemainingSeconds: null,
+      respawnSeconds: null,
+    });
+  });
+
+  it('replaces the running clock with the first finish window and clamps its expiry', () => {
+    expect(raceReport('finish_window')).toMatchObject({
+      ownCheckpointCount: 3,
+      ownStanding: { placement: 1 },
+      timeRemainingSeconds: null,
+      finishWindowRemainingSeconds: 4,
+    });
+    expect(
+      raceReport('finish_window_expired')?.finishWindowRemainingSeconds,
+    ).toBe(0);
+  });
+
+  it('keeps simultaneous finishers in recorded order and preserves their shared rank', () => {
+    expect(raceReport('tied_finish')?.standings).toEqual([
+      {
+        controllerId: 3,
+        displayName: 'Cole Shaffer',
+        entityId: 7,
+        isOwn: true,
+        placement: 1,
+      },
+      {
+        controllerId: 4,
+        displayName: 'wanderer-1',
+        entityId: 8,
+        isOwn: false,
+        placement: 1,
+      },
+    ]);
+  });
+
+  it('recognizes an own finish by its recorded controller after the entity disappears', () => {
+    expect(raceReport('own_finish_after_wipe')).toMatchObject({
+      ownCheckpointCount: 3,
+      ownStanding: { entity_id: 7, controller_id: 3, placement: 1 },
+      standings: [
+        { entityId: 7, displayName: 'entity 7', isOwn: true, placement: 1 },
+      ],
+    });
+  });
+
+  it('reports a bodyless racer countdown and a zero-time wait until its checkpoint clears', () => {
+    expect(raceReport('running', 5)).toMatchObject({
+      ownCheckpointCount: 1,
+      respawnSeconds: 0.75,
+      awaitingReturn: null,
+    });
+    expect(raceReport('awaiting_checkpoint', 5)).toMatchObject({
+      ownCheckpointCount: 1,
+      respawnSeconds: 0,
+      awaitingReturn: 'checkpoint',
+    });
+    expect(raceReport('awaiting_grid', 5)).toMatchObject({
+      ownCheckpointCount: 0,
+      respawnSeconds: 0,
+      awaitingReturn: 'grid',
+    });
+  });
+
+  it('shows no race timer during countdown or for a session with no participating entity', () => {
+    expect(raceReport('countdown')).toMatchObject({
+      timeRemainingSeconds: null,
+      finishWindowRemainingSeconds: null,
+    });
+    expect(raceReport('running', 99)).toMatchObject({
+      ownCheckpointCount: null,
+      respawnSeconds: null,
+      awaitingReturn: null,
+    });
+    expect(raceOverlay('awaiting_checkpoint', 5)).toBeNull();
+  });
+
+  it('retains both a recorded finish and the return countdown after a finisher loses its body', () => {
+    expect(raceReport('finished_respawning')).toMatchObject({
+      ownCheckpointCount: 3,
+      ownStanding: { placement: 1 },
+      respawnSeconds: 0.75,
+    });
+  });
+
+  it('announces a recorded own win after a wipe and a gate leader when nobody finished', () => {
+    expect(raceOverlay('own_finish_after_wipe')).toEqual({
+      title: 'You win',
+      detail: 'You finished #1.',
+    });
+    expect(raceOverlay('clock_win')).toEqual({
+      title: 'Winner',
+      detail: 'wanderer-1 led on gates taken when time ran out (2 of 3).',
+    });
+  });
+
+  it('distinguishes a shared finish from a gate-count tie and an empty field draw', () => {
+    expect(raceOverlay('tied_finish')).toEqual({
+      title: 'Draw',
+      detail:
+        'The first finishers crossed on the same tick. The next lobby opens shortly.',
+    });
+    expect(raceOverlay('clock_draw')).toEqual({
+      title: 'Draw',
+      detail:
+        'Time ran out with the lead tied on gates taken. The next lobby opens shortly.',
+    });
+    expect(raceOverlay('empty_draw')).toEqual({
+      title: 'Draw',
+      detail: 'No racers remained. The next lobby opens shortly.',
+    });
+    expect(raceOverlay('empty_draw_after_finish')).toEqual({
+      title: 'Draw',
+      detail: 'No racers remained. The next lobby opens shortly.',
+    });
+  });
+
+  it('explains ordered gates during countdown', () => {
+    expect(raceOverlay('countdown')).toEqual({
+      title: 'Match starting',
+      detail: 'Get ready: take each gate in order and stay on the road.',
+    });
+  });
+
+  it('keeps a recorded finisher out of the next-match waiting overlay without a live entity', () => {
+    const document = raceScenarioDocument('own_finish_after_wipe');
+    document.data.match.phase = 'running';
+    document.data.match.phase_started_tick = 10904;
+    document.data.match.outcome = {
+      kind: 'none',
+      winner_entity_id: null,
+      winner_team_id: null,
+    };
+    const frame = validateSessionSnapshotMessage(document, {
+      messageSequence: 1,
+      requestId: document.meta.request_id,
+      tickSequence: null,
+    }).data;
+    expect(
+      describeMatchOverlay({
+        entities: frame.entities,
+        match: frame.match,
+        ownControllerId: 3,
+        ownEntityId: null,
+      }),
+    ).toEqual({
+      title: 'Finished',
+      detail:
+        'You finished #1. The other racers can finish until the window closes.',
     });
   });
 });

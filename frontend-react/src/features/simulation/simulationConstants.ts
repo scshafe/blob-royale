@@ -36,3 +36,13 @@ export const SEAT_COUNT_COMMAND_DEBOUNCE_MILLISECONDS = 250;
 export const CANVAS_MAX_WIDTH_PIXELS = 960;
 export const CANVAS_MAX_HEIGHT_PIXELS = 640;
 export const DEBUG_ENTITY_ROW_LIMIT = 100;
+
+// The course is map geometry beneath entity layers; the terminal gate also has a heavier rim and
+// a Finish label, so color is not its only distinction from an ordinary checkpoint.
+export const RACE_COURSE_FILL = '#dbeafe';
+export const RACE_CHECKPOINT_FILL = 'rgba(255, 255, 255, 0.7)';
+export const RACE_CHECKPOINT_STROKE = '#1d4ed8';
+export const RACE_FINISH_FILL = '#bbf7d0';
+export const RACE_FINISH_STROKE = '#166534';
+export const RACE_GATE_STROKE_WIDTH = 2;
+export const RACE_GATE_LABEL_FONT = 'bold 12px system-ui';

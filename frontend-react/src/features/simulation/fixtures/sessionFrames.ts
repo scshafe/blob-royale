@@ -1,4 +1,5 @@
 import {
+  raceModeStateExample,
   sessionSnapshotMessageExample,
   sessionWelcomeMessageExample,
 } from './protocolV2Examples';
@@ -145,4 +146,162 @@ export function hillSnapshotDocument(messageSequence = 2) {
     error: null,
     meta: golden.meta,
   };
+}
+
+/**
+ * A running race on the published example course: the local racer has taken one of three gates,
+ * racer-1 has taken two, and racer-2 has lost its body and is waiting 300 ticks to return to gate
+ * one. Every consumer validates this complete document against the snapshot schema before use.
+ */
+export function raceSnapshotDocument(messageSequence = 2) {
+  const golden = snapshotDocument(messageSequence);
+  const hill = hillSnapshotDocument(messageSequence);
+  return {
+    data: {
+      tick_sequence: 12904,
+      entities: hill.data.entities
+        .filter((entity) => entity.components.controllable !== undefined)
+        .map((entity) => ({
+          entity_id: entity.entity_id,
+          components: {
+            controllable: entity.components.controllable,
+            ...(entity.components.physics_body === undefined
+              ? {}
+              : { physics_body: entity.components.physics_body }),
+            ...(entity.components.respawn_timer === undefined
+              ? {}
+              : { respawn_timer: entity.components.respawn_timer }),
+            race_progress: { next_checkpoint: entity.entity_id === 8 ? 2 : 1 },
+          },
+        })),
+      match: {
+        ...hill.data.match,
+        mode: 'race',
+        outcome: {
+          kind: 'none',
+          winner_entity_id: null as number | null,
+          winner_team_id: null as number | null,
+        },
+        mode_state: {
+          schema_id: 'blob-royale://protocol/v2/mode-state/race',
+          value: {
+            ...structuredClone(raceModeStateExample),
+            standings: [] as typeof raceModeStateExample.standings,
+          },
+        },
+      },
+    },
+    error: null,
+    meta: golden.meta,
+  };
+}
+
+export type RaceSnapshotScenario =
+  | 'running'
+  | 'finish_window'
+  | 'finish_window_expired'
+  | 'finished_respawning'
+  | 'own_finish_after_wipe'
+  | 'tied_finish'
+  | 'awaiting_checkpoint'
+  | 'awaiting_grid'
+  | 'clock_win'
+  | 'clock_draw'
+  | 'empty_draw'
+  | 'empty_draw_after_finish'
+  | 'countdown';
+
+/** Named lifecycle cases built on one race fixture; outcomes and standings remain wire-shaped. */
+export function raceScenarioDocument(scenario: RaceSnapshotScenario) {
+  const document = raceSnapshotDocument();
+  const { match } = document.data;
+  const ownEntity = document.data.entities.find(
+    (entity) => entity.entity_id === 7,
+  );
+  const returningEntity = document.data.entities.find(
+    (entity) => entity.entity_id === 10,
+  );
+  if (ownEntity === undefined || returningEntity === undefined) {
+    throw new Error('TEST.RACE_FIXTURE_PARTICIPANTS_MISSING');
+  }
+  if (scenario === 'awaiting_checkpoint' || scenario === 'awaiting_grid') {
+    delete returningEntity.components.respawn_timer;
+    returningEntity.components.race_progress.next_checkpoint =
+      scenario === 'awaiting_grid' ? 0 : 1;
+  }
+  if (
+    scenario === 'finish_window' ||
+    scenario === 'finish_window_expired' ||
+    scenario === 'finished_respawning' ||
+    scenario === 'empty_draw_after_finish' ||
+    scenario === 'own_finish_after_wipe' ||
+    scenario === 'tied_finish'
+  ) {
+    ownEntity.components.race_progress.next_checkpoint = 3;
+    match.mode_state.value.standings.push({
+      entity_id: 7,
+      controller_id: 3,
+      placement: 1,
+      finished_tick: 12504,
+    });
+  }
+  if (scenario === 'finish_window_expired') {
+    document.data.tick_sequence = 14505;
+  }
+  if (scenario === 'finished_respawning') {
+    delete ownEntity.components.physics_body;
+    ownEntity.components.respawn_timer = { ticks_remaining: 300 };
+  }
+  if (scenario === 'own_finish_after_wipe') {
+    document.data.entities = document.data.entities.filter(
+      (entity) => entity.entity_id !== 7,
+    );
+    match.phase = 'ended';
+    match.phase_started_tick = document.data.tick_sequence;
+    match.outcome = {
+      kind: 'won_by_entity',
+      winner_entity_id: 7,
+      winner_team_id: null,
+    };
+  }
+  if (scenario === 'tied_finish') {
+    match.mode_state.value.standings.push({
+      entity_id: 8,
+      controller_id: 4,
+      placement: 1,
+      finished_tick: 12504,
+    });
+    match.phase = 'ended';
+    match.phase_started_tick = document.data.tick_sequence;
+    match.outcome.kind = 'drawn';
+  }
+  if (
+    scenario === 'clock_win' ||
+    scenario === 'clock_draw' ||
+    scenario === 'empty_draw'
+  ) {
+    document.data.tick_sequence = 106904;
+    match.phase = 'ended';
+    match.phase_started_tick = document.data.tick_sequence;
+    if (scenario === 'clock_win') {
+      match.outcome = {
+        kind: 'won_by_entity',
+        winner_entity_id: 8,
+        winner_team_id: null,
+      };
+    } else {
+      match.outcome.kind = 'drawn';
+      ownEntity.components.race_progress.next_checkpoint = 2;
+    }
+  }
+  if (scenario === 'empty_draw' || scenario === 'empty_draw_after_finish') {
+    document.data.entities = [];
+    match.phase = 'ended';
+    match.phase_started_tick = document.data.tick_sequence;
+    match.outcome.kind = 'drawn';
+  }
+  if (scenario === 'countdown') {
+    match.phase = 'countdown';
+  }
+  return document;
 }

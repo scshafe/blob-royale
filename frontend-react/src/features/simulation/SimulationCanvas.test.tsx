@@ -12,7 +12,10 @@ import type {
   SessionWorldSnapshot,
 } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
-import { snapshotDocument } from './fixtures/sessionFrames';
+import {
+  raceSnapshotDocument,
+  snapshotDocument,
+} from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import { validateSimulationConfigurationResponse } from './simulationProtocolValidation';
 import {
@@ -35,6 +38,9 @@ const goldenSnapshot = validateSessionSnapshotMessage(snapshotDocument(), {
 // and make every assertion on a draw call an unchecked `any`.
 function createCanvasContext() {
   const arc = vi.fn();
+  const moveTo = vi.fn();
+  const lineTo = vi.fn();
+  const restore = vi.fn();
   const fillText = vi.fn((text: string, x: number, y: number) => {
     void text;
     void x;
@@ -53,6 +59,11 @@ function createCanvasContext() {
     fillRect: vi.fn(),
     fillText,
     font: '',
+    lineTo,
+    moveTo,
+    restore,
+    save: vi.fn(),
+    scale: vi.fn(),
     stroke: vi.fn(),
     strokeRect: vi.fn(),
     textAlign: '',
@@ -67,7 +78,7 @@ function createCanvasContext() {
       assignments.strokeStyle?.push(value);
     },
   } as unknown as CanvasRenderingContext2D;
-  return { arc, assignments, context, fillText };
+  return { arc, assignments, context, fillText, lineTo, moveTo, restore };
 }
 
 function bodyEntity(entityId: number): SessionEntitySnapshot {
@@ -107,6 +118,45 @@ afterEach(() => {
 });
 
 describe('SimulationCanvas', () => {
+  it('draws the course once before entity layers and still draws it with no entities', () => {
+    const { arc, context, lineTo, moveTo, restore } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    const document = raceSnapshotDocument();
+    const race = validateSessionSnapshotMessage(document, {
+      messageSequence: 1,
+      requestId: document.meta.request_id,
+      tickSequence: null,
+    }).data;
+    const view = render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={null}
+        snapshot={{ ...race, entities: [bodyEntity(21), bodyEntity(22)] }}
+      />,
+    );
+
+    expect(moveTo).toHaveBeenCalledTimes(1);
+    expect(lineTo).toHaveBeenCalledTimes(2);
+    // Three course gates precede both body discs; restoring the course projection is the boundary.
+    expect(arc).toHaveBeenCalledTimes(5);
+    expect(restore.mock.invocationCallOrder[0]).toBeLessThan(
+      arc.mock.invocationCallOrder[3] ?? 0,
+    );
+
+    view.rerender(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={null}
+        snapshot={{ ...race, entities: [] }}
+      />,
+    );
+    expect(moveTo).toHaveBeenCalledTimes(2);
+    expect(lineTo).toHaveBeenCalledTimes(4);
+    expect(arc).toHaveBeenCalledTimes(8);
+  });
+
   it('bounds its backing buffer and the number of drawn entities', () => {
     const { arc, context } = createCanvasContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(

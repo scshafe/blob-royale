@@ -218,7 +218,7 @@ Facts the executor needs that the code does not say on its face, all verified in
 
 ### Phase 5 -- Race, client and bot
 
-- [ ] **Step 16: Draw the course and the standings in the client**
+- [x] **Step 16: Draw the course and the standings in the client**
   - Verify: `./scripts/verify-web`
   - Notes: The `modeStateRendererRegistry` seam (`@extension-point mode_state_renderer`, keyed by
     schema id, drawn once per frame before the entity layers) with the race entry drawing the
@@ -226,6 +226,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     the HUD's race section (gate `k of n`, standings, the return countdown from `respawn_timer`);
     the results overlay reading the race block. A test proves a frame whose block the registry
     does not know fails closed at validation, not in the renderer.
+  - Execution note (2026-09-09): Added the exhaustive schema-id-keyed mode-state renderer registry, with the race course drawn once before entity layers using a round world-space stroke and distinct labelled finish. The renderer and HUD share one checked race-block reader. Race HUD and results cover gate counts, recorded standings and shared finishes, durable controller identity after entity removal, the finish window taking precedence over the race clock, and timer-free waiting for an occupied return point. Existing unknown-schema ingress rejection and registry/schema parity tests pin fail-closed dispatch. The pinned Linux web gate passed all 292 client tests, generation drift, schema examples, formatting, typecheck, lint, and the production build. Source review found no defects. Independent bot and browser work was prepared in parallel; commits remain step-scoped and ordered.
 
 - [ ] **Step 17: Add the `racer` bot**
   - Verify: `./scripts/verify-focused 'unit.controllers' && ./scripts/verify-focused 'unit.controllers' linux-clang-asan-ubsan`

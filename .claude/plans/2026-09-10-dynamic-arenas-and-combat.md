@@ -2,7 +2,7 @@
 
 **Goal:** Add continuously roaming hills, shared cliff/road terrain, charge and timing-sensitive shield/stun, room movement controls, and configurable tactical opponents through shared authoritative mechanics.
 **Out of scope:** Deployment/push, finishing prior human/live race playtests, 3D/jumping, held-shield stamina, new account/host roles, LLM/RL bots, arbitrary terrain editors, rollback networking, and camera redesign.
-**Status:** Proposed; implementation has not started. Owner decisions (Step 1) and the physics prototype gate (Step 5) must be resolved before dependent implementation. Renumbered by the 2026-09-10 design review into three phases; Phase C is provisional until Step 5 passes.
+**Status:** Step 1 complete on 2026-09-10: the owner accepted ADR 0008 with the review's recommended answers, and no source has changed. The physics prototype gate (Step 5) must pass before Phase C. Renumbered by the 2026-09-10 design review into three phases; Phase C is provisional until Step 5 passes.
 
 ## Context
 
@@ -48,7 +48,7 @@
 
 ### Phase A: contracts and pure foundations
 
-- [ ] **Step 1: Approve gameplay and ownership contracts**
+- [x] **Step 1: Approve gameplay and ownership contracts**
   - Verify: human review
   - Notes: Preserve the confirmed numeric controls and live room-wide tuning. Review the remaining proposals: timed tap shield, normal propulsion cap versus burst/knockback, centre-based falls, initial timings, cooperative authority and phase admission, Apply/Reset interaction, and v3 migration. Mark ADR 0008 accepted only after the owner's decision. Amend contradictory older ADR sections explicitly; preserve historical review/deployment evidence. No source implementation before this checkpoint.
   - Decisions added by the 2026-09-10 design review, each with the recommended answer and the step that depends on it. Record every decision in ADR 0008 as a dated entry; this plan does not approve them.
@@ -56,6 +56,7 @@
     - (b) **Terrain travels once in `welcome`**, and the snapshot value carries a shared immutable reference for in-process readers that the frame encoder does not serialize. Alternative: terrain in every frame under a proven frame budget. Recommended: `welcome`; terrain never changes during a session, which is the precedent `lobby_id` and `npc_controller_kinds` already set. Refines ADR 0008 § "Wire ownership and migration". Consumed by Step 7.
     - (c) **One shared `[movement]` section** authors acceleration and normal top speed for every mode, replacing the three per-mode thrust keys. Alternative: per-mode defaults. Recommended: shared; a match-owned value seeded from three authoring homes is the second source of truth ADR 0008 forbids. Refines ADR 0008 § "Normal movement and web tuning". Consumed by Step 10.
     - (d) **The terrain cutover is expand and contract** across Steps 6, 7, and 8, with the old race road fields kept as a derived, equality-tested mirror for exactly one wire step. Alternative: the single atomic checkpoint the ADR's planning review asked for. Recommended: expand and contract; the single checkpoint is one commit across every library and the client, which cannot be reviewed or bisected and defeats Step 24. No state is authored or simulated in both places at any time. Refines ADR 0008 § "Wire ownership and migration". Consumed by Steps 6 through 8.
+  - Execution note (2026-09-10): The owner instructed execution of this step with the review's recommended answers, which is the human review this step's verify names. ADR 0008 is marked accepted with a dated § "Design review and acceptance, 2026-09-10 (plan Step 1)" recording the seven accepted first-version proposals and decisions (a) through (d) as recommended; § "Owner decisions" marks each row accepted, and five passages of the ADR carry in-place refinements pointing at that section. Dated pointers were appended to ADR 0003, ADR 0004, ADR 0005, and ADR 0007 naming the sections each later step amends and the step that lands it; those sections are otherwise unchanged and every accepted fixture stands. No source, map, configuration, schema, or protocol file changed. The planning commit `890bb9e` captured this plan and the proposed ADR as they stood; this step's changes are the commit after it.
 
 - [ ] **Step 2: Establish the swept-geometry primitive and the event-time order**
   - Verify: `./scripts/verify-focused 'unit.simulation' && ./scripts/verify-focused 'unit.simulation' linux-clang-asan-ubsan`

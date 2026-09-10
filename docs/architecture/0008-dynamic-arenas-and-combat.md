@@ -1,8 +1,8 @@
-<!-- canonical: dynamic_arenas_and_combat -- proposed shared terrain, motion, abilities, tuning, and tactical personalities -->
+<!-- canonical: dynamic_arenas_and_combat -- accepted design for shared terrain, motion, abilities, tuning, and tactical personalities -->
 
 # 8. Dynamic arenas, player abilities, and tactical personalities
 
-* **Status:** Proposed — not approved or implemented
+* **Status:** Accepted 2026-09-10 at plan Step 1; not implemented, and the solver remains unproven until the plan's Step 5 prototype gate
 * **Date:** 2026-09-10
 * **Baseline:** `b282a90`
 * **Decider:** Project owner
@@ -13,25 +13,27 @@ Make hill movement unpredictable, make opponents tactically interesting, and mak
 matter through cliffs, charge, and a timing-sensitive shield. Build these from shared capabilities,
 not parallel hill/race physics, a class per bot mood, or client-only rule changes.
 
-The camera follow-up is implemented locally at the baseline. This proposal does not imply its
+The camera follow-up is implemented locally at the baseline. This design does not imply its
 deployment, completion of human playtesting, or authorization to change the live hill server.
 The executable sequence is
 `.claude/plans/2026-09-10-dynamic-arenas-and-combat.md`.
 
-## Owner decisions and remaining proposals
+## Owner decisions
 
 On 2026-09-10, the owner confirmed adjustable numeric acceleration/top-speed controls and live,
-room-wide tuning. Other first-version choices below remain proposals, not additional requirements
-attributed to the owner or approval to implement the whole design.
+room-wide tuning, and later that day accepted the remaining first-version choices below and the
+four design-review decisions at plan Step 1 (§ "Design review and acceptance, 2026-09-10").
+Acceptance permits initial implementation through the plan's prototype gate; it is not a claim
+that the timings are balanced or that the solver is proven.
 
 | Choice | Decision / recommendation | Alternative / consequence |
 |---|---|---|
-| Movement controls | **Confirmed:** adjustable numeric acceleration and top-speed controls | **Proposed:** normal propulsion ceiling semantics, Apply/Reset, and finite safety bounds; no on/off-only or unlimited-speed setting. |
+| Movement controls | **Confirmed:** adjustable numeric acceleration and top-speed controls | **Accepted 2026-09-10:** normal propulsion ceiling semantics, Apply/Reset, and finite safety bounds; no on/off-only or unlimited-speed setting. |
 | When tuning applies | **Confirmed:** live, room-wide, applied atomically on an authoritative server tick | Publish the same revision/effective tick to everyone in the room; do not defer running-match changes until the next match. |
-| Shield interaction | Tap to activate a short timed shield | A held shield needs hold/release intent and stamina/recharge policy; leave this out of the first version unless requested. |
-| Perfect-shield benefit | Zero the incoming dynamic object's momentum and apply a temporary input lock | Not a frozen/static object: other impacts may still move it. |
-| Falling | A player's centre entering void causes elimination; charge does not jump | A body-radius fall threshold or jumping is a different mechanic. |
-| Session protocol | A coordinated v3 session contract | v2.6 can retain derived duplicate road fields temporarily, but needs a removal migration. Do not keep two permanent road representations. |
+| Shield interaction | **Accepted 2026-09-10:** tap to activate a short timed shield | A held shield needs hold/release intent and stamina/recharge policy; leave this out of the first version unless requested. |
+| Perfect-shield benefit | **Accepted 2026-09-10:** zero the incoming dynamic object's momentum and apply a temporary input lock | Not a frozen/static object: other impacts may still move it. |
+| Falling | **Accepted 2026-09-10:** a player's centre entering void causes elimination; charge does not jump | A body-radius fall threshold or jumping is a different mechanic. |
+| Session protocol | **Accepted 2026-09-10:** a coordinated v3 session contract, cut over by expand and contract | v2.6 can retain derived duplicate road fields temporarily, but needs a removal migration. Do not keep two permanent road representations. |
 
 Initial timings below are playtest hypotheses. Approval of this design permits their initial
 implementation, not a claim that they are balanced.
@@ -161,6 +163,9 @@ The prototype must settle:
 
 Gameplay remains declarative: contact responses can request a narrowly typed per-body motion
 termination and emit typed events; they cannot mutate arbitrary world stores inside the solver.
+**Decided at Step 1 on 2026-09-10:** a response also reads the committed world, exactly as a
+predicate already may, so defense and lethal state reach one composition without a row per flag
+combination; it still writes only the two bodies (§ "Design review and acceptance, 2026-09-10").
 Add one narrow, pure `MotionTrigger` query/response seam for non-contact events on the current
 motion segment. Shared support-loss and race's ordered gate crossings are its two concrete
 consumers. A trigger reads immutable world/geometry and bounded tick-local cursor state, proposes
@@ -187,9 +192,10 @@ If a smaller proven approach wins that review, amend this ADR and the later step
 
 ## Normal movement and web tuning
 
-Store one `MovementTuning` value in match state, seeded from authored defaults per room and read
-by shared steering. It survives round reset and returns to authored defaults when the room/process
-is recreated; there is no browser-local authority or automatic INI rewrite.
+Store one `MovementTuning` value in match state, seeded from the authored defaults of one shared
+`[movement]` section that replaces the per-mode thrust keys (decided at Step 1 on 2026-09-10),
+and read by shared steering. It survives round reset and returns to authored defaults when the
+room/process is recreated; there is no browser-local authority or automatic INI rewrite.
 
 The UI offers labelled numeric/range controls for acceleration (`wu/s²`) and **normal movement top
 speed** (`wu/s`), with Apply, Reset, authoritative values, and a pending/applied indication. Normal
@@ -211,7 +217,7 @@ Start in one batch must start with the accepted complete values. Publish a tunin
 effective tick; the UI must not claim an update took effect merely because it was sent.
 
 Live room-wide tuning is confirmed. Extend the existing cooperative room authority to live
-updates, with no invented host/admin identity. The proposed phase policy permits seated
+updates, with no invented host/admin identity. The phase policy, accepted at Step 1, permits seated
 participants to update settings in lobby, countdown, running, and ended; phase-specific body and
 movement rules still apply. Invalid numbers reject at the boundary; stale, unauthorized, or
 rate-limited commands return an explicit outcome instead of looking successful. Bots do not use
@@ -222,7 +228,7 @@ Use the same match value and command in every admitted phase. Commit running-mat
 atomically on a server tick and publish authoritative values, revision, and effective tick to
 everyone in the room. Immediately recompute stored acceleration from persistent normalized
 steering intent so held input picks up the new value without a key repress; this must not bypass
-stun or other movement gates. Under the proposed normal-ceiling semantics, lowering the limit
+stun or other movement gates. Under the accepted normal-ceiling semantics, lowering the limit
 must not delete knockback momentum. Coalesce local slider edits behind Apply and bound update
 rate; Reset submits authored defaults through the same atomic command. Do not add a second
 live-only settings service. No setting grants one player a private acceleration advantage.
@@ -315,7 +321,9 @@ Do not implement every flag combination as a contact-rule row. Use one pair-symm
 immutable pair facts → existing base physical equation → defense modifications → typed effects
 and motion disposition. Reuse mass/restitution/static equations. Preserve the existing unguarded
 lethal-hazard pass-through response for the surviving hazard; the eliminated player leaves the
-remaining event stream. Guarded lethal contact instead takes the shared defensive response.
+remaining event stream. Guarded lethal contact instead takes the shared defensive response. The
+composition is the one response for every dynamic pair, and the unguarded pass-through is its
+lethal branch rather than a separate row (decided at Step 1 on 2026-09-10).
 
 ### Stun and input lifecycle
 
@@ -390,7 +398,9 @@ seat, profile, and round identity rather than giving every bot the same seed as 
 
 Recommend a coordinated **session protocol v3** because moving the race road out of mode state
 removes/reinterprets v2 fields, which is a major change under `docs/protocol/v2.md:701`.
-Publish shared terrain once per complete snapshot representation, movement tuning/revision, public
+Publish shared terrain once per session in `welcome`, and let the snapshot value carry a shared
+immutable reference to the same terrain for in-process readers that the frame encoder does not
+serialize (decided at Step 1 on 2026-09-10). Publish movement tuning/revision, public
 ability/status state, and profile identity/catalogue where the lobby needs it. Race retains only
 its objective/progress/standings information and a reference to the canonical terrain corridor.
 
@@ -406,13 +416,17 @@ Old session requests fail with an explicit upgrade-required response; clients ne
 silently fall back to another major. Development commits are not independently deployable releases
 of the final v3 schema. Release server and assets together only after the whole contract is verified.
 
-The buildable cutover checkpoint includes the foundational terrain value and strict authoring,
-race binding, snapshot construction, and **all current road readers**: gameplay, racer controller,
-and browser rendering. Remove old road fields only in that same checkpoint. Subsequent terrain
-work extends shared queries/validation; subsequent UI work adds cliff/combat presentation, not a
-belated repair of a broken road reader. New schema vocabulary may be reserved during unreleased
-development, but do not advertise/accept an ability or tuning command until its authoritative
-implementation and complete client/schema handling land together.
+The cutover is **expand and contract** across buildable commits (decided at Step 1 on 2026-09-10,
+refining the planning review's single checkpoint): the terrain value and its queries land with no
+consumer; race binds to the named corridor while its old road fields are stamped as a derived,
+equality-tested mirror; v3 transport and the browser terrain layer land while that mirror is on
+the wire for exactly one step; then the mirror, the racer controller's private geometry, and the
+old fields are removed together. No state is independently authored or simulated in two places at
+any time, no broken road reader exists at any checkpoint, and no released v3 carries the mirror.
+Subsequent terrain work extends shared queries/validation; subsequent UI work adds cliff/combat
+presentation. No schema vocabulary is reserved ahead of behavior: each kind, block, member, and
+command lands under v3 in the commit whose authoritative implementation and complete
+client/schema handling it carries.
 
 Alternative: v2.6 adds shared terrain and retains old race track fields as derived mirrors, with
 equality tests and a named `_migration` adapter/removal plan. This is a valid transitional option
@@ -471,9 +485,67 @@ readers in one buildable checkpoint. The proposal now names each contract explic
 ability mode/phase matrix, and gives priority only to an eligible simultaneous shield request.
 This design review is not implementation, benchmark, or owner-approval evidence.
 The reviewer rechecked the revisions and found no remaining must-fix issue in that scope; exact
-solver behavior and shield correction remain unproven until the explicit prototype gate.
+solver behavior and shield correction remain unproven until the explicit prototype gate. The
+single cutover checkpoint this review asked for was refined into expand and contract at Step 1;
+see § "Design review and acceptance, 2026-09-10".
 
 **Amended 2026-09-10 (owner clarification):** Numeric acceleration/top-speed controls and live
 room-wide application are confirmed. Require atomic tick updates, shared revision/effective-tick
 publication, and immediate held-intent recomputation without bypassing movement gates. Remaining
 gameplay, authority/phase, UI interaction, and physics proposals still await review.
+
+## Design review and acceptance, 2026-09-10 (plan Step 1)
+
+A second independent design review, run against the tree at `b282a90` with code quality, DRY,
+and extensibility as its lenses, found the ownership model sound and the step cut unsafe. Its
+findings were folded into the plan on 2026-09-10 and are summarized here so this contract and its
+executable sequence agree:
+
+- The one-commit terrain cutover could not be reviewed or bisected. It became expand and contract
+  behind a pure terrain step and a shared swept-geometry root module with one event-time order,
+  because contacts and terrain triggers must derive tied times from one arithmetic.
+- The pair composition needed a kernel seam the design had not named: a response cannot see a
+  shield, stun, or lethal component today (`src/simulation/contact_rule.hpp`), so responses gain
+  committed-world read access and a per-body motion disposition, proven at the prototype and wired
+  with the solver.
+- Body-bound cleanup was one hand-written loop per owner and had already produced `c84e2fb`; a
+  per-kind lifetime trait with one generic sweep replaces it.
+- Four ability timers become one half-open tick-window value stored as absolute ticks.
+- Movement tuning seeded from three per-mode thrust keys would be a second source of truth; one
+  shared `[movement]` section replaces them.
+- Named random streams and per-stream draw counts are world and wire changes and became a step.
+- Terrain never changes during a session and travels once in `welcome`.
+
+**Owner decisions, 2026-09-10.** The owner instructed execution of plan Step 1 with the review's
+recommended answers, which records the following. The first-version proposals of § "Owner
+decisions" are accepted: the timed tap shield with its half-open windows; the normal propulsion
+ceiling that caps propulsion and never collision impulse, beside a separate safety envelope;
+centre-based falls; the initial timings as playtest hypotheses; cooperative authority with the
+proposed phase admission and no host role; Apply/Reset with authoritative pending, applied, and
+rejected state; and a coordinated session v3. The four review decisions are resolved as
+recommended:
+
+| Decision | Resolution | Refines |
+|---|---|---|
+| (a) Contact response inputs | A response reads the committed world as a predicate may, and `ContactResponse` carries a per-body motion disposition; it still writes only the two bodies. Not defense state on `PhysicsBody`. | § "Motion foundation" and § "Charge, shield, and stun" here; ADR 0004 § "Contact rules" at plan Step 16 |
+| (b) Terrain on the wire | Once per session in `welcome`, with a shared immutable reference on the snapshot value for in-process readers; not per frame. | § "Wire ownership and migration" at plan Step 7 |
+| (c) Movement authoring | One shared `[movement]` section authors acceleration and normal top speed, and the per-mode thrust keys retire; not per-mode defaults. | § "Normal movement and web tuning" here; ADR 0005 § "Mode configuration" at plan Step 10 |
+| (d) Cutover shape | Expand and contract with a one-step derived, equality-tested mirror; not one atomic checkpoint. | § "Wire ownership and migration" at plan Steps 6 through 8 |
+
+**Below the contract.** The plan fixes engineering choices this ADR does not constrain, which an
+execution note may revise without reopening it: one swept-geometry root module and one event-time
+comparator; a tick-window value for every ability timer; a body-bound component lifetime trait
+consumed generically by shared respawn; a closed list of named random streams seeded from the
+match seed, with the hazard stream bit-identical to today's generator; and steering intent
+persisted on `Controllable` and stripped at publication.
+
+**Still unproven.** The swept solver, its event order under ties, the shield separation
+correction, and native performance ceilings are proven only by the plan's Step 4 prototype and
+accepted only at its Step 5 gate; Phase C of the plan is provisional until then. The timings are
+hypotheses for human playtesting. The older contracts this design changes carry dated pointers as
+of today and are amended in the same commit as the step that lands each change: ADR 0003
+§ "Canonical tick" and § "State, units, and fixed time"; ADR 0004 § "The tick", § "Contact
+rules", § "Determinism obligations for framework code", and § "Snapshots and protocol shape";
+ADR 0005 § "Mode configuration" and § "Steering"; ADR 0007 § "The course", § "Mode state and the
+wire", § "Out of bounds, and returning to a checkpoint", § "King of the hill", and § "Bots". No
+source file changed at Step 1.

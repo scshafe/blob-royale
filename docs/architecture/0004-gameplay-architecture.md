@@ -1307,3 +1307,17 @@ already calls before `systems()`. A course is published through mode state, so t
 These costs amend the earlier "game" row's blanket promise that simulation and protocol are never
 edited: a new registered component or mode-state block necessarily extends both vocabularies. The
 numbered kernel phases, contact equations, runtime, and server remain unchanged by either mode.
+
+**Amended 2026-09-10 (ADR 0008, plan Step 1):** ADR 0008 is accepted and names five changes to
+this framework, each written into the section it touches when its implementing step lands.
+§ "The tick": the kernel gains a third policy socket, a pure `MotionTrigger` the mode declares as
+its eighth declaration and the solver evaluates inside the tick (plan Step 16, after the prototype
+gate). § "Contact rules": a response reads the committed world exactly as a predicate may, and
+`ContactResponse` carries a per-body motion disposition; a response still writes only the two
+bodies (Step 16). § "Determinism obligations for framework code": the world owns a closed list of
+named random streams and publishes a draw count per stream (Step 9). § "Snapshots and protocol
+shape": immutable terrain is published once per session in `welcome` and reaches in-process
+readers as a shared immutable reference on the snapshot value (Step 7). § "Entities, components,
+and stores": a per-kind body-bound lifetime trait beside `ComponentPublication` lets shared
+respawn clear every bound kind generically (Step 13). Nothing above changes until those steps;
+the decision and its `Accepted` status are unchanged today.

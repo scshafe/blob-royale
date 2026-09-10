@@ -818,3 +818,16 @@ directory counts and remain additional work; `src/gameplay/README.md` gives the 
   applied five times here.
 * [`../../.claude/plans/2026-09-09-king-of-the-hill-and-race-modes.md`](../../.claude/plans/2026-09-09-king-of-the-hill-and-race-modes.md)
   -- the execution plan.
+
+**Amended 2026-09-10 (ADR 0008, plan Step 1):** ADR 0008 is accepted and changes five things here
+when their steps land. § "The course" and § "Map requirements": the road is authored once as a
+named terrain corridor, and `[race] track_half_width` and the `track` marker kind retire (plan
+Steps 3 and 6). § "Mode state and the wire" and § "Protocol 2.5": the race block stops carrying
+`track` and `track_half_width` after a one-step derived mirror under session v3 (Steps 7 and 8).
+§ "Out of bounds, and returning to a checkpoint": endpoint sampling becomes a chronological motion
+trigger with a within-tick finish offset (Step 17). § "King of the hill": the marker tour gains a
+`random_roam` policy over committed motion state and a dedicated random stream (Steps 9 and 12).
+§ "Bots": the racer's private polyline arithmetic is replaced by the canonical terrain query that
+controllers may link (Step 8). The accepted hill and race replay expectations stand until each
+step and change only with written rationale; the decision and its `Accepted` status are unchanged
+today.

@@ -908,3 +908,11 @@ queries. These are shared implementations of existing rules, with the same circl
 probe order. Royale still ranks and destroys eliminated entities; it does not declare respawn. The
 restart wipe and engine phase observation are the amendments above, and the accepted royale replay
 expectations are unchanged.
+
+**Amended 2026-09-10 (ADR 0008, plan Step 1):** ADR 0008 is accepted. § "Mode configuration" and
+§ "Steering" change when plan Step 10 lands: `thrust_max_world_units_per_second_squared` leaves
+`[royale]` for one shared `[movement]` section that also authors a normal top speed, and
+`thrust_steering` reads a match-owned `MovementTuning` value instead of a constructor scalar.
+Royale's committed values are unchanged below the normal-speed ceiling, which its fixture
+configurations author explicitly. Nothing changes until that step; the decision and its `Accepted`
+status are unchanged today.

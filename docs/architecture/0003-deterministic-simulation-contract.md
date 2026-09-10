@@ -566,3 +566,16 @@ encoder and `physics-body-component.schema.json` are untouched.
 
 No fixture horizon, accepted snapshot, map, or oracle value changed, and the decision and its
 `Accepted` status are unchanged.
+
+**Amended 2026-09-10 (ADR 0008, plan Step 1):** ADR 0008 is accepted and commits this contract to
+two changes that land with their implementing steps rather than now. First, § "Canonical tick"
+phases 2 through 5, § "Player-pair policy", § "Wall policy", and the tunnelling consequence above
+are replaced by swept, chronological within-tick motion under a total event order, with a narrow
+motion-trigger socket beside the contact table: exactly the path the "fast players must not
+tunnel" row names. That amendment is written when plan Step 16 wires the reviewed solver, after
+the plan's Step 5 prototype gate, and until then every accepted fixture, oracle, and horizon
+stands. Second, the acceleration persistence of § "State, units, and fixed time" becomes
+persistence of normalized steering intent, from which shared steering recomputes acceleration each
+tick under a match-owned tuning value; that lands with plan Step 10 and changes no committed value
+below the normal-speed ceiling, which fixture configurations author explicitly. The decision and
+its `Accepted` status are unchanged today.

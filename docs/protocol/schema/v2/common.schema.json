@@ -154,6 +154,7 @@
         "lethal_on_contact",
         "lifetime",
         "physics_body",
+        "race_progress",
         "respawn_timer",
         "score",
         "team",

@@ -10,6 +10,7 @@
 
 #include "command_kind_mask.hpp"
 #include "components/controllable_component.hpp"
+#include "components/race_progress_component.hpp"
 #include "components/zone_component.hpp"
 #include "components/zone_exposure_component.hpp"
 #include "contact_rule_table.hpp"
@@ -81,6 +82,8 @@ inline constexpr std::uint64_t kGoldenTickSequence = 12'904;
 inline constexpr std::uint64_t kGoldenPhaseStartedTick = 10'904;
 inline constexpr std::uint64_t kGoldenEliminatedTick = 12'400;
 inline constexpr std::uint64_t kGoldenEliminationGraceTicks = 1'200;
+// Two gates taken, matching examples/race-progress-component.json.
+inline constexpr std::uint64_t kGoldenNextCheckpoint = 2;
 
 inline constexpr std::uint64_t kWallEntityId = 1;
 inline constexpr std::uint64_t kPlayerEntityId = 7;
@@ -335,6 +338,19 @@ public:
     return game_simulation.snapshot();
   }();
   return snapshot;
+}
+
+// An entity carrying only progress proves registry-driven publication does not require a body.
+// The engine owns no race rule, so the supplied gate count survives the committed tick unchanged.
+[[nodiscard]] inline simulation::WorldSnapshot
+race_progress_snapshot(const std::uint64_t next_checkpoint) {
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_store<simulation::RaceProgress>().insert_or_assign(
+      simulation::EntityId::create(kPlayerEntityId), simulation::RaceProgress{next_checkpoint});
+  simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
+      simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));
+  game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  return game_simulation.snapshot();
 }
 
 // The NPC kinds the golden welcome publishes, in the order `ControllerRegistry` declares them. It

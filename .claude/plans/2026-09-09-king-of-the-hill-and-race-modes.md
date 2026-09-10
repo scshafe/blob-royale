@@ -186,13 +186,14 @@ Facts the executor needs that the code does not say on its face, all verified in
 
 ### Phase 4 -- Race, server
 
-- [ ] **Step 13: Author the `[race]` section, the course value, and `RaceProgress`**
+- [x] **Step 13: Author the `[race]` section, the course value, and `RaceProgress`**
   - Verify: `./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|unit.application' && ./scripts/verify-focused 'unit.simulation|unit.gameplay|unit.protocol|unit.application' linux-clang-asan-ubsan && ./scripts/verify-web`
   - Notes: `race/race_configuration.{hpp,cpp}` with the eight keys, the section in every
     configuration file, `race/race_course.{hpp,cpp}` with `distance_to_centreline` written out as
     ADR 0007 states it and the six map rejections, and the `race_progress` kind with its wire half
     and non-visual client entry. Geometry tests: a point beyond an endpoint clamps, a point on the
     line reads zero, a bend takes the nearer segment.
+  - Execution note (2026-09-09): Added the eight-key `RaceConfiguration`, its required loader section in all thirteen complete configuration files and the application test template, and the validated `RaceCourse` with authored marker order, the ADR's written-out distance arithmetic, and all six map rejections. Geometry tests also pin the exact centre-only corridor boundary the ADR's map requirements specify. `RaceProgress` joins the component registry, schema, encoder, examples, generated client, and non-visual renderer under the open 2.5; the one-minor-ahead tests remain at 2.6. The focused C++ selection was widened with `fixtures` to guard the accepted replays: 802 of 802 passed on both GCC and Clang ASan/UBSan. The first GCC compile caught an unqualified nested `ApplicationConfigLoader::RunRequest` in the new loader test; it was corrected and reformatted before rerunning. The Linux web gate passed generation drift, schema examples, typecheck, lint, all client tests, and the production build. Every royale replay fixture and `maps/arena-960x640` remain byte-identical to the session's starting commit.
 
 - [ ] **Step 14: Declare `race`**
   - Verify: `./scripts/verify-focused 'unit.gameplay|unit.protocol' && ./scripts/verify-focused 'unit.gameplay|unit.protocol' linux-clang-asan-ubsan`

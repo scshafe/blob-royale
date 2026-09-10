@@ -9,6 +9,7 @@
 #include "components/hill_presence_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
+#include "components/race_progress_component.hpp"
 #include "components/respawn_timer_component.hpp"
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
@@ -16,6 +17,7 @@
 #include "components/zone_exposure_component.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "game_world.hpp"
 #include "physics_body.hpp"
 #include "team_id.hpp"
 #include "vector2.hpp"
@@ -32,16 +34,16 @@ namespace simulation = blob_royale::simulation;
 
 TEST_CASE("ComponentRegistry declares every component kind in one closed ordered list",
           "[unit][simulation][component_registry]") {
-  // Nine, not the five the engine itself needs. `Zone` and `ZoneExposure` are royale's, added by
-  // plan Step 21 as two headers under `components/` and one edited line in the registry, with no
-  // other kernel file touched. `LethalOnContact` is the third addition and the one that measures
-  // the seam hardest: it belongs to **no mode at all** but to `src/gameplay/shared/`, and it cost
-  // the same one header plus one line here. That is the measurement the `entity_component` seam's
-  // claim is answerable to (`docs/architecture/0005-royale-mode.md` § "Where zone and elimination
-  // state live"). `RespawnTimer` is the fourth, also `shared/`'s, and cost the same; `Hill` and
-  // `HillPresence` are king of the hill's, the way the zone pair is royale's
-  // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`).
-  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 11);
+  // Twelve, including the five the engine itself needs. `Zone` and `ZoneExposure` are royale's,
+  // added by plan Step 21 as two headers under `components/` and one edited line in the registry,
+  // with no other kernel file touched. `LethalOnContact` is the third addition and the one that
+  // measures the seam hardest: it belongs to **no mode at all** but to `src/gameplay/shared/`, and
+  // it cost the same one header plus one line here. That is the measurement the `entity_component`
+  // seam's claim is answerable to (`docs/architecture/0005-royale-mode.md` § "Where zone and
+  // elimination state live"). `RespawnTimer` is the fourth, also `shared/`'s, and cost the same;
+  // `Hill` and `HillPresence` are king of the hill's, the way the zone pair is royale's
+  // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`). `RaceProgress` is race's.
+  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 12);
   STATIC_REQUIRE(std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
                                 std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
                                            simulation::ComponentStore<simulation::Controllable>,
@@ -53,7 +55,8 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
                                            simulation::ComponentStore<simulation::LethalOnContact>,
                                            simulation::ComponentStore<simulation::RespawnTimer>,
                                            simulation::ComponentStore<simulation::Hill>,
-                                           simulation::ComponentStore<simulation::HillPresence>>>);
+                                           simulation::ComponentStore<simulation::HillPresence>,
+                                           simulation::ComponentStore<simulation::RaceProgress>>>);
 }
 
 TEST_CASE("Every registered component kind declares its own wire name",
@@ -65,7 +68,8 @@ TEST_CASE("Every registered component kind declares its own wire name",
 
   CHECK(names == std::vector<std::string_view>{"physics_body", "controllable", "lifetime", "score",
                                                "team", "zone", "zone_exposure", "lethal_on_contact",
-                                               "respawn_timer", "hill", "hill_presence"});
+                                               "respawn_timer", "hill", "hill_presence",
+                                               "race_progress"});
 }
 
 TEST_CASE("Registry visitation reaches every kind exactly once in declared order",
@@ -103,6 +107,8 @@ TEST_CASE("Every registered component kind is a comparable value struct",
         simulation::Zone{simulation::Vector2::create(1.0, 0.0), 10.0});
   CHECK(simulation::ZoneExposure{4} == simulation::ZoneExposure{4});
   CHECK(simulation::ZoneExposure{4} != simulation::ZoneExposure{5});
+  CHECK(simulation::RaceProgress{} == simulation::RaceProgress{0});
+  CHECK(simulation::RaceProgress{1} != simulation::RaceProgress{2});
 }
 
 TEST_CASE("Controllable carries this tick's recorded commands and compares on them",
@@ -127,4 +133,20 @@ TEST_CASE("A component list generates one store per declared kind",
   STATIC_REQUIRE(std::is_same_v<simulation::ComponentStores<PairList>,
                                 std::tuple<simulation::ComponentStore<simulation::Score>,
                                            simulation::ComponentStore<simulation::Team>>>);
+}
+
+TEST_CASE("Race progress participates in world equality and entity destruction",
+          "[unit][simulation][component_registry][race_progress]") {
+  const simulation::EntityId racer = simulation::EntityId::create(7);
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_store<simulation::RaceProgress>().insert_or_assign(racer,
+                                                                   simulation::RaceProgress{1});
+  const simulation::GameWorld first_gate = world;
+  CHECK(world == first_gate);
+  world.mutable_store<simulation::RaceProgress>().insert_or_assign(racer,
+                                                                   simulation::RaceProgress{2});
+  CHECK(world != first_gate);
+  world.destroy_entity(racer);
+  CHECK(world.store<simulation::RaceProgress>().empty());
+  CHECK_FALSE(world.contains(racer));
 }

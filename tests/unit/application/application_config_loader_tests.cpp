@@ -5,6 +5,7 @@
 #include "gameplay_validation_error.hpp"
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "match_configuration.hpp"
+#include "race/race_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "server_config.hpp"
 #include "shared/hazard_archetype.hpp"
@@ -200,6 +201,17 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(hill.respawn_delay_ticks() == 800);
   CHECK(hill.countdown_ticks() == 2'000);
   CHECK(hill.restart_delay_ticks() == 3'200);
+
+  const gameplay::RaceConfiguration& race =
+      run_request.application_config().game_mode_configuration().race;
+  CHECK(race.thrust_maximum() == 400.0);
+  CHECK(race.track_half_width() == 70.0);
+  CHECK(race.checkpoint_radius() == 40.0);
+  CHECK(race.respawn_delay_ticks() == 800);
+  CHECK(race.finish_window_ticks() == 8'000);
+  CHECK(race.time_limit_ticks() == 96'000);
+  CHECK(race.countdown_ticks() == 2'000);
+  CHECK(race.restart_delay_ticks() == 3'200);
 
   // `[lobbies] count` is the one deployment-topology key: one room is the single-match server.
   CHECK(run_request.application_config().lobbies_configuration().count() == 1);
@@ -881,11 +893,11 @@ TEST_CASE("a hazard section that omits any one of its keys is rejected",
 
 TEST_CASE("every fixed section still rejects an unknown key",
           "[unit][application][config][validation]") {
-  // The regression that says opening instance names opened nothing else: each of the eight fixed
+  // The regression that says opening instance names opened nothing else: each of the ten fixed
   // sections refuses a key it does not declare, exactly as it did before families existed.
-  constexpr std::array<std::string_view, 8> section_headers = {
-      "[server]\n",       "[presentation]\n", "[simulation]\n", "[world]\n",
-      "[spatial_grid]\n", "[match]\n",        "[royale]\n",     "[king_of_the_hill]\n"};
+  constexpr std::array<std::string_view, 10> section_headers = {
+      "[server]\n", "[presentation]\n", "[simulation]\n",       "[world]\n", "[spatial_grid]\n",
+      "[match]\n",  "[royale]\n",       "[king_of_the_hill]\n", "[race]\n",  "[lobbies]\n"};
 
   TemporaryApplicationInputWorkspace workspace;
   for (const std::string_view section_header : section_headers) {
@@ -908,7 +920,7 @@ TEST_CASE("a configuration without the [king_of_the_hill] section is refused nam
   TemporaryApplicationInputWorkspace workspace;
   std::string configuration{test_fixture::kValidConfiguration};
   const std::size_t section_start = configuration.find("[king_of_the_hill]\n");
-  const std::size_t section_end = configuration.find("[lobbies]\n");
+  const std::size_t section_end = configuration.find("[race]\n");
   REQUIRE(section_start != std::string::npos);
   REQUIRE(section_end != std::string::npos);
   configuration.erase(section_start, section_end - section_start);
@@ -922,6 +934,49 @@ TEST_CASE("a configuration without the [king_of_the_hill] section is refused nam
     CHECK(std::string_view{error.what()}.find("king_of_the_hill.points_to_win") !=
           std::string_view::npos);
   }
+}
+
+TEST_CASE("a configuration without the [race] section is refused naming its keys",
+          "[unit][application][config][race][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration{test_fixture::kValidConfiguration};
+  const std::size_t section_start = configuration.find("[race]\n");
+  const std::size_t section_end = configuration.find("[lobbies]\n");
+  REQUIRE(section_start != std::string::npos);
+  REQUIRE(section_end != std::string::npos);
+  configuration.erase(section_start, section_end - section_start);
+
+  const std::filesystem::path config_path = workspace.write_file("no-race.cfg", configuration);
+  try {
+    static_cast<void>(test_fixture::load_application_config(config_path));
+    FAIL("a configuration without [race] loaded");
+  } catch (const ApplicationInputError& error) {
+    CHECK(error.error_code() == ApplicationInputErrorCode::kConfigurationKeyMissing);
+    CHECK(std::string_view{error.what()}.find("race.checkpoint_radius_world_units") !=
+          std::string_view::npos);
+  }
+}
+
+TEST_CASE("the application passes authored race values through its validated section",
+          "[unit][application][config][race]") {
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration{test_fixture::kValidConfiguration};
+  configuration = test_fixture::replace_once(configuration, "track_half_width_world_units=70\n",
+                                             "track_half_width_world_units=80\n");
+  configuration = test_fixture::replace_once(configuration, "checkpoint_radius_world_units=40\n",
+                                             "checkpoint_radius_world_units=30\n");
+  configuration = test_fixture::replace_once(configuration, "finish_window_seconds=20\n",
+                                             "finish_window_seconds=0.5\n");
+  const std::filesystem::path config_path = workspace.write_file("race-values.cfg", configuration);
+  const ApplicationConfigLoader::Result loaded = test_fixture::load_application_config(config_path);
+  REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(loaded));
+  const gameplay::RaceConfiguration& race = std::get<ApplicationConfigLoader::RunRequest>(loaded)
+                                                .application_config()
+                                                .game_mode_configuration()
+                                                .race;
+  CHECK(race.track_half_width() == 80.0);
+  CHECK(race.checkpoint_radius() == 30.0);
+  CHECK(race.finish_window_ticks() == 200);
 }
 
 TEST_CASE("contested_hill_scores is spelled exactly true or false",

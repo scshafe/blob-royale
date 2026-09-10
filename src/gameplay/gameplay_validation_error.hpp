@@ -52,12 +52,20 @@ enum class GameplayValidationCode {
   kRoyaleEliminatedEntityWithoutController,
   kKingOfTheHillScalarNotFinite,
   kKingOfTheHillScalarOutOfRange,
+  kRaceScalarNotFinite,
+  kRaceScalarOutOfRange,
   kKingOfTheHillTourWithoutDuration,
   kKingOfTheHillPointsToWinZero,
   kKingOfTheHillMapWithoutHill,
   kKingOfTheHillMapWithoutSpawnPoint,
   kKingOfTheHillHillEntityUnreserved,
   kKingOfTheHillHillAbsent,
+  kRaceMapTooFewTrackMarkers,
+  kRaceMapCoincidentTrackMarkers,
+  kRaceMapWithoutCheckpoint,
+  kRaceMapCheckpointOutsideCorridor,
+  kRaceMapSpawnPointOutsideCorridor,
+  kRaceMapWithoutSpawnPoint,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -101,6 +109,10 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.KING_OF_THE_HILL_SCALAR_NOT_FINITE";
   case GameplayValidationCode::kKingOfTheHillScalarOutOfRange:
     return "GAMEPLAY.KING_OF_THE_HILL_SCALAR_OUT_OF_RANGE";
+  case GameplayValidationCode::kRaceScalarNotFinite:
+    return "GAMEPLAY.RACE_SCALAR_NOT_FINITE";
+  case GameplayValidationCode::kRaceScalarOutOfRange:
+    return "GAMEPLAY.RACE_SCALAR_OUT_OF_RANGE";
   case GameplayValidationCode::kKingOfTheHillTourWithoutDuration:
     return "GAMEPLAY.KING_OF_THE_HILL_TOUR_WITHOUT_DURATION";
   case GameplayValidationCode::kKingOfTheHillPointsToWinZero:
@@ -113,6 +125,18 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.KING_OF_THE_HILL_HILL_ENTITY_UNRESERVED";
   case GameplayValidationCode::kKingOfTheHillHillAbsent:
     return "GAMEPLAY.KING_OF_THE_HILL_HILL_ABSENT";
+  case GameplayValidationCode::kRaceMapTooFewTrackMarkers:
+    return "GAMEPLAY.RACE_MAP_TOO_FEW_TRACK_MARKERS";
+  case GameplayValidationCode::kRaceMapCoincidentTrackMarkers:
+    return "GAMEPLAY.RACE_MAP_COINCIDENT_TRACK_MARKERS";
+  case GameplayValidationCode::kRaceMapWithoutCheckpoint:
+    return "GAMEPLAY.RACE_MAP_WITHOUT_CHECKPOINT";
+  case GameplayValidationCode::kRaceMapCheckpointOutsideCorridor:
+    return "GAMEPLAY.RACE_MAP_CHECKPOINT_OUTSIDE_CORRIDOR";
+  case GameplayValidationCode::kRaceMapSpawnPointOutsideCorridor:
+    return "GAMEPLAY.RACE_MAP_SPAWN_POINT_OUTSIDE_CORRIDOR";
+  case GameplayValidationCode::kRaceMapWithoutSpawnPoint:
+    return "GAMEPLAY.RACE_MAP_WITHOUT_SPAWN_POINT";
   }
   return "GAMEPLAY.VALIDATION_CODE_INVALID";
 }

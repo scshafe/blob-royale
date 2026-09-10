@@ -61,6 +61,14 @@ enum class ConfigField : std::size_t {
   kKingOfTheHillRespawnDelaySeconds,
   kKingOfTheHillCountdownSeconds,
   kKingOfTheHillRestartDelaySeconds,
+  kRaceThrustMaximum,
+  kRaceTrackHalfWidth,
+  kRaceCheckpointRadius,
+  kRaceRespawnDelaySeconds,
+  kRaceFinishWindowSeconds,
+  kRaceTimeLimitSeconds,
+  kRaceCountdownSeconds,
+  kRaceRestartDelaySeconds,
   kLobbiesCount,
   kCount,
 };
@@ -76,14 +84,14 @@ struct ConfigFieldSpec final {
   ConfigValueSyntax value_syntax = ConfigValueSyntax::kSingleValue;
 };
 
-constexpr std::array<std::string_view, 9> kConfigSections = {
-    "server", "presentation", "simulation",       "world",  "spatial_grid",
-    "match",  "royale",       "king_of_the_hill", "lobbies"};
+constexpr std::array<std::string_view, 10> kConfigSections = {
+    "server", "presentation", "simulation",       "world", "spatial_grid",
+    "match",  "royale",       "king_of_the_hill", "race",  "lobbies"};
 
-// **`[royale]` and `[king_of_the_hill]` are required whatever `[match] mode` names.** A mode's
-// balance section is part of this deployment's accepted schema rather than of the game it happens
-// to be running today, so switching `mode=` is a one-line edit that cannot fail at startup for a
-// section that was never written. The values are read only by the mode that owns them
+// **`[royale]`, `[king_of_the_hill]`, and `[race]` are required whatever `[match] mode` names.** A
+// mode's balance section is part of this deployment's accepted schema rather than of the game it
+// happens to be running today, so switching `mode=` is a one-line edit that cannot fail at startup
+// for a section that was never written. The values are read only by the mode that owns them
 // (`src/gameplay/game_mode_configuration.hpp`). `[lobbies]` is required for the same reason: `1`
 // is the single-match server, and a deployment that wants more rooms changes one number.
 constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCount)>
@@ -124,6 +132,14 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"king_of_the_hill", "respawn_delay_seconds"},
          {"king_of_the_hill", "countdown_seconds"},
          {"king_of_the_hill", "restart_delay_seconds"},
+         {"race", "thrust_max_world_units_per_second_squared"},
+         {"race", "track_half_width_world_units"},
+         {"race", "checkpoint_radius_world_units"},
+         {"race", "respawn_delay_seconds"},
+         {"race", "finish_window_seconds"},
+         {"race", "time_limit_seconds"},
+         {"race", "countdown_seconds"},
+         {"race", "restart_delay_seconds"},
          {"lobbies", "count"}}};
 
 // canonical: config_section_family -- the one open name in the configuration schema.
@@ -753,10 +769,10 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
 
   // Validated by the mode that owns the section, so the application never re-derives a balance
   // rule: each section is authored in seconds and world units and comes back in tick counts. The
-  // hazard table is validated the same way by the mechanic that owns it, and the three are written
+  // hazard table is validated the same way by the mechanic that owns it, and the four are written
   // as one aggregate initialization so `[royale]` is always resolved before `[king_of_the_hill]`
-  // and both before the hazards, whose rejections would otherwise arrive in an order the standard
-  // does not fix.
+  // and both before `[race]` and the hazards, whose rejections would otherwise arrive in an order
+  // the standard does not fix.
   gameplay::GameModeConfiguration game_mode_configuration{
       gameplay::RoyaleConfiguration::create(gameplay::RoyaleConfiguration::Section{
           .thrust_max_world_units_per_second_squared =
@@ -794,6 +810,23 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
               parse_double_config_value(document, ConfigField::kKingOfTheHillCountdownSeconds),
           .restart_delay_seconds =
               parse_double_config_value(document, ConfigField::kKingOfTheHillRestartDelaySeconds)}),
+      gameplay::RaceConfiguration::create(gameplay::RaceConfiguration::Section{
+          .thrust_max_world_units_per_second_squared =
+              parse_double_config_value(document, ConfigField::kRaceThrustMaximum),
+          .track_half_width_world_units =
+              parse_double_config_value(document, ConfigField::kRaceTrackHalfWidth),
+          .checkpoint_radius_world_units =
+              parse_double_config_value(document, ConfigField::kRaceCheckpointRadius),
+          .respawn_delay_seconds =
+              parse_double_config_value(document, ConfigField::kRaceRespawnDelaySeconds),
+          .finish_window_seconds =
+              parse_double_config_value(document, ConfigField::kRaceFinishWindowSeconds),
+          .time_limit_seconds =
+              parse_double_config_value(document, ConfigField::kRaceTimeLimitSeconds),
+          .countdown_seconds =
+              parse_double_config_value(document, ConfigField::kRaceCountdownSeconds),
+          .restart_delay_seconds =
+              parse_double_config_value(document, ConfigField::kRaceRestartDelaySeconds)}),
       parse_hazard_archetypes(document)};
 
   const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(

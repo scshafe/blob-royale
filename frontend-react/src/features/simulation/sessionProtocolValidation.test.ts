@@ -71,6 +71,47 @@ describe('validateSessionWelcomeMessage', () => {
 });
 
 describe('validateSessionSnapshotMessage', () => {
+  it('accepts an ordered race gate count including zero', () => {
+    for (const nextCheckpoint of [0, 2]) {
+      const document = snapshotDocument();
+      Reflect.set(playerEntity(document).components, 'race_progress', {
+        next_checkpoint: nextCheckpoint,
+      });
+      const snapshot = validateSessionSnapshotMessage(
+        document,
+        welcomeSequence,
+      );
+      expect(
+        snapshot.data.entities.find((entity) => entity.entity_id === 7)
+          ?.components.race_progress?.next_checkpoint,
+      ).toBe(nextCheckpoint);
+    }
+  });
+
+  it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1])(
+    'rejects race progress outside the non-negative safe-integer range: %s',
+    (nextCheckpoint) => {
+      const document = snapshotDocument();
+      Reflect.set(playerEntity(document).components, 'race_progress', {
+        next_checkpoint: nextCheckpoint,
+      });
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow(SimulationApiError);
+    },
+  );
+
+  it.each([{}, { next_checkpoint: 1, lap: 2 }])(
+    'rejects race progress with missing or extra members: %j',
+    (progress) => {
+      const document = snapshotDocument();
+      Reflect.set(playerEntity(document).components, 'race_progress', progress);
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow(SimulationApiError);
+    },
+  );
+
   it('accepts the first snapshot after the welcome and freezes it deeply', () => {
     const snapshot = validateSessionSnapshotMessage(
       snapshotDocument(),

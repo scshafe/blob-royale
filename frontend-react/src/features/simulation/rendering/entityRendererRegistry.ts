@@ -53,6 +53,10 @@ export const entityRendererRegistry = Object.freeze({
     ENTITY_RENDER_LAYERS.body,
     drawPhysicsBody,
   ),
+  race_progress: nonVisualComponent(
+    'race_progress',
+    'An ordered gate index has no geometry; the course supplies the gates and the HUD reports progress.',
+  ),
   respawn_timer: nonVisualComponent(
     'respawn_timer',
     'A return countdown has no geometry; an entity carrying it has no body to draw, and the HUD counts it down.',

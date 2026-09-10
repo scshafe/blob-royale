@@ -166,6 +166,10 @@ describe('entityRendererRegistry', () => {
     }
   });
 
+  it('registers race progress as non-visual because its gate index has no geometry', () => {
+    expect(entityRendererRegistry.race_progress.renders).toBe(false);
+  });
+
   it('draws the zone beneath bodies and names above them', () => {
     // Both danger rings join between the body and the label: one painted under the disc would be
     // hidden by it, and one painted over the name would strike the name through.

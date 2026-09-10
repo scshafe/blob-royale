@@ -7,6 +7,7 @@
 #include "components/hill_presence_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
+#include "components/race_progress_component.hpp"
 #include "components/respawn_timer_component.hpp"
 #include "components/score_component.hpp"
 #include "components/team_component.hpp"
@@ -46,10 +47,12 @@ namespace blob_royale::simulation {
 // (`components/respawn_timer_component.hpp`).
 //
 // `Hill` and `HillPresence` are king of the hill's, the way `Zone` and `ZoneExposure` are royale's:
-// two headers and this one line (`components/hill_component.hpp`).
+// two headers and this one line (`components/hill_component.hpp`). `RaceProgress` is race's
+// ordered gate counter, retained while its racer awaits a body
+// (`components/race_progress_component.hpp`).
 using ComponentRegistry =
     ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
-                  LethalOnContact, RespawnTimer, Hill, HillPresence>;
+                  LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress>;
 
 } // namespace blob_royale::simulation
 

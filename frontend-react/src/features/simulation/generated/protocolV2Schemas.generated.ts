@@ -291,6 +291,7 @@ export const protocolV2Schemas = {
           'lethal_on_contact',
           'lifetime',
           'physics_body',
+          'race_progress',
           'respawn_timer',
           'score',
           'team',
@@ -494,6 +495,9 @@ export const protocolV2Schemas = {
           },
           physics_body: {
             $ref: 'physics-body-component.schema.json',
+          },
+          race_progress: {
+            $ref: 'race-progress-component.schema.json',
           },
           respawn_timer: {
             $ref: 'respawn-timer-component.schema.json',
@@ -1170,6 +1174,24 @@ export const protocolV2Schemas = {
       },
       is_static: {
         type: 'boolean',
+      },
+    },
+  },
+  raceProgressComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v2/race-progress-component.schema.json',
+    title: 'Blob Royale protocol v2 race_progress component',
+    description:
+      "The zero-based index of the next gate a racer must reach in declared order. Zero means no gate taken; the course's checkpoint count means finished. Progress persists while the racer's body is absent so the last gate determines its return location.",
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['next_checkpoint'],
+    properties: {
+      next_checkpoint: {
+        $ref: 'common.schema.json#/$defs/safe_integer',
+        $comment:
+          "At most the course's checkpoint count, enforced by gameplay. Added in 2.5.",
       },
     },
   },

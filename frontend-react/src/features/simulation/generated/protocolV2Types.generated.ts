@@ -246,6 +246,7 @@ interface MutableBlobRoyaleProtocolV2EntitySnapshot {
     lethal_on_contact?: MutableBlobRoyaleProtocolV2LethalOnContactComponent;
     lifetime?: MutableBlobRoyaleProtocolV2LifetimeComponent;
     physics_body?: MutableBlobRoyaleProtocolV2PhysicsBodyComponent;
+    race_progress?: MutableBlobRoyaleProtocolV2RaceProgressComponent;
     respawn_timer?: MutableBlobRoyaleProtocolV2RespawnTimerComponent;
     score?: MutableBlobRoyaleProtocolV2ScoreComponent;
     team?: MutableBlobRoyaleProtocolV2TeamComponent;
@@ -300,6 +301,12 @@ interface MutableBlobRoyaleProtocolV2PhysicsBodyComponent {
   collision_layer: number;
   collision_mask: number;
   is_static: boolean;
+}
+/**
+ * The zero-based index of the next gate a racer must reach in declared order. Zero means no gate taken; the course's checkpoint count means finished. Progress persists while the racer's body is absent so the last gate determines its return location.
+ */
+interface MutableBlobRoyaleProtocolV2RaceProgressComponent {
+  next_checkpoint: number;
 }
 /**
  * The committed ticks left before an entity that was knocked out of play is offered a seat again. An entity carrying it has no physics_body; an entity without it is not respawning, so absence is the whole of 'in play' and no member can hold zero on a committed tick.
@@ -546,6 +553,8 @@ export type BlobRoyaleProtocolV2LifetimeComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2LifetimeComponent>;
 export type BlobRoyaleProtocolV2PhysicsBodyComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2PhysicsBodyComponent>;
+export type BlobRoyaleProtocolV2RaceProgressComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV2RaceProgressComponent>;
 export type BlobRoyaleProtocolV2RespawnTimerComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV2RespawnTimerComponent>;
 export type BlobRoyaleProtocolV2ScoreComponent =

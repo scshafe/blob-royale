@@ -50,6 +50,7 @@ const protocolVersions = [
       ['command-envelope.json', 'command-envelope.schema.json'],
       ['error-response.json', 'error-response.schema.json'],
       ['lobby-directory-message.json', 'lobby-directory-message.schema.json'],
+      ['race-progress-component.json', 'race-progress-component.schema.json'],
       ['snapshot-message.json', 'snapshot-message.schema.json'],
       ['welcome-message.json', 'welcome-message.schema.json'],
     ]),

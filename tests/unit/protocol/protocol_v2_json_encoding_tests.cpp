@@ -319,6 +319,49 @@ TEST_CASE("The closed v2 component vocabulary names exactly the registered compo
   }
   CHECK_FALSE(protocol::is_v2_component_kind("blob_shape"));
   CHECK_FALSE(protocol::is_v2_component_kind(""));
+  CHECK(std::ranges::is_sorted(protocol::kV2ComponentKindNames));
+}
+
+TEST_CASE("Race progress is published without a body and matches the accepted component example",
+          "[unit][protocol][v2][encoding][race_progress][golden]") {
+  const simulation::WorldSnapshot snapshot =
+      fixture::race_progress_snapshot(fixture::kGoldenNextCheckpoint);
+  const auto& progress = snapshot.components<simulation::RaceProgress>();
+  REQUIRE(progress.size() == 1);
+  CHECK(progress[0].value.next_checkpoint == fixture::kGoldenNextCheckpoint);
+  const std::string encoded = protocol::encode_snapshot_message_v2(
+      snapshot, fixture::golden_directory(), fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+  CHECK(encoded.find(R"("components":{"race_progress":{"next_checkpoint":2}})") !=
+        std::string::npos);
+  const boost::json::value document = boost::json::parse(encoded);
+  const boost::json::value& component = document.as_object()
+                                            .at("data")
+                                            .as_object()
+                                            .at("entities")
+                                            .as_array()
+                                            .at(0)
+                                            .as_object()
+                                            .at("components")
+                                            .as_object()
+                                            .at("race_progress");
+  CHECK(component ==
+        boost::json::parse(fixture::read_v2_golden_example("race-progress-component.json")));
+  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+}
+
+TEST_CASE("Race progress preserves zero and is never synthesized for an entity without it",
+          "[unit][protocol][v2][encoding][race_progress]") {
+  const std::string starting = protocol::encode_snapshot_message_v2(
+      fixture::race_progress_snapshot(0), fixture::golden_directory(),
+      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
+  CHECK(starting.find(R"("race_progress":{"next_checkpoint":0})") != std::string::npos);
+  const std::string absent = protocol::encode_snapshot_message_v2(
+      fixture::untransitioned_lobby_snapshot(), fixture::golden_directory(),
+      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
+  CHECK(absent.find("race_progress") == std::string::npos);
 }
 
 TEST_CASE("Snapshot v2 encoder rejects a message sequence below the first snapshot's",

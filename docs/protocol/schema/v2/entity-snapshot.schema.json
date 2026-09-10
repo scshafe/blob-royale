@@ -34,6 +34,9 @@
         "physics_body": {
           "$ref": "physics-body-component.schema.json"
         },
+        "race_progress": {
+          "$ref": "race-progress-component.schema.json"
+        },
         "respawn_timer": {
           "$ref": "respawn-timer-component.schema.json"
         },

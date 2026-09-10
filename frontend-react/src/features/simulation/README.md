@@ -12,18 +12,30 @@ Two rules of the wire shape this domain and are worth restating here. The own bo
 
 `rendering/` holds the `@extension-point entity_renderer` registry: one file per drawn component kind, one registration line each, and a stated reason for every kind that carries no pixels. `sessionSelectors.ts` holds the derivations the wire deliberately does not publish twice — alive count, own entity, own placement, elapsed phase time, the zone-exposure report, and the match overlay description — so components stay presentational and each rule is testable without a renderer.
 
-**World space is not the viewport.** The current `SimulationCanvas` fits the entire map using the
-scale-only `WorldProjection`; `raceCourseRenderer` separately scales its world-space path. There
-is no camera translation, follow state, or manual-pan control in the current implementation.
+**World space is not the viewport.** `useSimulationCamera` selects a session-local centre and
+`rendering/worldProjection.ts` supplies the single uniform translated projection for all entity
+and mode-state layers, including the race course. The default is **Follow player**, resolving the
+current body by controller identity on each snapshot, retaining the last centre while bodyless,
+and resuming on a replacement body. Before the first body the view uses map centre. A new immutable
+welcome token or requested room resets the camera, even if numeric IDs repeat; it does not reset
+the viewer's debug disclosure.
+
+**Manual view** freezes the current centre. Drag the map or use the named pan buttons to move the
+view independently; **Follow player** returns to tracking. Manual centres stay within world
+bounds, while strict follow never clamps and may show outside-map background. Buttons use
+Tab/Enter/Space, leaving WASD and arrows to steering. No camera API receives a gameplay sender.
+Pointer capture ends on release, cancellation, loss of capture, blur, or switching to follow.
+
+`useCanvasViewport` measures available CSS width, capped at 960 pixels with a 3:2 aspect and integer
+layout rounding. Scale is one world unit per CSS pixel, so resizing changes visible extent rather
+than world geometry or body readability. DPR only affects the backing buffer, capped at 4; hidden
+zero-area views do not draw. The true projected map boundary, not the viewport border, is drawn
+against a distinct outside-map background. HUD, overlays, and controls stay in screen space.
 The larger-world camera requirement is defined once in
 [`ADR 0004 — World space and the client viewport`](../../../../docs/architecture/0004-gameplay-architecture.md#world-space-and-the-client-viewport--owner-direction-2026-09-09).
-Its implementation must converge entity and mode-state rendering on one canonical world-to-view
-transform, without moving HUD/controls out of screen space. Player-follow selects its centre from
-the current body resolved by controller id; an independent manual view and explicit return to
-follow remain UI options to evaluate. Keep camera selection local, preserve complete validated
-snapshots, and isolate pan input from the existing thrust bindings. Known offscreen geometry may
-be clipped; unknown kinds still fail closed before rendering. Camera work and its large-map
-acceptance tests are not completed by the current hill/race rendering tests.
+Complete validated snapshots remain intact: offscreen geometry is clipped only by the canvas,
+and unknown kinds still fail closed before rendering. The camera follow-up's own tests establish
+its automated scope; earlier whole-map-fit tests and compact live playtests do not.
 
 Phase time is reported as elapsed rather than remaining, and the reason is availability. The `[royale]` phase durations — `countdown_seconds`, `zone_shrink_seconds` — are composition-root configuration: `GET /api/v1/config` publishes only `world`, `simulation`, and `presentation` under an `additionalProperties: false` schema, and no v2 frame carries them. The HUD therefore counts phase time up from `phase_started_tick`, converted by the published `ticks_per_second`, instead of counting a duration it would have to invent down.
 

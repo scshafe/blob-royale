@@ -1,7 +1,14 @@
-import { render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SimulationCanvas } from './SimulationCanvas';
+import {
+  SimulationCanvas as CameraCanvas,
+  type SimulationCanvasProps,
+} from './SimulationCanvas';
+import {
+  CanvasViewportObserver,
+  canvasDensityQuery,
+} from './fixtures/canvasViewportObserver';
 import {
   CANVAS_MAX_HEIGHT_PIXELS,
   CANVAS_MAX_WIDTH_PIXELS,
@@ -34,6 +41,25 @@ const goldenSnapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   tickSequence: null,
 }).data;
 
+function SimulationCanvas(
+  props: Omit<SimulationCanvasProps, 'camera' | 'onPan'> &
+    Partial<Pick<SimulationCanvasProps, 'camera' | 'onPan'>>,
+) {
+  return (
+    <CameraCanvas
+      camera={{
+        mode: 'manual',
+        center: {
+          x: props.configuration.world.width_world_units / 2,
+          y: props.configuration.world.height_world_units / 2,
+        },
+      }}
+      onPan={() => undefined}
+      {...props}
+    />
+  );
+}
+
 // Return type inferred deliberately: an erased `Mock` field would lose the recorded argument types
 // and make every assertion on a draw call an unchecked `any`.
 function createCanvasContext() {
@@ -41,6 +67,8 @@ function createCanvasContext() {
   const moveTo = vi.fn();
   const lineTo = vi.fn();
   const restore = vi.fn();
+  const setTransform = vi.fn();
+  const strokeRect = vi.fn();
   const fillText = vi.fn((text: string, x: number, y: number) => {
     void text;
     void x;
@@ -64,8 +92,9 @@ function createCanvasContext() {
     restore,
     save: vi.fn(),
     scale: vi.fn(),
+    setTransform,
     stroke: vi.fn(),
-    strokeRect: vi.fn(),
+    strokeRect,
     textAlign: '',
     textBaseline: '',
     set fillStyle(value: unknown) {
@@ -78,7 +107,17 @@ function createCanvasContext() {
       assignments.strokeStyle?.push(value);
     },
   } as unknown as CanvasRenderingContext2D;
-  return { arc, assignments, context, fillText, lineTo, moveTo, restore };
+  return {
+    arc,
+    assignments,
+    context,
+    fillText,
+    lineTo,
+    moveTo,
+    restore,
+    setTransform,
+    strokeRect,
+  };
 }
 
 function bodyEntity(entityId: number): SessionEntitySnapshot {
@@ -291,5 +330,236 @@ describe('SimulationCanvas', () => {
     expect(
       view.getByText('Waiting for the first complete world snapshot.'),
     ).toBeVisible();
+  });
+
+  it('centres an edge target while projecting the actual map boundary outside the viewport', () => {
+    const { arc, context, assignments, strokeRect } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    expect(arc).toHaveBeenCalledWith(480, 320, 10, 0, 2 * Math.PI);
+    expect(strokeRect).toHaveBeenCalledWith(240, 20, 960, 640);
+    expect(assignments.fillStyle).toContain('#e2e8f0');
+  });
+
+  it('resizes visible world extent without changing world radii or camera centre', () => {
+    const { arc, context, strokeRect } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(600);
+    });
+    expect(screen.getByRole('img')).toHaveAttribute('width', '600');
+    expect(screen.getByRole('img')).toHaveAttribute('height', '400');
+    expect(arc).toHaveBeenLastCalledWith(300, 200, 10, 0, 2 * Math.PI);
+    expect(strokeRect).toHaveBeenLastCalledWith(60, -100, 960, 640);
+  });
+
+  it('changes only the bounded backing buffer when display density changes', () => {
+    const { arc, context, setTransform } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    vi.stubGlobal('devicePixelRatio', 2);
+    fireEvent.resize(window);
+    expect(screen.getByRole('img')).toHaveAttribute('width', '1920');
+    expect(screen.getByRole('img')).toHaveStyle({
+      width: '960px',
+      height: '640px',
+    });
+    expect(setTransform).toHaveBeenLastCalledWith(2, 0, 0, 2, 0, 0);
+    expect(arc).toHaveBeenLastCalledWith(480, 320, 10, 0, 2 * Math.PI);
+    vi.stubGlobal('devicePixelRatio', 20);
+    fireEvent.resize(window);
+    expect(screen.getByRole('img')).toHaveAttribute('width', '3840');
+    expect(screen.getByRole('img')).toHaveAttribute('height', '2560');
+    expect(arc).toHaveBeenLastCalledWith(480, 320, 10, 0, 2 * Math.PI);
+  });
+
+  it('keeps odd-size fractional-DPR geometry uniform and rearms density-only changes', () => {
+    const queries: MediaQueryList[] = [];
+    vi.stubGlobal('matchMedia', (query: string) => {
+      const result = canvasDensityQuery(query);
+      queries.push(result);
+      return result;
+    });
+    const { arc, context, setTransform } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    const view = render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(601);
+    });
+    vi.stubGlobal('devicePixelRatio', 1.25);
+    act(() => {
+      queries[0]?.dispatchEvent(new Event('change'));
+    });
+    expect(screen.getByRole('img')).toHaveAttribute('width', '751');
+    expect(screen.getByRole('img')).toHaveAttribute('height', '500');
+    expect(setTransform).toHaveBeenLastCalledWith(751 / 601, 0, 0, 1.25, 0, 0);
+    expect(arc).toHaveBeenLastCalledWith(300.5, 200, 10, 0, 2 * Math.PI);
+    expect(queries).toHaveLength(2);
+    vi.stubGlobal('devicePixelRatio', 2);
+    act(() => {
+      queries[0]?.dispatchEvent(new Event('change'));
+    });
+    expect(screen.getByRole('img')).toHaveAttribute('width', '751');
+    act(() => {
+      queries[1]?.dispatchEvent(new Event('change'));
+    });
+    expect(screen.getByRole('img')).toHaveAttribute('width', '1202');
+    expect(queries).toHaveLength(3);
+    view.unmount();
+    act(() => {
+      queries[2]?.dispatchEvent(new Event('change'));
+    });
+    expect(queries).toHaveLength(3);
+    expect(CanvasViewportObserver.active.size).toBe(0);
+  });
+
+  it('does not invent a drawable area for a hidden viewport and resumes on layout delivery', () => {
+    const { arc, context } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    arc.mockClear();
+    act(() => {
+      for (const observer of CanvasViewportObserver.active) observer.resize(0);
+    });
+    expect(arc).not.toHaveBeenCalled();
+    expect(screen.getByRole('img')).toHaveStyle({
+      width: '0px',
+      height: '0px',
+    });
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(960);
+    });
+    expect(arc).toHaveBeenCalledTimes(1);
+  });
+
+  it('pans only a captured primary drag and cancels it on blur, mode change, or pointer cancellation', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      createCanvasContext().context,
+    );
+    const onPan = vi.fn();
+    const view = render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        onPan={onPan}
+        snapshot={goldenSnapshot}
+      />,
+    );
+    const canvas = screen.getByRole('img');
+    const captured = new Set<number>();
+    Object.assign(canvas, {
+      setPointerCapture: (pointerId: number) => {
+        captured.add(pointerId);
+      },
+      hasPointerCapture: (pointerId: number) => captured.has(pointerId),
+      releasePointerCapture: (pointerId: number) => {
+        captured.delete(pointerId);
+      },
+    });
+    const pointer = {
+      pointerId: 1,
+      isPrimary: true,
+      button: 0,
+      buttons: 1,
+      clientX: 200,
+      clientY: 100,
+    };
+    fireEvent.pointerDown(canvas, pointer);
+    fireEvent.pointerMove(canvas, { ...pointer, pointerId: 2, clientX: 180 });
+    expect(onPan).not.toHaveBeenCalled();
+    fireEvent.pointerMove(canvas, { ...pointer, clientX: 170, clientY: 120 });
+    expect(onPan).toHaveBeenLastCalledWith({ x: 30, y: -20 });
+    fireEvent.blur(window);
+    expect(captured.size).toBe(0);
+    fireEvent.pointerMove(canvas, { ...pointer, clientX: 100 });
+    expect(onPan).toHaveBeenCalledTimes(1);
+    fireEvent.pointerDown(canvas, pointer);
+    fireEvent.pointerCancel(canvas, pointer);
+    fireEvent.pointerMove(canvas, { ...pointer, clientX: 100 });
+    expect(onPan).toHaveBeenCalledTimes(1);
+    fireEvent.pointerDown(canvas, pointer);
+    captured.clear();
+    fireEvent.lostPointerCapture(canvas, pointer);
+    fireEvent.pointerMove(canvas, { ...pointer, clientX: 100 });
+    expect(onPan).toHaveBeenCalledTimes(1);
+    fireEvent.pointerDown(canvas, pointer);
+    fireEvent.pointerMove(canvas, { ...pointer, buttons: 0 });
+    expect(captured.size).toBe(0);
+    fireEvent.pointerMove(canvas, { ...pointer, clientX: 100 });
+    expect(onPan).toHaveBeenCalledTimes(1);
+    fireEvent.pointerDown(canvas, pointer);
+    view.rerender(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        onPan={onPan}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+        snapshot={goldenSnapshot}
+      />,
+    );
+    expect(captured.size).toBe(0);
+    fireEvent.pointerDown(canvas, pointer);
+    fireEvent.pointerMove(canvas, { ...pointer, clientX: 100 });
+    expect(onPan).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        onPan={onPan}
+        snapshot={goldenSnapshot}
+      />,
+    );
+    fireEvent.pointerDown(canvas, pointer);
+    expect(captured.size).toBe(1);
+    view.unmount();
+    expect(captured.size).toBe(0);
   });
 });

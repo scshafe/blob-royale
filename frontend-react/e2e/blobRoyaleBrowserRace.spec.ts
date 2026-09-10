@@ -15,8 +15,10 @@ import {
   installCanvasRecorder,
   lobbyStartButton,
   matchHudCell,
-  readCanvasFrame,
-  requireCanvasFrame,
+  readCanvasFrame as readRawCanvasFrame,
+  readWorldCanvasFrame as readCanvasFrame,
+  requireCanvasFrame as requireRawCanvasFrame,
+  requireWorldCanvasFrame as requireCanvasFrame,
   requireLabel,
   startMatchFromLobby,
   waitForReadyServer,
@@ -70,30 +72,30 @@ function requireCoursePath(frame: RecordedFrame): RecordedPath {
   return path;
 }
 
-/** Assert actual painted geometry and its order, including the renderer's saved world transform. */
+/** Assert painted geometry/order after removing the observed shared camera translation. */
 function expectCourse(frame: RecordedFrame): void {
   const path = requireCoursePath(frame);
   expect(path.points).toEqual([
-    { kind: 'move', x: 150, y: 320 },
-    { kind: 'line', x: 450, y: 320 },
+    { kind: 'move', x: 300, y: 640 },
+    { kind: 'line', x: 900, y: 640 },
   ]);
-  expect(path.lineWidth).toBe(70);
+  expect(path.lineWidth).toBe(140);
   expect(path.lineCap).toBe('round');
   expect(path.lineJoin).toBe('round');
   expect(path.closed).toBe(false);
 
-  const gates = frame.arcs.filter((arc) => arc.radius === 30);
+  const gates = frame.arcs.filter((arc) => arc.radius === 60);
   expect(gates.map(({ x, y }) => ({ x, y }))).toEqual([
-    { x: 200, y: 320 },
-    { x: 320, y: 320 },
-    { x: 400, y: 320 },
+    { x: 400, y: 640 },
+    { x: 640, y: 640 },
+    { x: 800, y: 640 },
   ]);
   expect(gates.at(-1)?.fillStyle).toBe(FINISH_FILL);
   expect(
     gates.slice(0, -1).every((gate) => gate.fillStyle !== FINISH_FILL),
   ).toBe(true);
-  expect(requireLabel(frame, 'Finish')).toMatchObject({ x: 400, y: 320 });
-  const bodies = frame.arcs.filter((arc) => arc.radius === 10);
+  expect(requireLabel(frame, 'Finish')).toMatchObject({ x: 800, y: 640 });
+  const bodies = frame.arcs.filter((arc) => arc.radius === 20);
   expect(bodies.length).toBeGreaterThan(0);
   for (const gate of gates) {
     expect(path.drawOrder).toBeLessThan(gate.drawOrder);
@@ -157,8 +159,8 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
     const lobbyFrame = await requireCanvasFrame(page);
     expectCourse(lobbyFrame);
     expect(requireLabel(lobbyFrame, displayName)).toMatchObject({
-      x: 200,
-      y: 349,
+      x: 400,
+      y: 694,
     });
     await expect(page.getByRole('table', { name: 'Standings' })).toContainText(
       'No finishers yet',
@@ -201,13 +203,39 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
           },
         )
         .toBe(true);
+      const bodylessFrame = await requireRawCanvasFrame(page);
+      expect(findLabel(bodylessFrame, displayName)).toBeNull();
+      expect(bodylessFrame.worldBoundary).not.toBeNull();
+      const retainedBoundary = bodylessFrame.worldBoundary;
+      if (retainedBoundary === null) {
+        throw new BrowserE2EError(
+          'BROWSER_E2E.RACE_RETURN_CAMERA_BOUNDARY_ABSENT',
+          'The bodyless return frame must retain a painted world boundary.',
+        );
+      }
+      // Last visible body was just inside y=710: one 20 Hz sample can trail by 0.45 wu.
+      // Retaining this centre is distinct from snapping to map centre640 or the grid670.
+      const retainedWorldY =
+        (bodylessFrame.height / 2 - retainedBoundary.y) *
+        (bodylessFrame.cssHeight / bodylessFrame.height);
+      expect(retainedWorldY).toBeGreaterThan(709);
+      expect(retainedWorldY).toBeLessThanOrEqual(710 + 1e-9);
+      await expect
+        .poll(async () => (await readRawCanvasFrame(page))?.index ?? -1, {
+          message:
+            'the bodyless camera must remain steady across multiple published frames',
+        })
+        .toBeGreaterThan(bodylessFrame.index + 1);
+      const laterBodylessFrame = await requireRawCanvasFrame(page);
+      expect(findLabel(laterBodylessFrame, displayName)).toBeNull();
+      expect(laterBodylessFrame.worldBoundary).toEqual(retainedBoundary);
     } finally {
       await page.keyboard.up('KeyS');
     }
     await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
     await expect(matchHudCell(page, 'Gate')).toHaveText('1 of 3');
 
-    // The name must reappear at the last gate's center, a full 15 canvas pixels above its grid
+    // The name must reappear at the last gate's center, a full 30 world-relative pixels above its grid
     // label. This proves checkpoint return rather than merely observing an arbitrary body rejoin.
     await expect
       .poll(
@@ -222,10 +250,18 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
           timeout: MOTION_TIMEOUT_MILLISECONDS,
         },
       )
-      .toEqual({ x: 200, y: 334 });
+      .toEqual({ x: 400, y: 664 });
     await expect(matchHudCell(page, 'Return')).toHaveCount(0);
     await expect(matchHudCell(page, 'Alive')).toHaveText('2');
     expectCourse(await requireCanvasFrame(page));
+    const returnedCameraFrame = await requireRawCanvasFrame(page);
+    const returnedLabel = requireLabel(returnedCameraFrame, displayName);
+    expect(returnedLabel.x).toBeCloseTo(returnedCameraFrame.width / 2, 8);
+    expect(returnedLabel.y).toBeCloseTo(
+      returnedCameraFrame.height / 2 +
+        24 * (returnedCameraFrame.height / returnedCameraFrame.cssHeight),
+      8,
+    );
 
     await expect(standingCell(page, BOT_DISPLAY_NAME)).toHaveText('#1', {
       timeout: FINISH_TIMEOUT_MILLISECONDS,

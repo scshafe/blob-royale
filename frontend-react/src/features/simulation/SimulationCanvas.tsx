@@ -1,8 +1,7 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, type PointerEvent } from 'react';
 
 import {
-  CANVAS_MAX_HEIGHT_PIXELS,
-  CANVAS_MAX_WIDTH_PIXELS,
+  CAMERA_PIXELS_PER_WORLD_UNIT,
   SESSION_ENTITY_LIMIT,
 } from './simulationConstants';
 import type {
@@ -12,38 +11,24 @@ import type {
 import { visualEntityRenderers } from './rendering/entityRendererRegistry';
 import { modeStateRendererRegistry } from './rendering/modeStateRendererRegistry';
 import { countAlivePlayers, eliminationGraceTicks } from './sessionSelectors';
+import { useCanvasViewport } from './useCanvasViewport';
+import {
+  createWorldProjection,
+  projectWorldPoint,
+  projectWorldDistance,
+  unprojectCanvasOffset,
+  type WorldPoint,
+} from './rendering/worldProjection';
 
 export interface SimulationCanvasProps {
   readonly configuration: SimulationConfiguration;
   readonly ownEntityId: number | null;
   readonly snapshot: SessionWorldSnapshot | null;
-}
-
-interface CanvasViewport {
-  readonly height: number;
-  readonly width: number;
-}
-
-function calculateCanvasViewport(
-  configuration: SimulationConfiguration,
-): CanvasViewport {
-  const worldWidth = configuration.world.width_world_units;
-  const worldHeight = configuration.world.height_world_units;
-  const scale = Math.min(
-    CANVAS_MAX_WIDTH_PIXELS / worldWidth,
-    CANVAS_MAX_HEIGHT_PIXELS / worldHeight,
-  );
-
-  return Object.freeze({
-    height: Math.max(
-      1,
-      Math.min(CANVAS_MAX_HEIGHT_PIXELS, Math.floor(worldHeight * scale)),
-    ),
-    width: Math.max(
-      1,
-      Math.min(CANVAS_MAX_WIDTH_PIXELS, Math.floor(worldWidth * scale)),
-    ),
-  });
+  readonly camera: {
+    readonly mode: 'follow' | 'manual';
+    readonly center: WorldPoint;
+  };
+  readonly onPan: (offset: WorldPoint) => void;
 }
 
 /**
@@ -55,10 +40,50 @@ export function SimulationCanvas({
   configuration,
   ownEntityId,
   snapshot,
+  camera,
+  onPan,
 }: SimulationCanvasProps) {
   const canvasReference = useRef<HTMLCanvasElement>(null);
+  const dragReference = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const descriptionId = useId();
-  const viewport = calculateCanvasViewport(configuration);
+  const { containerReference, viewport } = useCanvasViewport();
+  const backingWidth = Math.max(
+    1,
+    Math.round(viewport.width * viewport.pixelRatio),
+  );
+  const backingHeight = Math.max(
+    1,
+    Math.round(viewport.height * viewport.pixelRatio),
+  );
+
+  function finishDrag(event: PointerEvent<HTMLCanvasElement>) {
+    if (dragReference.current?.pointerId !== event.pointerId) return;
+    dragReference.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  useEffect(() => {
+    const canvas = canvasReference.current;
+    function cancelDrag() {
+      const drag = dragReference.current;
+      dragReference.current = null;
+      if (drag !== null && canvas?.hasPointerCapture(drag.pointerId)) {
+        canvas.releasePointerCapture(drag.pointerId);
+      }
+    }
+    if (camera.mode !== 'manual') cancelDrag();
+    window.addEventListener('blur', cancelDrag);
+    return () => {
+      window.removeEventListener('blur', cancelDrag);
+      cancelDrag();
+    };
+  }, [camera.mode]);
 
   useEffect(() => {
     const canvas = canvasReference.current;
@@ -67,12 +92,40 @@ export function SimulationCanvas({
       return;
     }
 
-    context.clearRect(0, 0, viewport.width, viewport.height);
-    context.fillStyle = '#f8fafc';
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, backingWidth, backingHeight);
+    if (viewport.width === 0 || viewport.height === 0) return;
+    // The inverse CSS display scaling cancels these backing-buffer factors. World projection
+    // remains uniform in CSS pixels even when a fractional DPR rounds the two buffer dimensions.
+    context.setTransform(
+      backingWidth / viewport.width,
+      0,
+      0,
+      backingHeight / viewport.height,
+      0,
+      0,
+    );
+    context.fillStyle = '#e2e8f0';
     context.fillRect(0, 0, viewport.width, viewport.height);
+    const projection = createWorldProjection(
+      camera.center,
+      { width: viewport.width, height: viewport.height },
+      CAMERA_PIXELS_PER_WORLD_UNIT,
+    );
+    const origin = projectWorldPoint(projection, { x: 0, y: 0 });
+    const worldWidth = projectWorldDistance(
+      projection,
+      configuration.world.width_world_units,
+    );
+    const worldHeight = projectWorldDistance(
+      projection,
+      configuration.world.height_world_units,
+    );
+    context.fillStyle = '#f8fafc';
+    context.fillRect(origin.x, origin.y, worldWidth, worldHeight);
     context.strokeStyle = '#334155';
     context.lineWidth = 1;
-    context.strokeRect(0, 0, viewport.width, viewport.height);
+    context.strokeRect(origin.x, origin.y, worldWidth, worldHeight);
 
     if (snapshot === null) {
       return;
@@ -83,10 +136,7 @@ export function SimulationCanvas({
       // renderer that draws danger measures it against the same denominator the HUD counts down.
       eliminationGraceTicks: eliminationGraceTicks(snapshot.match),
       ownEntityId,
-      projection: {
-        horizontalScale: viewport.width / configuration.world.width_world_units,
-        verticalScale: viewport.height / configuration.world.height_world_units,
-      },
+      projection,
       surface: context,
     };
     const renderedEntities = snapshot.entities.slice(0, SESSION_ENTITY_LIMIT);
@@ -102,7 +152,16 @@ export function SimulationCanvas({
         renderer.drawEntity(entity, frame);
       }
     }
-  }, [configuration, ownEntityId, snapshot, viewport.height, viewport.width]);
+  }, [
+    configuration,
+    ownEntityId,
+    snapshot,
+    camera.center,
+    viewport.height,
+    viewport.width,
+    backingHeight,
+    backingWidth,
+  ]);
 
   const snapshotDescription =
     snapshot === null
@@ -111,14 +170,77 @@ export function SimulationCanvas({
 
   return (
     <figure className="SimulationCanvas">
-      <canvas
-        aria-describedby={descriptionId}
-        aria-label="Blob Royale simulation world"
-        height={viewport.height}
-        ref={canvasReference}
-        role="img"
-        width={viewport.width}
-      />
+      <div className="SimulationViewport" ref={containerReference}>
+        <canvas
+          aria-describedby={descriptionId}
+          aria-label="Blob Royale simulation world"
+          height={backingHeight}
+          className={
+            camera.mode === 'manual' ? 'ManualCameraCanvas' : undefined
+          }
+          data-camera-mode={camera.mode}
+          data-camera-center-x={camera.center.x}
+          data-camera-center-y={camera.center.y}
+          onPointerDown={(event) => {
+            if (
+              camera.mode !== 'manual' ||
+              event.button !== 0 ||
+              !event.isPrimary ||
+              dragReference.current !== null
+            )
+              return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            dragReference.current = {
+              pointerId: event.pointerId,
+              x: event.clientX,
+              y: event.clientY,
+            };
+          }}
+          onPointerMove={(event) => {
+            const drag = dragReference.current;
+            if (
+              camera.mode !== 'manual' ||
+              drag === null ||
+              drag.pointerId !== event.pointerId
+            )
+              return;
+            if ((event.buttons & 1) === 0) {
+              finishDrag(event);
+              return;
+            }
+            event.preventDefault();
+            const offset = {
+              x: drag.x - event.clientX,
+              y: drag.y - event.clientY,
+            };
+            dragReference.current = {
+              pointerId: drag.pointerId,
+              x: event.clientX,
+              y: event.clientY,
+            };
+            if (viewport.width > 0 && viewport.height > 0) {
+              onPan(
+                unprojectCanvasOffset(
+                  createWorldProjection(
+                    camera.center,
+                    viewport,
+                    CAMERA_PIXELS_PER_WORLD_UNIT,
+                  ),
+                  offset,
+                ),
+              );
+            }
+          }}
+          onPointerUp={finishDrag}
+          onPointerCancel={finishDrag}
+          onLostPointerCapture={finishDrag}
+          ref={canvasReference}
+          role="img"
+          style={{ width: viewport.width, height: viewport.height }}
+          width={backingWidth}
+        />
+      </div>
       <figcaption id={descriptionId}>{snapshotDescription}</figcaption>
     </figure>
   );

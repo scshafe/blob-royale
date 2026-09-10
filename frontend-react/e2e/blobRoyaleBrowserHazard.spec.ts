@@ -17,8 +17,8 @@ import {
   PRODUCTION_ORIGIN,
   installCanvasRecorder,
   matchHudCell,
-  readCanvasFrame,
-  requireCanvasFrame,
+  readWorldCanvasFrame as readCanvasFrame,
+  requireWorldCanvasFrame as requireCanvasFrame,
   requireLabel,
   waitForReadyServer,
   type RecordedArc,
@@ -54,10 +54,10 @@ const HEAVY_FIXTURE: BlobRoyaleServerFixture = Object.freeze({
 const SESSION_DISPLAY_NAME_PATTERN = /^player-[1-9][0-9]*$/;
 
 /**
- * `[world] 1920x1280` against the client's `960x640` canvas maximum is an exact 0.5 projection, so
- * every recorded canvas coordinate is exactly half its world coordinate.
+ * World-relative painted pixels remove the observed camera translation and DPR. Scale one keeps
+ * the authored radii readable regardless of where either player's camera is centred.
  */
-const PROJECTION_SCALE = 0.5;
+const PROJECTION_SCALE = 1;
 const PLAYER_RADIUS_CANVAS = 20 * PROJECTION_SCALE;
 const HAZARD_RADIUS_CANVAS = 30 * PROJECTION_SCALE;
 /** `controllableLabelRenderer` writes a name one body radius plus four pixels below its centre. */
@@ -92,7 +92,7 @@ const CLEAR_SPAWN_LABEL = labelCanvasPosition(925, 225);
 /**
  * How close a drawn label must be to a projected marker to be the blob seated there.
  *
- * Half a canvas pixel is one world unit, against 549.6 wu between the two markers. It is loose
+ * Half a CSS pixel is half a world unit, against 549.6 wu between the two markers. It is loose
  * enough that a JSON round trip of a nine-decimal coordinate cannot fail it and tight enough that
  * mistaking one marker for the other is impossible.
  */
@@ -100,14 +100,14 @@ const SEATING_TOLERANCE_CANVAS_PIXELS = 0.5;
 
 /**
  * A perfectly elastic head-on contact with a mass-200 body at 600 wu/s hands a unit-mass blob
- * `2 * 600 / (1/200 + 1) = 1194` wu/s, which at `drag_per_second=0` is 1.5 canvas pixels of travel
- * every 2.5 ms tick and does not decay. Four pixels is under three ticks of that and is eight world
+ * `2 * 600 / (1/200 + 1) = 1194` wu/s, which at `drag_per_second=0` is 3 CSS pixels of travel
+ * every 2.5 ms tick and does not decay. Eight pixels is under three ticks of that and is eight world
  * units, which nothing else in this fixture can produce: the blob was seated at rest, no session
  * presses a key, there is no bot, and the zone applies no force. At the 20 Hz snapshot cadence the
- * first frame after contact already shows some thirty pixels, so there is no partly-moved state a
+ * first frame after contact already shows some sixty pixels, so there is no partly-moved state a
  * poll could mistake for the deflection.
  */
-const DEFLECTION_THRESHOLD_CANVAS_PIXELS = 4;
+const DEFLECTION_THRESHOLD_CANVAS_PIXELS = 8;
 
 /** The blob the hazard misses is never touched, so its drawn position must not move at all. */
 const UNDISTURBED_TOLERANCE_CANVAS_PIXELS = 0.5;
@@ -182,7 +182,7 @@ function bodyArcs(frame: RecordedFrame): readonly RecordedArc[] {
  * The hazard discs in one frame, told apart from blobs by radius alone.
  *
  * A hazard is `radius_world_units=30` against a `player_radius_world_units=20`, and the projection
- * is exactly 0.5, so the two are 15 and 10 canvas pixels and no rounding stands between them. The
+ * is exactly one, so the two are 30 and 20 CSS pixels and no rounding stands between them. The
  * dashed lethal ring is a `stroke` and this recorder only observes `fill`, so this counts the
  * hazard body rather than its warning.
  */
@@ -408,7 +408,7 @@ test('a lethal hazard eliminates the browser blob standing on its path', async (
 
       // ------------------------------------------------------------ the comet is drawn
       // Before anything is claimed about an elimination, the thing that causes it has to be on the
-      // screen. A blob is 10 canvas pixels and a hazard is 15, so this is the hazard and not a
+      // canvas draw list. A blob is 20 CSS pixels and a hazard is 30, so this is the hazard and not a
       // player.
       await expect
         .poll(async () => countHazardArcs(seating.struckPage), {
@@ -508,7 +508,7 @@ test('a heavy hazard shoves a browser blob aside without eliminating it', async 
 
       // ------------------------------------------------------------ it moves the blob it hits
       // The struck blob was seated at rest and nothing else in this world can accelerate it, so a
-      // displacement of four canvas pixels is the mass-200 contact and can be nothing else. Both
+      // displacement of eight CSS pixels is the mass-200 contact and can be nothing else. Both
       // browsers are asked: a blob that moved for one viewer and not the other would be a rendering
       // bug wearing this assertion's clothes.
       for (const page of [seating.struckPage, seating.clearPage]) {

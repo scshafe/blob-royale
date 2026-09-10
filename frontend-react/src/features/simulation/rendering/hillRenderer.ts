@@ -1,4 +1,5 @@
 import type { EntityRenderInput } from './entityRendering';
+import { projectWorldDistance, projectWorldPoint } from './worldProjection';
 
 export const HILL_FILL = 'rgba(251, 191, 36, 0.22)';
 export const HILL_STROKE = '#b45309';
@@ -15,21 +16,14 @@ export function drawHill({
   frame,
 }: EntityRenderInput<'hill'>): void {
   const { projection, surface } = frame;
-  const radiusPixels =
-    component.radius *
-    Math.min(projection.horizontalScale, projection.verticalScale);
+  const radiusPixels = projectWorldDistance(projection, component.radius);
   if (radiusPixels <= 0) {
     return;
   }
 
+  const center = projectWorldPoint(projection, component.center);
   surface.beginPath();
-  surface.arc(
-    component.center.x * projection.horizontalScale,
-    component.center.y * projection.verticalScale,
-    radiusPixels,
-    0,
-    2 * Math.PI,
-  );
+  surface.arc(center.x, center.y, radiusPixels, 0, 2 * Math.PI);
   surface.fillStyle = HILL_FILL;
   surface.fill();
   surface.lineWidth = HILL_STROKE_WIDTH;

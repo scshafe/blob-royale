@@ -15,8 +15,8 @@ import {
   installCanvasRecorder,
   lobbyStartButton,
   matchHudCell,
-  readCanvasFrame,
-  requireCanvasFrame,
+  readWorldCanvasFrame as readCanvasFrame,
+  requireWorldCanvasFrame as requireCanvasFrame,
   requireLabel,
   startMatchFromLobby,
   waitForReadyServer,
@@ -50,20 +50,20 @@ const SECONDS_PATTERN = /^[0-9]+\.[0-9] s$/;
 const HILL_FILL = 'rgba(251, 191, 36, 0.22)';
 
 /**
- * `[world] 1920x1280` against the client's `960x640` canvas maximum is an exact 0.5 projection, so
- * the hill marker at world (960, 640) with radius 150 is drawn at canvas (480, 320) with radius 75,
- * and the seeker seated at world x 1155 is first drawn at canvas x 577.5.
+ * The recorder removes each frame's observed map-boundary translation and backing-buffer ratio.
+ * At one CSS pixel per world unit, the hill and seeker retain their authored geometry even while
+ * the local window follows a player far from the hill; these are world-relative painted pixels.
  */
-const HILL_CENTER_CANVAS = Object.freeze({ x: 480, y: 320 });
-const HILL_RADIUS_CANVAS = 75;
-const SEEKER_SPAWN_CANVAS_X = 577.5;
+const HILL_CENTER_CANVAS = Object.freeze({ x: 960, y: 640 });
+const HILL_RADIUS_CANVAS = 150;
+const SEEKER_SPAWN_CANVAS_X = 1155;
 
 /**
  * A body accelerates at 400 wu/s² against `drag_per_second=40`, so it holds 9 wu/s. Sixteen world
- * units of travel is under two seconds of held thrust and is 8 canvas pixels, which no rounding,
+ * units of travel is under two seconds of held thrust and is 16 CSS pixels, which no rounding,
  * no rendering order, and no snapshot cadence can manufacture from a body at rest.
  */
-const MOTION_THRESHOLD_CANVAS_PIXELS = 8;
+const MOTION_THRESHOLD_CANVAS_PIXELS = 16;
 
 const MATCH_START_TIMEOUT_MILLISECONDS = 20_000;
 const MOTION_TIMEOUT_MILLISECONDS = 15_000;

@@ -14,8 +14,8 @@ import {
   findLabel,
   installCanvasRecorder,
   matchHudCell,
-  readCanvasFrame,
-  requireCanvasFrame,
+  readWorldCanvasFrame as readCanvasFrame,
+  requireWorldCanvasFrame as requireCanvasFrame,
   requireLabel,
   waitForReadyServer,
   type RecordedArc,
@@ -49,28 +49,28 @@ const COMPLETE_TICK_PATTERN =
   /^Complete tick ([1-9][0-9]*) with 4 entities and 3 players\.$/;
 
 /**
- * `[world] 1920x1280` against the client's `960x640` canvas maximum is an exact 0.5 projection, so
- * every recorded canvas coordinate is exactly half its world coordinate.
+ * World-relative painted pixels remove each camera's observed boundary translation and DPR.
+ * The helper also asserts the true 1920×1280 boundary at scale one, so it cannot hide a fit-all view.
  */
-const PROJECTION_SCALE = 0.5;
-const ARENA_CENTER_CANVAS = Object.freeze({ x: 480, y: 320 });
+const PROJECTION_SCALE = 1;
+const ARENA_CENTER_CANVAS = Object.freeze({ x: 960, y: 640 });
 const ZONE_FULL_RADIUS_CANVAS = Math.hypot(960, 640) * PROJECTION_SCALE;
 const ZONE_MINIMUM_RADIUS_CANVAS = 200 * PROJECTION_SCALE;
 
 /**
  * A body accelerates at 400 wu/s² against `drag_per_second=40`, so it holds 9 wu/s. Sixteen world
- * units of travel is under two seconds of held thrust and is 8 canvas pixels, which no rounding,
+ * units of travel is under two seconds of held thrust and is 16 CSS pixels, which no rounding,
  * no rendering order, and no snapshot cadence can manufacture from a body at rest.
  */
-const MOTION_THRESHOLD_CANVAS_PIXELS = 8;
+const MOTION_THRESHOLD_CANVAS_PIXELS = 16;
 const SETTLED_TOLERANCE_CANVAS_PIXELS = 0.5;
 
 /**
- * The zone contracts by `(1153.78 - 200) / 90 = 10.6` wu/s, which is 5.3 canvas pixels a second, so
- * four pixels is under a second of running and is far above the 0.4 pixel step between two
+ * The zone contracts by `(1153.78 - 200) / 90 = 10.6` wu/s, which is 10.6 CSS pixels a second, so
+ * eight pixels is under a second of running and is far above the 0.8 pixel step between two
  * consecutive published frames.
  */
-const ZONE_CONTRACTION_CANVAS_PIXELS = 4;
+const ZONE_CONTRACTION_CANVAS_PIXELS = 8;
 
 /**
  * The wanderer is an independent command source, so "one thrust moved one blob and no other" is
@@ -157,6 +157,17 @@ function separation(left: RecordedLabel, right: RecordedLabel): number {
 
 async function readLabel(page: Page, text: string): Promise<RecordedLabel> {
   return requireLabel(await requireCanvasFrame(page), text);
+}
+
+/** Inverting two independent translated paints can differ by binary64 roundoff, not by motion. */
+function expectSameWorldLabel(
+  actual: RecordedLabel,
+  expected: RecordedLabel,
+): void {
+  expect(actual.text).toBe(expected.text);
+  expect(actual.drawOrder).toBe(expected.drawOrder);
+  expect(actual.x).toBeCloseTo(expected.x, 9);
+  expect(actual.y).toBeCloseTo(expected.y, 9);
 }
 
 /**
@@ -382,7 +393,10 @@ test('two browsers and a bot play one royale match', async ({
     // ---------------------------------------------------------------- one thrust, one blob
     const beforeThrustOwnA = await readLabel(pageA, displayNameA);
     const beforeThrustPeerB = await readLabel(pageA, displayNameB);
-    expect(await readLabel(pageB, displayNameB)).toEqual(beforeThrustPeerB);
+    expectSameWorldLabel(
+      await readLabel(pageB, displayNameB),
+      beforeThrustPeerB,
+    );
 
     await pageA.bringToFront();
     await pageA.keyboard.down('KeyD');
@@ -398,12 +412,18 @@ test('two browsers and a bot play one royale match', async ({
     await expect(matchHudCell(pageA, 'Thrust')).toHaveText('idle');
 
     // The other session pressed nothing, its blob was seated at rest, and nothing has touched it:
-    // its drawn position is bit-identical, not merely close. Both clients are asked, because a
+    // its world position is identical apart from inverse-projection roundoff. Both clients are asked, because a
     // blob that moved for one viewer and not the other would be a rendering bug wearing this
     // assertion's clothes.
     requireBotIsolationBudget(serverStartedAtMilliseconds);
-    expect(await readLabel(pageA, displayNameB)).toEqual(beforeThrustPeerB);
-    expect(await readLabel(pageB, displayNameB)).toEqual(beforeThrustPeerB);
+    expectSameWorldLabel(
+      await readLabel(pageA, displayNameB),
+      beforeThrustPeerB,
+    );
+    expectSameWorldLabel(
+      await readLabel(pageB, displayNameB),
+      beforeThrustPeerB,
+    );
 
     // ---------------------------------------------------------------- and it is not one blob
     // Thrusting the other way from the other browser: whichever entity the first thrust reached,

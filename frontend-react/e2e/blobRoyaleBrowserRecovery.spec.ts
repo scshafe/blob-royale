@@ -4,7 +4,10 @@ import { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
 import {
   CONNECTED_STATUS,
   RETRYING_STATUS,
+  installCanvasRecorder,
   matchHudCell,
+  requireCanvasFrame,
+  requireLabel,
   waitForReadyServer,
 } from './browserFlowSupport';
 
@@ -91,6 +94,7 @@ test('production Chromium reconnects to a restarted exact server', async ({
 
   await blobRoyaleServer.start();
   await waitForReadyServer(request, blobRoyaleServer);
+  await installCanvasRecorder(page);
 
   // Room 1 by its URL: the directory in front of it is Step 15's to drive through the UI.
   const navigationResponse = await page.goto('/?lobby=1', {
@@ -136,6 +140,14 @@ test('production Chromium reconnects to a restarted exact server', async ({
   const firstServerRequestId = await readSnapshotRequestId(metadataTable);
   expect(firstServerRequestId).toMatch(/^br-[0-9a-f]+-[0-9a-f]+$/);
 
+  // A reconnect is a fresh camera session, even when the restarted server reissues numeric IDs.
+  // Change this client's view first; the unrelated disclosure above must still survive the reset.
+  await page.getByRole('button', { name: 'Manual view', exact: true }).click();
+  await page.getByRole('button', { name: 'Pan right', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Manual view', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+
   await Promise.all([
     blobRoyaleServer.terminateWithSigterm(),
     expect(page.getByRole('status')).toHaveText(RETRYING_STATUS),
@@ -163,6 +175,20 @@ test('production Chromium reconnects to a restarted exact server', async ({
     .not.toBe(firstServerRequestId);
   await assertTwoIncreasingCompleteTicks(completeTickCaption);
   await expect(matchHudCell(page, 'Placement')).toHaveText('In play');
+  await expect(
+    page.getByRole('button', { name: 'Follow player', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  const resumedDisplayName =
+    (await matchHudCell(page, 'Player').textContent())?.trim() ?? '';
+  expect(resumedDisplayName).toMatch(/^player-[1-9][0-9]*$/);
+  const resumedFrame = await requireCanvasFrame(page);
+  const resumedLabel = requireLabel(resumedFrame, resumedDisplayName);
+  expect(resumedLabel.x).toBeCloseTo(resumedFrame.width / 2, 8);
+  expect(resumedLabel.y).toBeCloseTo(
+    resumedFrame.height / 2 +
+      14 * (resumedFrame.height / resumedFrame.cssHeight),
+    8,
+  );
 
   await blobRoyaleServer.terminateWithSigterm();
   expect(pageErrors).toEqual([]);

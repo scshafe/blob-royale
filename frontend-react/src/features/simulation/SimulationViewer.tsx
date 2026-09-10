@@ -3,6 +3,8 @@ import { useId, useState } from 'react';
 import { LobbyPanel } from './LobbyPanel';
 import { MatchOverlay } from './MatchOverlay';
 import { SimulationCanvas } from './SimulationCanvas';
+import { SimulationCameraControls } from './SimulationCameraControls';
+import { useSimulationCamera } from './useSimulationCamera';
 import { SimulationDebugPanel } from './SimulationDebugPanel';
 import { SimulationHud } from './SimulationHud';
 import {
@@ -49,6 +51,12 @@ export function SimulationViewer({
   const statusLabel = connectionStatusLabels[connection.status];
   const controllerId = connection.session?.controllerId ?? null;
   const tickSequence = connection.snapshot?.data.tick_sequence ?? null;
+  const { camera, setMode, panByWorldOffset } = useSimulationCamera({
+    configuration: connection.configuration,
+    lobbyId,
+    session: connection.session,
+    snapshot: connection.snapshot?.data ?? null,
+  });
   // The own entity and the own body are different questions since respawn timers: a knocked-out
   // player keeps its entity, with its name and score, and only the body is gone until it is
   // re-seated. "In play" is the body.
@@ -84,7 +92,9 @@ export function SimulationViewer({
         <div className="SimulationLayout">
           <div className="SimulationStage">
             <SimulationCanvas
+              camera={camera}
               configuration={connection.configuration}
+              onPan={panByWorldOffset}
               ownEntityId={connection.ownEntityId}
               snapshot={connection.snapshot?.data ?? null}
             />
@@ -98,6 +108,11 @@ export function SimulationViewer({
             />
           </div>
           <div className="SimulationSidebar">
+            <SimulationCameraControls
+              mode={camera.mode}
+              setMode={setMode}
+              panByWorldOffset={panByWorldOffset}
+            />
             {operableLobby === null ? null : (
               <LobbyPanel
                 entities={connection.entities}

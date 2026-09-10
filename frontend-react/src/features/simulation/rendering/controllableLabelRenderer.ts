@@ -1,4 +1,5 @@
 import type { EntityRenderInput } from './entityRendering';
+import { projectWorldDistance, projectWorldPoint } from './worldProjection';
 
 const LABEL_FONT = '12px system-ui, sans-serif';
 const LABEL_GAP_PIXELS = 4;
@@ -23,10 +24,10 @@ export function drawControllableLabel({
   }
 
   const { projection, surface } = frame;
+  const center = projectWorldPoint(projection, body.position);
   const radiusPixels = Math.max(
     1,
-    body.radius *
-      Math.min(projection.horizontalScale, projection.verticalScale),
+    projectWorldDistance(projection, body.radius),
   );
   surface.font = LABEL_FONT;
   surface.textAlign = 'center';
@@ -34,9 +35,7 @@ export function drawControllableLabel({
   surface.fillStyle = isOwnEntity ? OWN_LABEL_COLOR : PEER_LABEL_COLOR;
   surface.fillText(
     component.display_name,
-    body.position.x * projection.horizontalScale,
-    body.position.y * projection.verticalScale +
-      radiusPixels +
-      LABEL_GAP_PIXELS,
+    center.x,
+    center.y + radiusPixels + LABEL_GAP_PIXELS,
   );
 }

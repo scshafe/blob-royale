@@ -1,4 +1,5 @@
 import type { EntityRenderInput } from './entityRendering';
+import { projectWorldDistance, projectWorldPoint } from './worldProjection';
 
 /**
  * The hazard warning colour, and the dash pattern that separates it from a zone-exposure ring.
@@ -45,10 +46,10 @@ export function drawLethalOnContact({
   }
 
   const { projection, surface } = frame;
+  const center = projectWorldPoint(projection, body.position);
   const radiusPixels = Math.max(
     1,
-    body.radius *
-      Math.min(projection.horizontalScale, projection.verticalScale),
+    projectWorldDistance(projection, body.radius),
   );
 
   surface.save();
@@ -57,8 +58,8 @@ export function drawLethalOnContact({
   surface.setLineDash([...DASH_PATTERN_PIXELS]);
   surface.beginPath();
   surface.arc(
-    body.position.x * projection.horizontalScale,
-    body.position.y * projection.verticalScale,
+    center.x,
+    center.y,
     radiusPixels + RING_GAP_PIXELS,
     0,
     2 * Math.PI,

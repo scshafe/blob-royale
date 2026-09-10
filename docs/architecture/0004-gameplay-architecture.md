@@ -707,7 +707,7 @@ readable. Enlarging a map must not require fitting its entirety into the window,
 gameplay rules, or changing a body's world-space size. Existing compact fixture maps are proofs of
 rules, not the intended size limit of either game.
 
-**Required client-camera contract; implementation pending.** A viewport is one client's movable
+**Required client-camera contract; implemented in the 2026-09-10 follow-up.** A viewport is one client's movable
 window onto the world. Its world-space centre, presentation scale, and pixel dimensions are local
 presentation state, independent of map bounds and controller motion. One canonical world-to-view
 transform must serve both entity and mode-state renderers: bodies, labels, hill, zone, course, and
@@ -715,10 +715,10 @@ gates stay aligned as the camera moves. HUD and controls stay in screen space. U
 scale; resizing changes the visible extent, not physics or authoritative coordinates. Device-pixel
 ratio is a backing-buffer concern, not another definition of world size.
 
-`@extension-point client_camera` (planned): vary how the viewport centre is selected, while retaining
+`@extension-point client_camera` (`useSimulationCamera`): vary how the viewport centre is selected, while retaining
 one transform and render path. Player-follow and a manually positioned view justify this seam;
-they do not justify parallel renderers or per-mode cameras. The concrete API and input bindings are
-to be settled in the camera implementation work, not asserted to exist by this ADR.
+they do not justify parallel renderers or per-mode cameras. `rendering/worldProjection.ts` owns
+the uniform scale and translation; every entity and mode-state renderer uses that same projection.
 
 - **Player-follow:** offer a view that keeps the local player's current body centred on each
   rendered frame. Resolve that body from the session's controller identity, not its initial entity
@@ -727,11 +727,14 @@ to be settled in the camera implementation work, not asserted to exist by this A
   than inventing a player position. A new room/session resets camera identity. Strict centring near
   the map edge permits outside-map background; do not silently clamp the view and push the player
   off-centre. The true map boundary remains visible and authoritative.
-- **Manual view, under consideration:** allow the user to pan independently of their blob, with an
+- **Manual view:** allow the user to pan independently of their blob, with an
   explicit way to select follow again. A manually selected view must not be snapped back by the
-  next player update. Gestures, bindings, default mode, and manual pan limits remain UX choices;
-  WASD and arrows already steer, so camera input must neither accidentally thrust nor steal those
-  bindings. Camera motion never sends a gameplay command.
+  next player update. The first implementation defaults to **Follow player** and offers **Manual
+  view** as a separate pressed-state button. In manual mode, dragging the map or using named pan
+  buttons moves only the camera; **Follow player** resumes tracking immediately. Pan buttons move
+  96 CSS pixels per activation, with Tab/Enter/Space navigation rather than an arrow-key widget.
+  Manual centres clamp to the inclusive world rectangle; follow does not clamp. WASD and arrows
+  continue to steer. Camera motion never sends a gameplay command.
 
 Two approaches were considered: keep fitting the whole map, which is useful as an overview but
 cannot preserve a readable local scale as maps grow; or select a world-space window through one
@@ -742,13 +745,25 @@ their world snapshots remain the same; if a future spectator chooses another tar
 transform can be reused. No zoom control, minimap, server-side visibility filtering, or protocol
 revision is implied by this requirement.
 
-The current `SimulationCanvas` still fits the full world using scale-only `WorldProjection`; the
-course renderer applies its own scale. Camera work must converge those paths, not add a third.
+**Implementation choices, 2026-09-10.** `SimulationCanvas` uses one world unit per CSS pixel and a
+responsive 3:2 viewport capped at 960×640 CSS pixels (integer layout rounding). Map dimensions do
+not select the viewport or shrink bodies. `useCanvasViewport` observes layout width; a hidden
+zero-area viewport does not draw. Device-pixel ratio only sizes the backing buffer, capped at 4
+for bounded allocation; it changes neither camera centre nor visible world extent. The canvas
+draws the actual projected world boundary against a distinct outside-map background. Pointer
+capture, cancellation, loss of capture, blur, and switching to follow terminate manual drags.
+The immutable welcome identity and requested room reset the camera even when numeric IDs repeat;
+the viewer's unrelated debug disclosure survives reconnects. The initial view is map centre.
+
 Before claiming large-map playability, test a world wider and taller than the viewport, aligned
 entity/course rendering under translation, centred follow at map edges and after respawn, and
 independent views over unchanged world state. If manual view ships, also test pan without thrust
 and explicit switching between manual and follow. Cropping known, validated offscreen geometry
 is presentation, not missing simulation state.
+
+Execution and exact verification scope are tracked in
+`.claude/plans/2026-09-10-client-camera-and-large-map-acceptance.md`. This local implementation does
+not relabel the earlier compact hill deployment or its human-play follow-ups as camera-tested.
 
 ### Commands
 

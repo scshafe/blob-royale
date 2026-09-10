@@ -9,6 +9,7 @@ import {
   RACE_GATE_STROKE_WIDTH,
 } from '../simulationConstants';
 import type { ModeStateRenderFrame } from './modeStateRendering';
+import { projectWorldDistance, projectWorldPoint } from './worldProjection';
 
 export interface RaceCourseRenderInput {
   readonly frame: ModeStateRenderFrame;
@@ -19,35 +20,39 @@ export interface RaceCourseRenderInput {
  * @canonical race_course_rendering -- draws the validated course once, below every entity.
  *
  * A round stroke is the server's union of segment capsules: no closing segment, square ends, or
- * miter extensions. Projection transforms the whole world-space stroke, including its width, so a
- * rounded backing-buffer dimension cannot turn the visible road into a different boundary. The
- * finish has its own fill, heavy rim, and label; it remains distinguishable without color.
+ * miter extensions. The canonical projection transforms every point and world-space width at one
+ * uniform scale; the course cannot acquire a camera independent of its bodies. Gate labels and
+ * rims stay readable in logical pixels. The finish remains distinguishable without color.
  */
 export function drawRaceCourse({ frame, value }: RaceCourseRenderInput): void {
   const { projection, surface } = frame;
   surface.save();
-  surface.scale(projection.horizontalScale, projection.verticalScale);
   surface.lineCap = 'round';
   surface.lineJoin = 'round';
-  surface.lineWidth = 2 * value.track_half_width;
+  surface.lineWidth = projectWorldDistance(
+    projection,
+    2 * value.track_half_width,
+  );
   surface.strokeStyle = RACE_COURSE_FILL;
   surface.beginPath();
   value.track.forEach((node, index) => {
+    const point = projectWorldPoint(projection, node);
     if (index === 0) {
-      surface.moveTo(node.x, node.y);
+      surface.moveTo(point.x, point.y);
     } else {
-      surface.lineTo(node.x, node.y);
+      surface.lineTo(point.x, point.y);
     }
   });
   surface.stroke();
 
   value.checkpoints.forEach((checkpoint, index) => {
     const isFinish = index === value.checkpoints.length - 1;
+    const center = projectWorldPoint(projection, checkpoint);
     surface.beginPath();
     surface.arc(
-      checkpoint.x,
-      checkpoint.y,
-      value.checkpoint_radius,
+      center.x,
+      center.y,
+      projectWorldDistance(projection, value.checkpoint_radius),
       0,
       2 * Math.PI,
     );
@@ -66,10 +71,10 @@ export function drawRaceCourse({ frame, value }: RaceCourseRenderInput): void {
     surface.fillStyle = surface.strokeStyle;
     surface.fillText(
       isFinish ? 'Finish' : String(index + 1),
-      checkpoint.x,
-      checkpoint.y,
+      center.x,
+      center.y,
     );
   });
-  // In particular the scale, round joins, and label alignment must not reach the entity layers.
+  // Round joins and label alignment must not reach the entity layers sharing this surface.
   surface.restore();
 }

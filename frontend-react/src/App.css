@@ -321,8 +321,45 @@ button.SeatButton {
 
 .SimulationCanvas canvas {
   display: block;
-  height: auto;
-  max-width: 100%;
+}
+
+.SimulationViewport {
+  max-width: 960px;
+  width: 100%;
+}
+
+.ManualCameraCanvas {
+  cursor: grab;
+  touch-action: none;
+}
+
+.ManualCameraCanvas:active {
+  cursor: grabbing;
+}
+
+.CameraControls {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.CameraControls p {
+  color: #475569;
+  font-size: 0.875rem;
+  margin-block: 0.5rem;
+}
+
+.CameraModeButtons,
+.CameraPanButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.CameraModeButtons button[aria-pressed='true'] {
+  background: #dbeafe;
+  border-color: #1d4ed8;
 }
 
 .DebugPanel {

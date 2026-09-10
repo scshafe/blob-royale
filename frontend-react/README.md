@@ -16,21 +16,27 @@ The Vite development and preview servers bind only `127.0.0.1`. The development 
 
 ## Larger worlds and the client camera
 
-The current `SimulationCanvas` fits the entire world into a bounded canvas through a scale-only
-`WorldProjection`. CSS resizing is not camera movement. There is no movable viewport, manual pan,
-or player-follow control yet.
+`SimulationCanvas` shows a local window onto the world through one uniform translated
+`WorldProjection`, shared by entity and mode-state rendering. Scale is one world unit per CSS
+pixel. The responsive 3:2 viewport is capped at 960×640 CSS pixels; resizing changes the visible
+world extent. Display density only changes the backing buffer, capped at a pixel ratio of 4.
 
-The accepted direction is a world larger than the displayed region, with one client-owned camera
-transform shared by entity and mode-state rendering. Player-follow must keep the current local
-body centred, including near map edges; a manually positioned view independent of the body, and
-an explicit return-to-follow control, are options to evaluate. Input bindings and the default view
-are not selected yet. World coordinates, simulation rules, and the complete validated snapshot
-remain unchanged as the camera moves. HUD and controls remain in screen space.
+**Follow player** is the default: the current body stays centred even near map edges, where the
+view shows outside-map background and the actual map boundary. Bodyless follow retains its last
+centre and reacquires the current body by controller identity. **Manual view** lets the user drag
+the map or activate named pan buttons independently, then choose **Follow player** to resume.
+Manual centres stay within the world rectangle. Tab/Enter/Space activate ordinary camera buttons;
+WASD and arrows still steer the blob. No camera action sends a gameplay command.
+
+A new room or immutable welcome identity resets the camera without resetting unrelated debug
+disclosure. World coordinates, simulation rules, and complete validated snapshots remain unchanged
+as the camera moves. HUD and controls remain in screen space.
 
 The canonical requirements and edge cases live in
 [`ADR 0004 — World space and the client viewport`](../docs/architecture/0004-gameplay-architecture.md#world-space-and-the-client-viewport--owner-direction-2026-09-09).
-Camera implementation and larger-than-viewport browser coverage are pending follow-up work; the
-existing whole-map-fit tests do not certify large-map playability.
+The 2026-09-10 camera follow-up records its own larger-than-viewport browser verification;
+earlier whole-map-fit tests are not camera evidence. The recorded live hill deployment predates
+these controls; deployment and human large-map playtesting remain separate work.
 
 ## Generated protocol boundary
 

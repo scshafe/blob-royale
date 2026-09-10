@@ -141,6 +141,12 @@ allowlists both Vite development origins in `allowed_origins`; a deployment must
 external origin the same way. The production bundle is produced with `npm run build`;
 `./scripts/verify-web` is the canonical Linux client gate.
 
+The client starts in **Follow player**, keeping your current blob centred on a movable view of
+the map. Choose **Manual view** to drag the map or use its pan buttons independently, then
+**Follow player** to resume tracking. WASD and arrow keys still steer your blob. Larger worlds
+extend beyond the viewport instead of being shrunk to fit it. These camera controls are part of
+the local follow-up implementation; the recorded `b1e80d4` tailnet deployment predates them.
+
 ## Repository map
 
 - `src/simulation` — validated values, world ownership, the deterministic tick kernel, snapshots

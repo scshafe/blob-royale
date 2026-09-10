@@ -1,4 +1,5 @@
 import type { EntityRenderInput } from './entityRendering';
+import { projectWorldDistance, projectWorldPoint } from './worldProjection';
 
 const ZONE_FILL = 'rgba(56, 189, 248, 0.12)';
 const ZONE_STROKE = '#0284c7';
@@ -13,21 +14,14 @@ export function drawZone({
   frame,
 }: EntityRenderInput<'zone'>): void {
   const { projection, surface } = frame;
-  const radiusPixels =
-    component.radius *
-    Math.min(projection.horizontalScale, projection.verticalScale);
+  const radiusPixels = projectWorldDistance(projection, component.radius);
   if (radiusPixels <= 0) {
     return;
   }
 
+  const center = projectWorldPoint(projection, component.center);
   surface.beginPath();
-  surface.arc(
-    component.center.x * projection.horizontalScale,
-    component.center.y * projection.verticalScale,
-    radiusPixels,
-    0,
-    2 * Math.PI,
-  );
+  surface.arc(center.x, center.y, radiusPixels, 0, 2 * Math.PI);
   surface.fillStyle = ZONE_FILL;
   surface.fill();
   surface.lineWidth = ZONE_STROKE_WIDTH;

@@ -7,6 +7,7 @@ import {
   visualEntityRenderers,
 } from './entityRendererRegistry';
 import type { EntityRenderFrame } from './entityRendering';
+import { createWorldProjection } from './worldProjection';
 import { HILL_FILL, HILL_STROKE } from './hillRenderer';
 import { LETHAL_HAZARD_RING_COLOR } from './lethalOnContactRenderer';
 import {
@@ -19,6 +20,7 @@ function createFrame(
   eliminationGraceTicks: number | null = null,
 ): {
   readonly arc: ReturnType<typeof vi.fn>;
+  readonly arcCenters: readonly (readonly [number, number])[];
   readonly arcRadii: readonly number[];
   readonly fillText: ReturnType<typeof vi.fn>;
   readonly frame: EntityRenderFrame;
@@ -29,10 +31,10 @@ function createFrame(
   // The radii are captured through a typed implementation rather than read back out of
   // `arc.mock.calls`, whose recorded arguments are erased to `any` on an untyped spy.
   const arcRadii: number[] = [];
+  const arcCenters: (readonly [number, number])[] = [];
   const lineDashCalls: number[][] = [];
   const arc = vi.fn((x: number, y: number, radius: number) => {
-    void x;
-    void y;
+    arcCenters.push([x, y]);
     arcRadii.push(radius);
   });
   const fillText = vi.fn();
@@ -62,6 +64,7 @@ function createFrame(
 
   return {
     arc,
+    arcCenters,
     arcRadii,
     fillText,
     frame: {
@@ -69,7 +72,11 @@ function createFrame(
       // written before the grace reached the wire keeps asserting the drawing it always asserted.
       eliminationGraceTicks,
       ownEntityId,
-      projection: { horizontalScale: 1, verticalScale: 1 },
+      projection: createWorldProjection(
+        { x: 1, y: 1 },
+        { width: 2, height: 2 },
+        1,
+      ),
       surface,
     },
     lineDashCalls,
@@ -96,7 +103,11 @@ function drawHazard(
   registration.drawEntity(entity, {
     eliminationGraceTicks: null,
     ownEntityId: null,
-    projection: { horizontalScale: 1, verticalScale: 1 },
+    projection: createWorldProjection(
+      { x: 1, y: 1 },
+      { width: 2, height: 2 },
+      1,
+    ),
     surface,
   });
 }
@@ -186,6 +197,70 @@ describe('entityRendererRegistry', () => {
       'zone_exposure',
       'controllable',
     ]);
+  });
+
+  it('keeps every entity layer aligned through the same translated uniform projection', () => {
+    const body = blobEntity(21, 120);
+    const controlledBody: SessionEntitySnapshot = {
+      ...body,
+      components: {
+        ...body.components,
+        controllable: {
+          controller_id: 4,
+          controller_kind: 'session',
+          display_name: 'player-4',
+        },
+      },
+    };
+    const bodyComponent = body.components.physics_body;
+    if (bodyComponent === undefined) {
+      throw new Error('TEST.SNAPSHOT_FIXTURE_PLAYER_BODY_MISSING');
+    }
+    const hazard: SessionEntitySnapshot = {
+      entity_id: 22,
+      components: {
+        physics_body: bodyComponent,
+        lethal_on_contact: {},
+      },
+    };
+    const obstacle: SessionEntitySnapshot = {
+      entity_id: 23,
+      components: {
+        physics_body: { ...bodyComponent, is_static: true },
+      },
+    };
+    const entities = [hillEntity, zoneEntity, controlledBody, hazard, obstacle];
+    const before = structuredClone(entities);
+    const { arcCenters, arcRadii, fillText, frame } = createFrame(21);
+    const translatedFrame = {
+      ...frame,
+      projection: createWorldProjection(
+        { x: 200, y: 150 },
+        { width: 300, height: 200 },
+        0.5,
+      ),
+    };
+
+    for (const renderer of visualEntityRenderers()) {
+      for (const entity of entities) {
+        renderer.drawEntity(entity, translatedFrame);
+      }
+    }
+
+    expect(arcCenters).toEqual([
+      [150, 100], // Hill.
+      [55, 30], // Zone.
+      [110, 65], // Own body, hazard body, and static obstacle.
+      [110, 65],
+      [110, 65],
+      [110, 65], // Lethal warning.
+      [110, 65], // Both own-exposure rings.
+      [110, 65],
+    ]);
+    expect(arcRadii).toEqual([45, 2.5, 5, 5, 5, 7, 8, 17]);
+    expect(fillText).toHaveBeenCalledWith('player-4', 110, 74);
+    expect(frame.surface.font).toBe('12px system-ui, sans-serif');
+    expect(entities).toEqual(before);
   });
 
   it('rings a lethal hazard outside its own radius, dashed, and restores the surface', () => {

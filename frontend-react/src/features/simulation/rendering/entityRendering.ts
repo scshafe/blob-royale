@@ -3,12 +3,9 @@ import type {
   SessionComponentOfKind,
   SessionEntitySnapshot,
 } from '../simulationProtocolTypes';
+import type { WorldProjection } from './worldProjection';
 
-/** World units to canvas pixels. The network performs no unit conversion; the client does. */
-export interface WorldProjection {
-  readonly horizontalScale: number;
-  readonly verticalScale: number;
-}
+export type { WorldProjection } from './worldProjection';
 
 /** Everything a renderer may read that is not its own component or its own entity. */
 export interface EntityRenderFrame {

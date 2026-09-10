@@ -1,4 +1,5 @@
 import type { EntityRenderInput } from './entityRendering';
+import { projectWorldDistance, projectWorldPoint } from './worldProjection';
 
 const OWN_BODY_STROKE = '#f8fafc';
 const OWN_BODY_STROKE_WIDTH = 4;
@@ -23,20 +24,14 @@ export function drawPhysicsBody({
   isOwnEntity,
 }: EntityRenderInput<'physics_body'>): void {
   const { projection, surface } = frame;
+  const center = projectWorldPoint(projection, component.position);
   const radiusPixels = Math.max(
     1,
-    component.radius *
-      Math.min(projection.horizontalScale, projection.verticalScale),
+    projectWorldDistance(projection, component.radius),
   );
 
   surface.beginPath();
-  surface.arc(
-    component.position.x * projection.horizontalScale,
-    component.position.y * projection.verticalScale,
-    radiusPixels,
-    0,
-    2 * Math.PI,
-  );
+  surface.arc(center.x, center.y, radiusPixels, 0, 2 * Math.PI);
   surface.fillStyle = component.is_static
     ? OBSTACLE_FILL
     : bodyFillColor(entity.entity_id);

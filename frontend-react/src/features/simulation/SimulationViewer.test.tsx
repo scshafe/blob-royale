@@ -3,6 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationViewer } from './SimulationViewer';
 import { SimulationApiError } from './SimulationApiError';
+import { useThrustInput } from './useThrustInput';
+import {
+  cameraConfiguration,
+  cameraSessionIdentity,
+  cameraSnapshot,
+  type CameraSnapshotScenario,
+} from './fixtures/simulationCameraFrames';
 import type {
   SimulationConnection,
   SimulationSessionIdentity,
@@ -112,6 +119,133 @@ afterEach(() => {
 });
 
 describe('SimulationViewer', () => {
+  it('wires local manual/follow controls without sending gameplay commands or stealing steering keys', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const connection = createConnection();
+    function SteerableViewer() {
+      const thrust = useThrustInput({
+        enabled: true,
+        sendCommand: connection.sendCommand,
+      });
+      return (
+        <SimulationViewer lobbyId={1} connection={connection} thrust={thrust} />
+      );
+    }
+    render(<SteerableViewer />);
+    const canvas = screen.getByRole('img');
+    const initialX = Number(canvas.getAttribute('data-camera-center-x'));
+    const initialY = Number(canvas.getAttribute('data-camera-center-y'));
+    expect(
+      screen.getByRole('button', { name: 'Follow player' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Pan right' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Manual view' }));
+    const panRight = screen.getByRole('button', { name: 'Pan right' });
+    expect(panRight).toBeEnabled();
+    fireEvent.keyDown(panRight, { code: 'Enter' });
+    fireEvent.click(panRight);
+    expect(canvas).toHaveAttribute('data-camera-mode', 'manual');
+    expect(Number(canvas.getAttribute('data-camera-center-x'))).toBe(
+      initialX + 96,
+    );
+    expect(Number(canvas.getAttribute('data-camera-center-y'))).toBe(initialY);
+    expect(connection.sendCommand).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Follow player' }));
+    expect(Number(canvas.getAttribute('data-camera-center-x'))).toBe(initialX);
+    expect(connection.sendCommand).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Follow player' }), {
+      code: 'ArrowRight',
+    });
+    expect(connection.sendCommand).toHaveBeenCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0 },
+    });
+    expect(Number(canvas.getAttribute('data-camera-center-x'))).toBe(initialX);
+  });
+
+  it('retains manual and bodyless views but resets a new welcome without losing debug disclosure', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const welcome = cameraSessionIdentity();
+    const world = cameraConfiguration();
+    function cameraConnection(
+      scenario: CameraSnapshotScenario,
+      identity = welcome,
+    ): SimulationConnection {
+      const data = cameraSnapshot(scenario);
+      return createConnection({
+        configuration: world,
+        session: identity,
+        entities: data.entities,
+        match: data.match,
+        ownEntityId:
+          data.entities.find(
+            (entity) =>
+              entity.components.controllable?.controller_id ===
+              identity.controllerId,
+          )?.entity_id ?? null,
+        snapshot: { ...snapshot, data },
+      });
+    }
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={cameraConnection('initial')}
+        thrust={zeroThrust}
+      />,
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show simulation details' }),
+    );
+    const canvas = screen.getByRole('img');
+    expect(canvas).toHaveAttribute('data-camera-center-x', '500');
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={cameraConnection('moved')}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(canvas).toHaveAttribute('data-camera-center-x', '1500');
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={cameraConnection('bodyless')}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(canvas).toHaveAttribute('data-camera-center-x', '1500');
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={cameraConnection('replacement')}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(canvas).toHaveAttribute('data-camera-center-x', '700');
+    fireEvent.click(screen.getByRole('button', { name: 'Manual view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pan right' }));
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={cameraConnection('moved')}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(canvas).toHaveAttribute('data-camera-center-x', '796');
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={cameraConnection('initial', cameraSessionIdentity())}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(canvas).toHaveAttribute('data-camera-mode', 'follow');
+    expect(canvas).toHaveAttribute('data-camera-center-x', '500');
+    expect(
+      screen.getByRole('button', { name: 'Hide simulation details' }),
+    ).toHaveAttribute('aria-expanded', 'true');
+  });
+
   it('renders accessible match state with the debug panel behind a toggle', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
 
@@ -282,7 +416,11 @@ describe('SimulationViewer', () => {
     );
 
     expect(hudRowHeader()).toBeNull();
-    expect(screen.queryByText(/left/)).toBeNull();
+    expect(
+      within(screen.getByRole('table', { name: 'Match status' })).queryByText(
+        /left/,
+      ),
+    ).toBeNull();
   });
 
   it('falls back to elapsed exposure when the frame publishes no grace', () => {

@@ -9,7 +9,13 @@
 **Implementation note, 2026-09-09:** The source now implements both modes, protocol 2.5, and the
 client/controller paths described below. The execution amendments record the concrete costs and
 differences from the proposal. The owner accepted the design with the larger-world/client-camera
-requirement below. That requirement is documented, not yet implemented; deployment remains pending.
+requirement below. At that checkpoint the camera was documented but not implemented, and
+deployment remained pending; the dated continuation below records the subsequent state.
+
+**Continuation, 2026-09-10:** The compact hill deployment and API match verification completed
+at `b1e80d4`, as recorded in `docs/playtests/2026-09-10.md`. The subsequent local camera follow-up
+implements the movable viewport and follow/manual controls described in ADR 0004. Its separate
+plan records large-map browser verification; the live hill server has not received that follow-up.
 
 ## Context and Problem Statement
 
@@ -618,7 +624,8 @@ The concrete encoder extension is `ComponentObjectSink::set_object_array` in
 uses it for ordered course points and standings; the JSON implementation supplies the storage.
 This keeps those arrays within the existing mode-state encoding registration instead of adding a
 race branch to the top-level snapshot encoder. Protocol 2.5's registrations and generated client
-artifacts are complete; deployment is a separate pending step.
+artifacts were complete at the mode-plan checkpoint; the compact hill deployment subsequently
+completed as recorded in the 2026-09-10 continuation above.
 
 ### The client
 
@@ -631,12 +638,13 @@ an explicit return-to-follow control. Camera movement changes no world coordinat
 hill scoring, or commands. Follow retains strict centring at map edges by allowing outside-map
 background, and reacquires the body by controller identity across returns and entity replacement.
 
-The implementation verified by this mode plan still fits the entire map into the canvas; it has
-no movable camera or follow/manual controls. The compact maps and scaled browser fixtures prove
-the mode rules and existing drawing, not large-map camera usability. Camera implementation and its
-larger-than-viewport tests are required follow-up work before claiming that experience is ready.
-This amendment records the owner's direction; it does not silently add a camera implementation to
-the completed client steps or select manual-pan gestures on the owner's behalf.
+The implementation originally verified by this mode plan fit the entire map into the canvas; it had
+no movable camera or follow/manual controls. Those compact maps and scaled browser fixtures prove
+the mode rules and original drawing, not large-map camera usability. The separate 2026-09-10 camera
+follow-up converges entity and course rendering on one uniform translated projection, defaults to
+strict player-follow, and offers manual drag/pan buttons with explicit return to follow. Its
+larger-than-viewport verification is recorded separately, without rewriting the original mode
+plan's evidence. ADR 0004 owns the concrete scale, input, bounds, DPR, and lifecycle choices.
 
 The renderer registry gains four entries: `hill` draws a filled disc distinct from the zone's ring
 at the zone layer; `hill_presence`, `race_progress`, and `respawn_timer` are non-visual and reach
@@ -699,10 +707,10 @@ lobby through the client's own controls exactly as the rooms flow does.
 
 Named so that nobody mistakes the first version for the whole design:
 
-* **Movable client viewport for larger worlds.** Required follow-up before large-map playability,
-  not a rejected feature: shared world-to-view projection, centred player-follow, and evaluation
-  of independent manual panning and return-to-follow controls. See § "The client" and ADR 0004's
-  canonical contract. Existing whole-map-fit tests are not evidence this work is done.
+* **Human large-map playtesting and camera deployment.** The local 2026-09-10 follow-up implements
+  the shared projection, centred follow, and manual pan controls. Its own tests, not the original
+  whole-map-fit tests, establish automated camera acceptance. Human impressions, live camera
+  deployment, and the later live race session remain separate work.
 * **Laps and closed courses.** `lap_count` and a closing segment from the last `track` node to the
   first; the gate rule is already order-only, so this is the objective and the course value.
 * **Marker metadata authoring.** A `metadata` column in `markers.csv` and a `[metadata]` section in

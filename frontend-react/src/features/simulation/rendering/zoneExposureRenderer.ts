@@ -1,5 +1,6 @@
 import { graceSpentFraction } from '../sessionSelectors';
 import type { EntityRenderInput } from './entityRendering';
+import { projectWorldDistance, projectWorldPoint } from './worldProjection';
 
 /**
  * The two danger colours. A peer reads as a warning and the session's own blob reads as an alarm,
@@ -89,12 +90,10 @@ export function drawZoneExposure({
     component.outside_ticks,
     eliminationGraceTicks,
   );
-  const centerX = body.position.x * projection.horizontalScale;
-  const centerY = body.position.y * projection.verticalScale;
+  const center = projectWorldPoint(projection, body.position);
   const radiusPixels = Math.max(
     1,
-    body.radius *
-      Math.min(projection.horizontalScale, projection.verticalScale),
+    projectWorldDistance(projection, body.radius),
   );
 
   surface.strokeStyle = isOwnEntity
@@ -112,7 +111,13 @@ export function drawZoneExposure({
         spentFraction,
       );
   surface.beginPath();
-  surface.arc(centerX, centerY, radiusPixels + RING_GAP_PIXELS, 0, 2 * Math.PI);
+  surface.arc(
+    center.x,
+    center.y,
+    radiusPixels + RING_GAP_PIXELS,
+    0,
+    2 * Math.PI,
+  );
   surface.stroke();
 
   if (!isOwnEntity) {
@@ -128,8 +133,8 @@ export function drawZoneExposure({
   );
   surface.beginPath();
   surface.arc(
-    centerX,
-    centerY,
+    center.x,
+    center.y,
     radiusPixels + OWN_OUTER_RING_GAP_PIXELS,
     0,
     2 * Math.PI,

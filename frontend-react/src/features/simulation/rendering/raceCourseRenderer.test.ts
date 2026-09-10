@@ -11,6 +11,8 @@ import {
 } from '../simulationConstants';
 import type { SessionMatchSection } from '../simulationProtocolTypes';
 import { modeStateRendererRegistry } from './modeStateRendererRegistry';
+import { entityRendererRegistry } from './entityRendererRegistry';
+import { createWorldProjection } from './worldProjection';
 
 function validatedRaceMatch(): SessionMatchSection {
   const document = raceSnapshotDocument();
@@ -63,28 +65,32 @@ function createSurface() {
 }
 
 describe('raceCourseRenderer', () => {
-  it('draws the open corridor as segment capsules in world space and restores projection', () => {
+  it('projects the open corridor and its width through one translated uniform transform', () => {
     const { strokes, surface } = createSurface();
     modeStateRendererRegistry[
       'blob-royale://protocol/v2/mode-state/race'
     ].drawModeState(validatedRaceMatch(), {
-      projection: { horizontalScale: 0.5, verticalScale: 0.75 },
+      projection: createWorldProjection(
+        { x: 200, y: 150 },
+        { width: 300, height: 200 },
+        0.5,
+      ),
       surface: surface as unknown as CanvasRenderingContext2D,
     });
 
     // Golden course: a horizontal segment then a bend, with no last-to-first segment.
-    expect(surface.moveTo.mock.calls).toEqual([[100, 100]]);
+    expect(surface.moveTo.mock.calls).toEqual([[100, 75]]);
     expect(surface.lineTo.mock.calls).toEqual([
-      [700, 100],
-      [700, 500],
+      [400, 75],
+      [400, 275],
     ]);
     expect(surface.closePath).not.toHaveBeenCalled();
-    expect(surface.scale.mock.calls).toEqual([[0.5, 0.75]]);
+    expect(surface.scale).not.toHaveBeenCalled();
     expect(strokes[0]).toEqual({
       cap: 'round',
       join: 'round',
       style: RACE_COURSE_FILL,
-      width: 120,
+      width: 60,
     });
     expect(surface.save).toHaveBeenCalledTimes(1);
     expect(surface.restore).toHaveBeenCalledTimes(1);
@@ -95,7 +101,11 @@ describe('raceCourseRenderer', () => {
     modeStateRendererRegistry[
       'blob-royale://protocol/v2/mode-state/race'
     ].drawModeState(validatedRaceMatch(), {
-      projection: { horizontalScale: 1, verticalScale: 1 },
+      projection: createWorldProjection(
+        { x: 1, y: 1 },
+        { width: 2, height: 2 },
+        1,
+      ),
       surface: surface as unknown as CanvasRenderingContext2D,
     });
 
@@ -121,5 +131,56 @@ describe('raceCourseRenderer', () => {
       { style: RACE_CHECKPOINT_STROKE, width: 2 },
       { style: RACE_FINISH_STROKE, width: 4 },
     ]);
+  });
+
+  it('aligns a translated finish gate with the body at that world position without mutating the course', () => {
+    const { surface, strokes } = createSurface();
+    const match = validatedRaceMatch();
+    const before = structuredClone(match);
+    const frame = {
+      projection: createWorldProjection(
+        { x: 200, y: 150 },
+        { width: 300, height: 200 },
+        0.5,
+      ),
+      surface: surface as unknown as CanvasRenderingContext2D,
+    };
+    modeStateRendererRegistry[
+      'blob-royale://protocol/v2/mode-state/race'
+    ].drawModeState(match, frame);
+    entityRendererRegistry.physics_body.drawEntity(
+      {
+        entity_id: 21,
+        components: {
+          physics_body: {
+            acceleration: { x: 0, y: 0 },
+            collision_layer: 1,
+            collision_mask: 3,
+            is_static: false,
+            mass: 1,
+            position: { x: 700, y: 500 },
+            radius: 20,
+            velocity: { x: 0, y: 0 },
+          },
+        },
+      },
+      { ...frame, eliminationGraceTicks: null, ownEntityId: 21 },
+    );
+
+    expect(surface.arc.mock.calls).toEqual([
+      [200, 75, 10, 0, 2 * Math.PI],
+      [400, 125, 10, 0, 2 * Math.PI],
+      [400, 275, 10, 0, 2 * Math.PI],
+      [400, 275, 10, 0, 2 * Math.PI],
+    ]);
+    expect(surface.fillText.mock.calls).toEqual([
+      ['1', 200, 75],
+      ['2', 400, 125],
+      ['Finish', 400, 275],
+    ]);
+    expect(strokes.slice(1, 4).map(({ width }) => width)).toEqual([2, 2, 4]);
+    expect(surface.font).toBe('bold 12px system-ui');
+    expect(surface.scale).not.toHaveBeenCalled();
+    expect(match).toEqual(before);
   });
 });

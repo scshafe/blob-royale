@@ -35,6 +35,11 @@ export const SEAT_COUNT_COMMAND_DEBOUNCE_MILLISECONDS = 250;
 
 export const CANVAS_MAX_WIDTH_PIXELS = 960;
 export const CANVAS_MAX_HEIGHT_PIXELS = 640;
+// Logical pixels preserve a readable local scale independently of world dimensions. The bounded
+// backing ratio limits allocation without changing the world extent or camera centre.
+export const CAMERA_PIXELS_PER_WORLD_UNIT = 1;
+export const CAMERA_PAN_STEP_PIXELS = 96;
+export const CANVAS_MAX_PIXEL_RATIO = 4;
 export const DEBUG_ENTITY_ROW_LIMIT = 100;
 
 // The course is map geometry beneath entity layers; the terminal gate also has a heavier rim and

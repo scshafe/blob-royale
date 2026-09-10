@@ -192,9 +192,19 @@ export interface RecordedPath {
 /** One completed canvas frame: everything drawn between two `clearRect` calls. */
 export interface RecordedFrame {
   readonly arcs: readonly RecordedArc[];
+  readonly cssHeight: number;
+  readonly cssWidth: number;
+  readonly height: number;
   readonly index: number;
   readonly labels: readonly RecordedLabel[];
   readonly paths: readonly RecordedPath[];
+  readonly width: number;
+  readonly worldBoundary: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  } | null;
 }
 
 interface CanvasRecorderState {
@@ -231,6 +241,7 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
       lineTo: SurfaceMethod;
       moveTo: SurfaceMethod;
       stroke: SurfaceMethod;
+      strokeRect: SurfaceMethod;
     }
 
     // Cast once, and only to make overloaded prototype methods assignable; every recorded
@@ -240,9 +251,14 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
     const state: { completed: RecordedFrame | null } = { completed: null };
     let pending: {
       arcs: RecordedArc[];
+      cssHeight: number;
+      cssWidth: number;
+      height: number;
       index: number;
       labels: RecordedLabel[];
       paths: RecordedPath[];
+      width: number;
+      worldBoundary: RecordedFrame['worldBoundary'];
     } | null = null;
     let pendingArc: { radius: number; x: number; y: number } | null = null;
     let pendingPath: { kind: 'move' | 'line'; x: number; y: number }[] = [];
@@ -262,18 +278,61 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
     const originalLineTo = surface.lineTo;
     const originalMoveTo = surface.moveTo;
     const originalStroke = surface.stroke;
+    const originalStrokeRect = surface.strokeRect;
 
     surface.clearRect = function patchedClearRect(this, ...clearRectArguments) {
       if (pending !== null) {
         state.completed = pending;
       }
-      pending = { arcs: [], index: nextIndex, labels: [], paths: [] };
+      const rectangle = this.canvas.getBoundingClientRect();
+      pending = {
+        arcs: [],
+        cssHeight: rectangle.height,
+        cssWidth: rectangle.width,
+        height: this.canvas.height,
+        index: nextIndex,
+        labels: [],
+        paths: [],
+        width: this.canvas.width,
+        worldBoundary: null,
+      };
       pendingArc = null;
       pendingPath = [];
       pendingPathClosed = false;
       nextDrawOrder = 0;
       nextIndex += 1;
       return originalClearRect.apply(this, clearRectArguments);
+    };
+
+    surface.strokeRect = function patchedStrokeRect(
+      this,
+      ...rectangleArguments
+    ) {
+      if (pending !== null && this.strokeStyle === '#334155') {
+        if (pending.worldBoundary !== null) {
+          throw new Error('BROWSER_E2E.MULTIPLE_WORLD_BOUNDARIES');
+        }
+        const transform = this.getTransform();
+        const origin = transform.transformPoint({
+          x: rectangleArguments[0] as number,
+          y: rectangleArguments[1] as number,
+        });
+        const opposite = transform.transformPoint({
+          x:
+            (rectangleArguments[0] as number) +
+            (rectangleArguments[2] as number),
+          y:
+            (rectangleArguments[1] as number) +
+            (rectangleArguments[3] as number),
+        });
+        pending.worldBoundary = {
+          x: origin.x,
+          y: origin.y,
+          width: opposite.x - origin.x,
+          height: opposite.y - origin.y,
+        };
+      }
+      return originalStrokeRect.apply(this, rectangleArguments);
     };
 
     surface.beginPath = function patchedBeginPath(this, ...pathArguments) {
@@ -394,6 +453,63 @@ export async function requireCanvasFrame(page: Page): Promise<RecordedFrame> {
     );
   }
   return frame;
+}
+
+/**
+ * Recover world positions from what was painted, not from React or a protocol-state seam.
+ *
+ * The real map boundary is the world origin projected by the same frame as every body/course.
+ * Removing its observed translation and the actual backing/CSS ratio preserves motion checks
+ * across independently moving cameras. All fixtures using this helper declare 1920×1280, so the
+ * measured boundary MUST occupy that many CSS pixels: normalizing must not hide a fit-all scale.
+ * Labels retain their four-CSS-pixel gap below a body's world-radius offset.
+ */
+function worldCoordinates(frame: RecordedFrame): RecordedFrame {
+  const boundary = frame.worldBoundary;
+  if (boundary === null || frame.cssWidth <= 0 || frame.cssHeight <= 0) {
+    throw new BrowserE2EError(
+      'BROWSER_E2E.WORLD_PROJECTION_UNAVAILABLE',
+      'A completed gameplay frame must paint its world boundary in a positive CSS viewport.',
+      { frame_index: frame.index },
+    );
+  }
+  const horizontalRatio = frame.width / frame.cssWidth;
+  const verticalRatio = frame.height / frame.cssHeight;
+  expect(boundary.width / horizontalRatio).toBeCloseTo(1920, 8);
+  expect(boundary.height / verticalRatio).toBeCloseTo(1280, 8);
+  const point = (value: { x: number; y: number }) => ({
+    x: (value.x - boundary.x) / horizontalRatio,
+    y: (value.y - boundary.y) / verticalRatio,
+  });
+  return {
+    ...frame,
+    arcs: frame.arcs.map((arc) => ({
+      ...arc,
+      ...point(arc),
+      radius: arc.radius / horizontalRatio,
+    })),
+    labels: frame.labels.map((label) => ({ ...label, ...point(label) })),
+    paths: frame.paths.map((path) => ({
+      ...path,
+      lineWidth: path.lineWidth / horizontalRatio,
+      points: path.points.map((entry) => ({ ...entry, ...point(entry) })),
+    })),
+  };
+}
+
+/** The actual painted frame with camera translation removed for existing world-motion proofs. */
+export async function readWorldCanvasFrame(
+  page: Page,
+): Promise<RecordedFrame | null> {
+  const frame = await readCanvasFrame(page);
+  return frame === null ? null : worldCoordinates(frame);
+}
+
+/** The same world-normalized geometry, requiring a complete painted frame. */
+export async function requireWorldCanvasFrame(
+  page: Page,
+): Promise<RecordedFrame> {
+  return worldCoordinates(await requireCanvasFrame(page));
 }
 
 export function findLabel(

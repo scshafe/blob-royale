@@ -4,6 +4,7 @@ add_executable(blob_gameplay_unit_tests
   king_of_the_hill/hill_movement_system_tests.cpp
   king_of_the_hill/hill_objective_tests.cpp
   king_of_the_hill/hill_rules_publisher_system_tests.cpp
+  king_of_the_hill/hill_return_timing_tests.cpp
   king_of_the_hill/hill_scoring_system_tests.cpp
   king_of_the_hill/king_of_the_hill_configuration_tests.cpp
   king_of_the_hill/king_of_the_hill_mode_tests.cpp

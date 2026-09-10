@@ -7,18 +7,21 @@
 #include "components/hill_presence_component.hpp"
 #include "components/score_component.hpp"
 #include "entity_id.hpp"
+#include "events/elimination_event.hpp"
 #include "game_world.hpp"
 #include "gameplay_validation_error.hpp"
 #include "match_phase.hpp"
 #include "physics_body.hpp"
 #include "shared/disc_geometry.hpp"
 #include "tick_context.hpp"
+#include "world_event_registry.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace blob_royale::gameplay {
@@ -92,8 +95,18 @@ void HillScoringSystem::apply(simulation::GameWorld& world, const simulation::Ti
         entity, simulation::HillPresence{inside_ticks});
   }
 
-  // Being knocked out forgets the partial point: a presence counter on an entity with no body is
-  // the shape the shared respawn leaves behind, and this system owns its hygiene.
+  // Scoring precedes lifecycle body removal. Clear this tick's eliminated entities now, because
+  // a zero-delay return can seat them before the next scoring pass ever sees a missing body.
+  // Completed points stand; only the partial point is forgotten. Erasure is idempotent, so event
+  // order and duplicate eliminations cannot change the result.
+  for (const simulation::WorldEvent& event : world.events()) {
+    if (const auto* elimination = std::get_if<simulation::EliminationEvent>(&event);
+        elimination != nullptr) {
+      world.mutable_store<simulation::HillPresence>().erase(elimination->entity);
+    }
+  }
+
+  // Presence on an already-bodyless entity is also this mode's hygiene, not shared respawn's.
   std::vector<simulation::EntityId> bodiless;
   for (const simulation::ComponentStore<simulation::HillPresence>::Entry& entry :
        world.store<simulation::HillPresence>().entries()) {

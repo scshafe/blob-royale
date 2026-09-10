@@ -27,11 +27,13 @@ namespace blob_royale::gameplay {
 //             presence = (HillPresence or 0) + 1
 //             if presence >= I:   Score += 1, erase HillPresence
 //             else:               HillPresence = presence
+//     for every entity eliminated this tick:  erase HillPresence
 //     for every entity carrying HillPresence and no PhysicsBody, ascending:  erase HillPresence
 //
 // **Leaving the hill loses the partial point; a contested hill freezes it; being knocked out
-// forgets it.** The last line is the one place this mode owns the hygiene of its own counter after
-// the shared `respawn` erased the body. `I = 0` awards a point on the first inside tick, because
+// forgets it.** This mode owns its counter's hygiene both before lifecycle body removal and while
+// bodyless, so even a zero-delay return forgets progress. Completed points stand on the knockout
+// tick. `I = 0` awards a point on the first inside tick, because
 // the increment precedes the test. `Score` sits on the player entity, absent reads as zero, and it
 // survives a respawn because the entity does.
 //

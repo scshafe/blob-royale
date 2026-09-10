@@ -10,6 +10,7 @@
 
 #include "command_kind_mask.hpp"
 #include "components/controllable_component.hpp"
+#include "components/hill_component.hpp"
 #include "components/race_progress_component.hpp"
 #include "components/zone_component.hpp"
 #include "components/zone_exposure_component.hpp"
@@ -28,6 +29,7 @@
 #include "match_outcome.hpp"
 #include "match_phase.hpp"
 #include "match_state.hpp"
+#include "mode_states/king_of_the_hill_mode_state.hpp"
 #include "mode_states/race_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "physics_body.hpp"
@@ -348,6 +350,20 @@ race_progress_snapshot(const std::uint64_t next_checkpoint) {
   simulation::GameWorld world = simulation::GameWorld::create({});
   world.mutable_store<simulation::RaceProgress>().insert_or_assign(
       simulation::EntityId::create(kPlayerEntityId), simulation::RaceProgress{next_checkpoint});
+  simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
+      simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));
+  game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  return game_simulation.snapshot();
+}
+
+// Published hill values committed by the idle engine, with no gameplay dependency in this fixture.
+[[nodiscard]] inline simulation::WorldSnapshot
+hill_mode_snapshot(const double hill_radius, const std::uint64_t points_to_win) {
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_store<simulation::Hill>().insert_or_assign(
+      simulation::EntityId::create(kPlayerEntityId),
+      simulation::Hill{simulation::Vector2::create(480.0, 320.0), hill_radius});
+  world.mutable_match().mode_state = simulation::KingOfTheHillModeState{points_to_win, 400, 96'000};
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
       simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));
   game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());

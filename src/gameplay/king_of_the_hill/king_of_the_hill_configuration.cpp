@@ -3,6 +3,7 @@
 #include "gameplay_validation_error.hpp"
 #include "shared/duration_ticks.hpp"
 #include "shared/thrust_steering_system.hpp"
+#include "simulation_limits.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -42,6 +43,13 @@ KingOfTheHillConfiguration KingOfTheHillConfiguration::create(const Section& sec
   // so a mode cannot declare a thrust maximum the system it builds would refuse.
   require_valid_thrust_maximum(section.thrust_max_world_units_per_second_squared);
   require_finite_and_positive(section.hill_radius_world_units, "hill_radius_world_units");
+  // The hill component and rules block must remain encodable for every accepted configuration.
+  if (section.hill_radius_world_units > simulation::kMaximumPhysicalComponentMagnitude) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kKingOfTheHillScalarOutOfRange,
+        context_of("hill_radius_world_units"),
+        "hill_radius_world_units exceeds the published world scalar bound");
+  }
   // Converted into named locals in the order the section declares them rather than inside the
   // constructor call, because the order in which function arguments are evaluated is unspecified in
   // C++: a section with two bad durations would otherwise name whichever key the compiler happened
@@ -65,6 +73,11 @@ KingOfTheHillConfiguration KingOfTheHillConfiguration::create(const Section& sec
                                   context_of("points_to_win"),
                                   "points_to_win must be at least one, or the match is decided "
                                   "before anyone has held the hill");
+  }
+  if (section.points_to_win > simulation::kMaximumProtocolSafeInteger) {
+    throw GameplayValidationError(GameplayValidationCode::kKingOfTheHillScalarOutOfRange,
+                                  context_of("points_to_win"),
+                                  "points_to_win exceeds the published safe integer bound");
   }
   require_finite_and_positive(section.time_limit_seconds, "time_limit_seconds");
   const std::uint64_t time_limit_ticks =

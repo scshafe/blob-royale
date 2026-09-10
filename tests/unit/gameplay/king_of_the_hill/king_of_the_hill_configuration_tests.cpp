@@ -1,6 +1,7 @@
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 
 #include "gameplay_validation_error.hpp"
+#include "simulation_limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -11,6 +12,7 @@
 #include <string_view>
 
 namespace gameplay = blob_royale::gameplay;
+namespace simulation = blob_royale::simulation;
 
 namespace {
 
@@ -132,6 +134,35 @@ TEST_CASE("points_to_win must be at least one",
   Section one = defaults();
   one.points_to_win = 1;
   CHECK(gameplay::KingOfTheHillConfiguration::create(one).points_to_win() == 1);
+}
+
+TEST_CASE("hill radius and points accept their exact publication ceilings",
+          "[unit][gameplay][king_of_the_hill][configuration][boundary]") {
+  Section section = defaults();
+  section.hill_radius_world_units = simulation::kMaximumPhysicalComponentMagnitude;
+  section.points_to_win = simulation::kMaximumProtocolSafeInteger;
+  const gameplay::KingOfTheHillConfiguration configuration =
+      gameplay::KingOfTheHillConfiguration::create(section);
+  CHECK(configuration.hill_radius() == simulation::kMaximumPhysicalComponentMagnitude);
+  CHECK(configuration.points_to_win() == simulation::kMaximumProtocolSafeInteger);
+}
+
+TEST_CASE("hill radius above its publication ceiling fails at its configuration key",
+          "[unit][gameplay][king_of_the_hill][configuration][validation][boundary]") {
+  Section section = defaults();
+  section.hill_radius_world_units = simulation::kMaximumPhysicalComponentMagnitude + 1.0;
+  const Rejection rejection = rejection_of(section);
+  CHECK(rejection.code == gameplay::GameplayValidationCode::kKingOfTheHillScalarOutOfRange);
+  CHECK(rejection.context == "king_of_the_hill.hill_radius_world_units");
+}
+
+TEST_CASE("hill points above the safe integer ceiling fail at their configuration key",
+          "[unit][gameplay][king_of_the_hill][configuration][validation][boundary]") {
+  Section section = defaults();
+  section.points_to_win = simulation::kMaximumProtocolSafeInteger + 1;
+  const Rejection rejection = rejection_of(section);
+  CHECK(rejection.code == gameplay::GameplayValidationCode::kKingOfTheHillScalarOutOfRange);
+  CHECK(rejection.context == "king_of_the_hill.points_to_win");
 }
 
 TEST_CASE("a zero point interval and a zero respawn delay are accepted rather than rejected",

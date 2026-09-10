@@ -1,6 +1,7 @@
 #include "race/race_configuration.hpp"
 
 #include "gameplay_validation_error.hpp"
+#include "simulation_limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -10,6 +11,7 @@
 #include <string_view>
 
 namespace gameplay = blob_royale::gameplay;
+namespace simulation = blob_royale::simulation;
 
 namespace {
 
@@ -39,6 +41,11 @@ constexpr std::array<Field, 3> kPositiveScalars = {{
     {&Section::track_half_width_world_units, "track_half_width_world_units"},
     {&Section::checkpoint_radius_world_units, "checkpoint_radius_world_units"},
     {&Section::time_limit_seconds, "time_limit_seconds"},
+}};
+
+constexpr std::array<Field, 2> kPublishedDimensions = {{
+    {&Section::track_half_width_world_units, "track_half_width_world_units"},
+    {&Section::checkpoint_radius_world_units, "checkpoint_radius_world_units"},
 }};
 
 constexpr std::array<Field, 4> kNonnegativeDurations = {{
@@ -105,6 +112,30 @@ TEST_CASE("the race checkpoint radius may equal the half-width but never exceed 
   const Rejection rejection = rejection_of(section);
   CHECK(rejection.code == gameplay::GameplayValidationCode::kRaceScalarOutOfRange);
   CHECK(rejection.context == "race.checkpoint_radius_world_units");
+}
+
+TEST_CASE("race dimensions accept the exact published world scalar ceiling",
+          "[unit][gameplay][race][configuration][boundary]") {
+  Section section = gameplay::RaceConfiguration::default_section();
+  section.track_half_width_world_units = simulation::kMaximumPhysicalComponentMagnitude;
+  section.checkpoint_radius_world_units = simulation::kMaximumPhysicalComponentMagnitude;
+  const gameplay::RaceConfiguration configuration = gameplay::RaceConfiguration::create(section);
+  CHECK(configuration.track_half_width() == simulation::kMaximumPhysicalComponentMagnitude);
+  CHECK(configuration.checkpoint_radius() == simulation::kMaximumPhysicalComponentMagnitude);
+}
+
+TEST_CASE("race dimensions above the published ceiling fail at their configuration keys",
+          "[unit][gameplay][race][configuration][validation][boundary]") {
+  for (const Field& field : kPublishedDimensions) {
+    CAPTURE(field.key);
+    Section section = gameplay::RaceConfiguration::default_section();
+    section.track_half_width_world_units = simulation::kMaximumPhysicalComponentMagnitude;
+    section.checkpoint_radius_world_units = simulation::kMaximumPhysicalComponentMagnitude;
+    section.*field.member = simulation::kMaximumPhysicalComponentMagnitude + 1.0;
+    const Rejection rejection = rejection_of(section);
+    CHECK(rejection.code == gameplay::GameplayValidationCode::kRaceScalarOutOfRange);
+    CHECK(rejection.context == "race." + std::string(field.key));
+  }
 }
 
 TEST_CASE("every race nonnegative duration uses shared duration rejection and names its key",

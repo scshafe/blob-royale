@@ -17,6 +17,7 @@
 #include "entity_id.hpp"
 #include "http_error.hpp"
 #include "mode_state_wire_encoding.hpp"
+#include "simulation_limits.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -366,6 +367,35 @@ TEST_CASE("Race progress preserves zero and is never synthesized for an entity w
   CHECK(absent.find("race_progress") == std::string::npos);
 }
 
+TEST_CASE("Hill publication preserves the exact configured radius and score ceilings",
+          "[unit][protocol][v2][encoding][king_of_the_hill][boundary]") {
+  STATIC_REQUIRE(simulation::kMaximumPhysicalComponentMagnitude ==
+                 protocol::kMaximumFiniteWorldScalar);
+  STATIC_REQUIRE(simulation::kMaximumProtocolSafeInteger == protocol::kMaximumSafeInteger);
+  const std::string encoded = protocol::encode_snapshot_message_v2(
+      fixture::hill_mode_snapshot(simulation::kMaximumPhysicalComponentMagnitude,
+                                  simulation::kMaximumProtocolSafeInteger),
+      fixture::golden_directory(), fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
+  const boost::json::value document = boost::json::parse(encoded);
+  const boost::json::object& data = document.as_object().at("data").as_object();
+  const boost::json::object& hill = data.at("entities")
+                                        .as_array()
+                                        .at(0)
+                                        .as_object()
+                                        .at("components")
+                                        .as_object()
+                                        .at("hill")
+                                        .as_object();
+  CHECK(hill.at("radius").as_int64() ==
+        static_cast<std::int64_t>(simulation::kMaximumPhysicalComponentMagnitude));
+  const boost::json::object& state = data.at("match").as_object().at("mode_state").as_object();
+  CHECK(state.at("schema_id").as_string() == protocol::kKingOfTheHillModeStateSchemaId);
+  CHECK(state.at("value").as_object().at("points_to_win").as_int64() ==
+        static_cast<std::int64_t>(simulation::kMaximumProtocolSafeInteger));
+  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+}
+
 TEST_CASE("Race mode state publishes its course and shared standings in canonical order",
           "[unit][protocol][v2][encoding][race][golden]") {
   const simulation::WorldSnapshot snapshot =
@@ -404,6 +434,34 @@ TEST_CASE("Race publishes an empty standings array and canonicalizes nested vect
   CHECK(encoded.find(R"("track":[{"x":0,"y":100})") != std::string::npos);
   CHECK(encoded.find(R"("standings":[])") != std::string::npos);
   CHECK(encoded.find(R"("placements":[])") != std::string::npos);
+}
+
+TEST_CASE("Race publication preserves both exact configured dimension ceilings",
+          "[unit][protocol][v2][encoding][race][boundary]") {
+  STATIC_REQUIRE(simulation::kMaximumPhysicalComponentMagnitude ==
+                 protocol::kMaximumFiniteWorldScalar);
+  simulation::RaceModeState state = fixture::golden_race_mode_state();
+  state.track_half_width = simulation::kMaximumPhysicalComponentMagnitude;
+  state.checkpoint_radius = simulation::kMaximumPhysicalComponentMagnitude;
+  const std::string encoded = protocol::encode_snapshot_message_v2(
+      fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
+      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
+  const boost::json::value document = boost::json::parse(encoded);
+  const boost::json::object& block = document.as_object()
+                                         .at("data")
+                                         .as_object()
+                                         .at("match")
+                                         .as_object()
+                                         .at("mode_state")
+                                         .as_object()
+                                         .at("value")
+                                         .as_object();
+  CHECK(block.at("track_half_width").as_int64() ==
+        static_cast<std::int64_t>(simulation::kMaximumPhysicalComponentMagnitude));
+  CHECK(block.at("checkpoint_radius").as_int64() ==
+        static_cast<std::int64_t>(simulation::kMaximumPhysicalComponentMagnitude));
+  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
 }
 
 TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fields",

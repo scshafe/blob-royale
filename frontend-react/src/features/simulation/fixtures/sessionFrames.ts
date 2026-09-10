@@ -196,6 +196,33 @@ export function raceSnapshotDocument(messageSequence = 2) {
   };
 }
 
+/** Exact binary64-safe publication ceilings shared with simulation_limits.hpp, not balance defaults. */
+export const MAXIMUM_PUBLISHED_WORLD_SCALAR = 1_000_000_000_000;
+
+/** A hill frame at the inclusive radius and winning-score publication ceilings. */
+export function maximumHillSnapshotDocument() {
+  const document = hillSnapshotDocument();
+  const hill = document.data.entities.find(
+    (entity) => entity.components.hill !== undefined,
+  )?.components.hill;
+  if (hill === undefined) {
+    throw new Error('TEST.HILL_FIXTURE_HILL_MISSING');
+  }
+  hill.radius = MAXIMUM_PUBLISHED_WORLD_SCALAR;
+  document.data.match.mode_state.value.points_to_win = Number.MAX_SAFE_INTEGER;
+  return document;
+}
+
+/** A race frame at both inclusive dimension publication ceilings; the gate fits the corridor. */
+export function maximumRaceSnapshotDocument() {
+  const document = raceSnapshotDocument();
+  document.data.match.mode_state.value.track_half_width =
+    MAXIMUM_PUBLISHED_WORLD_SCALAR;
+  document.data.match.mode_state.value.checkpoint_radius =
+    MAXIMUM_PUBLISHED_WORLD_SCALAR;
+  return document;
+}
+
 export type RaceSnapshotScenario =
   | 'running'
   | 'finish_window'

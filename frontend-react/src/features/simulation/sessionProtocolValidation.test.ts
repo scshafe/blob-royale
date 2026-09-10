@@ -10,6 +10,9 @@ import {
 } from './fixtures/protocolV2Examples';
 import {
   firstEntity,
+  MAXIMUM_PUBLISHED_WORLD_SCALAR,
+  maximumHillSnapshotDocument,
+  maximumRaceSnapshotDocument,
   playerEntity,
   snapshotDocument,
   welcomeDocument,
@@ -91,6 +94,30 @@ describe('validateSessionWelcomeMessage', () => {
 });
 
 describe('validateSessionSnapshotMessage', () => {
+  it('accepts a hill frame at the inclusive radius and safe winning-score ceilings', () => {
+    const document = maximumHillSnapshotDocument();
+    const snapshot = validateSessionSnapshotMessage(document, welcomeSequence);
+    expect(
+      snapshot.data.entities.find(
+        (entity) => entity.components.hill !== undefined,
+      )?.components.hill?.radius,
+    ).toBe(MAXIMUM_PUBLISHED_WORLD_SCALAR);
+    expect(snapshot.data.match.mode_state.value).toMatchObject({
+      points_to_win: Number.MAX_SAFE_INTEGER,
+    });
+  });
+
+  it('accepts a race frame at both inclusive course-dimension ceilings', () => {
+    const snapshot = validateSessionSnapshotMessage(
+      maximumRaceSnapshotDocument(),
+      welcomeSequence,
+    );
+    expect(snapshot.data.match.mode_state.value).toMatchObject({
+      track_half_width: MAXIMUM_PUBLISHED_WORLD_SCALAR,
+      checkpoint_radius: MAXIMUM_PUBLISHED_WORLD_SCALAR,
+    });
+  });
+
   it('accepts the race course with shared standings or an empty standings array', () => {
     for (const standings of [raceModeStateExample.standings, []]) {
       const state = structuredClone(raceModeStateExample);

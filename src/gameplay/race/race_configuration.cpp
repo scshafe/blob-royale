@@ -3,6 +3,7 @@
 #include "gameplay_validation_error.hpp"
 #include "shared/duration_ticks.hpp"
 #include "shared/thrust_steering_system.hpp"
+#include "simulation_limits.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -32,8 +33,19 @@ void require_finite_and_positive(const double value, const std::string_view key)
 RaceConfiguration RaceConfiguration::create(const Section& section) {
   require_valid_thrust_maximum(section.thrust_max_world_units_per_second_squared);
   require_finite_and_positive(section.track_half_width_world_units, "track_half_width_world_units");
+  // Both dimensions are published on every frame; reject an unencodable course at startup.
+  if (section.track_half_width_world_units > simulation::kMaximumPhysicalComponentMagnitude) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kRaceScalarOutOfRange, context_of("track_half_width_world_units"),
+        "track_half_width_world_units exceeds the published world scalar bound");
+  }
   require_finite_and_positive(section.checkpoint_radius_world_units,
                               "checkpoint_radius_world_units");
+  if (section.checkpoint_radius_world_units > simulation::kMaximumPhysicalComponentMagnitude) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kRaceScalarOutOfRange, context_of("checkpoint_radius_world_units"),
+        "checkpoint_radius_world_units exceeds the published world scalar bound");
+  }
   if (section.checkpoint_radius_world_units > section.track_half_width_world_units) {
     throw GameplayValidationError(GameplayValidationCode::kRaceScalarOutOfRange,
                                   context_of("checkpoint_radius_world_units"),

@@ -506,6 +506,28 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("elimination_grace_seconds=3\n");
   configuration.append("countdown_seconds=5\n");
   configuration.append("restart_delay_seconds=8\n");
+  // Every mode section is required even when this fixture runs sandbox or royale.
+  configuration.append("\n[king_of_the_hill]\n");
+  configuration.append("thrust_max_world_units_per_second_squared=400\n");
+  configuration.append("hill_radius_world_units=90\n");
+  configuration.append("hill_dwell_seconds=12\n");
+  configuration.append("hill_travel_seconds=4\n");
+  configuration.append("point_interval_seconds=1\n");
+  configuration.append("points_to_win=30\n");
+  configuration.append("contested_hill_scores=false\n");
+  configuration.append("time_limit_seconds=240\n");
+  configuration.append("respawn_delay_seconds=2\n");
+  configuration.append("countdown_seconds=5\n");
+  configuration.append("restart_delay_seconds=8\n");
+  configuration.append("\n[race]\n");
+  configuration.append("thrust_max_world_units_per_second_squared=400\n");
+  configuration.append("track_half_width_world_units=70\n");
+  configuration.append("checkpoint_radius_world_units=40\n");
+  configuration.append("respawn_delay_seconds=2\n");
+  configuration.append("finish_window_seconds=20\n");
+  configuration.append("time_limit_seconds=240\n");
+  configuration.append("countdown_seconds=5\n");
+  configuration.append("restart_delay_seconds=8\n");
   // Two rooms for the session workload, so the directory lists more than the room every other
   // route serves and a room target can name one that `/api/v2/session` does not.
   configuration.append("\n[lobbies]\n");

@@ -12,6 +12,19 @@ Two rules of the wire shape this domain and are worth restating here. The own bo
 
 `rendering/` holds the `@extension-point entity_renderer` registry: one file per drawn component kind, one registration line each, and a stated reason for every kind that carries no pixels. `sessionSelectors.ts` holds the derivations the wire deliberately does not publish twice — alive count, own entity, own placement, elapsed phase time, the zone-exposure report, and the match overlay description — so components stay presentational and each rule is testable without a renderer.
 
+**World space is not the viewport.** The current `SimulationCanvas` fits the entire map using the
+scale-only `WorldProjection`; `raceCourseRenderer` separately scales its world-space path. There
+is no camera translation, follow state, or manual-pan control in the current implementation.
+The larger-world camera requirement is defined once in
+[`ADR 0004 — World space and the client viewport`](../../../../docs/architecture/0004-gameplay-architecture.md#world-space-and-the-client-viewport--owner-direction-2026-09-09).
+Its implementation must converge entity and mode-state rendering on one canonical world-to-view
+transform, without moving HUD/controls out of screen space. Player-follow selects its centre from
+the current body resolved by controller id; an independent manual view and explicit return to
+follow remain UI options to evaluate. Keep camera selection local, preserve complete validated
+snapshots, and isolate pan input from the existing thrust bindings. Known offscreen geometry may
+be clipped; unknown kinds still fail closed before rendering. Camera work and its large-map
+acceptance tests are not completed by the current hill/race rendering tests.
+
 Phase time is reported as elapsed rather than remaining, and the reason is availability. The `[royale]` phase durations — `countdown_seconds`, `zone_shrink_seconds` — are composition-root configuration: `GET /api/v1/config` publishes only `world`, `simulation`, and `presentation` under an `additionalProperties: false` schema, and no v2 frame carries them. The HUD therefore counts phase time up from `phase_started_tick`, converted by the published `ticks_per_second`, instead of counting a duration it would have to invent down.
 
 Zone exposure was the same until protocol 2.2, and is no longer. `elimination_grace_ticks` now travels in the royale mode-state block, so the HUD counts the real remainder down and the exposure ring thickens against the same denominator `zone_elimination` enforces. The elapsed reading survives as the fallback for a mode that publishes no grace — `sandbox` publishes the `none` block — because the one rule that has not changed is that this client never renders a duration the server did not send.

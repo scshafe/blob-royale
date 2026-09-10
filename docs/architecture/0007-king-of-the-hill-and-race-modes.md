@@ -2,9 +2,14 @@
 
 # 7. Define the King of the Hill and Race game modes
 
-* **Status:** Proposed
+* **Status:** Accepted
 * **Date:** 2026-09-09
 * **Deciders:** Project owner
+
+**Implementation note, 2026-09-09:** The source now implements both modes, protocol 2.5, and the
+client/controller paths described below. The execution amendments record the concrete costs and
+differences from the proposal. The owner accepted the design with the larger-world/client-camera
+requirement below. That requirement is documented, not yet implemented; deployment remains pending.
 
 ## Context and Problem Statement
 
@@ -317,14 +322,20 @@ contact rule. Per tick, with `I` the configured `point_interval_ticks`:
             presence = (HillPresence or 0) + 1
             if presence >= I:   Score += 1, erase HillPresence
             else:               HillPresence = presence
+    for every entity named by this tick's EliminationEvents:  erase HillPresence
     for every entity carrying HillPresence and no PhysicsBody, ascending:  erase HillPresence
 
 Three consequences are the rules a player feels. **Leaving the hill loses the partial point**; a
 contested hill **freezes** progress rather than losing it, so a rival who touches the rim for one
-tick cannot erase a second of holding; and being knocked out of play forgets the partial point,
-which is the last line and is the one place this mode owns the hygiene of its own counter after the
-shared respawn erased the body. `I = 0` awards a point on the first inside tick, because the
-increment precedes the test; `contested_hill_scores = true` is the free-for-all variant in which
+tick cannot erase a second of holding; and being knocked out of play forgets the partial point.
+The elimination-event cleanup runs **after scoring**, so a whole point completed on the knockout
+tick stands, then partial presence is erased before the shared respawn removes the body at
+`kLifecycle`. Checking only for a missing body was insufficient: with a zero respawn delay, phase 0
+of the next tick can seat the player before scoring ever observes it bodyless. The event cleanup
+handles that case on the knockout tick, and the final bodyless pass still removes any older stale
+presence. Both cleanups belong to the hill; shared respawn's behavior is unchanged. `I = 0` awards
+a point on the first inside tick because the increment precedes the test;
+`contested_hill_scores = true` is the free-for-all variant in which
 everyone inside scores.
 
 `Score` sits on the player entity, absent reads as zero, and it survives a respawn because the
@@ -359,17 +370,17 @@ grain the simulation resolves, and pretending otherwise would be a rule nobody c
 One strict `[king_of_the_hill]` section; every key required, no silent default, every value finite,
 durations converted once by `shared/duration_ticks`. The loader's rule that a mode's section is
 required whatever `[match] mode` names applies (`application_config_loader.cpp`), so every
-configuration file in the tree gains this section and the race's; the cost is stated under
+full application configuration gains this section and the race's; the cost is stated under
 § "Consequences".
 
 | Key | Proposed | Rule |
 |---|---:|---|
 | `thrust_max_world_units_per_second_squared` | 400 | `require_valid_thrust_maximum` |
-| `hill_radius_world_units` | 90 | finite, strictly positive |
+| `hill_radius_world_units` | 90 | finite, `0 < radius <= 10^12` |
 | `hill_dwell_seconds` | 12 | finite, not negative |
 | `hill_travel_seconds` | 4 | finite, not negative; dwell plus travel converts to at least one tick |
 | `point_interval_seconds` | 1 | finite, not negative |
-| `points_to_win` | 30 | integer, at least one |
+| `points_to_win` | 30 | integer, `1 <= points_to_win <= 2^53 - 1` |
 | `contested_hill_scores` | false | boolean |
 | `time_limit_seconds` | 240 | finite, strictly positive |
 | `respawn_delay_seconds` | 2 | finite, not negative |
@@ -410,7 +421,7 @@ map host more than one game.
 | `spawn_policy()` | `GridSpawnPolicy`: the grid between matches; mid-race, only a racer returning to the grid |
 | `objective()` | `RaceObjective` |
 | `validate_map()` | the course rules under § "Map requirements" |
-| Mode snapshot state | `race`: the course, the standings, and three declared constants |
+| Mode snapshot state | `race`: the course, the standings, and two declared durations |
 
 The field is **closed**, like royale's: a joiner who arrives mid-race waits for the next lobby
 rather than starting a lap behind. `GridSpawnPolicy` is royale's ring rule over the grid -- the
@@ -439,8 +450,11 @@ Three marker kinds, all read in declared order, and one number:
   marker-metadata extension named below.
 
 The course value -- nodes, gates, half-width, gate radius -- is built once from the map and the
-configuration at mode construction (`race/race_course.hpp`), validated there, and handed by value to
-the systems that read it. Distance from a point `p` to the centreline is the minimum over segments
+configuration by `RaceMode::validate_map` (`race/race_course.hpp`). The registry factory has no map;
+the engine already calls this declaration before `systems()`, so setup binds the validated course
+there and hands an independent immutable value to each system. `systems()` before successful
+binding fails with `GAMEPLAY.RACE_COURSE_UNBOUND`; failed map validation clears an earlier binding.
+The mode is destroyed before the first tick. Distance from a point `p` to the centreline is the minimum over segments
 `(a, b)` of the written-out point-to-segment distance:
 
     dx = b.x - a.x;  dy = b.y - a.y;  wx = p.x - a.x;  wy = p.y - a.y
@@ -450,7 +464,7 @@ the systems that read it. Distance from a point `p` to the centreline is the min
     ex = p.x - cx;  ey = p.y - cy
     distance = sqrt(ex * ex + ey * ey)
 
-`sqrt` of a written-out sum rather than `std::hypot`, as everywhere else in the tree. The corridor is
+The course uses `sqrt` of the written-out sum. The corridor is
 every point whose distance is at most the half-width.
 
 Obstacles are `static_bodies.csv` and cost no code, which was ADR 0004's obstacle-course answer and
@@ -487,9 +501,11 @@ is recorded because it is the value a client recognizes its own result by after 
 
 `track_bounds` at `kPostKernel`, after `checkpoint_progress` and only while `running`, emits one
 `EliminationEvent` for every alive entity whose centre's distance to the centreline exceeds
-`track_half_width + kPositionTolerance`. Progress runs first so a racer cannot take a gate and be
-thrown off the road by the same tick's evaluation in the wrong order; validation keeps every gate
-inside the corridor, so a centre inside a gate is never outside the road.
+`track_half_width + kPositionTolerance`. Progress runs first, so the tick retains a gate taken
+before evaluating the return consequence. Validation keeps every gate's **centre** inside the
+corridor, but an off-centre gate disc can extend beyond it. A racer in that overlap can therefore
+take a gate and be thrown off the road on the same tick, returning to the gate it just took. The
+proposal's claim that every centre inside a gate must also be on the road was too strong.
 
 The shared `respawn` erases the body and starts the timer. What differs from the hill is *where* the
 racer comes back, and that is `checkpoint_respawn`:
@@ -540,8 +556,8 @@ One strict `[race]` section, same rules as the hill's:
 | Key | Proposed | Rule |
 |---|---:|---|
 | `thrust_max_world_units_per_second_squared` | 400 | `require_valid_thrust_maximum` |
-| `track_half_width_world_units` | 70 | finite, strictly positive |
-| `checkpoint_radius_world_units` | 40 | finite, strictly positive, at most the half-width |
+| `track_half_width_world_units` | 70 | finite, `0 < half_width <= 10^12` |
+| `checkpoint_radius_world_units` | 40 | finite, `0 < radius <= 10^12`, at most the half-width |
 | `respawn_delay_seconds` | 2 | finite, not negative |
 | `finish_window_seconds` | 20 | finite, not negative |
 | `time_limit_seconds` | 240 | finite, strictly positive |
@@ -559,6 +575,15 @@ and a client that had to fetch the course separately would be rendering two docu
 disagree. `course_publisher` stamps the declared members every tick, last in its stage;
 `standings_recorder` owns the observed one. A racer's own gate is its `race_progress` component;
 its return countdown is its `respawn_timer`.
+
+**Publication-bound correction, 2026-09-09:** Finite and positive alone did not make a configured
+dimension publishable. Both configuration factories now enforce
+`simulation::kMaximumPhysicalComponentMagnitude` (`10^12`) for hill radius and race half-width/radius;
+the hill also enforces `simulation::kMaximumProtocolSafeInteger` (`2^53 - 1`) for `points_to_win`.
+The inclusive bounds match protocol 2.5's existing schemas, so this is startup validation of the
+accepted contract, not a schema revision. Oversized values use the existing scalar-out-of-range
+errors and authored-key contexts; zero points keeps its specific error. Defaults and duration
+conversion are unchanged.
 
 #### Map requirements
 
@@ -588,7 +613,30 @@ publishes `standings` with a `finished_tick` in its own block rather than lendin
 meaning it does not have. Fail-closed decoding is unchanged: a 2.4 client refuses a 2.5 frame, and
 the deployed client ships with the server that speaks it.
 
+The concrete encoder extension is `ComponentObjectSink::set_object_array` in
+`src/protocol/component_encoding.hpp`. The race specialization in `mode_state_wire_encoding.hpp`
+uses it for ordered course points and standings; the JSON implementation supplies the storage.
+This keeps those arrays within the existing mode-state encoding registration instead of adding a
+race branch to the top-level snapshot encoder. Protocol 2.5's registrations and generated client
+artifacts are complete; deployment is a separate pending step.
+
 ### The client
+
+**Larger worlds, independent viewport — owner amendment, 2026-09-09.** Neither game is constrained
+to a one-screen map. Hill tours and race courses require worlds that can be much larger than the
+displayed region, viewed at a useful local scale through a movable client camera. The canonical
+contract is ADR 0004 § "World space and the client viewport": one transform shared by every visual
+layer, a player-centred follow option, and independently positioned manual panning to consider with
+an explicit return-to-follow control. Camera movement changes no world coordinates, race progress,
+hill scoring, or commands. Follow retains strict centring at map edges by allowing outside-map
+background, and reacquires the body by controller identity across returns and entity replacement.
+
+The implementation verified by this mode plan still fits the entire map into the canvas; it has
+no movable camera or follow/manual controls. The compact maps and scaled browser fixtures prove
+the mode rules and existing drawing, not large-map camera usability. Camera implementation and its
+larger-than-viewport tests are required follow-up work before claiming that experience is ready.
+This amendment records the owner's direction; it does not silently add a camera implementation to
+the completed client steps or select manual-pan gestures on the owner's behalf.
 
 The renderer registry gains four entries: `hill` draws a filled disc distinct from the zone's ring
 at the zone layer; `hill_presence`, `race_progress`, and `respawn_timer` are non-visual and reach
@@ -599,12 +647,18 @@ and each gate as a disc, the finish distinguished; the royale and hill entries a
 exists because a course is one declared thing rather than a set of entities, and the per-entity
 registry cannot draw a line between two of them.
 
-The HUD becomes mode-aware by `match.mode`, which it already receives: the hill shows the
+The HUD selects each mode section by the closed `mode_state.schema_id`, matching the renderer
+registry; `match.mode` is an open name and is not the source of block shape. The hill shows the
 scoreboard, the local player's progress toward its next point as a ring against
 `point_interval_ticks`, and the time remaining; the race shows the local racer's gate `k of n`, the
-standings as they fill, and "back on the road in" from `respawn_timer.ticks_remaining`. The results
-overlay at `ended` reads the outcome the generic match section carries and the mode's own ranking.
-Nothing here is computed from a clock: every countdown is a tick difference from the frame.
+standings as they fill, and "back on the road in" from `respawn_timer.ticks_remaining`. Before the
+first finish it shows the running time left; afterwards the first standing's `finished_tick` starts
+the finish window, which replaces the running limit. A racer with progress and no body or timer
+still sees zero seconds and a wait for a clear checkpoint or grid point. Recorded controller ids
+identify the session's finish even after its live entity disappears. The results overlay at `ended`
+reads the generic outcome and distinguishes a recorded finish from a no-finisher win on gates
+taken, a shared finish, a clock tie, and an empty field. It does not construct a distance ranking.
+Nothing here is computed from a wall clock: every countdown is a tick count or difference from the frame.
 
 ### Bots
 
@@ -616,7 +670,9 @@ them from the menu the client already has:
 * **`racer`** reads the course from the frame's mode state and its own gate from `race_progress`;
   it thrusts toward the next gate, and toward the nearest centreline point instead whenever its
   centre is farther from the centreline than a caution fraction of the half-width. It will fall off
-  a sharp course and come back, which is the game.
+  a sharp course and come back, which is the game. The registered implementation's caution
+  fraction is deterministic and it consumes no random draws. Its factory retains the seed for
+  identity and future personality variation; that parameter does not imply current random steering.
 
 Both decide from the snapshot alone, submit through the sink like every other controller, and are
 replayed by the recorded command log rather than re-run, so a determinism fixture can carry either.
@@ -643,6 +699,10 @@ lobby through the client's own controls exactly as the rooms flow does.
 
 Named so that nobody mistakes the first version for the whole design:
 
+* **Movable client viewport for larger worlds.** Required follow-up before large-map playability,
+  not a rejected feature: shared world-to-view projection, centred player-follow, and evaluation
+  of independent manual panning and return-to-follow controls. See § "The client" and ADR 0004's
+  canonical contract. Existing whole-map-fit tests are not evidence this work is done.
 * **Laps and closed courses.** `lap_count` and a closing segment from the last `track` node to the
   first; the gate rule is already order-only, so this is the objective and the course value.
 * **Marker metadata authoring.** A `metadata` column in `markers.csv` and a `[metadata]` section in
@@ -669,15 +729,22 @@ files edited are listed in full because the table's whole purpose is that number
 | Respawn | `components/respawn_timer_component.hpp`, `shared/respawn_system.{hpp,cpp}`, the wire schema, encoder, and renderer entry | `component_registry.hpp`, `component_encoding_registry.hpp`, `common.schema.json`, `entityRendererRegistry.ts` |
 | Public seating | `spawn_seating.{hpp,cpp}` | `spawn_system.cpp` |
 | The five promotions and `match_reset` | `shared/{roster,lobby_start_rule,disc_geometry}.hpp`, `shared/match_reset_system.{hpp,cpp}` | royale's and sandbox's includes and declared lists, `zone_elimination.cpp` |
-| A mode | `src/gameplay/<mode>/` with its mode, configuration, course or hill geometry, systems, objective, and mode-state header; its map directory; its fixtures | `game_mode_registry.hpp` (one row), `game_mode_configuration.hpp` (one member), `mode_match_state_registry.hpp` (one arm), `application_config_loader.cpp` (one section), `replay_fixture.cpp` (one section), `CMakeLists.txt`, and **every configuration file in the tree** (one section) |
+| A mode | `src/gameplay/<mode>/` with its mode, configuration, course or hill geometry, systems, objective, and mode-state header; its map directory; its fixtures | `game_mode_registry.hpp` (one row), `game_mode_configuration.hpp` (one member), `mode_match_state_registry.hpp` (one arm), `application_config_loader.cpp` (one section), `replay_fixture.cpp` (one section), `CMakeLists.txt`, and **every full application configuration** (one section) |
 | A component kind | its header, schema, encoder, renderer | `component_registry.hpp`, `component_encoding_registry.hpp`, `common.schema.json`, `entityRendererRegistry.ts` |
 | A mode-state block | its header, schema, encoder, mode-state renderer entry | `mode_match_state_registry.hpp`, `mode_state_wire_encoding.hpp`, `common.schema.json`, `match-data.schema.json`, `modeStateRendererRegistry.ts` |
 | A bot | `src/controllers/<name>_controller.{hpp,cpp}` and its tests | `controller_registry.hpp`, `src/controllers/CMakeLists.txt` |
 
 Two of the rows are the ones ADR 0004 counted and they count the same. The mode row is where the
 first estimate was optimistic: "new files plus one registration line" was true of the mode class
-and is not true of a *configured* mode, which touches four registries and every configuration file.
+and is not true of a *configured* mode, which touches registry/configuration declarations and every full application configuration.
 The configuration-file cost is the loader's own rule and is accepted rather than worked around.
+
+Measured from production `.hpp` and `.cpp` files under each mode directory on 2026-09-09, with
+`wc -l` including comments and blank lines, after the publication-bound and zero-delay-return
+review corrections: the hill is 15 files / 1,160 lines; race is 20 files / 1,188 lines. Their mode
+declarations alone are 194 and 168 lines respectively. Tests, README files,
+shared mechanics, component and mode-state values, protocol, and frontend are excluded from those
+directory counts and remain additional work; `src/gameplay/README.md` gives the inventory.
 
 ## Consequences
 
@@ -687,8 +754,8 @@ The configuration-file cost is the loader's own rule and is accepted rather than
 * **Positive:** Respawn, the restart wipe, the roster vocabulary, the lobby start rule, the disc
   predicate, the spawn probe, and the open-field spawn policy exist once. A fourth mode chooses
   among them rather than writing them.
-* **Positive:** Bots play both games through the same two capabilities every controller has, and a
-  seeded racer or seeker recorded into a command log is a fixture like any other.
+* **Positive:** Bots play both games through the same two capabilities every controller has, and
+  either controller's recorded command log is a fixture like any other.
 * **Positive:** The four framework amendments are each a gap the existing ADR promised to fill --
   a clock-decided outcome, a team-agnostic restart, a respawn under the same `ControllerId`, and a
   second seating site -- and each is one small edit rather than a workaround a mode would carry.
@@ -697,8 +764,13 @@ The configuration-file cost is the loader's own rule and is accepted rather than
 * **Mitigation:** The second customer for the mode-state renderer is already named -- a capture
   zone, a per-team score bar -- and the four kinds are the smallest set that publishes a hill, a
   gate, a countdown, and a scoreboard without a second source for any of them.
-* **Negative:** Every configuration file in the tree gains two sections of balance for games it
-  may never run: the deployment file, four browser fixtures, the unit-test configurations.
+* **Negative:** Every full application configuration gains two sections of balance for games it
+  may never run. The measured standalone count is 14: `config/blob-royale.cfg`, the deployment
+  configuration, seven browser configurations, and five full application fuzz corpus inputs.
+  Inline unit-test configuration strings and the generated integration configuration in
+  `tests/integration/server_process_fixture.cpp::write_fixture_inputs` are additional; the builder
+  also emits both sections even for workloads running other modes. Replay `match.ini` files use
+  their own selected-mode sections and are not counted as full application configurations.
 * **Mitigation:** That is the loader's accepted rule -- switching `mode=` must not fail on a section
   nobody wrote -- and each section is eleven or eight lines once. A per-mode optional section is a
   loader decision to make on its own evidence, not here.
@@ -719,10 +791,10 @@ The configuration-file cost is the loader's own rule and is accepted rather than
   a 2.5 schema republish. The deployed `[match] mode` still selects one game per process; playing a
   different one on the tailnet is `./scripts/reconfigure-tailnet` with a different section, or the
   per-room extension.
-* **Reversibility:** Delete `src/gameplay/king_of_the_hill/` and `src/gameplay/race/`, their
-  registry rows, their configuration sections, and their wire kinds, and the tree is what it was
-  plus the four framework amendments -- each of which is additive, ignored by every existing mode,
-  and provably free of effect on the accepted fixtures.
+* **Reversibility:** The mode directories, registry/configuration entries, and client paths can be
+  removed, retaining the shared framework amendments. Removing published wire kinds from a
+  deployed 2.5 contract requires a major protocol version; the source rollback is not permission to
+  silently change that contract. The existing modes retain their accepted fixture behavior.
 
 ## Related
 

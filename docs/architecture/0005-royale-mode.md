@@ -896,3 +896,15 @@ wipe destroys every participant -- every entity carrying a `Controllable` -- whe
 destroyed every alive one, and the replay fixtures' pinned entity counts, unchanged, are the proof
 that royale never held a participant without a body on the tick it wiped. No number, rule, or
 fixture horizon changes.
+
+**Amended 2026-09-09 (ADR 0007, shared promotions):** Royale's roster predicates now live in
+`shared/roster.hpp`, its lobby-start conjunction in `shared/lobby_start_rule.hpp`, its circle
+predicate in `shared/disc_geometry.hpp`, and its spawn policy's forward probe in
+`shared/spawn_point_probe.hpp`. `RotatingRingSpawnPolicy` stays in `royale/` and still owns the
+closed-field rule. Sandbox's next-free-point policy moved to `shared/next_free_spawn_point_policy.hpp`
+for the hill and the race grid; it defers respawn timers and the post-ended wipe tick, neither of
+which sandbox can encounter. The roster adds participant queries without changing royale's alive
+queries. These are shared implementations of existing rules, with the same circle arithmetic and
+probe order. Royale still ranks and destroys eliminated entities; it does not declare respawn. The
+restart wipe and engine phase observation are the amendments above, and the accepted royale replay
+expectations are unchanged.

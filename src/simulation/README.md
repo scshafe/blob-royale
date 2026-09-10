@@ -29,9 +29,11 @@ that change which ids a store holds. The tick has only ever needed the values.
 
 `component_registry.hpp` is the closed, ordered list of kinds:
 `ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
-LethalOnContact>`, where `Zone` and `ZoneExposure` are royale's and `LethalOnContact` belongs to no
-mode at all. Because it is a type list, three behaviors are **generated rather than
-maintained** — structural world equality, `destroy_entity` erasing from every store, and snapshot
+LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress>`, where `Zone` and `ZoneExposure`
+are royale's, `Hill` and `HillPresence` describe hill scoring, and `RaceProgress` counts ordered
+gates; `LethalOnContact` and `RespawnTimer` support shared mechanics. Because it is a type list,
+three behaviors are **generated rather than maintained** — structural world equality,
+`destroy_entity` erasing from every store, and snapshot
 publication of every kind — so a new kind cannot forget to participate in any of them.
 
 The world's seat count is `kMaximumEntityCount`, and it says entities because it bounds entities: a
@@ -224,6 +226,19 @@ destroyed**, so "nothing calls into the mode during a tick" is structural rather
 remember; the corresponding obligation on a mode author is that every declaration it returns is
 independently owned.
 
+`validate_map(map)` is called before `systems()`. The race uses that setup ordering to bind its
+validated course once from the map and configuration, then passes independent immutable copies to
+its declared systems. Its registry factory still takes only `GameModeConfiguration`; no mode
+lookup, course construction, or mode callback occurs during a tick.
+
+`MatchState::previous_phase` is the phase observed before the last lifecycle transition. The engine
+writes it at the start of `MatchLifecycleSystem::apply`, before the switch, on every tick. Because
+that system is last at `kLifecycle`, earlier systems on tick `N + 1` read `phase` as tick `N`'s
+committed phase and `previous_phase` as tick `N - 1`'s. The pair identifies the one post-transition
+tick without a separate observer in every mode. Royale retains a published mirror in its own block
+for wire compatibility; gameplay reads the engine field. The objective now receives `TickContext`
+with the world, so a time limit uses committing ticks without publishing a second current tick.
+
 `GameWorld` owns one `ComponentStore` per registered component kind reached through `store<C>()`
 and `mutable_store<C>()`, `MatchState`, `DeterministicRandom`, the tick's `WorldEvent` list, and the
 tick's `EntityIdReservation`. **`entities()` is derived from the stores, not stored beside them**:
@@ -249,6 +264,14 @@ against a working copy of the committed world, so if any phase or stage fails, n
 becomes observable and the previous commit stands unchanged. The numbered phases read and write only
 the `PhysicsBody` store and the `Controllable` command lists, so every other registered component
 survives a tick unless a system writes it.
+
+`simulation_limits.hpp` owns the bounds shared by input and publication: physical component
+magnitudes at most `10^12`, protocol-safe integers at most `2^53 - 1`. The hill and race
+configuration factories enforce those bounds for their published geometry and winning score, so
+startup cannot accept values that only fail when a snapshot is encoded. Entity-shaped partial
+progress remains the owning system's responsibility: hill scoring clears this tick's eliminated
+entities after awarding points, before shared respawn erases their bodies, so zero-delay seating
+cannot hide the lost body from counter cleanup.
 
 `WorldSnapshot` and `PlayerSnapshot` are immutable, copy-owned publication values. A snapshot
 carries the ascending entity roster, every registered component kind through `components<C>()`, the
@@ -278,7 +301,9 @@ state that is **not** entity-shaped is one arm of the `ModeMatchState` variant p
 `ModeMatchStateSchemaId` specialization. Mode state should be a component wherever it can be, so this
 carries only what has no entity: `NoModeState` for every mode whose state is entity-shaped, and
 `RoyalePlacementsModeState` (schema id `royale_placements`) for royale's ordered placement list and
-the phase it observed on the previous tick.
+the published mirror of the engine's previous phase; `KingOfTheHillModeState` for three declared
+constants; and `RaceModeState` for a course, its durations, and recorded finish standings. Hill
+scores and race progress remain entity components.
 
 `@extension-point command_kind` — `command_registry.hpp`. Adding a command kind edits **two**
 existing files in this domain:
@@ -356,17 +381,24 @@ mode declares are `SpawnPolicy` (which index into `map.spawn_points()`, or defer
 `MatchObjective` (`can_start`, `outcome`, `durations`). Everything else about seating and the match
 machine is engine mechanism: `SpawnSystem` owns iteration, the policy call, and the rotation
 counter, and seats through the occupancy predicate and at-rest write of `spawn_seating.hpp`, which a
-mode system that returns a player to a point of its own uses too; `MatchLifecycleSystem` runs last
+mode system that returns a player to a point of its own uses too. `point_is_occupied` scans the live
+body store with the existing `2 * player_radius` contact range and position tolerance;
+`seat_body_at_rest` writes zero velocity and acceleration with the configured radius and ordinary
+blob defaults. The race checkpoint return uses both operations, reading live stores so earlier
+returns in the same stage are visible. Timer expiry leaves an entity awaiting a body; retrying a
+blocked point does not require another timer. `MatchLifecycleSystem` runs last
 at `kLifecycle` and commits at most one phase transition per tick. A mode's own match-wide state that is genuinely not entity-shaped is one arm of
 `ModeMatchState` plus one registration line — mode state should be a component wherever it can be.
 `validate_map` throws its own library's typed, coded validation error: `SimulationValidationError`
 inside this domain, `GameplayValidationError` for a mode in `blob_gameplay`.
 
-Three implementations: the engine's own `idle` declarations (`idle_spawn_policy.hpp`,
+Five implementations: the engine's own `idle` declarations (`idle_spawn_policy.hpp`,
 `idle_match_objective.hpp`), which never seat and never start a match; `sandbox` in
 `src/gameplay/sandbox/`, which declares one `kPreKernel` system and nothing else; and `royale` in
 `src/gameplay/royale/`, the first to declare a system at every stage and the first to contribute a
-component kind and a mode-state arm.
+component kind and a mode-state arm; `king_of_the_hill`, which reuses respawn and scores presence;
+and `race`, which returns racers to checkpoints and records finishes. The last two extend the
+component and mode-state registries without changing the numbered kernel phases.
 
 `@extension-point map_definition` — `map_definition.hpp`. A map is a data directory and one line of
 match configuration: `map.cfg` for name, bounds, and metadata, `static_bodies.csv` for obstacles,

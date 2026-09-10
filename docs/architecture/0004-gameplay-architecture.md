@@ -699,6 +699,57 @@ Arena geometry is authored in the map and consumed by `SimulationConfig::create`
 `[simulation]` INI section retires its `world_width` and `world_height` keys and the map file
 becomes the single authoring home for arena size (§ "Consequences", operational).
 
+#### World space and the client viewport — owner direction, 2026-09-09
+
+The map is the simulated world, not the size of a browser window. Hill tours and race courses must
+be able to span a world much larger than the visible area while bodies and nearby geometry remain
+readable. Enlarging a map must not require fitting its entirety into the window, shrinking the
+gameplay rules, or changing a body's world-space size. Existing compact fixture maps are proofs of
+rules, not the intended size limit of either game.
+
+**Required client-camera contract; implementation pending.** A viewport is one client's movable
+window onto the world. Its world-space centre, presentation scale, and pixel dimensions are local
+presentation state, independent of map bounds and controller motion. One canonical world-to-view
+transform must serve both entity and mode-state renderers: bodies, labels, hill, zone, course, and
+gates stay aligned as the camera moves. HUD and controls stay in screen space. Use a uniform world
+scale; resizing changes the visible extent, not physics or authoritative coordinates. Device-pixel
+ratio is a backing-buffer concern, not another definition of world size.
+
+`@extension-point client_camera` (planned): vary how the viewport centre is selected, while retaining
+one transform and render path. Player-follow and a manually positioned view justify this seam;
+they do not justify parallel renderers or per-mode cameras. The concrete API and input bindings are
+to be settled in the camera implementation work, not asserted to exist by this ADR.
+
+- **Player-follow:** offer a view that keeps the local player's current body centred on each
+  rendered frame. Resolve that body from the session's controller identity, not its initial entity
+  id. With no body during a return, retain the last camera centre; resume tracking when that
+  controller has a body again. Before the first body, use an explicit initial-view policy rather
+  than inventing a player position. A new room/session resets camera identity. Strict centring near
+  the map edge permits outside-map background; do not silently clamp the view and push the player
+  off-centre. The true map boundary remains visible and authoritative.
+- **Manual view, under consideration:** allow the user to pan independently of their blob, with an
+  explicit way to select follow again. A manually selected view must not be snapped back by the
+  next player update. Gestures, bindings, default mode, and manual pan limits remain UX choices;
+  WASD and arrows already steer, so camera input must neither accidentally thrust nor steal those
+  bindings. Camera motion never sends a gameplay command.
+
+Two approaches were considered: keep fitting the whole map, which is useful as an overview but
+cannot preserve a readable local scale as maps grow; or select a world-space window through one
+camera transform, which supports both follow and manual positioning. The latter is the required
+large-map direction. An overview may remain a separate view option, not a constraint on map size.
+If a window is resized, only its projection changes; if two players choose different cameras,
+their world snapshots remain the same; if a future spectator chooses another target, the same
+transform can be reused. No zoom control, minimap, server-side visibility filtering, or protocol
+revision is implied by this requirement.
+
+The current `SimulationCanvas` still fits the full world using scale-only `WorldProjection`; the
+course renderer applies its own scale. Camera work must converge those paths, not add a third.
+Before claiming large-map playability, test a world wider and taller than the viewport, aligned
+entity/course rendering under translation, centred follow at map edges and after respawn, and
+independent views over unchanged world state. If manual view ships, also test pan without thrust
+and explicit switching between manual and follow. Cropping known, validated offscreen geometry
+is presentation, not missing simulation state.
+
 ### Commands
 
 `Command` is a closed variant over registered kinds. Adding a kind edits this file and one other,
@@ -935,8 +986,10 @@ Fail-closed is the deliberate choice over ignore-and-continue. An ignored compon
 player cannot see but can still collide with, and an ignored mode-state schema is an objective the
 player cannot see but is still judged by; both present a false world confidently. A closed
 connection with a named cause is a worse experience and a better failure, and it keeps the rule that
-a client never renders partial state (`0003-deterministic-simulation-contract.md` § "Accepted
-simulation input"). The obligation is symmetric: the server rejects a command kind the running mode
+a client never interprets only the understood subset of a frame (`0003-deterministic-simulation-contract.md`
+§ "Accepted simulation input"). This is not a requirement to display the whole map at once:
+intentional viewport clipping of fully validated, known geometry is correct (§ "World space and
+the client viewport"). The obligation is symmetric: the server rejects a command kind the running mode
 does not accept rather than dropping it silently.
 
 ### Determinism obligations for framework code
@@ -1074,7 +1127,7 @@ plus registration" or names the missing seam honestly.
 | **Capture the flag** | New files in `blob_gameplay`; new `Flag` and `RespawnTimer` components; one pass-through contact row; four systems. It forced two interface changes, made now: `MatchOutcome::won_by_team` and team-tagged spawn points. Nothing else moved. |
 | **An obstacle-course map** | A data directory. Static bodies are placed by `static_bodies.csv` and resolved by the built-in `reflect_static` row. No code at all, and every existing mode can play it. |
 | **Projectiles with damage** | New `Health` and `Damage` components; new `FireCommand` kind; `weapon_fire` at `kPreKernel` creating an entity with `PhysicsBody` + `Lifetime` + `Damage`; a `projectile_hit` contact row emitting an event; `damage_application` at `kPostKernel`. New files plus two registry lines. `Lifetime` and `GameWorld::create_entity()` already exist for exactly this. |
-| **King-of-the-hill scoring** | A new `Hill` component, a `hill_scoring` system at `kPostKernel` incrementing `Score` in ascending order, an objective returning `won_by_entity` or `won_by_team` at a threshold, and a `hill_center` marker in the map. New files only. |
+| **King-of-the-hill scoring** | **Measured 2026-09-09, ADR 0007:** `Hill` and `HillPresence` components, movement/scoring/rules-publisher systems, an objective, validated configuration, and `hill` markers. After review corrections, the mode directory is 15 C++ headers/sources, 1,160 physical lines including comments and blanks. Outside it: component and mode-state registration, encoders and schemas, client registration/HUD, mode registry and configuration aggregate, application/replay loaders, explicit build lists, and full application configurations including the integration builder. Shared `RespawnTimer`, respawn/reset, and five promoted helpers serve race too; the framework gains objective tick context, engine `previous_phase`, and public seating helpers. The kernel phase sequence is unchanged. The original "new files only" estimate did not include a configured, published, playable mode. |
 | **Power-ups** | A new `PowerUpPad` component on a static entity, a `power_up_pickup` pass-through contact row, and a `power_up_application` system granting a timed effect entity carrying `Lifetime`. New files plus one registry line. |
 | **A bot driven by an external LLM process** | A new `Controller` in `blob_controllers` owning a child process or HTTP client, returning the latest available decision without blocking. `blob_controllers` may use threads and Boost; `blob_simulation` is untouched. Replay still works because the command log records what the bot actually sent. New file plus one registration line. |
 | **A second arena shape (non-rectangular bounds)** | **This names the missing seam.** The kernel's phase 4 is ADR 0003's rectangular fold and is not a policy socket, because that fold is what guarantees a committed center is always in bounds for arbitrarily large finite overshoot. Today the honest answer is to approximate the shape with static bodies inside a rectangular bound, which works with no new seam and inherits the discrete model's tunneling limit. A true `BoundsRule` socket is a third kernel policy point and a versioned physics change on ADR 0003's amendment path. It is named here and deliberately not built. |
@@ -1227,3 +1280,15 @@ tick commit" is an engine fact, so it is engine state. Royale's block keeps the 
 published mirror that `placement_recorder` writes from the same observation, so
 `royale-mode-state.schema.json` and every frame on the wire are unchanged. The shared restart wipe
 `0007-king-of-the-hill-and-race-modes.md` declares is what needed the field.
+
+**Amended 2026-09-09 (ADR 0007, implementation inventory):** The hill what-if row above now
+records the measured implementation rather than the original scoring-only sketch. Its `mode`
+declaration itself is two files and 194 physical lines; the complete 15-file hill directory also
+owns its configuration, geometry, rules, and objective. Counts use `wc -l` on that directory's
+`.hpp` and `.cpp` files, including comments and blank lines, excluding tests and shared mechanics.
+Race uses the same seams and additionally binds its course in `validate_map`, which the engine
+already calls before `systems()`. A course is published through mode state, so the client gains
+`@extension-point mode_state_renderer`, keyed by schema id and invoked once before entity layers.
+These costs amend the earlier "game" row's blanket promise that simulation and protocol are never
+edited: a new registered component or mode-state block necessarily extends both vocabularies. The
+numbered kernel phases, contact equations, runtime, and server remain unchanged by either mode.

@@ -1,11 +1,11 @@
 # Plan: King of the hill and race modes
 
 **Goal:** Two more games are registered, configured, mapped, drawn, botted, and proven: a hill that tours the map and scores the players holding it, and a checkpoint race whose fallen return to the last gate; the four framework amendments ADR 0007 names land first, each guarded by the accepted fixtures, and every existing mode plays exactly as it did.
-**Out of scope:** Everything ADR 0007 § "What is deliberately not built" lists: laps and closed courses, marker metadata authoring, generated respawn slots, a seeded hill tour, distance-along-course ranking, team variants, and per-room modes; royale on the shared restart wipe was tried inside Step 5 and kept.
+**Out of scope:** Runtime implementation of the newly documented client camera (required follow-up before large-map playability); the other items in ADR 0007 § "What is deliberately not built": laps and closed courses, marker metadata authoring, generated respawn slots, a seeded hill tour, distance-along-course ranking, team variants, and per-room modes; royale on the shared restart wipe was tried inside Step 5 and kept.
 
 ## Context
 
-The design is `docs/architecture/0007-king-of-the-hill-and-race-modes.md` (Proposed). This plan
+The design is `docs/architecture/0007-king-of-the-hill-and-race-modes.md` (Accepted). This plan
 executes it in the order that keeps the tree green at every commit: framework first, the hill
 second because it exercises every shared piece with the smaller surface, the race third. The hill
 is playable at the end of Phase 3 and that is a clean place to stop and playtest before the race.
@@ -259,7 +259,7 @@ Facts the executor needs that the code does not say on its face, all verified in
 
 ### Phase 6 -- Documentation, review, and deployment
 
-- [ ] **Step 19: Close the documentation**
+- [x] **Step 19: Close the documentation**
   - Verify: human review
   - Notes: The 2.5 row in `docs/protocol/v2.md` and its `mode_state` paragraph; ADR 0004's what-if
     row for king of the hill corrected to the true count and its objective and `MatchState`
@@ -267,7 +267,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     sections for both modes with measured line counts and the `shared/` inventory;
     `src/simulation/README.md` for the seating helpers and `previous_phase`; ADR 0007 to Accepted
     with the amendments execution taught it.
-  - Preparation note (2026-09-09): Documentation drafts are ready for the required human review. They close the 2.5 implementation inventory while explicitly leaving deployment pending; record the actual course-binding seam, centre-only gate validation, deterministic racer steering, publication bounds, generated integration configurations, and zero-delay hill cleanup; and remeasure the hill at 15 files / 1,160 physical C++ lines (mode 194) and race at 20 / 1,188 (mode 168). ADR 0007 remains Proposed until the owner accepts it. This checkbox is deliberately still open.
+  - Execution note (2026-09-09): The owner approved the documentation with a larger-map/independent-viewport requirement and asked to continue. ADR 0007 is Accepted. The docs close the 2.5 implementation inventory while leaving deployment pending; record course binding, centre-only gate validation, deterministic racer steering, publication bounds, generated integration configurations, and zero-delay hill cleanup; and measure hill at 15 files / 1,160 physical C++ lines (mode 194), race at 20 / 1,188 (mode 168). ADR 0004 now owns the camera contract: world and viewport dimensions decoupled, one transform for all visual layers, strict centred player-follow, and manual panning/return-to-follow to evaluate with input choices left open. ADR 0007, protocol docs, and both frontend READMEs distinguish that accepted direction from the current full-map-fit implementation. Runtime camera work is an explicit follow-up prerequisite to large-map playability, not silently counted as implemented by Steps 16 or 18. This is the requested documentation alignment, not authorization to push or deploy.
 
 - [ ] **Step 20: Run every gate and review the diff**
   - Verify: `./scripts/verify-focused '.' && ./scripts/verify-focused '.' linux-clang-asan-ubsan && ./scripts/verify-web && ./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
@@ -283,6 +283,8 @@ Facts the executor needs that the code does not say on its face, all verified in
     playtest; the playtest note under `docs/playtests/` uses the template with the hill's balance
     rows added, and the race is played on the following session with the mode switched by
     `./scripts/reconfigure-tailnet`.
+    These existing compact-map playtests do not satisfy the new large-map camera requirement;
+    large-map acceptance requires the follow-up camera implementation and its own tests first.
 
 ## Done criteria
 
@@ -297,3 +299,5 @@ for the hill exists. Commits are pushed only when the owner says so.
 **Amended 2026-09-09 (continuation review):** Inserted Steps 17b and 17c for the publication-bound mismatch and zero-delay hill-presence bug found by source review. Browser expectations now name the six existing specs plus the new race spec; the gate already discovers the total dynamically. Independent implementation preparation overlaps, while verification notes and commits remain scoped to each step.
 
 **Amended 2026-09-09 (full-gate evidence):** Inserted Step 17d after all three integration setup processes reported `APPLICATION.CONFIG.KEY_MISSING` for the new required sections. Their generated configuration builder, rather than the server or gate, was incomplete. The full sanitizer run's unit and replay suites passed; its integration gate did not.
+
+**Amended 2026-09-09 (owner camera direction):** Accepted Step 19 following the owner's approval with the explicit camera requirement. Canonical documentation now separates world geometry from a movable client viewport, specifies centred follow, preserves manual pan as an option to evaluate, and records that neither camera mode is implemented yet. This mode plan continues through final verification; it does not relabel compact-map tests as large-map acceptance or expand deployment authority.

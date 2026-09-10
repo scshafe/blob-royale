@@ -42,6 +42,18 @@ src/gameplay/
     hill_objective.*            ending by points or by the clock, as three total predicates
     hill_rules_publisher_system.*  the three denominators on the wire
     king_of_the_hill_mode_state.hpp  the one answer to "what if the world holds another arm"
+  race/                         an ordered course, checkpoint returns, and recorded finishes (ADR 0007)
+    race_configuration.*        the validated `[race]` section
+    race_mode.*                 the seven declarations, binding the course before systems are built
+    race_course.*               marker projection, validation, and point-to-centreline distance
+    checkpoint_progress_system.*  advances at most one ordered gate per tick
+    track_bounds_system.*       leaving the corridor emits an elimination
+    standings_recorder_system.*  records same-tick finishers with a shared placement
+    checkpoint_respawn_system.*  returns a bodyless racer to its last gate once it is clear
+    grid_spawn_policy.hpp       the starting grid and returns before the first gate
+    race_objective.*            finish window, then the no-finisher clock rule
+    course_publisher_system.*   immutable course and durations on every frame
+    race_mode_state.hpp         the one answer to "what if the world holds another arm"
   sandbox/                      free play: thrust, bump, and nothing ever ends
     sandbox_mode.*              the seven declarations
     free_play_objective.hpp     always startable, never decided, zero durations
@@ -95,9 +107,11 @@ edit src/gameplay/CMakeLists.txt                the new .cpp files; the list is 
 edit match configuration                        `[match] mode=`
 only if it is configured                        a `<mode>_configuration.{hpp,cpp}`, one member on
                                                 GameModeConfiguration, and the `[<mode>]` fields in
-                                                src/application/application_config_loader.cpp
-do not touch                                    blob_simulation, blob_runtime, blob_server,
-                                                blob_protocol, or any other mode
+                                                application/replay loaders and full application configs
+only if it adds published vocabulary             component/mode-state registration, encoders,
+                                                schemas, generated client types, and client rendering
+do not touch                                    kernel phase order, blob_runtime, blob_server,
+                                                or another mode's rules
 ```
 
 `@extension-point game_mode` — `game_mode_registry.hpp`. The table is `constexpr`, so two rows
@@ -109,7 +123,12 @@ to choose a factory shape per mode would be a second such file. A mode whose bal
 defaulted ignores the argument, which is what `GameModeRegistry::create(mode_name)` — the
 defaults-only overload a test or a diagnostic uses — is for.
 
-Two implementations of the seam, both registered: `sandbox` and `royale`.
+Four implementations are registered: `sandbox`, `royale`, `king_of_the_hill`, and `race`.
+
+The application loader requires every mode's section, regardless of the selected mode. Its full
+configuration inventory includes standalone `.cfg` files, inline unit-test strings, and
+`tests/integration/server_process_fixture.cpp::write_fixture_inputs`, which builds a temporary
+configuration for each server workload. A new required section must reach that builder too.
 
 ## `sandbox`
 
@@ -238,6 +257,13 @@ and `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `hill_rules
 `kLifecycle`; seats joiners at the next free point in every phase, because the field is open; and
 returns a knocked-out player after the configured respawn delay with its score intact.
 
+After its scoring pass, `hill_scoring` erases partial `HillPresence` for this tick's
+`EliminationEvent`s, then removes any presence on already-bodyless entities. A completed point on
+the knockout tick remains earned. Clearing the event's entity before lifecycle body removal is
+necessary when the respawn delay is zero: next tick's phase 0 can seat the body before another
+scoring pass, so a bodyless-only check would carry the old partial point through the return.
+Shared respawn still erases only the body and manages its timer; counter cleanup stays hill-owned.
+
 What it contributed outside its own directory is two component headers plus one line in
 `component_registry.hpp`, one mode-state header plus one type and one schema id in
 `mode_match_state_registry.hpp`, one row in `game_mode_registry.hpp`, one member on
@@ -247,6 +273,59 @@ the framework amendments of ADR 0007: the objective's tick context for its clock
 `previous_phase` through the shared reset, and the shared respawn.
 
 `validate_map` rejects a map with no `hill` marker or no `spawn` marker at startup, naming the map.
+The configuration factory accepts hill radii in `(0, 10^12]` and `points_to_win` in
+`[1, 2^53 - 1]`, using the simulation's publication bounds. A larger value fails at its authored
+key before systems are built; zero points retains its specific validation error. Exact upper
+bounds are legal and survive serialization and client schema validation.
+
+Measured on 2026-09-09 with `wc -l` over `.hpp` and `.cpp` files directly in
+`src/gameplay/king_of_the_hill/`: 15 files, 1,160 physical lines, including comments and blank
+lines. The mode declaration alone is 194 lines across its header/source. These counts exclude
+shared mechanics, simulation components, protocol, frontend, and tests; they measure the complete
+mode-owned production implementation, not the total cross-domain cost.
+
+## `race`
+
+The course joins ordered `track` markers into a corridor and uses ordered `checkpoint` markers as
+gates, with the last gate as the finish. `checkpoint_progress` takes at most one gate per tick and
+`track_bounds` then emits an elimination for an off-road centre. The lifecycle systems run in this
+order: `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`,
+`hazard_spawn`, `course_publisher`; the engine evaluates the objective afterwards. The mode uses
+shared steering and lethal-hazard contact, and accepts the same nine command kinds as royale.
+
+`RaceMode::validate_map` builds and validates one `RaceCourse` before `systems()` reads it. The
+registry factory has configuration but no map, so the existing map-bearing declaration is the
+binding point. Every system receives its own immutable course value, and an unbound mode raises
+`GAMEPLAY.RACE_COURSE_UNBOUND` instead of constructing incomplete systems. Validation requires at
+least two distinct consecutive track nodes, a checkpoint, a spawn marker, and checkpoint/spawn
+centres inside the corridor. It does not require every point of a gate disc to be on the road;
+progress can advance and an off-road elimination can occur on the same tick.
+
+The configuration factory bounds half-width and checkpoint radius to `(0, 10^12]`, with radius
+also no greater than half-width. These are the simulation's publication bounds, enforced before a
+course reaches the encoder, and equality at the ceiling is accepted. Duration conversion and
+default balance values are unchanged.
+
+A fallen racer keeps its entity, controller, and `RaceProgress`. With zero gates taken it returns
+through `GridSpawnPolicy`; after a gate it returns to that checkpoint through the public
+`simulation::point_is_occupied` and `simulation::seat_body_at_rest` operations. A blocked point is
+retried one tick at a time. Both routes first offer the body on tick `N + D + 1` after elimination
+at `N` with delay `D`. Mid-race joiners have no progress and wait for the next lobby.
+
+The race block publishes the course and finish standings once per frame. Finishers on one tick
+share a placement, and their controller ids preserve identity after an entity disappears. Once
+someone finishes, the finish window replaces the time limit; when everyone finishes or the window
+ends, the recorded first place wins, with a shared first place producing a draw. With no finisher,
+the time limit ranks by gates taken only. No participants is a draw before either branch. The
+client's course renderer, gates, countdowns, standings, and result sentences all use this same
+block, and the `racer` controller reads it through snapshots without a gameplay dependency.
+
+Measured by the same method as the hill: 20 C++ headers/sources, 1,188 physical lines; the mode
+declaration alone is 168 lines across its header/source. The race README is excluded. Beyond that
+directory, race adds one `RaceProgress` component and one mode-state arm with their protocol and
+client registrations, one mode registry row, one configuration aggregate member, loader/build
+entries, its map and replay/browser fixtures. It adds no command or event kind, contact equation,
+or numbered kernel phase.
 
 ## Steering
 

@@ -1,10 +1,10 @@
 # Blob Royale web client
 
-This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v2 session socket, renders every published entity from the components it carries, and turns a keyboard into `set_thrust` commands. Its public artifact is the production bundle in `dist/`.
+This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v2 session socket, processes the complete published world and renders its known visual components, and turns a keyboard into `set_thrust` commands. Processing the complete world does not require showing the whole map at once. Its public artifact is the production bundle in `dist/`.
 
 `SimulationApi` is the canonical browser transport. It derives the exact `/api/v1/config` and `/api/v2/session` endpoints from the page authority, opens the session socket with the `blob-royale.session.v2` subprotocol, validates every inbound frame against the accepted Draft 2020-12 schemas with Ajv, and exposes `sendCommand`, which is a no-op that reports `false` unless the session is open, welcomed, and the kind is one the welcome advertised.
 
-Decoding fails closed, as protocol v2 § "Versioning and fail-closed decoding" requires. The client reads `meta.protocol_version` before interpreting anything else and closes `1003 client_version_unsupported` on a major it does not share or a minor above its own. A component kind, mode-state schema id, or command kind the accepted schema set does not name is logged by name once and closes `1003 client_kind_unsupported`. Nothing unknown is ignored: an unrendered entity is an invisible entity, and an invisible entity is an incorrect world.
+Decoding fails closed, as protocol v2 § "Versioning and fail-closed decoding" requires. The client reads `meta.protocol_version` before interpreting anything else and closes `1003 client_version_unsupported` on a major it does not share or a minor above its own. A component kind, mode-state schema id, or command kind the accepted schema set does not name is logged by name once and closes `1003 client_kind_unsupported`. Nothing unknown is ignored. Intentional offscreen clipping of validated, known geometry is different from silently omitting an unknown kind.
 
 `useSimulationConnection` owns reducer state, StrictMode-safe cleanup, and the finite 1/2/4/8/16/16-second reconnect budget. A reconnect is a new join by contract — new request id, new controller id, new entity id, nothing resumed. It exposes the welcome identity (controller id, first entity id, display name, mode, map, accepted commands), the match section, the published entities, and the own entity resolved from the current frame by controller id. **An open socket carrying no frames is not a stalled connection.** The spawn policy defers a joiner while a match runs and the welcome cannot exist before the session owns a body, so that state is reported as `awaiting_match` and rendered as "waiting for the next match".
 
@@ -13,6 +13,24 @@ Decoding fails closed, as protocol v2 § "Versioning and fail-closed decoding" r
 Rendering goes through `rendering/entityRendererRegistry.ts`, tagged `@extension-point entity_renderer`. It is keyed by component kind: `physics_body` draws a disc or a static obstacle with the own-body highlight, `controllable` draws the display name under its body, `zone` draws the safe zone from its own component, and every remaining kind is registered as non-visual with a stated reason. Adding a component kind is a new `rendering/<kind>Renderer.ts` plus one registration line — `SimulationCanvas` names no kind — and the registry's `satisfies Record<SessionComponentKind, …>` fails the build if a generated kind has no entry.
 
 The Vite development and preview servers bind only `127.0.0.1`. The development `/api` proxy targets `http://127.0.0.1:8000` and supports the same-origin WebSocket upgrade.
+
+## Larger worlds and the client camera
+
+The current `SimulationCanvas` fits the entire world into a bounded canvas through a scale-only
+`WorldProjection`. CSS resizing is not camera movement. There is no movable viewport, manual pan,
+or player-follow control yet.
+
+The accepted direction is a world larger than the displayed region, with one client-owned camera
+transform shared by entity and mode-state rendering. Player-follow must keep the current local
+body centred, including near map edges; a manually positioned view independent of the body, and
+an explicit return-to-follow control, are options to evaluate. Input bindings and the default view
+are not selected yet. World coordinates, simulation rules, and the complete validated snapshot
+remain unchanged as the camera moves. HUD and controls remain in screen space.
+
+The canonical requirements and edge cases live in
+[`ADR 0004 — World space and the client viewport`](../docs/architecture/0004-gameplay-architecture.md#world-space-and-the-client-viewport--owner-direction-2026-09-09).
+Camera implementation and larger-than-viewport browser coverage are pending follow-up work; the
+existing whole-map-fit tests do not certify large-map playability.
 
 ## Generated protocol boundary
 

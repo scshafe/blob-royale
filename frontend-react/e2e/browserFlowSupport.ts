@@ -159,17 +159,34 @@ export function matchHudCell(page: Page, rowHeader: string): Locator {
 
 /** One `arc` that was filled, with the fill colour the canvas actually serialized. */
 export interface RecordedArc {
+  readonly drawOrder: number;
   readonly fillStyle: string;
   readonly radius: number;
   readonly x: number;
   readonly y: number;
 }
 
-/** One `fillText`, which for this client is exactly one entity's display name. */
+/** One `fillText`: a participant's display name or a course gate's label. */
 export interface RecordedLabel {
+  readonly drawOrder: number;
   readonly text: string;
   readonly x: number;
   readonly y: number;
+}
+
+/** One stroked polyline in canvas pixels, including the stroke geometry the player sees. */
+export interface RecordedPath {
+  readonly closed: boolean;
+  readonly drawOrder: number;
+  readonly lineCap: CanvasLineCap;
+  readonly lineJoin: CanvasLineJoin;
+  readonly lineWidth: number;
+  readonly points: readonly {
+    readonly kind: 'move' | 'line';
+    readonly x: number;
+    readonly y: number;
+  }[];
+  readonly strokeStyle: string;
 }
 
 /** One completed canvas frame: everything drawn between two `clearRect` calls. */
@@ -177,6 +194,7 @@ export interface RecordedFrame {
   readonly arcs: readonly RecordedArc[];
   readonly index: number;
   readonly labels: readonly RecordedLabel[];
+  readonly paths: readonly RecordedPath[];
 }
 
 interface CanvasRecorderState {
@@ -191,7 +209,8 @@ interface CanvasRecorderState {
  * the DOM. Reading React state instead would prove the client's model is coherent and prove
  * nothing about what the canvas was told to draw, which is the boundary these flows exist to
  * observe. This wraps `CanvasRenderingContext2D` from an init script, so the bundle under test is
- * unmodified and the recorded values are the exact arguments it passed.
+ * unmodified. Coordinates and stroke widths include the current canvas transform, so mode-state
+ * geometry drawn in world space is observed at the same pixel boundary as entity renderers.
  *
  * `SimulationCanvas` starts every frame with `clearRect`, so a `clearRect` both closes the previous
  * frame and opens the next one; `completed` is therefore always a whole frame, never a partial one.
@@ -204,12 +223,17 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
     ) => unknown;
     interface MutableSurface {
       arc: SurfaceMethod;
+      beginPath: SurfaceMethod;
       clearRect: SurfaceMethod;
+      closePath: SurfaceMethod;
       fill: SurfaceMethod;
       fillText: SurfaceMethod;
+      lineTo: SurfaceMethod;
+      moveTo: SurfaceMethod;
+      stroke: SurfaceMethod;
     }
 
-    // Cast once, and only to make four overloaded prototype methods assignable; every recorded
+    // Cast once, and only to make overloaded prototype methods assignable; every recorded
     // value below is read back out of the arguments the bundle actually passed.
     const surface =
       CanvasRenderingContext2D.prototype as unknown as MutableSurface;
@@ -218,8 +242,12 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
       arcs: RecordedArc[];
       index: number;
       labels: RecordedLabel[];
+      paths: RecordedPath[];
     } | null = null;
     let pendingArc: { radius: number; x: number; y: number } | null = null;
+    let pendingPath: { kind: 'move' | 'line'; x: number; y: number }[] = [];
+    let pendingPathClosed = false;
+    let nextDrawOrder = 0;
     let nextIndex = 0;
 
     (window as unknown as Record<string, unknown>).blobRoyaleCanvasRecorder =
@@ -227,24 +255,85 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
 
     const originalClearRect = surface.clearRect;
     const originalArc = surface.arc;
+    const originalBeginPath = surface.beginPath;
+    const originalClosePath = surface.closePath;
     const originalFill = surface.fill;
     const originalFillText = surface.fillText;
+    const originalLineTo = surface.lineTo;
+    const originalMoveTo = surface.moveTo;
+    const originalStroke = surface.stroke;
 
     surface.clearRect = function patchedClearRect(this, ...clearRectArguments) {
       if (pending !== null) {
         state.completed = pending;
       }
-      pending = { arcs: [], index: nextIndex, labels: [] };
+      pending = { arcs: [], index: nextIndex, labels: [], paths: [] };
       pendingArc = null;
+      pendingPath = [];
+      pendingPathClosed = false;
+      nextDrawOrder = 0;
       nextIndex += 1;
       return originalClearRect.apply(this, clearRectArguments);
     };
 
+    surface.beginPath = function patchedBeginPath(this, ...pathArguments) {
+      pendingArc = null;
+      pendingPath = [];
+      pendingPathClosed = false;
+      return originalBeginPath.apply(this, pathArguments);
+    };
+
+    surface.closePath = function patchedClosePath(this, ...pathArguments) {
+      pendingPathClosed = true;
+      return originalClosePath.apply(this, pathArguments);
+    };
+
+    surface.moveTo = function patchedMoveTo(this, ...pointArguments) {
+      const point = this.getTransform().transformPoint({
+        x: pointArguments[0] as number,
+        y: pointArguments[1] as number,
+      });
+      pendingPath.push({ kind: 'move', x: point.x, y: point.y });
+      return originalMoveTo.apply(this, pointArguments);
+    };
+
+    surface.lineTo = function patchedLineTo(this, ...pointArguments) {
+      const point = this.getTransform().transformPoint({
+        x: pointArguments[0] as number,
+        y: pointArguments[1] as number,
+      });
+      pendingPath.push({ kind: 'line', x: point.x, y: point.y });
+      return originalLineTo.apply(this, pointArguments);
+    };
+
+    surface.stroke = function patchedStroke(this, ...strokeArguments) {
+      if (pending !== null && pendingPath.length > 0) {
+        const transform = this.getTransform();
+        pending.paths.push({
+          closed: pendingPathClosed,
+          drawOrder: nextDrawOrder,
+          lineCap: this.lineCap,
+          lineJoin: this.lineJoin,
+          lineWidth: this.lineWidth * Math.hypot(transform.a, transform.b),
+          points: [...pendingPath],
+          strokeStyle: String(this.strokeStyle),
+        });
+        nextDrawOrder += 1;
+      }
+      return originalStroke.apply(this, strokeArguments);
+    };
+
     surface.arc = function patchedArc(this, ...arcArguments) {
-      pendingArc = {
-        radius: arcArguments[2] as number,
+      const transform = this.getTransform();
+      const point = transform.transformPoint({
         x: arcArguments[0] as number,
         y: arcArguments[1] as number,
+      });
+      pendingArc = {
+        radius:
+          (arcArguments[2] as number) * Math.hypot(transform.a, transform.b),
+        x: point.x,
+        y: point.y,
       };
       return originalArc.apply(this, arcArguments);
     };
@@ -254,22 +343,30 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
         // The fill style is read here rather than at `arc`, because both renderers set it between
         // the two calls; this is the colour the player sees under that circle.
         pending.arcs.push({
+          drawOrder: nextDrawOrder,
           fillStyle: String(this.fillStyle),
           radius: pendingArc.radius,
           x: pendingArc.x,
           y: pendingArc.y,
         });
+        nextDrawOrder += 1;
         pendingArc = null;
       }
       return originalFill.apply(this, fillArguments);
     };
 
     surface.fillText = function patchedFillText(this, ...fillTextArguments) {
-      pending?.labels.push({
-        text: fillTextArguments[0] as string,
+      const point = this.getTransform().transformPoint({
         x: fillTextArguments[1] as number,
         y: fillTextArguments[2] as number,
       });
+      pending?.labels.push({
+        drawOrder: nextDrawOrder,
+        text: fillTextArguments[0] as string,
+        x: point.x,
+        y: point.y,
+      });
+      nextDrawOrder += 1;
       return originalFillText.apply(this, fillTextArguments);
     };
   });

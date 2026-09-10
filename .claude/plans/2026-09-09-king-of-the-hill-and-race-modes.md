@@ -250,11 +250,12 @@ Facts the executor needs that the code does not say on its face, all verified in
   - Notes: The first full sanitizer run exposed the configuration builder in `tests/integration/server_process_fixture.cpp`, missed by Steps 6 and 13's file updates. Add both required mode sections to this canonical builder without changing fixture modes or assertions. All three server processes must reach readiness and their dependent contracts must execute, with no skips or relaxed gates.
   - Execution note (2026-09-09): Added the eleven hill keys and eight race keys to `write_fixture_inputs`, using the existing defaults and keeping every selected mode and test assertion unchanged. Both full C++ runs passed 1,133 of 1,133 tests, including all nine integration entries: each server setup, its protocol/abuse-soak/session-reclaim contract, and cleanup. No integration tests were skipped or disabled. The earlier missing-section failure is recorded in the review artifact.
 
-- [ ] **Step 18: Prove the race in a browser**
+- [x] **Step 18: Prove the race in a browser**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Notes: `blob-royale-browser-e2e-race.cfg` and `blobRoyaleBrowserRace.spec.ts`: join, seat a
     `racer`, start, see the corridor drawn, drive the local blob off the road and see it return,
     see the bot finish and the standings fill. The six existing flows stay green (seven total).
+  - Execution note (2026-09-09): Added the race production-browser flow and a two-seat, three-gate map at 1920x1280, drawn at half scale. Extended the canonical canvas recorder with transformed stroke paths and draw order; the test verifies the corridor's round stroke, gate geometry, distinct finish, and course-before-body ordering. It seats a real `racer`, drives the browser off-road, observes countdown and body disappearance, proves at-rest return at the last gate rather than the starting grid, then sees first place, the finish window, and the recorded winner. The pinned Chromium gate passed all seven flows on its first complete run, with zero retries or skips; strict E2E typecheck passed. Independent source review found no browser defects. Local implementation is complete through this step; nothing has been pushed or deployed.
 
 ### Phase 6 -- Documentation, review, and deployment
 

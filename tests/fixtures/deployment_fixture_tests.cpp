@@ -55,7 +55,7 @@ TEST_CASE("deployment configuration for cole-ubuntu-pc loads through the applica
   CHECK(server_config.snapshots_per_second() == 20);
 }
 
-TEST_CASE("the deployment runs four rooms and seeds no scenario", "[fixtures][deployment]") {
+TEST_CASE("the deployment runs four hill rooms and seeds no scenario", "[fixtures][deployment]") {
   // Four rooms is the count ADR 0006 measured a budget for
   // (`docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision"), and a scenario seeds
   // exactly one world, so a deployment with more than one room passes none. The pair is refused at
@@ -69,6 +69,8 @@ TEST_CASE("the deployment runs four rooms and seeds no scenario", "[fixtures][de
 
   CHECK_FALSE(run_request.scenario_path().has_value());
   CHECK(run_request.application_config().lobbies_configuration().count() == 4);
+  CHECK(run_request.application_config().match_configuration().mode_name() == "king_of_the_hill");
+  CHECK(run_request.application_config().match_configuration().map_name() == "hills-960x640");
 }
 
 TEST_CASE("the deployed hazard table is the one intended and fits the snapshot entity bound",
@@ -119,17 +121,19 @@ TEST_CASE("the deployed hazard table is the one intended and fits the snapshot e
   CHECK(boulder.mass() == 40.0);
 
   const blob_royale::simulation::MapDefinition map = blob_royale::application::MapLoader::load(
-      std::filesystem::path{BLOB_ROYALE_MAPS_DIRECTORY} / "arena-960x640");
+      std::filesystem::path{BLOB_ROYALE_MAPS_DIRECTORY} /
+      application_config.match_configuration().map_name());
+  const auto mode = blob_royale::gameplay::GameModeRegistry::create(
+      application_config.match_configuration().mode_name(),
+      application_config.game_mode_configuration());
+  CHECK_NOTHROW(mode->validate_map(map));
   CHECK_NOTHROW(blob_royale::application::require_match_fits_snapshot_bound(
       application_config.match_configuration(), map, hazards));
   CHECK_NOTHROW(blob_royale::application::require_map_matches_published_world(
       application_config.simulation_config(), map));
-  // Four seats on the 32-marker arena, and four rooms of it: the values the runbook names.
+  // Four seats on the eight-spawn hill map, and four rooms of it: the intended compact playtest.
   CHECK(application_config.match_configuration().lobby_seat_count() == 4);
   CHECK(application_config.lobbies_configuration().count() == 4);
   CHECK_NOTHROW(blob_royale::application::require_lobby_fits_map(
-      *blob_royale::gameplay::GameModeRegistry::create(
-          application_config.match_configuration().mode_name(),
-          application_config.game_mode_configuration()),
-      application_config.match_configuration().lobby_seat_count(), map));
+      *mode, application_config.match_configuration().lobby_seat_count(), map));
 }

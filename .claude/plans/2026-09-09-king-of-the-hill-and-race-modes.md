@@ -286,6 +286,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     `./scripts/reconfigure-tailnet`.
     These existing compact-map playtests do not satisfy the new large-map camera requirement;
     large-map acceptance requires the follow-up camera implementation and its own tests first.
+  - Preparation note (2026-09-09): The owner explicitly authorized pushing and deploying the compact-map hill playtest. Switched the deployed mode/map to `king_of_the_hill` / `hills-960x640`, retaining four rooms, four seats, `wanderer:1`, and all balance values. The deployment fixture now loads the configured map and validates it through the configured mode, rather than silently checking the old arena; it also pins the intended hill mode/map. After formatting, all 41 fixture tests passed on both GCC and Clang ASan/UBSan. Preflight found the native host clean and reachable, noninteractive sudo available, and the Ubuntu snapshot mirror responding. Before replacement, the live label was `2b7ecd2f3ab881c4c7074c843898e109a71f6a4c`, release `release-ed8bf9e1a88167ab6e81d82239be9de7db865c44653bda2972b1e4ac534f932b`; the checkout was already at `380b5c9`. The old server reports protocol 2.2 and readiness; its absent rooms route is not a failure of the new deployment. Deployment and playtest verification remain pending, so this checkbox stays open.
 
 ## Done criteria
 

@@ -549,3 +549,33 @@ rules", § "Determinism obligations for framework code", and § "Snapshots and p
 ADR 0005 § "Mode configuration" and § "Steering"; ADR 0007 § "The course", § "Mode state and the
 wire", § "Out of bounds, and returning to a checkpoint", § "King of the hill", and § "Bots". No
 source file changed at Step 1.
+
+## Swept geometry contract, 2026-09-10 (plan Step 2)
+
+`src/simulation/swept_geometry.{hpp,cpp}` owns analytic boundary roots for circle, capsule,
+and axis-line sweeps. It returns all distinct boundary times in `[0, 1]`, so the same
+arithmetic serves entry, exit, tangency, and later chronological triggers. Disc contact
+expands the obstacle radius explicitly; interior containment uses an explicitly eroded radius.
+Initial overlap is a separate predicate, not an invented boundary root or an impulse.
+
+`MotionTime` in `motion_event_order.hpp` retains each computed binary64 root exactly,
+normalizing only negative zero. Calculations use their written operation order under
+round-to-nearest/ties-to-even and `-ffp-contract=off`; no time quantization, epsilon equality,
+or endpoint snapping is permitted. Equal stored times do not assert equality of exact real
+roots. A motion continuously on a boundary contributes its interval endpoints.
+
+Circle polynomial signs use bounded floating expansions after exact power-of-two normalization.
+Explicit `std::fma` computes product residuals; this is written compensated arithmetic, not
+implicit compiler contraction or extended precision. Every nonzero normalized input length must
+be at least `2^-200`, keeping degree-four residual bits representable. Wider scale ratios and
+unrepresentable distinct root separation fail visibly instead of returning a tangent or miss.
+Exact polynomial factors at zero and one retain those endpoints without a proximity snap.
+`map_motion_time` owns local-root conversion to a remaining tick interval, preserving exact
+endpoints and otherwise computing `begin + ((end - begin) * local)` in that written order.
+
+The total event key is time, then explicit priority, then canonical identity. Priorities are
+support loss, body contact, x wall, y wall, and checkpoint. Body pairs use ascending entity
+ids; boundaries and triggers use the body id and stable authored feature index. This retains
+pair-before-wall and x-before-y precedence at exact ties and puts termination before progress.
+This is a pure foundation, not adoption by the live kernel: ADR 0003's accepted tick and every
+accepted fixture remain unchanged. Step 4 reviews these choices; Step 5 still gates adoption.

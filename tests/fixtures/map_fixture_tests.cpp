@@ -2,6 +2,7 @@
 #include "map_loader.hpp"
 #include "match_configuration.hpp"
 #include "match_startup_validation.hpp"
+#include "race/race_course.hpp"
 
 #include "map_definition.hpp"
 #include "physics_body.hpp"
@@ -121,4 +122,59 @@ TEST_CASE("the shipped hills-960x640 map loads through the production map loader
   CHECK(hill_count == 4);
   CHECK_NOTHROW(
       blob_royale::gameplay::GameModeRegistry::create("king_of_the_hill")->validate_map(map));
+}
+
+TEST_CASE(
+    "the shipped circuit loads its derived course, four-seat grid and two colliding obstacles",
+    "[fixtures][map][race]") {
+  namespace gameplay = blob_royale::gameplay;
+  const simulation::MapDefinition map = application::MapLoader::load(
+      std::filesystem::path{BLOB_ROYALE_MAPS_DIRECTORY} / "circuit-960x640");
+  const gameplay::RaceConfiguration configuration = gameplay::RaceConfiguration::defaults();
+  const gameplay::RaceCourse course = gameplay::RaceCourse::create(map, configuration);
+  CHECK(map.name() == "circuit-960x640");
+  REQUIRE(map.metadata().find("display_name") != nullptr);
+  CHECK(*map.metadata().find("display_name") == "Circuit 960x640");
+  CHECK(map.bounds().width() == kArenaWidth);
+  CHECK(map.bounds().height() == kArenaHeight);
+  CHECK_NOTHROW(application::require_map_matches_published_world(shipped_configuration(), map));
+
+  const simulation::Vector2 start =
+      simulation::Vector2::create(kArenaWidth / 6.0, 3.0 * kArenaHeight / 4.0);
+  const simulation::Vector2 bend = simulation::Vector2::create(3.0 * kArenaWidth / 4.0, start.y());
+  const simulation::Vector2 end = simulation::Vector2::create(bend.x(), kArenaHeight / 4.0);
+  const simulation::Vector2 first_gate =
+      simulation::Vector2::create(3.0 * kArenaWidth / 8.0, start.y());
+  const simulation::Vector2 finish =
+      simulation::Vector2::create(bend.x(), 5.0 * kArenaHeight / 16.0);
+  CHECK(std::vector<simulation::Vector2>(course.track().begin(), course.track().end()) ==
+        std::vector<simulation::Vector2>{start, bend, end});
+  CHECK(
+      std::vector<simulation::Vector2>(course.checkpoints().begin(), course.checkpoints().end()) ==
+      std::vector<simulation::Vector2>{first_gate, bend, finish});
+  REQUIRE(map.spawn_points().size() == 4);
+  CHECK(map.markers().size() == 10);
+  for (std::size_t index = 0; index < map.spawn_points().size(); ++index) {
+    const double x = start.x() + static_cast<double>(index / 2) * course.track_half_width();
+    const double y = start.y() + (index % 2 == 0 ? -0.5 : 0.5) * course.track_half_width();
+    CHECK(map.spawn_points()[index].position == simulation::Vector2::create(x, y));
+    CHECK_FALSE(map.spawn_points()[index].team.has_value());
+  }
+
+  const double obstacle_offset = course.track_half_width() - course.checkpoint_radius();
+  REQUIRE(map.static_bodies().size() == 2);
+  CHECK(map.static_bodies()[0].position() ==
+        simulation::Vector2::create(kArenaWidth / 2.0, start.y() - obstacle_offset));
+  CHECK(map.static_bodies()[1].position() ==
+        simulation::Vector2::create(bend.x() + obstacle_offset, (bend.y() + finish.y()) / 2.0));
+  for (const simulation::PhysicsBody& obstacle : map.static_bodies()) {
+    CHECK(obstacle.is_static());
+    CHECK(obstacle.collision_layer() == simulation::PhysicsBody::kDefaultCollisionLayer);
+    CHECK(obstacle.collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);
+    CHECK(course.distance_to_centreline(obstacle.position()) + kPlayerRadius <
+          course.track_half_width());
+  }
+  const auto mode = gameplay::GameModeRegistry::create("race");
+  CHECK_NOTHROW(mode->validate_map(map));
+  CHECK_NOTHROW(application::require_lobby_fits_map(*mode, 4, map));
 }

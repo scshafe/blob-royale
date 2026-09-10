@@ -1,0 +1,10 @@
+# Racer 1 starts on the centreline; racer 2 stays ten wu below it, outside every radius-five
+# gate but within the width-20 corridor. Gates are ten, twenty and thirty wu from the grid.
+marker_kind,position_x_world_units,position_y_world_units
+spawn,100,320
+spawn,100,330
+track,100,320
+track,200,320
+checkpoint,110,320
+checkpoint,120,320
+checkpoint,130,320

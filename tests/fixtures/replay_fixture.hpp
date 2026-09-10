@@ -6,6 +6,7 @@
 #include "game_mode_configuration.hpp"
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "map_definition.hpp"
+#include "race/race_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "simulation_config.hpp"
 #include "tick_sequence.hpp"
@@ -36,7 +37,8 @@ namespace gameplay = blob_royale::gameplay;
 //                              spatial_grid_rows, drag_per_second
 //                 the one section of the mode `[match] mode` names: [royale] with the six keys of
 //                 `docs/architecture/0005-royale-mode.md` § "Mode configuration", or
-//                 [king_of_the_hill] with the eleven keys of ADR 0007's table. A fixture carries
+//                 [king_of_the_hill] with the eleven keys or [race] with the eight keys of
+//                 ADR 0007's mode tables. A fixture carries
 //                 its own mode's section and no other, because a key no reader asked for is a
 //                 rejection.
 //   markers.csv   marker_kind,position_x_world_units,position_y_world_units
@@ -69,6 +71,7 @@ namespace gameplay = blob_royale::gameplay;
 // until then, and `first_reserved_entity_id` is how a test names an id the log did not.
 // related: royale_replay_fixture_tests.cpp -- the suite this format exists for.
 // related: king_of_the_hill_replay_fixture_tests.cpp -- the hill's suite on the same format.
+// related: race_replay_fixture_tests.cpp -- the race's suite on the same format.
 // related: game_mode_configuration.hpp -- the validated sections this hands the mode registry.
 
 // A rejection from the replay reader. It is not a `SimulationValidationError` or a
@@ -122,6 +125,9 @@ public:
   }
   [[nodiscard]] const gameplay::KingOfTheHillConfiguration& king_of_the_hill() const noexcept {
     return mode_configuration_.king_of_the_hill;
+  }
+  [[nodiscard]] const gameplay::RaceConfiguration& race() const noexcept {
+    return mode_configuration_.race;
   }
 
   // The lowest id of the block handed to `tick_sequence`, which is the id the first spawn command

@@ -1,0 +1,11 @@
+# Racer 1 takes gates on ticks 22 and 37 under x=100+0.025*n*(n+1)/2, n=tick-2.
+# Its third gate would be tick 47, but the 0.1-second limit is 40 running ticks,
+# so tick 2+40=42 decides first. Two gates beats stationary racer 2's zero gates.
+# The empty standings distinguish this clock decision from race-finish-window.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+1,,spawn,2,,,,,
+1,,join,1,,,,,
+1,,join,2,,,,,
+1,,start_match,1,,,,,
+3,1,thrust,,1,0,,,

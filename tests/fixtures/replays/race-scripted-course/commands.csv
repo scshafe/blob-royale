@@ -1,0 +1,16 @@
+# A solo time trial: running commits on tick 2, so the first moving tick is 3.
+# With dt=1/400, thrust=4000 and no drag, each acceleration tick changes velocity by 10,
+# and displacement after n ticks is 0.025*n*(n+1)/2. Forty right ticks (3..42) then forty
+# braking ticks (43..82) travel 0.025*40^2=40 wu and stop at the bend (140,320).
+# Gate 0 first contains the centre at n=20, tick 22: x=105.25 (previous x=104.75).
+# During braking, x=120.5+0.025*(40*m-m*(m+1)/2). Gate 1 is first reached at m=20,
+# tick 62: x=135.25 (previous x=134.75). Upward thrust starts on tick 83; n=45 gives
+# y=294.125 on tick 127 (previous y=295.25), so the solo racer finishes and wins then.
+# Zero restart delay commits lobby on 128; shared reset wipes the racer on 129.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+1,,join,1,,,,,
+1,,start_match,1,,,,,
+3,1,thrust,,1,0,,,
+43,1,thrust,,-1,0,,,
+83,1,thrust,,0,-1,,,

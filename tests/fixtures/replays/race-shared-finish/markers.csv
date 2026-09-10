@@ -1,0 +1,11 @@
+# Symmetric lanes are three wu above/below the straight centreline and six wu apart,
+# clear of the radius-one bodies. A radius-five gate at dy=3 has horizontal reach four:
+# sqrt(5^2-3^2)=4, so the three entry displacements are 6,16,26 from x=100.
+marker_kind,position_x_world_units,position_y_world_units
+spawn,100,317
+spawn,100,323
+track,100,320
+track,200,320
+checkpoint,110,320
+checkpoint,120,320
+checkpoint,130,320

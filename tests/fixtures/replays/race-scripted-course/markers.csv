@@ -1,0 +1,11 @@
+# Forty wu right then forty up forms one right-angle bend.
+# The first gate is ten wu from the grid; the second is the bend; the finish is ten wu
+# before the far endpoint. Radius five makes entry thresholds x=105, x=135, y=295.
+marker_kind,position_x_world_units,position_y_world_units
+spawn,100,320
+track,100,320
+track,140,320
+track,140,280
+checkpoint,110,320
+checkpoint,140,320
+checkpoint,140,290

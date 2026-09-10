@@ -20,6 +20,7 @@
 #include "input_batch.hpp"
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "king_of_the_hill/king_of_the_hill_mode.hpp"
+#include "race/race_mode.hpp"
 #include "royale/royale_mode.hpp"
 #include "seat_roster.hpp"
 #include "vector2.hpp"
@@ -511,11 +512,23 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
         match.number("king_of_the_hill", "restart_delay_seconds")};
     mode_configuration.king_of_the_hill =
         gameplay::KingOfTheHillConfiguration::create(hill_section);
+  } else if (mode_name == gameplay::RaceMode::kModeName) {
+    const gameplay::RaceConfiguration::Section race_section{
+        match.number("race", "thrust_max_world_units_per_second_squared"),
+        match.number("race", "track_half_width_world_units"),
+        match.number("race", "checkpoint_radius_world_units"),
+        match.number("race", "respawn_delay_seconds"),
+        match.number("race", "finish_window_seconds"),
+        match.number("race", "time_limit_seconds"),
+        match.number("race", "countdown_seconds"),
+        match.number("race", "restart_delay_seconds")};
+    mode_configuration.race = gameplay::RaceConfiguration::create(race_section);
   } else {
     throw ReplayFixtureError(replay_directory.filename().string() + ": [match] mode=" + mode_name +
                              " has no configuration section this format knows how to read; " +
-                             std::string(gameplay::RoyaleMode::kModeName) + " and " +
-                             std::string(gameplay::KingOfTheHillMode::kModeName) + " do");
+                             std::string(gameplay::RoyaleMode::kModeName) + ", " +
+                             std::string(gameplay::KingOfTheHillMode::kModeName) + " and " +
+                             std::string(gameplay::RaceMode::kModeName) + " do");
   }
 
   match.require_every_key_was_read();

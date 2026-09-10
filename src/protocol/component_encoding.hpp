@@ -4,7 +4,9 @@
 #include "controller_directory_view.hpp"
 #include "entity_id.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 namespace blob_royale::protocol {
@@ -41,6 +43,13 @@ public:
   virtual void set_string(std::string_view member_name, std::string_view value) = 0;
   // One `common.schema.json#/$defs/vector2` member, whose own members are `x` then `y`.
   virtual void set_vector(std::string_view member_name, double x, double y) = 0;
+
+  // An array of objects in declared order. Calls encode_entry synchronously once per index,
+  // using a nested sink with the same member-order and number rules. Zero entries emits [].
+  // The caller owns schema-specific array bounds; errors from an entry propagate unchanged.
+  virtual void
+  set_object_array(std::string_view member_name, std::size_t count,
+                   const std::function<void(std::size_t, ComponentObjectSink&)>& encode_entry) = 0;
 };
 
 // Everything a component encoder may read besides the component value itself.

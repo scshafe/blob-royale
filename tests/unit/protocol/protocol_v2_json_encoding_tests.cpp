@@ -16,12 +16,14 @@
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "http_error.hpp"
+#include "mode_state_wire_encoding.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -362,6 +364,92 @@ TEST_CASE("Race progress preserves zero and is never synthesized for an entity w
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
   CHECK(absent.find("race_progress") == std::string::npos);
+}
+
+TEST_CASE("Race mode state publishes its course and shared standings in canonical order",
+          "[unit][protocol][v2][encoding][race][golden]") {
+  const simulation::WorldSnapshot snapshot =
+      fixture::race_mode_snapshot(fixture::golden_race_mode_state());
+  const std::string encoded = protocol::encode_snapshot_message_v2(
+      snapshot, fixture::golden_directory(), fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+  const boost::json::value document = boost::json::parse(encoded);
+  const boost::json::object& match =
+      document.as_object().at("data").as_object().at("match").as_object();
+  const boost::json::object& block = match.at("mode_state").as_object();
+  CHECK(block.at("schema_id").as_string() == protocol::kRaceModeStateSchemaId);
+  CHECK(block.at("value") ==
+        boost::json::parse(fixture::read_v2_golden_example("race-mode-state.json")));
+  CHECK(match.at("placements").as_array().empty());
+  CHECK(simulation::mode_match_state_schema_id_of(snapshot.match().mode_state()) == "race");
+  CHECK(
+      encoded.find(
+          R"("track_half_width":60,"checkpoint_radius":20,"track":[{"x":100,"y":100},{"x":700,"y":100},{"x":700,"y":500}],"checkpoints":[{"x":300,"y":100},{"x":700,"y":200},{"x":700,"y":500}],"time_limit_ticks":96000,"finish_window_ticks":2000,"standings":[{"entity_id":7,"controller_id":3,"placement":1,"finished_tick":1},{"entity_id":8,"controller_id":4,"placement":1,"finished_tick":1}])") !=
+      std::string::npos);
+  CHECK(encoded == protocol::encode_snapshot_message_v2(
+                       snapshot, fixture::golden_directory(), fixture::session_request_id(),
+                       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
+  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+}
+
+TEST_CASE("Race publishes an empty standings array and canonicalizes nested vector numbers",
+          "[unit][protocol][v2][encoding][race]") {
+  simulation::RaceModeState state = fixture::golden_race_mode_state();
+  state.standings.clear();
+  state.track[0] = simulation::Vector2::create(-0.0, 100.0);
+  const std::string encoded = protocol::encode_snapshot_message_v2(
+      fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
+      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
+  CHECK(encoded.find(R"("track":[{"x":0,"y":100})") != std::string::npos);
+  CHECK(encoded.find(R"("standings":[])") != std::string::npos);
+  CHECK(encoded.find(R"("placements":[])") != std::string::npos);
+}
+
+TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fields",
+          "[unit][protocol][v2][encoding][race][rejection]") {
+  simulation::RaceModeState state = fixture::golden_race_mode_state();
+  protocol::ProtocolEncodingErrorCode expected =
+      protocol::ProtocolEncodingErrorCode::kComponentValueOutOfRange;
+  SECTION("zero corridor") { state.track_half_width = 0.0; }
+  SECTION("nonfinite corridor") {
+    state.track_half_width = std::numeric_limits<double>::infinity();
+  }
+  SECTION("oversized corridor") {
+    state.track_half_width = protocol::kMaximumFiniteWorldScalar + 1.0;
+  }
+  SECTION("zero gate radius") { state.checkpoint_radius = 0.0; }
+  SECTION("gate wider than corridor") { state.checkpoint_radius = state.track_half_width + 1.0; }
+  SECTION("one track point") { state.track.erase(state.track.begin() + 1, state.track.end()); }
+  SECTION("too many track points") {
+    state.track.resize(protocol::kRaceCoursePointLimit + 1, state.track.front());
+  }
+  SECTION("no checkpoints") { state.checkpoints.clear(); }
+  SECTION("too many checkpoints") {
+    state.checkpoints.resize(protocol::kRaceCoursePointLimit + 1, state.checkpoints.front());
+  }
+  SECTION("unsafe time limit") { state.time_limit_ticks = protocol::kMaximumSafeInteger + 1; }
+  SECTION("unsafe finish window") { state.finish_window_ticks = protocol::kMaximumSafeInteger + 1; }
+  SECTION("zero placement") { state.standings[0].placement = 0; }
+  SECTION("placement above the ranking bound") {
+    state.standings[0].placement = protocol::kMatchPlacementLimit + 1;
+  }
+  SECTION("zero finish tick") {
+    state.standings[0].finished_tick = simulation::TickSequence::zero();
+    expected = protocol::ProtocolEncodingErrorCode::kSnapshotTickOutOfRange;
+  }
+  SECTION("too many standings") {
+    state.standings.resize(protocol::kMatchPlacementLimit + 1, state.standings.front());
+    expected = protocol::ProtocolEncodingErrorCode::kPlacementLimitExceeded;
+  }
+  fixture::require_protocol_error_code(
+      [&state] {
+        return protocol::encode_snapshot_message_v2(
+            fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
+            fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+            fixture::kSnapshotTimestamp);
+      },
+      expected);
 }
 
 TEST_CASE("Snapshot v2 encoder rejects a message sequence below the first snapshot's",

@@ -2,6 +2,9 @@
 #define BLOB_ROYALE_PROTOCOL_MODE_STATE_WIRE_ENCODING_HPP
 
 #include "component_encoding.hpp"
+#include "component_wire_bound.hpp"
+#include "protocol_constants.hpp"
+#include "protocol_encoding_error.hpp"
 #include "protocol_v2_constants.hpp"
 
 #include "controller_id.hpp"
@@ -10,10 +13,13 @@
 #include "mode_match_state_registry.hpp"
 #include "mode_states/king_of_the_hill_mode_state.hpp"
 #include "mode_states/no_mode_state.hpp"
+#include "mode_states/race_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "tick_sequence.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <variant>
 #include <vector>
@@ -127,6 +133,84 @@ template <> struct ModeStateWireEncoding<simulation::KingOfTheHillModeState> {
 
   static void append_placements(const simulation::KingOfTheHillModeState&,
                                 std::vector<ModeStatePlacement>&) {}
+};
+
+// Race carries its declared course and durations plus finishes. Its generic placements stay
+// empty because a finish is not an elimination; the controller is recorded in each standing.
+// Added under the open 2.5 minor, in ADR 0007's declared member order.
+template <> struct ModeStateWireEncoding<simulation::RaceModeState> {
+  static constexpr std::string_view kSchemaId = kRaceModeStateSchemaId;
+
+  static void encode_value(const simulation::RaceModeState& mode_state, ComponentObjectSink& sink) {
+    static_assert(kRaceCoursePointLimit == simulation::kMaximumMapMarkerCount);
+    require_positive_world_scalar(mode_state.track_half_width,
+                                  "snapshot_message.data.match.mode_state.value.track_half_width");
+    require_positive_world_scalar(mode_state.checkpoint_radius,
+                                  "snapshot_message.data.match.mode_state.value.checkpoint_radius");
+    require_value(mode_state.checkpoint_radius <= mode_state.track_half_width, "checkpoint_radius",
+                  "checkpoint radius must be no greater than track half-width");
+    require_value(mode_state.track.size() >= 2 && mode_state.track.size() <= kRaceCoursePointLimit,
+                  "track", "track must contain 2 to 4096 points");
+    require_value(!mode_state.checkpoints.empty() &&
+                      mode_state.checkpoints.size() <= kRaceCoursePointLimit,
+                  "checkpoints", "checkpoints must contain 1 to 4096 points");
+    require_value(mode_state.time_limit_ticks <= kMaximumSafeInteger, "time_limit_ticks",
+                  "time limit must be a nonnegative safe integer");
+    require_value(mode_state.finish_window_ticks <= kMaximumSafeInteger, "finish_window_ticks",
+                  "finish window must be a nonnegative safe integer");
+    if (mode_state.standings.size() > kMatchPlacementLimit) {
+      throw ProtocolEncodingError{ProtocolEncodingErrorCode::kPlacementLimitExceeded,
+                                  "snapshot_message.data.match.mode_state.value.standings",
+                                  "standing count exceeds the accepted protocol v2 ranking limit"};
+    }
+    sink.set_number("track_half_width", mode_state.track_half_width);
+    sink.set_number("checkpoint_radius", mode_state.checkpoint_radius);
+    const auto encode_points = [&sink](const std::string_view name,
+                                       const std::vector<simulation::Vector2>& points) {
+      sink.set_object_array(name, points.size(),
+                            [&points](const std::size_t index, ComponentObjectSink& entry) {
+                              entry.set_number("x", points[index].x());
+                              entry.set_number("y", points[index].y());
+                            });
+    };
+    encode_points("track", mode_state.track);
+    encode_points("checkpoints", mode_state.checkpoints);
+    sink.set_unsigned("time_limit_ticks", mode_state.time_limit_ticks);
+    sink.set_unsigned("finish_window_ticks", mode_state.finish_window_ticks);
+    sink.set_object_array(
+        "standings", mode_state.standings.size(),
+        [&mode_state](const std::size_t index, ComponentObjectSink& entry) {
+          const simulation::RaceStanding& standing = mode_state.standings[index];
+          const std::string context = "standings[" + std::to_string(index) + "]";
+          require_value(standing.placement >= 1 && standing.placement <= kMatchPlacementLimit,
+                        context + ".placement",
+                        "placement must be in the inclusive range 1 to 1024");
+          if (standing.finished_tick.value() == 0) {
+            throw ProtocolEncodingError{ProtocolEncodingErrorCode::kSnapshotTickOutOfRange,
+                                        "snapshot_message.data.match.mode_state.value." + context +
+                                            ".finished_tick",
+                                        "finished tick must be in the inclusive range 1 to 2^53-1"};
+          }
+          entry.set_unsigned("entity_id", standing.entity.value());
+          entry.set_unsigned("controller_id", standing.controller.value());
+          entry.set_unsigned("placement", standing.placement);
+          entry.set_unsigned("finished_tick", standing.finished_tick.value());
+        });
+  }
+
+  static void append_placements(const simulation::RaceModeState&,
+                                std::vector<ModeStatePlacement>&) {}
+
+private:
+  static void require_value(const bool valid, const std::string_view member,
+                            const std::string_view detail) {
+    if (!valid) {
+      throw ProtocolEncodingError{ProtocolEncodingErrorCode::kComponentValueOutOfRange,
+                                  "snapshot_message.data.match.mode_state.value." +
+                                      std::string{member},
+                                  std::string{detail}};
+    }
+  }
 };
 
 // The wire schema id of the held block. Total over the closed variant and generated from the

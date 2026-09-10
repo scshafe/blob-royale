@@ -41,14 +41,16 @@ inline constexpr std::string_view kErrorResponseV2SchemaId =
 inline constexpr std::string_view kLobbyDirectorySchemaId =
     "blob-royale://protocol/v2/lobby-directory";
 
-// The three registered mode-state blocks. Closed, not a grammar
-// (`common.schema.json#/$defs/mode_state_schema_id`). The hill's was added in 2.5.
+// The four registered mode-state blocks. Closed, not a grammar
+// (`common.schema.json#/$defs/mode_state_schema_id`). The hill's and race's were added in 2.5.
 inline constexpr std::string_view kNoModeStateSchemaId =
     "blob-royale://protocol/v2/mode-state/none";
 inline constexpr std::string_view kRoyaleModeStateSchemaId =
     "blob-royale://protocol/v2/mode-state/royale";
 inline constexpr std::string_view kKingOfTheHillModeStateSchemaId =
     "blob-royale://protocol/v2/mode-state/king-of-the-hill";
+inline constexpr std::string_view kRaceModeStateSchemaId =
+    "blob-royale://protocol/v2/mode-state/race";
 
 // The welcome is always message 1 and the first snapshot is 2
 // (`docs/protocol/v2.md` § "Server message model").
@@ -61,6 +63,9 @@ inline constexpr std::uint64_t kFirstSnapshotMessageSequence = 2;
 // (`docs/protocol/v2.md` § "Limits").
 inline constexpr std::size_t kSnapshotEntityLimit = 1'024;
 inline constexpr std::size_t kMatchPlacementLimit = 1'024;
+// Each published race polyline/gate array is bounded by the map's marker ceiling. The combined
+// authored marker count is validated by MapDefinition; a schema bounds each array independently.
+inline constexpr std::size_t kRaceCoursePointLimit = 4'096;
 inline constexpr std::size_t kSnapshotFrameV2MaximumByteCount = 2'097'152;
 // v1's inbound bound, unchanged, now reached by real traffic
 // (`docs/protocol/v2.md` § "Admission order" step 1).
@@ -132,7 +137,7 @@ inline constexpr std::size_t kNpcControllerKindLimit = 64;
 // Whether a name is a registered v2 mode-state schema id.
 [[nodiscard]] constexpr bool is_v2_mode_state_schema_id(const std::string_view schema_id) noexcept {
   return schema_id == kNoModeStateSchemaId || schema_id == kRoyaleModeStateSchemaId ||
-         schema_id == kKingOfTheHillModeStateSchemaId;
+         schema_id == kKingOfTheHillModeStateSchemaId || schema_id == kRaceModeStateSchemaId;
 }
 
 // The controller kind published for an entity whose controller the directory no longer names.

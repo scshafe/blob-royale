@@ -66,6 +66,9 @@ enum class GameplayValidationCode {
   kRaceMapCheckpointOutsideCorridor,
   kRaceMapSpawnPointOutsideCorridor,
   kRaceMapWithoutSpawnPoint,
+  kRaceCourseUnbound,
+  kRaceProgressBeyondCourse,
+  kRaceStandingLimitExceeded,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -137,6 +140,12 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.RACE_MAP_SPAWN_POINT_OUTSIDE_CORRIDOR";
   case GameplayValidationCode::kRaceMapWithoutSpawnPoint:
     return "GAMEPLAY.RACE_MAP_WITHOUT_SPAWN_POINT";
+  case GameplayValidationCode::kRaceCourseUnbound:
+    return "GAMEPLAY.RACE_COURSE_UNBOUND";
+  case GameplayValidationCode::kRaceProgressBeyondCourse:
+    return "GAMEPLAY.RACE_PROGRESS_BEYOND_COURSE";
+  case GameplayValidationCode::kRaceStandingLimitExceeded:
+    return "GAMEPLAY.RACE_STANDING_LIMIT_EXCEEDED";
   }
   return "GAMEPLAY.VALIDATION_CODE_INVALID";
 }

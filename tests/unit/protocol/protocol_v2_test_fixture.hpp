@@ -28,6 +28,7 @@
 #include "match_outcome.hpp"
 #include "match_phase.hpp"
 #include "match_state.hpp"
+#include "mode_states/race_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "physics_body.hpp"
 #include "seat_roster.hpp"
@@ -347,6 +348,38 @@ race_progress_snapshot(const std::uint64_t next_checkpoint) {
   simulation::GameWorld world = simulation::GameWorld::create({});
   world.mutable_store<simulation::RaceProgress>().insert_or_assign(
       simulation::EntityId::create(kPlayerEntityId), simulation::RaceProgress{next_checkpoint});
+  simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
+      simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));
+  game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  return game_simulation.snapshot();
+}
+
+// The accepted race block: one bend, three gates, and two simultaneous first-place finishes.
+[[nodiscard]] inline simulation::RaceModeState golden_race_mode_state() {
+  return simulation::RaceModeState{
+      60.0,
+      20.0,
+      {simulation::Vector2::create(100.0, 100.0), simulation::Vector2::create(700.0, 100.0),
+       simulation::Vector2::create(700.0, 500.0)},
+      {simulation::Vector2::create(300.0, 100.0), simulation::Vector2::create(700.0, 200.0),
+       simulation::Vector2::create(700.0, 500.0)},
+      96'000,
+      2'000,
+      {simulation::RaceStanding{simulation::EntityId::create(kPlayerEntityId),
+                                simulation::ControllerId::create(kPlayerControllerId), 1,
+                                simulation::TickSequence::create(1)},
+       simulation::RaceStanding{simulation::EntityId::create(kBotEntityId),
+                                simulation::ControllerId::create(kBotControllerId), 1,
+                                simulation::TickSequence::create(1)}}};
+}
+
+// Runs on the engine's idle declarations so no gameplay system can repair a malformed block
+// before an encoder rejection test observes it. The wire arm itself is mode-registry-driven.
+[[nodiscard]] inline simulation::WorldSnapshot race_mode_snapshot(simulation::RaceModeState state) {
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_store<simulation::RaceProgress>().insert_or_assign(
+      simulation::EntityId::create(kPlayerEntityId), simulation::RaceProgress{3});
+  world.mutable_match().mode_state = std::move(state);
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
       simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));
   game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());

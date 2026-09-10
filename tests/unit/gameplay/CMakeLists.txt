@@ -7,8 +7,17 @@ add_executable(blob_gameplay_unit_tests
   king_of_the_hill/hill_scoring_system_tests.cpp
   king_of_the_hill/king_of_the_hill_configuration_tests.cpp
   king_of_the_hill/king_of_the_hill_mode_tests.cpp
+  race/checkpoint_progress_system_tests.cpp
+  race/checkpoint_respawn_system_tests.cpp
+  race/course_publisher_system_tests.cpp
+  race/grid_spawn_policy_tests.cpp
   race/race_configuration_tests.cpp
   race/race_course_tests.cpp
+  race/race_mode_tests.cpp
+  race/race_objective_tests.cpp
+  race/race_return_timing_tests.cpp
+  race/standings_recorder_system_tests.cpp
+  race/track_bounds_system_tests.cpp
   royale/elimination_grace_publisher_system_tests.cpp
   royale/placement_recorder_system_tests.cpp
   royale/rotating_ring_spawn_policy_tests.cpp

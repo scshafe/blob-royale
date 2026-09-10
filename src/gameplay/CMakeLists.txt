@@ -7,8 +7,15 @@ add_library(blob_gameplay STATIC
   king_of_the_hill/hill_scoring_system.cpp
   king_of_the_hill/king_of_the_hill_configuration.cpp
   king_of_the_hill/king_of_the_hill_mode.cpp
+  race/checkpoint_progress_system.cpp
+  race/checkpoint_respawn_system.cpp
+  race/course_publisher_system.cpp
   race/race_configuration.cpp
   race/race_course.cpp
+  race/race_mode.cpp
+  race/race_objective.cpp
+  race/standings_recorder_system.cpp
+  race/track_bounds_system.cpp
   royale/elimination_grace_publisher_system.cpp
   royale/placement_recorder_system.cpp
   royale/royale_configuration.cpp

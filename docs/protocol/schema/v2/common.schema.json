@@ -27,7 +27,8 @@
       "enum": [
         "blob-royale://protocol/v2/mode-state/none",
         "blob-royale://protocol/v2/mode-state/royale",
-        "blob-royale://protocol/v2/mode-state/king-of-the-hill"
+        "blob-royale://protocol/v2/mode-state/king-of-the-hill",
+        "blob-royale://protocol/v2/mode-state/race"
       ],
       "$comment": "Closed, not a grammar: an unregistered mode-state schema id is a decode failure, not a value a client may skip."
     },

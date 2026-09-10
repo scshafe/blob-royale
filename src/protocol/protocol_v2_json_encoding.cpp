@@ -83,6 +83,20 @@ public:
     target_->emplace(member_name, std::move(vector));
   }
 
+  void set_object_array(
+      const std::string_view member_name, const std::size_t count,
+      const std::function<void(std::size_t, ComponentObjectSink&)>& encode_entry) override {
+    json::array entries;
+    entries.reserve(count);
+    for (std::size_t index = 0; index < count; ++index) {
+      json::object entry;
+      JsonComponentObjectSink entry_sink{entry};
+      encode_entry(index, entry_sink);
+      entries.emplace_back(std::move(entry));
+    }
+    target_->emplace(member_name, std::move(entries));
+  }
+
 private:
   json::object* target_;
 };

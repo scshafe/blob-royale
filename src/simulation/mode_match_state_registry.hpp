@@ -3,6 +3,7 @@
 
 #include "mode_states/king_of_the_hill_mode_state.hpp"
 #include "mode_states/no_mode_state.hpp"
+#include "mode_states/race_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 
 #include <string_view>
@@ -34,13 +35,14 @@ namespace blob_royale::simulation {
 //                                                            ModeMatchStateSchemaId specialization
 //   new  src/gameplay/<mode>/...                             the system that writes it
 //
-// Three implementations of this seam: `NoModeState` for every mode whose state is entity-shaped,
+// Four implementations of this seam: `NoModeState` for every mode whose state is entity-shaped,
 // royale's `royale_placements` block, which plan Step 21 added as one type below and one
 // `ModeMatchStateSchemaId` specialization with no other kernel file edited, and king of the hill's
-// block of three declared constants, added the same way.
+// block of three declared constants, added the same way. Race adds its course and standings.
 // related: match_state.hpp -- the world state that holds one of these.
 // related: component_registry.hpp -- the same closed-list shape for entity state.
-using ModeMatchState = std::variant<NoModeState, RoyalePlacementsModeState, KingOfTheHillModeState>;
+using ModeMatchState =
+    std::variant<NoModeState, RoyalePlacementsModeState, KingOfTheHillModeState, RaceModeState>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -65,6 +67,10 @@ template <> struct ModeMatchStateSchemaId<RoyalePlacementsModeState> {
 
 template <> struct ModeMatchStateSchemaId<KingOfTheHillModeState> {
   static constexpr std::string_view value = "king_of_the_hill";
+};
+
+template <> struct ModeMatchStateSchemaId<RaceModeState> {
+  static constexpr std::string_view value = "race";
 };
 
 template <typename ModeStateType>

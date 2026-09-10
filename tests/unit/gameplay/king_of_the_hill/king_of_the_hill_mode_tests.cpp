@@ -151,7 +151,7 @@ TEST_CASE("king of the hill resolves through the one game mode registry",
   CHECK(gameplay::GameModeRegistry::contains("king_of_the_hill"));
   CHECK(gameplay::GameModeRegistry::create("king_of_the_hill")->name() ==
         std::string_view{"king_of_the_hill"});
-  CHECK(gameplay::GameModeRegistry::registrations().size() == 3);
+  CHECK(gameplay::GameModeRegistry::registrations().size() == 4);
 }
 
 TEST_CASE("the hill entity is created on the first tick and the block is stamped with it",

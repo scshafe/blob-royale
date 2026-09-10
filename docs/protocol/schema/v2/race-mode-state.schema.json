@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v2/race-mode-state.schema.json",
+  "title": "Blob Royale protocol v2 race mode state",
+  "description": "The race's declared course and durations, followed by its observed finish standings. Each racer's next gate and return countdown are entity components. The generic match.placements array is empty for race because its eliminated_tick does not describe a finish.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["track_half_width", "checkpoint_radius", "track", "checkpoints", "time_limit_ticks", "finish_window_ticks", "standings"],
+  "properties": {
+    "track_half_width": {
+      "$ref": "common.schema.json#/$defs/positive_world_scalar"
+    },
+    "checkpoint_radius": {
+      "$ref": "common.schema.json#/$defs/positive_world_scalar",
+      "$comment": "No greater than track_half_width, enforced at configuration validation."
+    },
+    "track": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4096,
+      "items": { "$ref": "common.schema.json#/$defs/vector2" },
+      "description": "Centreline nodes in declared map order; there is no closing segment. The bound mirrors the map marker ceiling."
+    },
+    "checkpoints": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": { "$ref": "common.schema.json#/$defs/vector2" },
+      "description": "Gate centres in declared order. The last gate is the finish."
+    },
+    "time_limit_ticks": { "$ref": "common.schema.json#/$defs/safe_integer" },
+    "finish_window_ticks": { "$ref": "common.schema.json#/$defs/safe_integer" },
+    "standings": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": { "$ref": "#/$defs/standing" },
+      "description": "Recorded finish order; simultaneous finishers share a placement and are appended in ascending entity order. Empty until a racer finishes."
+    }
+  },
+  "$defs": {
+    "standing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_id", "controller_id", "placement", "finished_tick"],
+      "properties": {
+        "entity_id": { "$ref": "common.schema.json#/$defs/entity_id" },
+        "controller_id": { "$ref": "common.schema.json#/$defs/controller_id" },
+        "placement": { "$ref": "common.schema.json#/$defs/placement_rank" },
+        "finished_tick": { "$ref": "common.schema.json#/$defs/tick_sequence" }
+      }
+    }
+  },
+  "$comment": "Added in 2.5. Course geometry and standing order are gameplay invariants; arrays and every nested object are closed and bounded here."
+}

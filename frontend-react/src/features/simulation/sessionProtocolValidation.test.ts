@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SimulationApiError } from './SimulationApiError';
 import {
   lobbyDirectoryMessageExample,
+  raceModeStateExample,
   sessionCommandEnvelopeExample,
   sessionErrorResponseExample,
   sessionWelcomeMessageExample,
@@ -29,6 +30,25 @@ const welcomeSequence: SessionSequenceState = Object.freeze({
   requestId: sessionWelcomeMessageExample.meta.request_id,
   tickSequence: null,
 });
+
+function raceSnapshotDocument(state = structuredClone(raceModeStateExample)) {
+  const document = snapshotDocument();
+  return {
+    ...document,
+    data: {
+      ...document.data,
+      match: {
+        ...document.data.match,
+        mode: 'race',
+        placements: [],
+        mode_state: {
+          schema_id: 'blob-royale://protocol/v2/mode-state/race',
+          value: state,
+        },
+      },
+    },
+  };
+}
 
 function silenceProtocolWarnings() {
   return vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -71,6 +91,78 @@ describe('validateSessionWelcomeMessage', () => {
 });
 
 describe('validateSessionSnapshotMessage', () => {
+  it('accepts the race course with shared standings or an empty standings array', () => {
+    for (const standings of [raceModeStateExample.standings, []]) {
+      const state = structuredClone(raceModeStateExample);
+      state.standings = standings;
+      const snapshot = validateSessionSnapshotMessage(
+        raceSnapshotDocument(state),
+        welcomeSequence,
+      );
+      expect(snapshot.data.match.mode_state.value).toEqual(state);
+      expect(Object.isFrozen(snapshot.data.match.mode_state.value)).toBe(true);
+      expect(snapshot.data.match.placements).toEqual([]);
+    }
+  });
+
+  it.each([
+    'track_half_width',
+    'checkpoint_radius',
+    'track',
+    'checkpoints',
+    'time_limit_ticks',
+    'finish_window_ticks',
+    'standings',
+  ])('rejects a race block missing required member %s', (member) => {
+    const document = raceSnapshotDocument();
+    Reflect.deleteProperty(document.data.match.mode_state.value, member);
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow(SimulationApiError);
+  });
+
+  it.each([
+    ['track_half_width', 0],
+    ['checkpoint_radius', -1],
+    ['track', [{ x: 1, y: 2 }]],
+    ['checkpoints', []],
+    [
+      'track',
+      [
+        { x: 1, y: 2 },
+        { x: 3, y: 4, z: 5 },
+      ],
+    ],
+    ['checkpoints', [{ x: 1, y: Number.POSITIVE_INFINITY }]],
+    ['time_limit_ticks', Number.MAX_SAFE_INTEGER + 1],
+    ['finish_window_ticks', -1],
+    ['unexpected', 1],
+  ])('rejects malformed race member %s', (member, value) => {
+    const document = raceSnapshotDocument();
+    Reflect.set(document.data.match.mode_state.value, String(member), value);
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow(SimulationApiError);
+  });
+
+  it.each([
+    ['entity_id', 0],
+    ['controller_id', Number.MAX_SAFE_INTEGER + 1],
+    ['placement', 0],
+    ['placement', 1025],
+    ['finished_tick', 0],
+    ['finished_tick', 1.5],
+    ['eliminated_tick', 1],
+  ])('rejects malformed nested race standing %s', (member, value) => {
+    const document = raceSnapshotDocument();
+    const standing = document.data.match.mode_state.value.standings[0];
+    if (standing === undefined) throw new Error('TEST.RACE_STANDING_MISSING');
+    Reflect.set(standing, String(member), value);
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow(SimulationApiError);
+  });
+
   it('accepts an ordered race gate count including zero', () => {
     for (const nextCheckpoint of [0, 2]) {
       const document = snapshotDocument();

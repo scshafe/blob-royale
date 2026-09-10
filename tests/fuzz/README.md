@@ -11,9 +11,12 @@ in the matching `corpus` directory with a descriptive stable filename. A crash m
 delete, skip, retry, or suppress the input.
 
 The native targets cover command-line shape, INI configuration, scenario CSV, untrusted
-protocol-v1 request IDs, and raw HTTP header preflight plus Beast header parsing. They link
+protocol-v1 request IDs, protocol-v2 client command envelopes, and raw HTTP header preflight plus
+Beast header parsing. The command harness checks the decoder's session-stamped identities,
+accepted-command invariants, and early oversized-frame rejection. They link
 `blob_application_input`, `blob_protocol`, and `blob_server_http_preflight`, so every production
 translation unit still has one canonical CMake owner. Protocol-v1 JSON is inbound only at the
 browser boundary; its deterministic malformed message corpus lives in
 `frontend-react/src/features/simulation/protocolMutationCorpus.test.ts` and runs in the blocking
-Vitest gate. The current server has no client-supplied JSON body parser to fuzz.
+Vitest gate. Protocol-v2 command JSON enters through the WebSocket session and is exercised by
+`protocol_command_fuzzer.cpp` with the production decoder.

@@ -228,17 +228,30 @@ Facts the executor needs that the code does not say on its face, all verified in
     does not know fails closed at validation, not in the renderer.
   - Execution note (2026-09-09): Added the exhaustive schema-id-keyed mode-state renderer registry, with the race course drawn once before entity layers using a round world-space stroke and distinct labelled finish. The renderer and HUD share one checked race-block reader. Race HUD and results cover gate counts, recorded standings and shared finishes, durable controller identity after entity removal, the finish window taking precedence over the race clock, and timer-free waiting for an occupied return point. Existing unknown-schema ingress rejection and registry/schema parity tests pin fail-closed dispatch. The pinned Linux web gate passed all 292 client tests, generation drift, schema examples, formatting, typecheck, lint, and the production build. Source review found no defects. Independent bot and browser work was prepared in parallel; commits remain step-scoped and ordered.
 
-- [ ] **Step 17: Add the `racer` bot**
+- [x] **Step 17: Add the `racer` bot**
   - Verify: `./scripts/verify-focused 'unit.controllers' && ./scripts/verify-focused 'unit.controllers' linux-clang-asan-ubsan`
   - Notes: Reads the course from the observation's mode state and its gate from `race_progress`;
     steers to the next gate, or back to the centreline past the caution fraction. A test proves it
     turns back when placed near the edge and drives on when centred.
+  - Execution note (2026-09-09): Registered `racer` with one snapshot-only steering policy: seek the next checkpoint while within the inclusive caution boundary, otherwise seek the nearest clamped centreline point, keeping the earliest segment on ties. It waits through lobby/respawn, requests no duplicate entity, and writes zero thrust after finishing. The factory retains its seed but consumes no random draws. Eighteen new controller tests cover headings, boundaries, bends, endpoints, identity joins, and lifecycle states. Controller/fixture GCC selection passed 115 tests; after the corrective steps below, the full selection passed 1,133 of 1,133 on both GCC and Clang ASan/UBSan, including all controller and accepted replay tests. These pinned Linux runs are local emulated advisory checks, not authoritative deployment validation. Independent source review found no controller defects.
+
+- [ ] **Step 17b: Bound configured values before publication**
+  - Verify: `./scripts/verify-focused 'unit.gameplay|unit.application|unit.protocol|fixtures' && ./scripts/verify-focused 'unit.gameplay|unit.application|unit.protocol|fixtures' linux-clang-asan-ubsan`
+  - Notes: Review found that hill radius, race corridor half-width, and race gate radius accept values above the existing physical publication limit, and hill `points_to_win` accepts values above the protocol-safe integer limit. Reject them in their canonical configuration constructors using simulation-owned bounds and existing typed errors; prove each inclusive limit is accepted and its next value is rejected, and that accepted boundary values pass publication/schema validation. Defaults, schemas, and accepted replay data stay unchanged.
+
+- [ ] **Step 17c: Clear hill progress on the knockout tick**
+  - Verify: `./scripts/verify-focused 'unit.gameplay|fixtures' && ./scripts/verify-focused 'unit.gameplay|fixtures' linux-clang-asan-ubsan`
+  - Notes: Review found that checking only already-bodyless entities at `kPostKernel` misses a zero-delay respawn: body removal occurs later at `kLifecycle`, and the next tick seats before scoring. Let hill scoring clear partial presence for this tick's elimination events after scoring, keeping mode-specific hygiene out of shared respawn. Add a composed regression with delay zero, partial presence, and an inside-hill return; prove it fails before the fix and starts the returned player's presence at one afterward. Existing score/point order and replay oracles stay unchanged.
+
+- [ ] **Step 17d: Complete generated integration configurations**
+  - Verify: `./scripts/verify-focused 'integration' && ./scripts/verify-focused 'integration' linux-clang-asan-ubsan`
+  - Notes: The first full sanitizer run exposed the configuration builder in `tests/integration/server_process_fixture.cpp`, missed by Steps 6 and 13's file updates. Add both required mode sections to this canonical builder without changing fixture modes or assertions. All three server processes must reach readiness and their dependent contracts must execute, with no skips or relaxed gates.
 
 - [ ] **Step 18: Prove the race in a browser**
   - Verify: `./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
   - Notes: `blob-royale-browser-e2e-race.cfg` and `blobRoyaleBrowserRace.spec.ts`: join, seat a
     `racer`, start, see the corridor drawn, drive the local blob off the road and see it return,
-    see the bot finish and the standings fill. Five flows stay green.
+    see the bot finish and the standings fill. The six existing flows stay green (seven total).
 
 ### Phase 6 -- Documentation, review, and deployment
 
@@ -250,6 +263,7 @@ Facts the executor needs that the code does not say on its face, all verified in
     sections for both modes with measured line counts and the `shared/` inventory;
     `src/simulation/README.md` for the seating helpers and `previous_phase`; ADR 0007 to Accepted
     with the amendments execution taught it.
+  - Preparation note (2026-09-09): Documentation drafts are ready for the required human review. They close the 2.5 implementation inventory while explicitly leaving deployment pending; record the actual course-binding seam, centre-only gate validation, deterministic racer steering, publication bounds, generated integration configurations, and zero-delay hill cleanup; and remeasure the hill at 15 files / 1,160 physical C++ lines (mode 194) and race at 20 / 1,188 (mode 168). ADR 0007 remains Proposed until the owner accepts it. This checkbox is deliberately still open.
 
 - [ ] **Step 20: Run every gate and review the diff**
   - Verify: `./scripts/verify-focused '.' && ./scripts/verify-focused '.' linux-clang-asan-ubsan && ./scripts/verify-web && ./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e`
@@ -270,8 +284,12 @@ Facts the executor needs that the code does not say on its face, all verified in
 
 Every box above is ticked; `./scripts/verify-focused '.'` passes on both lanes with the accepted
 oracle, every royale fixture, and every wall and pair fixture unchanged; `./scripts/verify-web`
-and the browser gate pass with six flows; `GET /api/v2/lobbies` on the tailnet reports the mode
+and the browser gate pass with seven flows; `GET /api/v2/lobbies` on the tailnet reports the mode
 the deployment names; ADR 0007 is Accepted with its execution amendments; and the playtest note
 for the hill exists. Commits are pushed only when the owner says so.
 
 **Amended 2026-09-09:** The three verify lines that asserted an empty `git diff --stat` through `wc -l | grep -qx 0` now use `git diff --quiet`, because macOS `wc` pads its count with spaces and the grep never matched even on a clean tree; the check was reporting a change that did not exist.
+
+**Amended 2026-09-09 (continuation review):** Inserted Steps 17b and 17c for the publication-bound mismatch and zero-delay hill-presence bug found by source review. Browser expectations now name the six existing specs plus the new race spec; the gate already discovers the total dynamically. Independent implementation preparation overlaps, while verification notes and commits remain scoped to each step.
+
+**Amended 2026-09-09 (full-gate evidence):** Inserted Step 17d after all three integration setup processes reported `APPLICATION.CONFIG.KEY_MISSING` for the new required sections. Their generated configuration builder, rather than the server or gate, was incomplete. The full sanitizer run's unit and replay suites passed; its integration gate did not.

@@ -22,14 +22,15 @@ namespace blob_royale::controllers {
 // only needs "the declaration was rejected" catches one type across all three while a caller that
 // has to distinguish reads `code()`.
 //
-// **Nothing here is thrown during a decision pass by production code.** Every code below names a
-// *construction* or *composition* defect -- an unknown bot kind in a roster, two controllers
+// Most codes below name a *construction* or *composition* defect -- an unknown bot kind in a
+// roster, two controllers
 // claiming one durable identity, a personality outside its accepted range, an observation built for
-// a different controller. A controller that misbehaves at decision time is isolated and counted by
-// `ControllerHost`, not thrown out of, because a bot holds exactly the capabilities a network
-// session holds and neither may stop the match (`controller_host.hpp`).
-// related: controller_registry.hpp -- the unknown-kind rejection.
-// related: controller_host.hpp -- the composition rejections and the failures it counts instead.
+// a different controller. `RACER_COURSE_INVALID` additionally reports a malformed published course
+// during a decision; accepted race maps cannot produce it. A decision failure is isolated and
+// counted by `ControllerHost`, not thrown out of, because a bot holds exactly the capabilities a
+// network session holds and neither may stop the match (`controller_host.hpp`). related:
+// controller_registry.hpp -- the unknown-kind rejection. related: controller_host.hpp -- the
+// composition rejections and the failures it counts instead.
 enum class ControllersValidationCode {
   kControllerKindUnknown,
   kControllerAbsent,
@@ -42,6 +43,9 @@ enum class ControllersValidationCode {
   kChaserAggressionWeightOutOfRange,
   kHillSeekerWeightNotFinite,
   kHillSeekerWeightOutOfRange,
+  kRacerCautionFractionNotFinite,
+  kRacerCautionFractionOutOfRange,
+  kRacerCourseInvalid,
   kScriptedReplayLogLimitExceeded,
 };
 
@@ -70,6 +74,12 @@ controllers_validation_code_name(const ControllersValidationCode code) noexcept 
     return "CONTROLLERS.HILL_SEEKER_WEIGHT_NOT_FINITE";
   case ControllersValidationCode::kHillSeekerWeightOutOfRange:
     return "CONTROLLERS.HILL_SEEKER_WEIGHT_OUT_OF_RANGE";
+  case ControllersValidationCode::kRacerCautionFractionNotFinite:
+    return "CONTROLLERS.RACER_CAUTION_FRACTION_NOT_FINITE";
+  case ControllersValidationCode::kRacerCautionFractionOutOfRange:
+    return "CONTROLLERS.RACER_CAUTION_FRACTION_OUT_OF_RANGE";
+  case ControllersValidationCode::kRacerCourseInvalid:
+    return "CONTROLLERS.RACER_COURSE_INVALID";
   case ControllersValidationCode::kScriptedReplayLogLimitExceeded:
     return "CONTROLLERS.SCRIPTED_REPLAY_LOG_LIMIT_EXCEEDED";
   }

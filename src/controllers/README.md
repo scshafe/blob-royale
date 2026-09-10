@@ -47,6 +47,7 @@ src/controllers/
   wanderer_controller.hpp/.cpp       a seeded random heading, held for a reaction delay
   chaser_controller.hpp/.cpp         thrust toward the nearest other controllable entity
   hill_seeker_controller.hpp/.cpp    thrust toward the hill's centre and hold there
+  racer_controller.hpp/.cpp          seek ordered gates and recover toward the centreline
   scripted_replay_controller.hpp/.cpp  a recorded command log, one step per pass
 ```
 
@@ -132,11 +133,19 @@ are two `WandererController::Personality` values; a timid chaser and a relentles
 prevent, and `tests/unit/controllers/wanderer_controller_tests.cpp` and
 `chaser_controller_tests.cpp` each assert that a tunable changes behavior with no new type.
 
-Three registered kinds — `wanderer`, `chaser`, and `hill_seeker` — plus an unregistered
+Four registered kinds — `wanderer`, `chaser`, `hill_seeker`, and `racer` — plus an unregistered
 implementation, `scripted_replay`. It is unregistered on purpose: a registered kind is one a roster line may name,
 and a scripted controller is meaningless without the recorded log no configuration line carries, so
 a row for it would make `bots=scripted_replay:1` produce a bot that silently decides nothing.
 Fixtures construct it directly.
+
+`RacerController` reads the course from the snapshot's race block and its next gate from
+`race_progress`. It waits before progress exists, seeks the next gate while centred, and turns
+toward the nearest centreline point strictly beyond its personality's `caution_fraction` of the
+half-width (default `0.75`, finite in `(0, 1]`). Exact nearest-segment ties keep authored order.
+It waits while bodyless, leaving checkpoint return to the mode, and releases thrust after finishing.
+This geometric policy uses no random draws; it retains the factory seed and repeats exactly for
+the same observation and personality. It links no gameplay rules.
 
 ## Determinism
 

@@ -5,6 +5,7 @@
 #include "controller.hpp"
 #include "controller_id.hpp"
 #include "hill_seeker_controller.hpp"
+#include "racer_controller.hpp"
 #include "wanderer_controller.hpp"
 
 #include <array>
@@ -61,8 +62,8 @@ namespace blob_royale::controllers {
 // success this codebase refuses. Fixtures construct it directly
 // (`scripted_replay_controller.hpp`).
 //
-// Three implementations of this seam, all registered below: `wanderer`, `chaser`, and
-// `hill_seeker`. ADR 0004's second named implementation of the *controller* seam is an off-thread
+// Four implementations of this seam, all registered below: `wanderer`, `chaser`, `hill_seeker`,
+// and `racer`. ADR 0004's second named implementation of the *controller* seam is an off-thread
 // LLM-driven controller, which is a new file plus one row here and nothing else.
 // related: wanderer_controller.hpp -- the first registered bot.
 // related: chaser_controller.hpp -- the second.
@@ -103,12 +104,13 @@ public:
 };
 
 // The closed table. One row per bot; the row is the whole registration.
-inline constexpr std::array<ControllerRegistry::Registration, 3> kControllerRegistrations{
+inline constexpr std::array<ControllerRegistry::Registration, 4> kControllerRegistrations{
     ControllerRegistry::Registration{WandererController::kControllerKind,
                                      &WandererController::create},
     ControllerRegistry::Registration{ChaserController::kControllerKind, &ChaserController::create},
     ControllerRegistry::Registration{HillSeekerController::kControllerKind,
                                      &HillSeekerController::create},
+    ControllerRegistry::Registration{RacerController::kControllerKind, &RacerController::create},
 };
 
 // A controller kind is an identity, so two rows may not claim one. Checked over the whole table

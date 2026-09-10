@@ -6,6 +6,7 @@
 #include "controller_id.hpp"
 #include "controllers_validation_error.hpp"
 #include "hill_seeker_controller.hpp"
+#include "racer_controller.hpp"
 #include "scripted_replay_controller.hpp"
 #include "simulation_limits.hpp"
 #include "wanderer_controller.hpp"
@@ -43,16 +44,18 @@ TEST_CASE("ControllerRegistry resolves every registered kind under the given ide
   }
 }
 
-TEST_CASE("ControllerRegistry lists wanderer, chaser, and hill_seeker in declared order",
+TEST_CASE("ControllerRegistry lists wanderer, chaser, hill_seeker, and racer in declared order",
           "[unit][controllers][controller_registry]") {
   const std::span<const controllers::ControllerRegistry::Registration> rows =
       controllers::ControllerRegistry::registrations();
 
-  REQUIRE(rows.size() == 3);
+  REQUIRE(rows.size() == 4);
   CHECK(rows[0].name == controllers::WandererController::kControllerKind);
   CHECK(rows[1].name == controllers::ChaserController::kControllerKind);
   CHECK(rows[2].name == controllers::HillSeekerController::kControllerKind);
-  CHECK(controllers::ControllerRegistry::registered_names() == "wanderer, chaser, hill_seeker");
+  CHECK(rows[3].name == controllers::RacerController::kControllerKind);
+  CHECK(controllers::ControllerRegistry::registered_names() ==
+        "wanderer, chaser, hill_seeker, racer");
 }
 
 TEST_CASE("ControllerRegistry rejects an unknown kind and names the kinds it does resolve",
@@ -67,7 +70,7 @@ TEST_CASE("ControllerRegistry rejects an unknown kind and names the kinds it doe
     CHECK(error.validation_code() ==
           controllers::ControllersValidationCode::kControllerKindUnknown);
     CHECK(error.code() == "CONTROLLERS.CONTROLLER_KIND_UNKNOWN");
-    CHECK(error.detail().find("wanderer, chaser, hill_seeker") != std::string::npos);
+    CHECK(error.detail().find("wanderer, chaser, hill_seeker, racer") != std::string::npos);
   }
 }
 

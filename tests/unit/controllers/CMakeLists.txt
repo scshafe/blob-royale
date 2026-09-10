@@ -6,6 +6,7 @@ add_executable(blob_controllers_unit_tests
   hill_seeker_controller_tests.cpp
   human_bot_symmetry_tests.cpp
   observation_tests.cpp
+  racer_controller_tests.cpp
   scripted_replay_controller_tests.cpp
   wanderer_controller_tests.cpp
 )
@@ -14,6 +15,7 @@ blob_royale_configure_first_party_target(blob_controllers_unit_tests)
 
 target_include_directories(blob_controllers_unit_tests PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../gameplay"
 )
 
 # `blob_gameplay` is a **test-only** link and must never appear in `src/controllers/CMakeLists.txt`:

@@ -5,6 +5,7 @@ add_library(blob_controllers STATIC
   controller_registry.cpp
   hill_seeker_controller.cpp
   observation.cpp
+  racer_controller.cpp
   scripted_replay_controller.cpp
   wanderer_controller.cpp
 )

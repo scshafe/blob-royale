@@ -74,6 +74,11 @@ inline constexpr double kMaximumChaserAggressionWeight = 1.0;
 inline constexpr double kMinimumHillSeekerWeight = 0.0;
 inline constexpr double kMaximumHillSeekerWeight = 1.0;
 
+// A racer's recovery threshold is a positive fraction of the published road half-width.
+inline constexpr double kMinimumRacerCautionFraction = 0.0;
+inline constexpr double kMaximumRacerCautionFraction = 1.0;
+inline constexpr double kDefaultRacerCautionFraction = 0.75;
+
 } // namespace blob_royale::controllers
 
 #endif

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { snapshotDocument } from './fixtures/sessionFrames';
+import {
+  hillSnapshotDocument,
+  snapshotDocument,
+} from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import {
   countAlivePlayers,
@@ -9,7 +12,14 @@ import {
   eliminationGraceTicks,
   findPlacementForController,
   graceSpentFraction,
+  hillHudReport,
+  hillPresenceReport,
+  hillProgressFraction,
+  kingOfTheHillRules,
   phaseElapsedSeconds,
+  respawnCountdownSeconds,
+  runningTimeRemainingSeconds,
+  scoreboard,
   zoneExposureReport,
 } from './sessionSelectors';
 import type {
@@ -27,6 +37,19 @@ function matchWith(
   overrides: Partial<SessionMatchSection>,
 ): SessionMatchSection {
   return { ...snapshot.match, ...overrides };
+}
+
+/** The built hill frame, accepted by the 2.5 schemas before any selector reads it. */
+const hill = validateSessionSnapshotMessage(hillSnapshotDocument(), {
+  messageSequence: 1,
+  requestId: hillSnapshotDocument().meta.request_id,
+  tickSequence: null,
+}).data;
+
+function hillMatchWith(
+  overrides: Partial<SessionMatchSection>,
+): SessionMatchSection {
+  return { ...hill.match, ...overrides };
 }
 
 describe('sessionSelectors', () => {
@@ -236,5 +259,289 @@ describe('sessionSelectors', () => {
         ownEntityId: null,
       })?.title,
     ).toBe('Draw');
+  });
+});
+
+describe('sessionSelectors for the hill', () => {
+  it('reads the three rules only from a king-of-the-hill block that carries them', () => {
+    expect(kingOfTheHillRules(hill.match)).toEqual({
+      pointIntervalTicks: 400,
+      pointsToWin: 30,
+      timeLimitTicks: 96_000,
+    });
+    // The royale golden frame and the `none` block are not hill frames; null is "another mode",
+    // not "a broken frame", and it is what keeps the royale HUD exactly as it was.
+    expect(kingOfTheHillRules(snapshot.match)).toBeNull();
+    expect(kingOfTheHillRules(null)).toBeNull();
+    expect(
+      kingOfTheHillRules(
+        matchWith({
+          mode_state: {
+            schema_id: 'blob-royale://protocol/v2/mode-state/none',
+            value: {},
+          },
+        }),
+      ),
+    ).toBeNull();
+    // A hill block missing a member, or carrying a negative one, reads as no rules rather than as
+    // invented ones. Unreachable through the validated decode path and pinned anyway, because the
+    // fallback is what keeps every hill row from dividing by a number nobody sent.
+    expect(
+      kingOfTheHillRules(
+        hillMatchWith({
+          mode_state: {
+            schema_id: 'blob-royale://protocol/v2/mode-state/king-of-the-hill',
+            value: { points_to_win: 30, point_interval_ticks: 400 },
+          },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      kingOfTheHillRules(
+        hillMatchWith({
+          mode_state: {
+            schema_id: 'blob-royale://protocol/v2/mode-state/king-of-the-hill',
+            value: {
+              points_to_win: 30,
+              point_interval_ticks: -1,
+              time_limit_ticks: 96_000,
+            },
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('ranks every participant best first, ties by entity id, and a missing score as zero', () => {
+    // Entity 10 is knocked out: no body, a respawn timer, and still a line on the board.
+    expect(scoreboard(hill.entities)).toEqual([
+      {
+        controllerId: 4,
+        displayName: 'wanderer-1',
+        entityId: 8,
+        isInPlay: true,
+        points: 6,
+      },
+      {
+        controllerId: 3,
+        displayName: 'Cole Shaffer',
+        entityId: 7,
+        isInPlay: true,
+        points: 4,
+      },
+      {
+        controllerId: 5,
+        displayName: 'chaser-2',
+        entityId: 10,
+        isInPlay: false,
+        points: 2,
+      },
+    ]);
+    // The royale frame's players carry no score: zero each, in entity order, and the hill and the
+    // wall are not participants.
+    expect(
+      scoreboard(snapshot.entities).map((row) => [row.entityId, row.points]),
+    ).toEqual([
+      [7, 0],
+      [8, 0],
+    ]);
+    expect(scoreboard([])).toEqual([]);
+  });
+
+  it('saturates a zero interval instead of dividing and clamps an overshoot', () => {
+    expect(hillProgressFraction(120, 400)).toBeCloseTo(0.3, 12);
+    expect(hillProgressFraction(1, 0)).toBe(1);
+    expect(Number.isFinite(hillProgressFraction(1, 0))).toBe(true);
+    expect(hillProgressFraction(900, 400)).toBe(1);
+    expect(hillProgressFraction(0, 400)).toBe(0);
+  });
+
+  it('reports a presence only for an entity that carries one', () => {
+    const rules = kingOfTheHillRules(hill.match);
+    const own = hillPresenceReport(hill.entities, 7, 400, rules);
+    // 120 of 400 ticks held leaves 280, which is 0.7 s at 400 ticks/s.
+    expect(own?.heldSeconds).toBeCloseTo(0.3, 12);
+    expect(own?.remainingSeconds).toBeCloseTo(0.7, 12);
+    expect(own?.spentFraction).toBeCloseTo(0.3, 12);
+    expect(hillPresenceReport(hill.entities, 8, 400, rules)).toBeNull();
+    expect(hillPresenceReport(hill.entities, null, 400, rules)).toBeNull();
+    expect(hillPresenceReport(hill.entities, 7, 0, rules)).toBeNull();
+    expect(hillPresenceReport(hill.entities, 7, 400, null)).toBeNull();
+    // A zero interval: the whole ring, and no time to wait.
+    const instant = hillPresenceReport(hill.entities, 7, 400, {
+      pointIntervalTicks: 0,
+      pointsToWin: 30,
+      timeLimitTicks: 96_000,
+    });
+    expect(instant?.remainingSeconds).toBe(0);
+    expect(instant?.spentFraction).toBe(1);
+  });
+
+  it('counts the running clock down and clamps at zero', () => {
+    // Running since tick 10,904 at tick 12,904 against 96,000 ticks: 94,000 ticks, 235 s.
+    expect(
+      runningTimeRemainingSeconds(hill.match, 12_904, 400, 96_000),
+    ).toBeCloseTo(235, 12);
+    expect(runningTimeRemainingSeconds(hill.match, 200_000, 400, 96_000)).toBe(
+      0,
+    );
+    expect(
+      runningTimeRemainingSeconds(hill.match, 12_904, 400, null),
+    ).toBeNull();
+    expect(
+      runningTimeRemainingSeconds(hill.match, null, 400, 96_000),
+    ).toBeNull();
+    expect(
+      runningTimeRemainingSeconds(hill.match, 12_904, 0, 96_000),
+    ).toBeNull();
+    expect(runningTimeRemainingSeconds(null, 12_904, 400, 96_000)).toBeNull();
+    expect(
+      runningTimeRemainingSeconds(
+        hillMatchWith({ phase: 'countdown' }),
+        12_904,
+        400,
+        96_000,
+      ),
+    ).toBeNull();
+    expect(
+      runningTimeRemainingSeconds(
+        hillMatchWith({ phase_started_tick: 0 }),
+        12_904,
+        400,
+        96_000,
+      ),
+    ).toBeNull();
+  });
+
+  it('counts a knocked-out entity down to its seat and nobody else', () => {
+    expect(respawnCountdownSeconds(hill.entities, 10, 400)).toBeCloseTo(
+      0.75,
+      12,
+    );
+    expect(respawnCountdownSeconds(hill.entities, 7, 400)).toBeNull();
+    expect(respawnCountdownSeconds(hill.entities, null, 400)).toBeNull();
+    expect(respawnCountdownSeconds(hill.entities, 10, 0)).toBeNull();
+  });
+
+  it('composes the hill section for a hill frame and nothing for a royale frame', () => {
+    const report = hillHudReport({
+      entities: hill.entities,
+      match: hill.match,
+      ownEntityId: 7,
+      tickSequence: 12_904,
+      ticksPerSecond: 400,
+    });
+    expect(report?.ownPoints).toBe(4);
+    expect(report?.presence?.remainingSeconds).toBeCloseTo(0.7, 12);
+    expect(report?.respawnSeconds).toBeNull();
+    expect(report?.rules.pointsToWin).toBe(30);
+    expect(report?.scoreboard.map((row) => row.entityId)).toEqual([8, 7, 10]);
+    expect(report?.timeRemainingSeconds).toBeCloseTo(235, 12);
+
+    const knockedOut = hillHudReport({
+      entities: hill.entities,
+      match: hill.match,
+      ownEntityId: 10,
+      tickSequence: 12_904,
+      ticksPerSecond: 400,
+    });
+    expect(knockedOut?.ownPoints).toBe(2);
+    expect(knockedOut?.presence).toBeNull();
+    expect(knockedOut?.respawnSeconds).toBeCloseTo(0.75, 12);
+
+    const unseated = hillHudReport({
+      entities: hill.entities,
+      match: hill.match,
+      ownEntityId: null,
+      tickSequence: 12_904,
+      ticksPerSecond: 400,
+    });
+    expect(unseated?.ownPoints).toBeNull();
+
+    expect(
+      hillHudReport({
+        entities: snapshot.entities,
+        match: snapshot.match,
+        ownEntityId: 7,
+        tickSequence: 12_904,
+        ticksPerSecond: 400,
+      }),
+    ).toBeNull();
+  });
+
+  it("describes the hill's countdown, win, and draw in the hill's own words", () => {
+    const entities = hill.entities;
+
+    expect(
+      describeMatchOverlay({
+        entities,
+        match: hillMatchWith({ phase: 'countdown' }),
+        ownControllerId: 3,
+        ownEntityId: 7,
+      })?.detail,
+    ).toBe('Get ready: hold the hill to score once the match begins.');
+    // A knocked-out player keeps its entity, so there is no overlay to read while it waits.
+    expect(
+      describeMatchOverlay({
+        entities,
+        match: hill.match,
+        ownControllerId: 5,
+        ownEntityId: 10,
+      }),
+    ).toBeNull();
+    expect(
+      describeMatchOverlay({
+        entities,
+        match: hillMatchWith({
+          outcome: {
+            kind: 'won_by_entity',
+            winner_entity_id: 8,
+            winner_team_id: null,
+          },
+          phase: 'ended',
+        }),
+        ownControllerId: 3,
+        ownEntityId: 7,
+      }),
+    ).toEqual({
+      detail: 'wanderer-1 held the hill with 6 points.',
+      title: 'Winner',
+    });
+    expect(
+      describeMatchOverlay({
+        entities,
+        match: hillMatchWith({
+          outcome: {
+            kind: 'won_by_entity',
+            winner_entity_id: 7,
+            winner_team_id: null,
+          },
+          phase: 'ended',
+        }),
+        ownControllerId: 3,
+        ownEntityId: 7,
+      }),
+    ).toEqual({
+      detail: 'You held the hill with 4 points.',
+      title: 'You win',
+    });
+    expect(
+      describeMatchOverlay({
+        entities,
+        match: hillMatchWith({
+          outcome: {
+            kind: 'drawn',
+            winner_entity_id: null,
+            winner_team_id: null,
+          },
+          phase: 'ended',
+        }),
+        ownControllerId: 3,
+        ownEntityId: 7,
+      }),
+    ).toEqual({
+      detail: 'Nobody took the hill outright. The next lobby opens shortly.',
+      title: 'Draw',
+    });
   });
 });

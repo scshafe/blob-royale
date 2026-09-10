@@ -168,6 +168,18 @@
   font-weight: 600;
 }
 
+/* The session's own line on the scoreboard. */
+.MatchHud tr.MatchHudOwn th,
+.MatchHud tr.MatchHudOwn td {
+  background: #fef3c7;
+  font-weight: 600;
+}
+
+.HillProgressRing {
+  margin-right: 0.35rem;
+  vertical-align: -0.25rem;
+}
+
 .SteeringHint {
   color: #475569;
   margin: 0;

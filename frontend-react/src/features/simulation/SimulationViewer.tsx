@@ -9,7 +9,9 @@ import {
   countAlivePlayers,
   describeMatchOverlay,
   eliminationGraceTicks,
+  findEntityById,
   findPlacementForController,
+  hillHudReport,
   phaseElapsedSeconds,
   zoneExposureReport,
 } from './sessionSelectors';
@@ -45,6 +47,13 @@ export function SimulationViewer({
   const debugPanelId = useId();
   const statusLabel = connectionStatusLabels[connection.status];
   const controllerId = connection.session?.controllerId ?? null;
+  const tickSequence = connection.snapshot?.data.tick_sequence ?? null;
+  // The own entity and the own body are different questions since respawn timers: a knocked-out
+  // player keeps its entity, with its name and score, and only the body is gone until it is
+  // re-seated. "In play" is the body.
+  const isOwnBodyPresent =
+    findEntityById(connection.entities, connection.ownEntityId)?.components
+      .physics_body !== undefined;
   // The lobby is operable exactly while the match is in `lobby` and this session may start one:
   // a mode with no lobby publishes an empty roster and no `start_match`, and the tick ignores every
   // lobby command outside `lobby`, so the panel is not drawn where nothing it does could land.
@@ -101,15 +110,24 @@ export function SimulationViewer({
             <SimulationHud
               aliveCount={countAlivePlayers(connection.entities)}
               displayName={connection.session?.displayName ?? null}
-              isOwnBodyPresent={connection.ownEntityId !== null}
+              hill={hillHudReport({
+                entities: connection.entities,
+                match: connection.match,
+                ownEntityId: connection.ownEntityId,
+                tickSequence,
+                ticksPerSecond:
+                  connection.configuration.simulation.ticks_per_second,
+              })}
+              isOwnBodyPresent={isOwnBodyPresent}
               match={connection.match}
+              ownEntityId={connection.ownEntityId}
               ownPlacement={findPlacementForController(
                 connection.match,
                 controllerId,
               )}
               phaseElapsedSeconds={phaseElapsedSeconds(
                 connection.match,
-                connection.snapshot?.data.tick_sequence ?? null,
+                tickSequence,
                 connection.configuration.simulation.ticks_per_second,
               )}
               thrust={thrust}

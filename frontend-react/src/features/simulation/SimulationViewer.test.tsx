@@ -9,7 +9,10 @@ import type {
 } from './useSimulationConnection';
 import type { SessionEntitySnapshot } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
-import { snapshotDocument } from './fixtures/sessionFrames';
+import {
+  hillSnapshotDocument,
+  snapshotDocument,
+} from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import { validateSimulationConfigurationResponse } from './simulationProtocolValidation';
 
@@ -21,6 +24,12 @@ const configuration = validateSimulationConfigurationResponse(
 const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
+  tickSequence: null,
+});
+
+const hillSnapshot = validateSessionSnapshotMessage(hillSnapshotDocument(), {
+  messageSequence: 1,
+  requestId: hillSnapshotDocument().meta.request_id,
   tickSequence: null,
 });
 
@@ -394,5 +403,143 @@ describe('SimulationViewer', () => {
     expect(
       screen.queryByRole('heading', { level: 3, name: 'Lobby' }),
     ).toBeNull();
+  });
+
+  it('shows the hill section and the scoreboard for a hill frame only', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const hillSession: SimulationSessionIdentity = {
+      ...session,
+      map: 'hills-960x640',
+      mode: 'king_of_the_hill',
+    };
+
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: hillSnapshot.data.entities,
+          match: hillSnapshot.data.match,
+          session: hillSession,
+          snapshot: hillSnapshot,
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    // 94,000 running ticks left of 96,000 at the published 400 ticks/s; 4 of 30 points; 280 of the
+    // 400-tick interval still to hold.
+    expect(
+      within(hud).getByRole('row', { name: 'Time left 235.0 s' }),
+    ).toBeVisible();
+    expect(
+      within(hud).getByRole('row', { name: 'Score 4 of 30' }),
+    ).toBeVisible();
+    expect(
+      within(hud).getByRole('row', { name: 'Hill 0.7 s to a point' }),
+    ).toBeVisible();
+    expect(
+      within(hud).queryByRole('rowheader', { name: 'Placement' }),
+    ).toBeNull();
+
+    const board = screen.getByRole('table', { name: 'Scoreboard' });
+    expect(
+      within(board)
+        .getAllByRole('row')
+        .map((row) => row.textContent),
+    ).toEqual(['wanderer-16', 'Cole Shaffer4', 'chaser-22 (out)']);
+    expect(
+      within(board).getByRole('row', { name: 'Cole Shaffer 4' }),
+    ).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('img')).toHaveAccessibleDescription(
+      'Complete tick 12904 with 4 entities and 2 players.',
+    );
+
+    // The royale golden frame renders exactly the rows it always did: no hill section, no board.
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection()}
+        thrust={zeroThrust}
+      />,
+    );
+    const royaleHud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(royaleHud)
+        .getAllByRole('rowheader')
+        .map((header) => header.textContent),
+    ).toEqual([
+      'Player',
+      'Phase',
+      'Phase elapsed',
+      'Alive',
+      'Placement',
+      'Thrust',
+    ]);
+    expect(screen.queryByRole('table', { name: 'Scoreboard' })).toBeNull();
+  });
+
+  it('counts a knocked-out player down to its seat instead of calling it in play', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const knockedOutSession: SimulationSessionIdentity = {
+      ...session,
+      controllerId: 5,
+      displayName: 'chaser-2',
+      mode: 'king_of_the_hill',
+    };
+
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: hillSnapshot.data.entities,
+          match: hillSnapshot.data.match,
+          ownEntityId: 10,
+          session: knockedOutSession,
+          snapshot: hillSnapshot,
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    // 300 ticks at 400 ticks/s. The entity is still on the frame, so no overlay covers the arena.
+    expect(
+      within(hud).getByRole('row', { name: 'Hill Back in 0.8 s' }),
+    ).toHaveClass('MatchHudDanger');
+    expect(
+      within(hud).getByRole('row', { name: 'Score 2 of 30' }),
+    ).toBeVisible();
+    expect(screen.queryByText('Eliminated')).toBeNull();
+  });
+
+  it('announces the hill winner with its points when the match has ended', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: hillSnapshot.data.entities,
+          match: {
+            ...hillSnapshot.data.match,
+            outcome: {
+              kind: 'won_by_entity',
+              winner_entity_id: 8,
+              winner_team_id: null,
+            },
+            phase: 'ended',
+          },
+          session: { ...session, mode: 'king_of_the_hill' },
+          snapshot: hillSnapshot,
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    expect(screen.getByText('Winner')).toBeVisible();
+    expect(
+      screen.getByText('wanderer-1 held the hill with 6 points.'),
+    ).toBeVisible();
   });
 });

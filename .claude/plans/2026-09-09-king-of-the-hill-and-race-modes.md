@@ -162,13 +162,14 @@ Facts the executor needs that the code does not say on its face, all verified in
 
 ### Phase 3 -- King of the hill, client and bot
 
-- [ ] **Step 10: Draw and score the hill in the client**
+- [x] **Step 10: Draw and score the hill in the client**
   - Verify: `./scripts/verify-web`
   - Notes: The hill renderer, `sessionSelectors` for the scoreboard join and the local progress
     fraction, the HUD's mode-aware section keyed by `match.mode`, and the results overlay reading
     the hill block. Every countdown is a tick difference from the frame; no timer in the client.
     Tests: the scoreboard order, a frame with no hill block renders the royale HUD unchanged, a
     `point_interval_ticks` of zero saturates rather than divides.
+  - Execution note (2026-09-09): The hill renderer landed in Step 7; this step adds the reading of the frame. `sessionSelectors` gains `kingOfTheHillRules` (the block's three constants, read once and correlated with the schema id the way the grace is), `scoreboard` (every `controllable` entity ranked by `score`, ties by ascending entity id, an absent score as zero, a knocked-out participant kept with its line), `hillProgressFraction` and `hillPresenceReport` (a zero interval saturates), `runningTimeRemainingSeconds` (clamped at zero), `respawnCountdownSeconds`, and `hillHudReport`, which composes the section once per frame. The HUD is keyed on that report rather than on `match.mode` -- the block's schema id is the closed enum the client fails closed on and the block carries every denominator -- and adds Time left, Score, Hill (progress ring beside the words; "Back in" while a respawn timer runs) and a Scoreboard table, hiding royale's Placement row; a royale frame renders its six rows exactly as before, pinned by name. The overlay says how the winner won in the hill's words and the countdown names the hill. The viewer now derives "in play" from the body rather than from the entity, because a knocked-out player keeps its entity. A built hill frame (`hillSnapshotDocument`) is validated by the 2.5 schemas before any test reads it. Verified by `verify-web` at 237 of 237.
 
 - [ ] **Step 11: Add the `hill_seeker` bot**
   - Verify: `./scripts/verify-focused 'unit.controllers' && ./scripts/verify-focused 'unit.controllers' linux-clang-asan-ubsan`

@@ -229,6 +229,268 @@ export function zoneExposureReport(
   };
 }
 
+/** The mode-state schema id of the hill block, typed like the royale id and for the same reason. */
+const KING_OF_THE_HILL_MODE_STATE_SCHEMA_ID: SessionMatchSection['mode_state']['schema_id'] =
+  'blob-royale://protocol/v2/mode-state/king-of-the-hill';
+
+/**
+ * The three declared constants of the `king_of_the_hill` block (`king-of-the-hill-mode-state.schema.json`):
+ * the denominators a client cannot compute from the frame. Scores, the hill, and progress toward
+ * the next point are entity components and are read from the entity list, never from here.
+ */
+export interface KingOfTheHillRules {
+  /** `I`, the consecutive inside ticks that earn one point. Zero is legal and means the first tick. */
+  readonly pointIntervalTicks: number;
+  /** The score at which the match is decided. */
+  readonly pointsToWin: number;
+  /** Running ticks after which the leader wins. */
+  readonly timeLimitTicks: number;
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** A published count: a safe integer that is not negative, or `null` for anything else. */
+function publishedCount(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    return null;
+  }
+  return value;
+}
+
+/**
+ * The hill rules of this frame, or `null` when the frame is not a hill frame. Like
+ * `eliminationGraceTicks`, this is the one place the schema id is correlated with the block's
+ * shape, and a block missing a member reads as no rules at all rather than as invented ones: the
+ * HUD then shows the mode-neutral rows, which is exactly what it shows for royale.
+ */
+export function kingOfTheHillRules(
+  match: SessionMatchSection | null,
+): KingOfTheHillRules | null {
+  if (
+    match === null ||
+    match.mode_state.schema_id !== KING_OF_THE_HILL_MODE_STATE_SCHEMA_ID
+  ) {
+    return null;
+  }
+  const block: unknown = match.mode_state.value;
+  if (!isRecord(block)) {
+    return null;
+  }
+  const pointsToWin = publishedCount(block.points_to_win);
+  const pointIntervalTicks = publishedCount(block.point_interval_ticks);
+  const timeLimitTicks = publishedCount(block.time_limit_ticks);
+  if (
+    pointsToWin === null ||
+    pointIntervalTicks === null ||
+    timeLimitTicks === null
+  ) {
+    return null;
+  }
+  return { pointIntervalTicks, pointsToWin, timeLimitTicks };
+}
+
+/** One participant's line on the board. */
+export interface ScoreboardRow {
+  readonly controllerId: number;
+  readonly displayName: string;
+  readonly entityId: number;
+  /** Whether the participant has a body this frame; a respawning player keeps its line without one. */
+  readonly isInPlay: boolean;
+  readonly points: number;
+}
+
+/**
+ * Every participant with its points, best first. A participant is an entity carrying `controllable`
+ * (ADR 0007's roster rule: being knocked out takes the body and keeps the entity, its name, and its
+ * score), so the join is within one entity and an absent `score` reads as zero. Ties keep ascending
+ * entity id, which is the server's own order, so two clients render the same board from the same
+ * frame.
+ */
+export function scoreboard(
+  entities: readonly SessionEntitySnapshot[],
+): readonly ScoreboardRow[] {
+  const rows: ScoreboardRow[] = [];
+  for (const entity of entities) {
+    const controllable = entity.components.controllable;
+    if (controllable === undefined) {
+      continue;
+    }
+    rows.push({
+      controllerId: controllable.controller_id,
+      displayName: controllable.display_name,
+      entityId: entity.entity_id,
+      isInPlay: entity.components.physics_body !== undefined,
+      points: entity.components.score?.points ?? 0,
+    });
+  }
+  return rows.sort(
+    (left, right) =>
+      right.points - left.points || left.entityId - right.entityId,
+  );
+}
+
+/**
+ * How much of the interval a presence has earned, in `[0, 1]`. The same three decisions as
+ * `graceSpentFraction`: a zero interval is a legal `[king_of_the_hill]` value meaning "a point on
+ * the first inside tick", so it saturates rather than divides, and a counter past its bound clamps.
+ */
+export function hillProgressFraction(
+  insideTicks: number,
+  pointIntervalTicks: number,
+): number {
+  if (pointIntervalTicks <= 0) {
+    return 1;
+  }
+  return Math.min(1, Math.max(0, insideTicks / pointIntervalTicks));
+}
+
+/** What one entity's hill presence means this frame, in the units a player is shown. */
+export interface HillPresenceReport {
+  /** Seconds the center has held the hill toward the next point. */
+  readonly heldSeconds: number;
+  /** Seconds of holding left before the next point. Never negative. */
+  readonly remainingSeconds: number;
+  /** Interval earned, in `[0, 1]`. */
+  readonly spentFraction: number;
+}
+
+/**
+ * One entity's presence on the hill, or `null` when it carries none. `hill_scoring` erases the
+ * component the tick a center leaves the hill, the tick a point is scored, and the tick the body is
+ * lost, so `null` is exactly "nothing is being counted for this entity" and the caller needs no
+ * timer. A contested hill freezes the counter rather than erasing it, so a frozen report is a
+ * report that does not advance.
+ */
+export function hillPresenceReport(
+  entities: readonly SessionEntitySnapshot[],
+  entityId: number | null,
+  ticksPerSecond: number,
+  rules: KingOfTheHillRules | null,
+): HillPresenceReport | null {
+  if (rules === null || ticksPerSecond <= 0) {
+    return null;
+  }
+  const presence = findEntityById(entities, entityId)?.components.hill_presence;
+  if (presence === undefined) {
+    return null;
+  }
+  const insideTicks = presence.inside_ticks;
+  return {
+    heldSeconds: insideTicks / ticksPerSecond,
+    remainingSeconds:
+      Math.max(0, rules.pointIntervalTicks - insideTicks) / ticksPerSecond,
+    spentFraction: hillProgressFraction(insideTicks, rules.pointIntervalTicks),
+  };
+}
+
+/**
+ * Seconds of running time left before the clock decides the match, or `null` when the match is not
+ * running, the frame carries no limit, or the phase start is not yet known. The same guards as
+ * `phaseElapsedSeconds`, and the remainder is `max(0, limit - elapsed)` in ticks so a frame past
+ * the limit reads as no time left rather than as a negative countdown.
+ */
+export function runningTimeRemainingSeconds(
+  match: SessionMatchSection | null,
+  tickSequence: number | null,
+  ticksPerSecond: number,
+  timeLimitTicks: number | null,
+): number | null {
+  if (
+    match === null ||
+    timeLimitTicks === null ||
+    match.phase !== 'running' ||
+    tickSequence === null ||
+    match.phase_started_tick === 0 ||
+    ticksPerSecond <= 0
+  ) {
+    return null;
+  }
+  const elapsedTicks = tickSequence - match.phase_started_tick;
+  if (elapsedTicks < 0) {
+    return null;
+  }
+  return Math.max(0, timeLimitTicks - elapsedTicks) / ticksPerSecond;
+}
+
+/**
+ * Seconds until a knocked-out entity is offered a seat again, or `null` when it is not waiting for
+ * one. `respawn_timer` is carried only by an entity with no body and is erased the tick it reaches
+ * zero, so `null` is exactly "in play, or not seated at all".
+ */
+export function respawnCountdownSeconds(
+  entities: readonly SessionEntitySnapshot[],
+  entityId: number | null,
+  ticksPerSecond: number,
+): number | null {
+  if (ticksPerSecond <= 0) {
+    return null;
+  }
+  const timer = findEntityById(entities, entityId)?.components.respawn_timer;
+  if (timer === undefined) {
+    return null;
+  }
+  return timer.ticks_remaining / ticksPerSecond;
+}
+
+/** Everything the hill section of the HUD says, resolved once per frame. */
+export interface HillHudReport {
+  /** The session's own points, or `null` when it has no entity this frame. */
+  readonly ownPoints: number | null;
+  readonly presence: HillPresenceReport | null;
+  readonly respawnSeconds: number | null;
+  readonly rules: KingOfTheHillRules;
+  readonly scoreboard: readonly ScoreboardRow[];
+  readonly timeRemainingSeconds: number | null;
+}
+
+export interface HillHudInput {
+  readonly entities: readonly SessionEntitySnapshot[];
+  readonly match: SessionMatchSection | null;
+  readonly ownEntityId: number | null;
+  readonly tickSequence: number | null;
+  readonly ticksPerSecond: number;
+}
+
+/**
+ * The hill section of the HUD for one frame, or `null` when the frame is not a hill frame. The
+ * HUD is keyed on this rather than on `match.mode`: the mode name is an open string on the wire,
+ * while the block's schema id is the closed enum the client already fails closed on, and the block
+ * is what carries the denominators every row here divides by.
+ */
+export function hillHudReport({
+  entities,
+  match,
+  ownEntityId,
+  tickSequence,
+  ticksPerSecond,
+}: HillHudInput): HillHudReport | null {
+  const rules = kingOfTheHillRules(match);
+  if (rules === null) {
+    return null;
+  }
+  const board = scoreboard(entities);
+  const ownRow = board.find((row) => row.entityId === ownEntityId);
+  return {
+    ownPoints: ownRow === undefined ? null : ownRow.points,
+    presence: hillPresenceReport(entities, ownEntityId, ticksPerSecond, rules),
+    respawnSeconds: respawnCountdownSeconds(
+      entities,
+      ownEntityId,
+      ticksPerSecond,
+    ),
+    rules,
+    scoreboard: board,
+    timeRemainingSeconds: runningTimeRemainingSeconds(
+      match,
+      tickSequence,
+      ticksPerSecond,
+      rules.timeLimitTicks,
+    ),
+  };
+}
+
 export interface MatchOverlayDescription {
   readonly detail: string;
   readonly title: string;
@@ -251,6 +513,24 @@ function winnerLabel(
   );
 }
 
+function winnerPoints(
+  entities: readonly SessionEntitySnapshot[],
+  winnerEntityId: number,
+): number {
+  return (
+    findEntityById(entities, winnerEntityId)?.components.score?.points ?? 0
+  );
+}
+
+function pointsLabel(points: number): string {
+  return points === 1 ? '1 point' : `${points} points`;
+}
+
+/**
+ * The winner's sentence is the mode's. The generic match section says who won; how they won is the
+ * mode's own ranking, and the hill's is its scoreboard, which is still on the frame at `ended`
+ * because the wipe happens on the lobby tick after.
+ */
 function describeEndedMatch({
   entities,
   match,
@@ -259,18 +539,26 @@ function describeEndedMatch({
   readonly match: SessionMatchSection;
 }): MatchOverlayDescription {
   const { outcome } = match;
+  const isHill = kingOfTheHillRules(match) !== null;
   if (outcome.kind === 'drawn') {
     return {
-      detail: 'No blob was left standing. The next lobby opens shortly.',
+      detail: isHill
+        ? 'Nobody took the hill outright. The next lobby opens shortly.'
+        : 'No blob was left standing. The next lobby opens shortly.',
       title: 'Draw',
     };
   }
   if (outcome.kind === 'won_by_entity' && outcome.winner_entity_id !== null) {
     const isOwnWin = outcome.winner_entity_id === ownEntityId;
+    const winner = isOwnWin
+      ? 'You'
+      : winnerLabel(entities, outcome.winner_entity_id);
     return {
-      detail: isOwnWin
-        ? 'You were the last blob in the zone.'
-        : `${winnerLabel(entities, outcome.winner_entity_id)} was the last blob in the zone.`,
+      detail: isHill
+        ? `${winner} held the hill with ${pointsLabel(winnerPoints(entities, outcome.winner_entity_id))}.`
+        : isOwnWin
+          ? 'You were the last blob in the zone.'
+          : `${winner} was the last blob in the zone.`,
       title: isOwnWin ? 'You win' : 'Winner',
     };
   }
@@ -310,7 +598,10 @@ export function describeMatchOverlay(
   }
   if (match.phase === 'countdown') {
     return {
-      detail: 'Get ready: the zone starts shrinking when the match begins.',
+      detail:
+        kingOfTheHillRules(match) === null
+          ? 'Get ready: the zone starts shrinking when the match begins.'
+          : 'Get ready: hold the hill to score once the match begins.',
       title: 'Match starting',
     };
   }

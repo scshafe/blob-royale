@@ -46,6 +46,7 @@ src/controllers/
   controllers_validation_error.hpp   the one `CONTROLLERS.*` exception vocabulary
   wanderer_controller.hpp/.cpp       a seeded random heading, held for a reaction delay
   chaser_controller.hpp/.cpp         thrust toward the nearest other controllable entity
+  hill_seeker_controller.hpp/.cpp    thrust toward the hill's centre and hold there
   scripted_replay_controller.hpp/.cpp  a recorded command log, one step per pass
 ```
 
@@ -126,12 +127,13 @@ claiming one name fail to compile rather than resolving to whichever was written
 
 **Personalities are constructor configuration, not new types.** A cautious wanderer and a twitchy one
 are two `WandererController::Personality` values; a timid chaser and a relentless one are two
-`ChaserController::Personality` values. Adding a class for a mood is the mistake this rule exists to
+`ChaserController::Personality` values; a shy seeker and a committed one are two
+`HillSeekerController::Personality` values. Adding a class for a mood is the mistake this rule exists to
 prevent, and `tests/unit/controllers/wanderer_controller_tests.cpp` and
 `chaser_controller_tests.cpp` each assert that a tunable changes behavior with no new type.
 
-Two registered kinds — `wanderer` and `chaser` — plus a third unregistered implementation,
-`scripted_replay`. It is unregistered on purpose: a registered kind is one a roster line may name,
+Three registered kinds — `wanderer`, `chaser`, and `hill_seeker` — plus an unregistered
+implementation, `scripted_replay`. It is unregistered on purpose: a registered kind is one a roster line may name,
 and a scripted controller is meaningless without the recorded log no configuration line carries, so
 a row for it would make `bots=scripted_replay:1` produce a bot that silently decides nothing.
 Fixtures construct it directly.

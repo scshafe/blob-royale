@@ -67,6 +67,13 @@ static_assert(kSpawnRequestRetryTicks >= 2,
 inline constexpr double kMinimumChaserAggressionWeight = 0.0;
 inline constexpr double kMaximumChaserAggressionWeight = 1.0;
 
+// The inclusive range of a `HillSeekerController` weight, for the same reason: the approach weight
+// scales a heading of magnitude at most one and the jitter weight bounds a per-component offset,
+// and the sum is clamped to the thrust component range, so a weight above one would only ever be
+// clamped away.
+inline constexpr double kMinimumHillSeekerWeight = 0.0;
+inline constexpr double kMaximumHillSeekerWeight = 1.0;
+
 } // namespace blob_royale::controllers
 
 #endif

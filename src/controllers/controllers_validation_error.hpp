@@ -40,6 +40,8 @@ enum class ControllersValidationCode {
   kWandererReactionDelayOutOfRange,
   kChaserAggressionWeightNotFinite,
   kChaserAggressionWeightOutOfRange,
+  kHillSeekerWeightNotFinite,
+  kHillSeekerWeightOutOfRange,
   kScriptedReplayLogLimitExceeded,
 };
 
@@ -64,6 +66,10 @@ controllers_validation_code_name(const ControllersValidationCode code) noexcept 
     return "CONTROLLERS.CHASER_AGGRESSION_WEIGHT_NOT_FINITE";
   case ControllersValidationCode::kChaserAggressionWeightOutOfRange:
     return "CONTROLLERS.CHASER_AGGRESSION_WEIGHT_OUT_OF_RANGE";
+  case ControllersValidationCode::kHillSeekerWeightNotFinite:
+    return "CONTROLLERS.HILL_SEEKER_WEIGHT_NOT_FINITE";
+  case ControllersValidationCode::kHillSeekerWeightOutOfRange:
+    return "CONTROLLERS.HILL_SEEKER_WEIGHT_OUT_OF_RANGE";
   case ControllersValidationCode::kScriptedReplayLogLimitExceeded:
     return "CONTROLLERS.SCRIPTED_REPLAY_LOG_LIMIT_EXCEEDED";
   }

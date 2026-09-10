@@ -3,6 +3,7 @@ add_executable(blob_controllers_unit_tests
   controller_host_tests.cpp
   controller_registry_tests.cpp
   controller_tests.cpp
+  hill_seeker_controller_tests.cpp
   human_bot_symmetry_tests.cpp
   observation_tests.cpp
   scripted_replay_controller_tests.cpp

@@ -3,6 +3,7 @@ add_library(blob_controllers STATIC
   controller.cpp
   controller_host.cpp
   controller_registry.cpp
+  hill_seeker_controller.cpp
   observation.cpp
   scripted_replay_controller.cpp
   wanderer_controller.cpp

@@ -11,6 +11,8 @@
 #include <algorithm>
 #include <array>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -71,6 +73,27 @@ TEST_CASE("the deployment runs four hill rooms and seeds no scenario", "[fixture
   CHECK(run_request.application_config().lobbies_configuration().count() == 4);
   CHECK(run_request.application_config().match_configuration().mode_name() == "king_of_the_hill");
   CHECK(run_request.application_config().match_configuration().map_name() == "hills-960x640");
+}
+
+TEST_CASE("both tailnet scripts identify their localhost readiness client to the trusted proxy",
+          "[fixtures][deployment][script-contract]") {
+  // Router tests prove this request is admitted and the headerless one is refused. This source
+  // guard ties that behavior to BOTH callers: parser/configuration fixtures alone cannot catch a
+  // deployment script reporting NOT_READY after it has already replaced a healthy container.
+  const std::filesystem::path repository_directory =
+      std::filesystem::path{BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY}.parent_path().parent_path();
+  constexpr std::string_view expected_probe =
+      "if curl --fail --silent --show-error --max-time 1 \\\n"
+      "    --header 'X-Forwarded-For: 127.0.0.1' \\\n"
+      "    \"http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api/v1/health/ready\" 2>/dev/null |";
+  for (const std::string_view script_name : {"deploy-tailnet", "reconfigure-tailnet"}) {
+    INFO(script_name);
+    std::ifstream source{repository_directory / "scripts" / script_name};
+    REQUIRE(source.is_open());
+    const std::string script{std::istreambuf_iterator<char>{source},
+                             std::istreambuf_iterator<char>{}};
+    CHECK(script.find(expected_probe) != std::string::npos);
+  }
 }
 
 TEST_CASE("the deployed hazard table is the one intended and fits the snapshot entity bound",

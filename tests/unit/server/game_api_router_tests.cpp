@@ -571,6 +571,26 @@ TEST_CASE("GameApiRouter reports a forwarded-client refusal on a v1 target in th
 }
 
 TEST_CASE(
+    "GameApiRouter requires a canonical forwarded client on a trusted loopback readiness probe",
+    "[unit][server][router][readiness][trust-boundary]") {
+  ProxyRouterFixture proxy;
+  // The deployment scripts call this ordinary GET directly from the host. Readiness is not an
+  // exception to proxy identity policy, and the runtime is ready before either request is made.
+  server::GameApiHttpRequest request = fixture::request(http::verb::get, "/api/v1/health/ready");
+  request.set(http::field::host, "127.0.0.1:8000");
+  const server::GameApiHttpResponse refused = proxy_route_response(proxy, request);
+  CHECK(refused.result() == http::status::bad_request);
+  CHECK(fixture::response_contains(refused, "PROTOCOL.INVALID_REQUEST"));
+  CHECK(fixture::response_contains(refused, "forwarded_client_absent"));
+
+  request.set("X-Forwarded-For", "127.0.0.1");
+  const server::GameApiHttpResponse ready = proxy_route_response(proxy, request);
+  CHECK(ready.result() == http::status::ok);
+  CHECK(fixture::response_contains(ready, "\"status\":\"ready\""));
+  CHECK(fixture::response_contains(ready, "\"error\":null"));
+}
+
+TEST_CASE(
     "GameApiRouter never grants the direct-peer Origin relaxation to a trusted loopback proxy",
     "[unit][server][router][v2][trust-boundary]") {
   // The deployed proxy is loopback. Loopback-first classification would put exactly the deployed

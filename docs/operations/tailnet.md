@@ -46,7 +46,8 @@ git pull --ff-only
    `maps/` to `/srv/blob-royale/config/maps` after checking that the directory named by
    `[match] map=` exists, and syncs the staged web deployable to `/srv/blob-royale/web`;
 4. replaces the `blob-royale` container with the published `runtime_image_reference` and waits up
-   to ten seconds for `GET http://127.0.0.1:8000/api/v1/health/ready`;
+   to ten seconds for `GET http://127.0.0.1:8000/api/v1/health/ready`, supplying
+   `X-Forwarded-For: 127.0.0.1` because the listener treats loopback as its trusted proxy;
 5. applies the two `tailscale serve` handlers (`/api` to `http://127.0.0.1:8000/api`, `/` to the
    web directory) and checks liveness and the site root through the tailnet URL.
 
@@ -91,6 +92,9 @@ shipped value is four, and the directory route that lists them arrives with prot
 
 ```sh
 curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v1/health/ready
+# On the Ubuntu host, bypassing tailscale serve requires the same forwarded-client header:
+curl -fsS --max-time 1 --header 'X-Forwarded-For: 127.0.0.1' \
+  http://127.0.0.1:8000/api/v1/health/ready
 docker ps --filter name=^blob-royale$
 docker inspect blob-royale --format '{{index .Config.Labels "blob-royale.deployed-commit"}}'
 ```
@@ -140,7 +144,13 @@ sudo tailscale serve --https=8444 /srv/blob-royale/web off
 `tailscale serve` strips the mount prefix before proxying, which is why the backend target carries
 `/api`. It preserves the browser `Host` header, so the deployment configuration allowlists
 `cole-ubuntu-pc.colobus-stargazer.ts.net:8444` and the matching `https://` origin. It also adds
-`X-Forwarded-For` and `Tailscale-User-*` headers; protocol v1 ignores them.
+`X-Forwarded-For` and `Tailscale-User-*` headers. Trusted-proxy client-address validation and
+accounting apply to v1 routes too, including health checks: exactly one canonical IP address must
+be supplied in `X-Forwarded-For`. A missing value returns HTTP 400 with
+`PROTOCOL.INVALID_REQUEST` and reason `forwarded_client_absent` on a v1 route, even when the
+server is ready. Both deployment scripts supply the local probe's address explicitly; ordinary
+HTTP readiness GETs need no `Origin` header. Protocol v1 does not use `Tailscale-User-*` identity
+headers; the v2 session uses the validated `Tailscale-User-Name` for its display name.
 
 ## Limits behind the proxy
 

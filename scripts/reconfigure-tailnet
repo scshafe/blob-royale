@@ -136,8 +136,10 @@ docker run \
 
 server_ready=false
 readiness_deadline=$((SECONDS + READINESS_DEADLINE_SECONDS))
+# Loopback is the configured trusted proxy, so even this host-local probe must identify its client.
 while ((SECONDS < readiness_deadline)); do
   if curl --fail --silent --show-error --max-time 1 \
+    --header 'X-Forwarded-For: 127.0.0.1' \
     "http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api/v1/health/ready" 2>/dev/null |
     grep -q '"status":"ready"'; then
     server_ready=true

@@ -214,6 +214,8 @@ struct Shape final {
 struct RawLine final {
   Vector2 begin;
   Vector2 end;
+  // A capsule side's rounded offset endpoints need not subtract back to its authored axis.
+  Vector2 inward_normal;
 };
 struct RawArc final {
   Vector2 center;
@@ -240,8 +242,7 @@ struct LocalSupport final {
 
 [[nodiscard]] Vector2 feature_normal(const RawFeature& feature, const Vector2& point) {
   if (const auto* line = std::get_if<RawLine>(&feature.geometry)) {
-    const Vector2 direction = line->end - line->begin;
-    return Vector2::create(-direction.y(), direction.x()); // Interior is left.
+    return line->inward_normal;
   }
   return std::get<RawArc>(feature.geometry).center - point;
 }
@@ -251,6 +252,35 @@ struct LocalSupport final {
   const Vector2 offset = point - line.begin;
   return cross_sign(direction, offset) == 0 && offset.dot(direction) >= 0.0 &&
          (point - line.end).dot(direction) <= 0.0;
+}
+
+enum class LineAxis { kNeither, kHorizontal, kVertical };
+
+[[nodiscard]] LineAxis line_axis(const RawLine& line) {
+  // Rounded offset endpoints alone cannot certify an axis: a sloped authored side may lose
+  // its small component on translation. The retained construction normal must agree too.
+  if (line.begin.x() == line.end.x() && line.inward_normal.y() == 0.0 &&
+      line.inward_normal.x() != 0.0) {
+    return LineAxis::kVertical;
+  }
+  if (line.begin.y() == line.end.y() && line.inward_normal.x() == 0.0 &&
+      line.inward_normal.y() != 0.0) {
+    return LineAxis::kHorizontal;
+  }
+  return LineAxis::kNeither;
+}
+
+[[nodiscard]] bool axis_line_contains(const RawLine& line, const Vector2& point) {
+  const auto axis = line_axis(line);
+  if (axis == LineAxis::kVertical) {
+    return point.x() == line.begin.x() && point.y() >= std::min(line.begin.y(), line.end.y()) &&
+           point.y() <= std::max(line.begin.y(), line.end.y());
+  }
+  if (axis == LineAxis::kHorizontal) {
+    return point.y() == line.begin.y() && point.x() >= std::min(line.begin.x(), line.end.x()) &&
+           point.x() <= std::max(line.begin.x(), line.end.x());
+  }
+  return false;
 }
 
 [[nodiscard]] bool coincident_at(const RawFeature& source, const RawFeature& other,
@@ -388,6 +418,19 @@ struct VertexSector final {
   std::optional<detail::TerrainSupportedSector> sector;
 };
 
+struct VertexIncidence final {
+  std::size_t shape;
+  Vector2 tangent;
+};
+
+[[nodiscard]] bool sector_inside_halfspace(const Vector2& begin, const Vector2& tangent) {
+  const int side = cross_sign(begin, tangent);
+  // Every incident tangent and its opposite is an angular breakpoint. The adjacent open
+  // sector cannot cross this halfspace boundary: immediately CCW from tangent is outside,
+  // while immediately CCW from its opposite is inside. No rounded midpoint is needed.
+  return side > 0 || (side == 0 && !same_direction(begin, tangent));
+}
+
 [[nodiscard]] bool point_less(const Vector2& first, const Vector2& second) {
   return first.x() < second.x() || (first.x() == second.x() && first.y() < second.y());
 }
@@ -396,17 +439,22 @@ struct VertexSector final {
 vertex_supported_sector(const Vector2& point, const std::span<const RawFeature> features,
                         const std::span<const Shape> shapes, const TerrainGround ground,
                         const std::size_t existing_storage) {
-  std::vector<const RawFeature*> incident;
+  std::vector<VertexIncidence> incident;
   std::vector<Vector2> rays;
   for (const auto& feature : features) {
-    if (std::any_of(feature.cuts.begin(), feature.cuts.end(),
-                    [&point](const auto& cut) { return cut.point == point; })) {
-      incident.push_back(&feature);
-      const auto normal = feature_normal(feature, point);
+    const auto cut = std::find_if(feature.cuts.begin(), feature.cuts.end(),
+                                  [&point](const auto& value) { return value.point == point; });
+    if (cut != feature.cuts.end()) {
+      // A smooth side/cap join shares its authored normal. Subtracting rounded endpoints
+      // would manufacture distinct tangent rays and a microscopic false angular sector.
+      const auto normal = std::holds_alternative<RawLine>(feature.geometry)
+                              ? feature_normal(feature, point)
+                              : -cut->direction;
       const auto tangent = Vector2::create(-normal.y(), normal.x());
       if (tangent.x() == 0.0 && tangent.y() == 0.0) {
         precision_lost("a vertex tangent has no representable direction");
       }
+      incident.push_back({feature.shape, tangent});
       rays.push_back(tangent);
       rays.push_back(-tangent);
       require_arrangement_bound(existing_storage + incident.size() + rays.size());
@@ -417,14 +465,6 @@ vertex_supported_sector(const Vector2& point, const std::span<const RawFeature> 
   for (std::size_t ray = 0; ray < rays.size(); ++ray) {
     const auto& begin = rays[ray];
     const auto& end = rays[(ray + 1) % rays.size()];
-    const auto zero = Vector2::create(0.0, 0.0);
-    const auto interior = cross_sign(begin, end) == 0
-                              ? Vector2::create(-begin.y(), begin.x())
-                              : circle_point(zero, 1.0, begin) + circle_point(zero, 1.0, end);
-    const detail::TerrainSupportedSector sector{begin, end, interior};
-    if (!direction_inside_sector(interior, sector)) {
-      precision_lost("a vertex sector has no representable strict interior direction");
-    }
     bool envelope = false;
     bool positive = ground == TerrainGround::kSolid;
     bool holes = false;
@@ -432,14 +472,11 @@ vertex_supported_sector(const Vector2& point, const std::span<const RawFeature> 
       const Shape& shape = shapes[shape_index];
       bool touches = false;
       bool inside = true;
-      for (const auto* feature : incident) {
-        if (feature->shape == shape_index) {
+      for (const auto& incidence : incident) {
+        if (incidence.shape == shape_index) {
           touches = true;
-          const auto normal = feature_normal(*feature, point);
-          // dot(normal, interior) with exact determinant signs. All envelope incident
-          // halfspaces must agree; a capsule's joining side/cap share one smooth normal.
-          const auto perpendicular = Vector2::create(-normal.y(), normal.x());
-          inside = inside && cross_sign(interior, perpendicular) > 0;
+          // Keep every incidence even when equal angular breakpoints are deduplicated.
+          inside = inside && sector_inside_halfspace(begin, incidence.tangent);
         }
       }
       if (!touches) {
@@ -461,10 +498,21 @@ vertex_supported_sector(const Vector2& point, const std::span<const RawFeature> 
       }
     }
     if (envelope && positive && !holes) {
+      // Only the canonical selected supported sector needs a representable recovery ray.
+      // Failure cannot select a later sector or silently discard a supported branch.
+      const auto zero = Vector2::create(0.0, 0.0);
+      const auto interior = cross_sign(begin, end) == 0
+                                ? Vector2::create(-begin.y(), begin.x())
+                                : circle_point(zero, 1.0, begin) + circle_point(zero, 1.0, end);
+      const detail::TerrainSupportedSector sector{begin, end, interior};
+      if (!direction_inside_sector(interior, sector)) {
+        precision_lost("a vertex sector has no representable strict interior direction");
+      }
       return sector; // Canonical global angular order; never a discovery/pointer order.
     }
   }
-  return std::nullopt; // Rim-only/isolated supported geometry has no open supported face.
+  // No strict first-order cone: this also permits curved cusps, not only rims/isolated points.
+  return std::nullopt;
 }
 
 [[nodiscard]] std::vector<VertexSector>
@@ -565,6 +613,26 @@ void intersect_features(RawFeature& first, RawFeature& second, const std::span<c
       }
       return;
     }
+    // An endpoint on an axis-aligned segment is certified by its literal constant coordinate
+    // and closed coordinate bounds, without rounded line-offset subtraction. Nonparallel
+    // segments have at most one such intersection; ambiguous identities must remain visible.
+    std::optional<Vector2> endpoint_intersection;
+    auto retain_endpoint = [&](const Vector2& endpoint, const RawLine& other) {
+      if (axis_line_contains(other, endpoint)) {
+        if (endpoint_intersection && *endpoint_intersection != endpoint) {
+          precision_lost("nonparallel boundary lines have conflicting endpoint incidences");
+        }
+        endpoint_intersection = endpoint;
+      }
+    };
+    retain_endpoint(first_line->begin, *second_line);
+    retain_endpoint(first_line->end, *second_line);
+    retain_endpoint(second_line->begin, *first_line);
+    retain_endpoint(second_line->end, *first_line);
+    if (endpoint_intersection) {
+      add_shared(*endpoint_intersection);
+      return;
+    }
     const double start_coordinate = cross(first_line->begin - second_line->begin, second_direction);
     const double displacement_coordinate = cross(first_direction, second_direction);
     const auto roots = swept_line_boundary_roots(start_coordinate, displacement_coordinate, 0.0);
@@ -593,6 +661,41 @@ void intersect_features(RawFeature& first, RawFeature& second, const std::span<c
       const auto tangent = center_at_begin == line_forward ? line.begin : line.end;
       if (direction_in_arc(tangent - arc.center, arc.begin_direction, arc.end_direction)) {
         add_shared(tangent);
+      }
+      return;
+    }
+    // A literal axis line through the circle center is a diameter. Its two cardinal
+    // directions exhaust the circle intersections; append_arc already retained every one
+    // included by this arc. Reuse that construction, not a rounded root's inferred ray.
+    const auto axis_alignment = line_axis(line);
+    const bool vertical_diameter =
+        axis_alignment == LineAxis::kVertical && line.begin.x() == arc.center.x();
+    const bool horizontal_diameter =
+        axis_alignment == LineAxis::kHorizontal && line.begin.y() == arc.center.y();
+    if (vertical_diameter || horizontal_diameter) {
+      const auto& arc_feature = first_line != nullptr ? second : first;
+      const auto axis = vertical_diameter ? Vector2::create(0.0, 1.0) : Vector2::create(1.0, 0.0);
+      const std::array directions{axis, -axis};
+      std::array<std::optional<Vector2>, 2> intersections;
+      for (std::size_t index = 0; index < directions.size(); ++index) {
+        const auto& direction = directions[index];
+        if (!direction_in_arc(direction, arc.begin_direction, arc.end_direction)) {
+          continue;
+        }
+        const auto point = circle_point(arc.center, arc.radius, direction);
+        if (std::none_of(arc_feature.cuts.begin(), arc_feature.cuts.end(),
+                         [&point, &direction](const auto& cut) {
+                           return cut.point == point && cut.direction == direction;
+                         })) {
+          precision_lost("an axis-circle intersection lost its authored cardinal identity");
+        }
+        intersections[index] = point;
+      }
+      // Validate the complete construction certificate before mutating either feature.
+      for (const auto& point : intersections) {
+        if (point && axis_line_contains(line, *point)) {
+          add_shared(*point);
+        }
       }
       return;
     }
@@ -654,11 +757,12 @@ void intersect_features(RawFeature& first, RawFeature& second, const std::span<c
 }
 
 void append_line(std::vector<RawFeature>& features, const std::size_t shape, const Vector2& begin,
-                 const Vector2& end, std::size_t& incidence_count) {
+                 const Vector2& end, const Vector2& inward_normal, std::size_t& incidence_count) {
   if (begin == end) {
     precision_lost("a terrain boundary line collapsed");
   }
-  RawFeature feature{BoundaryFeatureId{features.size() + 1}, shape, RawLine{begin, end}, {}};
+  RawFeature feature{
+      BoundaryFeatureId{features.size() + 1}, shape, RawLine{begin, end, inward_normal}, {}};
   add_cut(feature, begin, incidence_count);
   add_cut(feature, end, incidence_count);
   features.push_back(std::move(feature));
@@ -726,8 +830,8 @@ struct BoundaryCandidate final {
           std::clamp((point - line->begin).dot(direction) / direction.dot(direction), 0.0, 1.0);
       const auto supported_direction = Vector2::create(-direction.y() * span.supported_side,
                                                        direction.x() * span.supported_side);
-      const auto projected =
-          line_point(RawLine{line->begin, line->end}, MotionTime::create(parameter));
+      const auto projected = line_point(RawLine{line->begin, line->end, supported_direction},
+                                        MotionTime::create(parameter));
       const bool at_begin = projected == line->begin;
       const bool at_end = projected == line->end;
       consider(projected, span.feature, supported_direction, at_begin || at_end,
@@ -758,7 +862,7 @@ struct BoundaryCandidate final {
                                                            const Vector2& query,
                                                            const BoundaryCandidate& candidate) {
   if (!candidate.sector) {
-    precision_lost("the selected rim-only vertex has no open supported recovery sector");
+    precision_lost("the selected vertex has no strict supported recovery sector");
   }
   const auto& sector = *candidate.sector;
   const auto& origin = candidate.witness.point;
@@ -1014,10 +1118,13 @@ TerrainBoundary compile_terrain_boundary(const ArenaBounds& bounds, const Terrai
   const auto top_right = Vector2::create(bounds.width(), bounds.height());
   const auto top_left = Vector2::create(0.0, bounds.height());
   shapes.push_back({ShapeKind::kEnvelope, zero, top_right, 0.0});
-  append_line(features, 0, zero, bottom_right, incidence_count);
-  append_line(features, 0, bottom_right, top_right, incidence_count);
-  append_line(features, 0, top_right, top_left, incidence_count);
-  append_line(features, 0, top_left, zero, incidence_count);
+  append_line(features, 0, zero, bottom_right, Vector2::create(0.0, bounds.width()),
+              incidence_count);
+  append_line(features, 0, bottom_right, top_right, Vector2::create(-bounds.height(), 0.0),
+              incidence_count);
+  append_line(features, 0, top_right, top_left, Vector2::create(0.0, -bounds.width()),
+              incidence_count);
+  append_line(features, 0, top_left, zero, Vector2::create(bounds.height(), 0.0), incidence_count);
   for (const auto& corridor : corridors) {
     const double radius = corridor.half_width() + kPositionTolerance;
     for (std::size_t index = 1; index < corridor.points().size(); ++index) {
@@ -1034,8 +1141,8 @@ TerrainBoundary compile_terrain_boundary(const ArenaBounds& bounds, const Terrai
           Vector2::create(radius * (normal.x() / length), radius * (normal.y() / length));
       const std::size_t shape = shapes.size();
       shapes.push_back({ShapeKind::kCapsule, begin, end, radius});
-      append_line(features, shape, end + offset, begin + offset, incidence_count);
-      append_line(features, shape, begin - offset, end - offset, incidence_count);
+      append_line(features, shape, end + offset, begin + offset, -normal, incidence_count);
+      append_line(features, shape, begin - offset, end - offset, normal, incidence_count);
       append_arc(features, shape, begin, radius, normal, -normal, incidence_count);
       append_arc(features, shape, end, radius, -normal, normal, incidence_count);
     }

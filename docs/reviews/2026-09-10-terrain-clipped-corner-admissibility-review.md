@@ -1,7 +1,8 @@
 # Unresolved clipped-corner terrain admission
 
-Status: unresolved numerical/admission issue discovered during plan Step 7. This is not an
-accepted rejection fixture, a diagnosed compiler defect, or a production geometry change.
+Status: repaired and verified under owner-approved Step 7a on 2026-09-11. This is not an accepted
+rejection fixture. The sections below preserve the original Step 7 observation and its limits;
+the captured-trace and verification addenda supersede the earlier unknown cause.
 
 ## Exact original input and observation
 
@@ -66,3 +67,43 @@ durable unresolved record and explicit limits on claims. No production geometry 
 or accepted baseline expectation changes. Carry the original issue into the existing Step 5
 numerical/live-adoption review; its disposition must be explicit before treating the terrain
 foundation as generally certified for live adoption. No native performance/release claim follows.
+
+## Captured-trace addendum (Step 7a, 2026-09-10)
+
+The unchanged original input now has its own construction/query regression in
+`tests/unit/simulation/fixtures/terrain_provenance_fixture.hpp`. Failure-only diagnostics captured
+the exact missing incidence: side feature 5 and cap feature 7 share endpoint
+`(0, 0x1.4000000089706p+3)`, but envelope feature 4 stores the recomputed intersection
+`(0, 0x1.4000000089708p+3)`, two representable steps away. The endpoint is already exactly on
+the envelope's x=0 line. This is lost construction identity, distinct from the false angular sliver
+at the sloped/fractional road joins. Preserve the certified endpoint instead of recomputing it;
+do not merge nearby coordinates or weaken the incidence guard.
+
+The root-owned advisory GCC red trace failed all three selected cases, as expected; command and
+full evidence are in `2026-09-10-racer-projection-admission-blocker-review.md`. The calibrated shared
+publication fixture remains unchanged, and neither repair success nor Step 5 acceptance is implied.
+
+The first repair diagnostic passed the sloped/fractional and controller cases, but this input
+reached the retained same-line-parameter guard. A second failure-only trace (advisory GCC, **0/1**)
+identified the same two points on envelope feature 4 at time `0x1.ccccccccb6cf4p-1`. Arc feature 7
+also carries both points: the original endpoint/cardinal cut at the effective radius and a later
+recomputed cut two steps above it. Log:
+`/tmp/blob-royale-terrain-provenance.veIQIP/clipped-collapse-trace-gcc.log`.
+
+The remaining repair is limited to a certified diameter intersection: when an axis-aligned line
+has its constant coordinate exactly equal to the circle center, its only circle intersections
+are the two corresponding axis radial points. Original arc endpoint/cardinal construction cuts
+already represent those included by the arc; retain them subject to exact segment bounds, rather
+than solving and associating rounded roots. Ordinary line/circle roots stay unchanged. Conflicting
+construction identities must still fail, and arbitrary accumulated intersection cuts do not
+qualify as construction certificates. Final review and full verification remain pending.
+
+## Verification disposition (2026-09-11)
+
+The original width-10/radius-15 map now passes admission, all eight original probes, recovery, and
+clearance assertions without input changes. The final Step 7a filter passed **1,031/1,031** on both
+advisory Mac/Docker GCC and Clang ASan/UBSan lanes; the fixed corpus passed **55 executions** over
+seven harnesses. Complete commands/log locations and independent review are recorded in the racer
+admission report and plan. The calibrated publication golden remains unchanged as historical data.
+This closes the diagnosed clipped-corner defect; bounded representability limitations and the
+Step 5 human gate remain, with no native/performance/release certification.

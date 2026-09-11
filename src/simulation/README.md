@@ -205,7 +205,11 @@ cache shares one immutable allocation with the authored geometry and is compiled
 Analytic feature selection precedes at most four directed coordinate-rounding steps to obtain a
 supported witness; clearance rounds toward the supported center and cannot increase its computed
 distance. Recovery at an intersection uses the Boolean supported angular sector, not one curve's
-normal. The bounded selected-ray correction is neither an exhaustive nearby-point search nor an
+normal. Compilation retains authored side orientation and arc endpoint directions, and classifies
+open sectors before constructing the selected supported recovery ray. Known endpoint incidence
+is retained only with a construction certificate, never a proximity merge. A missing strict
+angular cone does not erase supported curved cusps, rims, or isolated points.
+The bounded selected-ray correction is neither an exhaustive nearby-point search nor an
 exact-real interval certificate (ADR 0008).
 Shape, temporary-work, and cache limits live in `simulation_limits.hpp`; exhaustion or lost
 precision is a named failure, never partial terrain. `swept_geometry.hpp` and

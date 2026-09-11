@@ -626,6 +626,39 @@ Step 5 retains the native-evidence gate. The new production-map fuzz harness exe
 boundaries. Race's distance loop is duplicated only for the staged, bit-identical promotion proof;
 Step 6 removes the old implementation by delegation, before any new publication owner appears.
 
+## Terrain construction provenance repair, 2026-09-10 (plan Step 7a)
+
+The owner approved a focused provenance-preserving repair after unchanged sloped/fractional
+fixtures exposed a manufactured angular sliver. A separate clipped-envelope case lost the identity
+of an existing side/cap endpoint while recomputing its line intersection. Captured hexadecimal
+evidence lives in `docs/reviews/2026-09-10-racer-projection-admission-blocker-review.md`; that report
+and the Step 7a verification record distinguish diagnosed causes from verified completion.
+
+Known construction relationships are retained through boundary compilation: a capsule side keeps
+its authored orientation, an arc endpoint keeps its authored radial direction, and a certified
+intersection at an existing endpoint retains that endpoint's identity. Endpoint containment
+certificates use literal axis coordinates/ranges and matching retained axis orientation; a side
+whose tiny authored slope merely rounded onto an axis does not qualify. An axis line through a
+circle's center reuses the arc's already-stored included cardinal constructions, which exhaust
+that diameter's intersections. General line/circle root arithmetic is unchanged. This is not proximity
+merging and does not make independently constructed nearby points equivalent. Unrelated curves,
+including equal-tangent branches with distinct curvature, retain their own incidences and support
+constraints. Existing missing/conflicting-incidence and precision/work guards remain fail-visible.
+
+The compiler classifies adjacent open angular sectors using their ordered boundary rays and
+incident halfspace signs before constructing an interior vector. Only the first canonically
+supported sector needs a representable recovery direction; an unsupported sector does not need a
+numeric witness. A selected supported sector with no representable direction still fails rather
+than choosing a different sector or feature. The four-target, selected-feature recovery contract
+above remains unchanged. Absence of a strict first-order angular cone does not prove absence of
+supported curved regions, rims, or isolated points, and must not delete them from the boundary.
+
+This refines the construction/provenance contract, not authored tolerance, point support, event
+roots/order, runtime clock, wire geometry, or gameplay policy. The pure Step 8 arithmetic promotion
+still requires both pre-delegation lanes before its old readers switch. No exact-geometry library
+replacement, blanket precision increase, coordinate snapping, native certification, or Step 5
+acceptance follows from this repair.
+
 ## Continuous-motion prototype boundary, 2026-09-10 (plan Step 4)
 
 This section records the **unwired prototype proposal**, not Step 5 acceptance or a change to

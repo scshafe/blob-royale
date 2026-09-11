@@ -1,3 +1,4 @@
+#include "fixtures/terrain_provenance_fixture.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 #include "terrain_boundary.hpp"
@@ -7,14 +8,17 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace simulation = blob_royale::simulation;
+namespace provenance = blob_royale::testing::terrain_provenance_fixture;
 
 namespace {
 
@@ -147,13 +151,27 @@ TEST_CASE("stationary support preserves hole rims but rejects hole interiors",
 }
 
 TEST_CASE("capsule union intervals merge overlaps and exact touching endpoints",
-          "[unit][simulation][terrain]") {
+          "[unit][simulation][terrain][terrain_provenance]") {
   const auto terrain = roads({road("left", 10.0, {point(50.0, 100.0), point(100.0, 100.0)}),
                               road("right", 10.0, {point(120.0, 100.0), point(170.0, 100.0)})});
   const auto intervals =
       simulation::swept_support_intervals(terrain, point(0.0, 100.0), point(200.0, 0.0));
   REQUIRE(intervals.size() == 1);
   check_interval(intervals[0], 0.2, 0.9);
+
+  // These distinct capsules touch at one point. A transverse sweep must retain a singleton,
+  // rather than treating their common tangent as either a gap or a finite-width passage.
+  const auto transverse =
+      simulation::swept_support_intervals(terrain, point(110.0, 80.0), point(0.0, 40.0));
+  REQUIRE(transverse.size() == 1);
+  CHECK(transverse[0].begin.value() == 0.5);
+  CHECK(transverse[0].end.value() == 0.5);
+  const auto clearance = simulation::disc_clearance(terrain, point(110.0, 100.0));
+  REQUIRE(clearance);
+  CHECK(clearance->distance == 0.0);
+  CHECK(simulation::terrain_supports_disc(terrain, point(110.0, 100.0), 0.0));
+  CHECK_FALSE(simulation::terrain_supports_disc(terrain, point(110.0, 100.0),
+                                                std::numeric_limits<double>::denorm_min()));
 }
 
 TEST_CASE("overlapping holes subtract their union without resurrecting an internal rim",
@@ -190,7 +208,7 @@ TEST_CASE("opposed coincident road sides are an internal seam and do not reduce 
 }
 
 TEST_CASE("coincident positive and negative arcs preserve supported rim-only spans",
-          "[unit][simulation][terrain]") {
+          "[unit][simulation][terrain][terrain_provenance]") {
   const auto terrain = roads({road("road", 20.0, {point(100.0, 100.0), point(200.0, 100.0)})},
                              {hole("cut", 100.0, 100.0, 20.0)});
   CHECK(simulation::terrain_supports_point(terrain, point(80.0, 100.0)));
@@ -200,10 +218,17 @@ TEST_CASE("coincident positive and negative arcs preserve supported rim-only spa
   const auto clearance = simulation::disc_clearance(terrain, point(80.0, 100.0));
   REQUIRE(clearance);
   CHECK(clearance->distance == 0.0);
+  const auto& boundary = simulation::detail::TerrainQueryAccess::boundary(terrain);
+  CHECK(std::any_of(boundary.spans.begin(), boundary.spans.end(), [](const auto& span) {
+    return span.supported_side == 0 &&
+           std::holds_alternative<simulation::detail::TerrainArcSpan>(span.geometry);
+  }));
+  CHECK_FALSE(simulation::terrain_supports_disc(terrain, point(80.0, 100.0),
+                                                std::numeric_limits<double>::denorm_min()));
 }
 
 TEST_CASE("a subtracted rectangle can retain isolated supported corners",
-          "[unit][simulation][terrain]") {
+          "[unit][simulation][terrain][terrain_provenance]") {
   const auto terrain = simulation::TerrainDefinition::create(
       simulation::ArenaBounds::create(6.0, 8.0), simulation::TerrainGround::kSolid, {},
       {hole("cover", 3.0, 4.0, 5.0)});
@@ -216,6 +241,16 @@ TEST_CASE("a subtracted rectangle can retain isolated supported corners",
   const auto clearance = simulation::disc_clearance(terrain, point(0.0, 0.0));
   REQUIRE(clearance);
   CHECK(clearance->distance == 0.0);
+  const auto& boundary = simulation::detail::TerrainQueryAccess::boundary(terrain);
+  CHECK(boundary.spans.empty());
+  CHECK(boundary.isolated_points.size() == 4);
+  for (const auto& corner : {point(0.0, 0.0), point(6.0, 0.0), point(0.0, 8.0), point(6.0, 8.0)}) {
+    CHECK(std::any_of(boundary.isolated_points.begin(), boundary.isolated_points.end(),
+                      [&corner](const auto& isolated) { return isolated.point == corner; }));
+    CHECK(simulation::terrain_supports_point(terrain, corner));
+    CHECK_FALSE(simulation::terrain_supports_disc(terrain, corner,
+                                                  std::numeric_limits<double>::denorm_min()));
+  }
 }
 
 TEST_CASE("fully subtracted terrain returns no nearest point or clearance",
@@ -375,6 +410,125 @@ TEST_CASE("narrow rotated hole recovery preserves the sector direction beyond co
   CHECK(nearest->point.x() == Catch::Approx(100.0 - 0.8 * vertex_height).margin(1e-12));
   CHECK(nearest->point.y() == Catch::Approx(110.0 + 0.6 * vertex_height).margin(1e-12));
   CHECK(nearest->distance == Catch::Approx(vertex_height - 10.0).margin(1e-12));
+}
+
+TEST_CASE("terrain provenance admits original sloped and fractional authored smooth joins",
+          "[unit][simulation][terrain][terrain_provenance][terrain_provenance_admission]") {
+  for (const auto& course : provenance::oblique_courses()) {
+    DYNAMIC_SECTION(course.name) {
+      const auto terrain = simulation::TerrainDefinition::create(
+          simulation::ArenaBounds::create(provenance::kRaceWidth, provenance::kRaceHeight),
+          simulation::TerrainGround::kCorridors,
+          {simulation::TerrainCorridor::create("road", provenance::kAuthoredRoadHalfWidth,
+                                               course.points)},
+          {});
+      const auto* authored = terrain.find_corridor("road");
+      REQUIRE(authored != nullptr);
+      CHECK(authored->half_width() == 80.0);
+      CHECK(std::vector(authored->points().begin(), authored->points().end()) == course.points);
+
+      const auto& begin = course.points.front();
+      const auto& end = course.points.back();
+      const auto middle = point((begin.x() + end.x()) * 0.5, (begin.y() + end.y()) * 0.5);
+      CHECK(simulation::terrain_supports_point(terrain, middle));
+      CHECK(simulation::terrain_supports_disc(terrain, middle, 80.0));
+      const auto clearance = simulation::disc_clearance(terrain, middle);
+      REQUIRE(clearance);
+      CHECK(simulation::terrain_supports_point(terrain, clearance->point));
+      CHECK(clearance->distance ==
+            Catch::Approx(80.0 + simulation::kPositionTolerance).epsilon(0.0).margin(1e-10));
+
+      // Query the authored side/cap join from its outward normal, not an easier replacement map.
+      const double dx = end.x() - begin.x();
+      const double dy = end.y() - begin.y();
+      const double length = std::sqrt(dx * dx + dy * dy);
+      const auto outside =
+          point(begin.x() - 100.0 * (dy / length), begin.y() + 100.0 * (dx / length));
+      REQUIRE_FALSE(simulation::terrain_supports_point(terrain, outside));
+      const auto nearest = simulation::nearest_supported_point(terrain, outside);
+      REQUIRE(nearest);
+      CHECK(simulation::terrain_supports_point(terrain, nearest->point));
+      CHECK(nearest->distance ==
+            Catch::Approx(20.0 - simulation::kPositionTolerance).epsilon(0.0).margin(1e-10));
+    }
+  }
+}
+
+TEST_CASE("terrain provenance admits original clipped corner width ten and radius fifteen",
+          "[unit][simulation][terrain][terrain_provenance][terrain_provenance_admission]") {
+  const auto terrain = provenance::original_clipped_corner();
+  REQUIRE(terrain.corridors().size() == 1);
+  REQUIRE(terrain.holes().size() == 1);
+  CHECK(terrain.corridors().front().half_width() == 10.0);
+  CHECK(terrain.holes().front().radius() == 15.0);
+  for (const auto& probe : provenance::original_clipped_corner_probes()) {
+    INFO(probe.point.x() << "," << probe.point.y());
+    CHECK(simulation::terrain_supports_point(terrain, probe.point) == probe.supported);
+  }
+
+  const auto nearest = simulation::nearest_supported_point(terrain, point(50.0, 11.0));
+  REQUIRE(nearest);
+  CHECK(simulation::terrain_supports_point(terrain, nearest->point));
+  CHECK(nearest->point.x() == 50.0);
+  CHECK(nearest->point.y() ==
+        Catch::Approx(10.0 + simulation::kPositionTolerance).epsilon(0.0).margin(1e-12));
+  const auto clearance = simulation::disc_clearance(terrain, point(50.0, 5.0));
+  REQUIRE(clearance);
+  CHECK(clearance->distance == 5.0);
+  CHECK(simulation::terrain_supports_disc(terrain, point(50.0, 5.0), 5.0));
+  CHECK_FALSE(simulation::terrain_supports_disc(terrain, point(50.0, 5.0), 5.01));
+}
+
+TEST_CASE("terrain provenance preserves an unrelated crossing at an authored side cap join",
+          "[unit][simulation][terrain][terrain_provenance]") {
+  const auto terrain = provenance::unrelated_crossing_at_join();
+  for (const auto& probe : provenance::crossing_probes()) {
+    INFO(probe.point.x() << "," << probe.point.y());
+    CHECK(simulation::terrain_supports_point(terrain, probe.point) == probe.supported);
+  }
+  // The hole's independent constraint must survive at the road's known smooth join. From the
+  // hole center every supported point is at least radius ten away, and this contact attains it.
+  const auto nearest =
+      simulation::nearest_supported_point(terrain, provenance::crossing_hole_center());
+  REQUIRE(nearest);
+  CHECK(nearest->point == provenance::crossing_contact());
+  CHECK(nearest->distance == 10.0);
+  const auto clearance = simulation::disc_clearance(terrain, provenance::crossing_contact());
+  REQUIRE(clearance);
+  CHECK(clearance->distance == 0.0);
+}
+
+TEST_CASE("terrain provenance keeps different curvature tangent branches and their supported cusp",
+          "[unit][simulation][terrain][terrain_provenance]") {
+  const auto terrain = provenance::different_curvature_tangent();
+  for (const auto& probe : provenance::curvature_probes()) {
+    INFO(probe.point.x() << "," << probe.point.y());
+    CHECK(simulation::terrain_supports_point(terrain, probe.point) == probe.supported);
+  }
+  // Equal tangent rays do not make these radius-twenty and radius-ten arcs coincident. Each has
+  // exposed spans, with opposite supported sides, and the curved region between them is ground.
+  const auto& boundary = simulation::detail::TerrainQueryAccess::boundary(terrain);
+  CHECK(std::any_of(boundary.spans.begin(), boundary.spans.end(), [](const auto& span) {
+    const auto* arc = std::get_if<simulation::detail::TerrainArcSpan>(&span.geometry);
+    return arc != nullptr && arc->radius == provenance::kContactRoadRadius &&
+           span.supported_side == 1;
+  }));
+  CHECK(std::any_of(boundary.spans.begin(), boundary.spans.end(), [](const auto& span) {
+    const auto* arc = std::get_if<simulation::detail::TerrainArcSpan>(&span.geometry);
+    return arc != nullptr && arc->radius == provenance::kContactHoleRadius &&
+           span.supported_side == -1;
+  }));
+  CHECK(simulation::terrain_supports_disc(terrain, provenance::curvature_supported_cusp(), 0.01));
+  const auto nearest =
+      simulation::nearest_supported_point(terrain, provenance::curvature_outside());
+  REQUIRE(nearest);
+  CHECK(nearest->point == provenance::curvature_contact());
+  CHECK(nearest->distance == 1.0);
+  const auto clearance = simulation::disc_clearance(terrain, provenance::curvature_contact());
+  REQUIRE(clearance);
+  CHECK(clearance->distance == 0.0);
+  CHECK_FALSE(simulation::terrain_supports_disc(terrain, provenance::curvature_contact(),
+                                                std::numeric_limits<double>::denorm_min()));
 }
 
 TEST_CASE("a subnormal terrain boundary that collapses fails visibly during compilation",

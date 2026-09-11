@@ -838,3 +838,28 @@ Simpler geometry and reduced clock rate or resolution are possible later tradeof
 change is made now. In particular, the 400 Hz clock, deterministic representation, and accepted
 fixture values remain intact; changing those is a deliberate contract/fixture migration, not an
 automatic runtime degradation. Step 24 retains the native verification requirement.
+
+## Supplemental contact proof completed, 2026-09-10 (plan Step 4a)
+
+The permanent pure pair path now carries one source-oriented touch observation, optional
+closing-impact certificate, and per-object effect eligibility. Omitted frozen policies explicitly
+mean closing impact; invalid, duplicate, absent-entity, and oversized policy declarations fail.
+Only the optional impact admits physical response or perfect-parry arithmetic. No-op observations
+consume both post-response revisions; external trajectory changes can re-enable the pair under
+the existing budgets. This implements the clarification without a second pair engine, root
+owner, or live-kernel change.
+
+The supplemental `rigorous-architect` source review closed with no remaining blocker. Its
+concrete Step 16 projection is an optional body-bound `ContactEffectAdmission` component holding
+a validated nondefault policy. Absence means closing impact. Resolve explicit instance input
+before an archetype default and canonical omission, so an explicit closing override can disable
+an archetype's any-touch default. Static authored body rows co-own geometry and instance policy;
+dynamic creation accepts typed instance input. The full authoring/registration/lifetime/v3
+publication migration remains Step 16, not part of this proof.
+
+Both advisory Mac/Docker lanes passed 761 simulation/gameplay cases and 42 accepted fixtures.
+All eight benchmark cases and delivery passed; the three default-policy prototype workloads
+kept identical correctness hashes and work counts. See
+`docs/reviews/2026-09-10-per-object-contact-prototype-review.md` and its sibling baseline JSON
+for scope, numerical limitations, and measurements. This is not human Step 5 acceptance, native
+certification, capacity selection, or a decision about post-perfect-window shielding.

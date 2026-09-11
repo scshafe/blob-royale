@@ -56,7 +56,12 @@ enum class PairBehavior {
   kMass,
   kDisposition,
   kRetainedTangent,
-  kCaptureNormal
+  kCaptureNormal,
+  kEligibleEffects,
+  kNoEffects,
+  kTerminateEligibleRecipient,
+  kRetainedApproach,
+  kSelfVelocityChange
 };
 enum class ScriptBehavior {
   kAcceleration,
@@ -73,17 +78,45 @@ struct Facts final {
   bool finish = true;
   simulation::MotionTime script_time = simulation::MotionTime::create(0.1);
   ScriptBehavior script = ScriptBehavior::kAcceleration;
+  std::vector<simulation::MotionContactEffectPolicy> effect_policies;
+  bool capture_observation = false;
 };
 using Trigger = simulation::MotionTrigger<Effect, Facts>;
 using Result = simulation::ContinuousMotionResult<Effect>;
 
-simulation::PairMotionResponse<Effect> respond_pair(const simulation::GameWorld&,
-                                                    const Subject& first, const Subject& second,
-                                                    const simulation::PlayerPairContact& contact,
-                                                    const simulation::TickContext&,
-                                                    const Facts& facts) {
+simulation::PairMotionResponse<Effect>
+respond_pair(const simulation::GameWorld&, const Subject& first, const Subject& second,
+             const simulation::PairContactObservation& observation, const simulation::TickContext&,
+             const Facts& facts) {
   simulation::PairMotionResponse<Effect> response{
       {first.body}, {second.body}, {first.entity.value() * 1000 + second.entity.value()}};
+  if (facts.capture_observation) {
+    response.effects.push_back(observation.impact.has_value());
+    response.effects.push_back(observation.first_effect_eligible);
+    response.effects.push_back(observation.second_effect_eligible);
+  }
+  if (facts.pair == PairBehavior::kNoEffects) {
+    response.effects.clear();
+    return response;
+  }
+  if (facts.pair == PairBehavior::kTerminateEligibleRecipient) {
+    if (observation.first_effect_eligible) {
+      response.second.disposition = simulation::MotionDisposition::kTerminate;
+    }
+    if (observation.second_effect_eligible) {
+      response.first.disposition = simulation::MotionDisposition::kTerminate;
+    }
+    return response;
+  }
+  if (facts.pair == PairBehavior::kEligibleEffects) {
+    response.effects.clear();
+    if (observation.first_effect_eligible) {
+      response.effects.push_back(first.entity.value());
+    }
+    if (observation.second_effect_eligible) {
+      response.effects.push_back(second.entity.value());
+    }
+  }
   if (facts.pair == PairBehavior::kUnchanged) {
     return response;
   }
@@ -93,6 +126,24 @@ simulation::PairMotionResponse<Effect> respond_pair(const simulation::GameWorld&
     }
     return response;
   }
+  if (facts.pair == PairBehavior::kRetainedApproach) {
+    if (first.entity.value() == 1 && second.entity.value() == 2) {
+      response.first.disposition = simulation::MotionDisposition::kTerminate;
+      response.second.body = second.body.with_velocity(point(4000, 0));
+    } else {
+      response.first.disposition = simulation::MotionDisposition::kTerminate;
+      response.second.disposition = simulation::MotionDisposition::kTerminate;
+    }
+    return response;
+  }
+  if (facts.pair == PairBehavior::kSelfVelocityChange) {
+    response.first.body = first.body.with_velocity(point(-4000, 0));
+    return response;
+  }
+  if (!observation.impact) {
+    return response;
+  }
+  const auto& contact = *observation.impact;
   if (facts.pair == PairBehavior::kCaptureNormal) {
     response.effects.push_back(std::bit_cast<std::uint64_t>(contact.normal().x()));
     response.effects.push_back(std::bit_cast<std::uint64_t>(contact.normal().y()));
@@ -206,7 +257,18 @@ respond_script(const simulation::GameWorld&, const Subject& body,
 Result solve(const Fixture& fixture, const std::vector<Subject>& bodies, const Facts& facts = {},
              const std::vector<Trigger>& triggers = {}, simulation::MotionLimits limits = {}) {
   return simulation::solve_continuous_motion<Effect, Facts>(fixture.world, bodies, fixture.context,
-                                                            facts, respond_pair, triggers, limits);
+                                                            facts, respond_pair, triggers, limits,
+                                                            facts.effect_policies);
+}
+simulation::MotionContactEffectPolicy any_touch(std::uint64_t id) {
+  return {simulation::EntityId::create(id), simulation::ContactEffectPolicy::kAnyTouch};
+}
+std::vector<Effect> effects(const Result& result) {
+  std::vector<Effect> values;
+  for (const auto& effect : result.effects) {
+    values.push_back(effect.effect);
+  }
+  return values;
 }
 const simulation::MotionBodyResult& body(const Result& result, std::uint64_t id) {
   const auto found = std::find_if(result.motion.bodies.begin(), result.motion.bodies.end(),
@@ -753,5 +815,307 @@ TEST_CASE("every continuous motion budget is a named visible boundary",
            simulation::SimulationValidationCode::kContinuousMotionInvalidInput);
   rejected([&] { return solve(fixture, input, facts, {gate(1, 1), gate(1, 1)}); },
            simulation::SimulationValidationCode::kContinuousMotionInvalidInput);
+  CHECK(fixture.world == before);
+}
+
+TEST_CASE("contact effects follow individual source policies under identity and input swaps",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  Facts facts;
+  facts.pair = PairBehavior::kEligibleEffects;
+  facts.effect_policies = {any_touch(2)};
+  const std::vector input{moving(1, 20, 20), fixed(2, 22, 20), moving(3, 60, 20), fixed(4, 62, 20)};
+  const auto result = solve(fixture, input, facts);
+  CHECK(effects(result) == std::vector<Effect>{2});
+  CHECK(result.motion.events.size() == 1);
+  auto permuted = input;
+  std::reverse(permuted.begin(), permuted.end());
+  const auto reordered = solve(fixture, permuted, facts);
+  CHECK(result.motion.bodies == reordered.motion.bodies);
+  CHECK(result.motion.paths == reordered.motion.paths);
+  CHECK(result.motion.events == reordered.motion.events);
+  CHECK(effects(result) == effects(reordered));
+  facts.effect_policies = {any_touch(1)};
+  const auto swapped = solve(fixture, {fixed(1, 22, 20), moving(2, 20, 20)}, facts);
+  CHECK(effects(swapped) == std::vector<Effect>{1});
+  CHECK(body(swapped, 1).body.position() == body(result, 2).body.position());
+  CHECK(body(swapped, 2).body.position() == body(result, 1).body.position());
+}
+
+TEST_CASE("exact rotated tangent touch never gains an impulse at initial interior or final time",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  auto first = moving(1, 13e6, 22.25e6, -9.6e9, 2.8e9);
+  auto second = moving(2, 0, 0);
+  first.body =
+      first.body.with_radius(12.5e6).with_bounds_behavior(simulation::BoundsBehavior::kCross);
+  second.body =
+      second.body.with_radius(12.5e6).with_bounds_behavior(simulation::BoundsBehavior::kCross);
+  Facts facts;
+  facts.effect_policies = {any_touch(2)};
+  facts.capture_observation = true;
+  for (const auto& [start, expected_time] :
+       std::vector<std::pair<simulation::Vector2, simulation::MotionTime>>{
+           {point(7e6, 24e6), simulation::MotionTime::start()},
+           {point(13e6, 22.25e6), simulation::MotionTime::create(0.25)},
+           {point(31e6, 17e6), simulation::MotionTime::end()}}) {
+    first.body = first.body.with_position(start);
+    const auto baseline = solve(fixture, {first, second});
+    const auto result = solve(fixture, {first, second}, facts);
+    CHECK(effects(result) == std::vector<Effect>{1002, 0, 0, 1});
+    REQUIRE(result.motion.events.size() == 1);
+    CHECK(result.motion.events.front().time() == expected_time);
+    CHECK(result.motion.bodies == baseline.motion.bodies);
+    CHECK(result.motion.paths == baseline.motion.paths);
+  }
+}
+
+TEST_CASE("any touch observes stationary and separating closed overlap without physical response",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  Facts facts;
+  facts.effect_policies = {any_touch(1), any_touch(2)};
+  facts.capture_observation = true;
+  auto obstacle = fixed(2, 22, 50);
+  obstacle.body = obstacle.body.with_velocity(point(9000, -7000)).with_acceleration(point(30, 40));
+  for (const auto& first : std::vector{moving(1, 20, 50), moving(1, 21, 50), moving(1, 22, 50),
+                                       moving(1, 20, 50, -100), moving(1, 21, 50, -100)}) {
+    const auto baseline = solve(fixture, {first, obstacle});
+    const auto result = solve(fixture, {first, obstacle}, facts);
+    CHECK(effects(result) == std::vector<Effect>{1002, 0, 1, 1});
+    REQUIRE(result.motion.events.size() == 1);
+    CHECK(result.motion.events.front().time() == simulation::MotionTime::start());
+    CHECK(result.motion.bodies == baseline.motion.bodies);
+    CHECK(result.motion.paths == baseline.motion.paths);
+    CHECK(body(result, 2).body == obstacle.body);
+  }
+}
+
+TEST_CASE("explicit default policies preserve impact work and mixed policies share one impulse",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  const std::vector input{moving(1, 10, 50, 20000), moving(2, 40, 50)};
+  const auto baseline = solve(fixture, input);
+  Facts explicit_defaults;
+  explicit_defaults.effect_policies = {{simulation::EntityId::create(1)},
+                                       {simulation::EntityId::create(2)}};
+  const auto defaults = solve(fixture, input, explicit_defaults);
+  CHECK(defaults.motion.bodies == baseline.motion.bodies);
+  CHECK(defaults.motion.paths == baseline.motion.paths);
+  CHECK(defaults.motion.events == baseline.motion.events);
+  CHECK(defaults.motion.work == baseline.motion.work);
+  CHECK(effects(defaults) == effects(baseline));
+  Facts mixed;
+  mixed.effect_policies = {any_touch(2)};
+  mixed.capture_observation = true;
+  const auto result = solve(fixture, input, mixed);
+  CHECK(effects(result) == std::vector<Effect>{1002, 1, 1, 1});
+  CHECK(result.motion.bodies == baseline.motion.bodies);
+  CHECK(result.motion.paths == baseline.motion.paths);
+  CHECK(result.motion.work == baseline.motion.work);
+}
+
+TEST_CASE("default stationary rejection retains its domain without constructing a tiny normal",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  auto first = moving(1, 0, 0);
+  auto second = moving(2, 1e-170, 0);
+  for (auto* subject : {&first, &second}) {
+    subject->body =
+        subject->body.with_radius(1e-170).with_bounds_behavior(simulation::BoundsBehavior::kCross);
+  }
+  const auto result = solve(fixture, {first, second});
+  CHECK(result.effects.empty());
+  CHECK(result.motion.events.empty());
+  CHECK(body(result, 1).body == first.body);
+  CHECK(body(result, 2).body == second.body);
+}
+
+TEST_CASE("no effect touch is consumed despite time advance and acceleration only changes",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  Facts facts;
+  facts.pair = PairBehavior::kNoEffects;
+  facts.effect_policies = {any_touch(1)};
+  facts.script = ScriptBehavior::kAcceleration;
+  simulation::MotionLimits limits;
+  limits.events = 2;
+  const auto result =
+      solve(fixture, {moving(1, 20, 50, 100), moving(2, 21, 50, 100)}, facts, {script(1)}, limits);
+  CHECK(effects(result) == std::vector<Effect>{400});
+  REQUIRE(result.motion.events.size() == 2);
+  CHECK(result.motion.events.front().priority() == simulation::MotionEventPriority::kBodyContact);
+  CHECK(result.motion.events.back().time() == facts.script_time);
+  CHECK(result.motion.paths.size() == 2);
+  CHECK(body(result, 1).body.velocity() == point(100, 0));
+  CHECK(body(result, 1).body.acceleration() == point(123, 0));
+}
+
+TEST_CASE("external velocity revision reenables a consumed nonimpact touch within event budgets",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  const auto before = fixture.world;
+  Facts facts;
+  facts.effect_policies = {any_touch(1)};
+  facts.capture_observation = true;
+  facts.script = ScriptBehavior::kVelocity;
+  const std::vector input{moving(1, 20, 50, 100), moving(2, 21, 50, 100)};
+  simulation::MotionLimits limits;
+  limits.events = 3;
+  const auto result = solve(fixture, input, facts, {script(1)}, limits);
+  CHECK(effects(result) == std::vector<Effect>{1002, 0, 1, 0, 400, 1002, 0, 1, 0});
+  REQUIRE(result.motion.events.size() == 3);
+  CHECK(result.motion.events.front().time() == simulation::MotionTime::start());
+  CHECK(result.motion.events[1].time() == facts.script_time);
+  CHECK(result.motion.events[2].time() == facts.script_time);
+  CHECK(body(result, 1).body.velocity() == point(-100, 0));
+  CHECK(body(result, 2).body.velocity() == point(100, 0));
+  limits.events = 2;
+  rejected([&] { return solve(fixture, input, facts, {script(1)}, limits); },
+           simulation::SimulationValidationCode::kContinuousMotionBudgetExceeded);
+  limits.events = 3;
+  limits.effects = 8;
+  rejected([&] { return solve(fixture, input, facts, {script(1)}, limits); },
+           simulation::SimulationValidationCode::kContinuousMotionBudgetExceeded);
+  CHECK(fixture.world == before);
+}
+
+TEST_CASE("touch response consumes its own changed velocity revision without an immediate repeat",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  Facts facts;
+  facts.pair = PairBehavior::kSelfVelocityChange;
+  facts.effect_policies = {any_touch(2)};
+  simulation::MotionLimits limits;
+  limits.events = 1;
+  const auto result = solve(fixture, {moving(1, 20, 50), fixed(2, 22, 50)}, facts, {}, limits);
+  CHECK(effects(result) == std::vector<Effect>{1002});
+  CHECK(result.motion.work.events == 1);
+  CHECK(body(result, 1).body.position() == point(10, 50));
+  CHECK(body(result, 1).body.velocity() == point(-4000, 0));
+}
+
+TEST_CASE("terminal epoch reenables an existing touch but never travels an outside reference root",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  Facts facts;
+  facts.effect_policies = {any_touch(3)};
+  facts.capture_observation = true;
+  facts.gates = {{point(12, 50), 1.0 - simulation::kPositionTolerance}};
+  const auto result = solve(fixture, {moving(1, 10, 50, 400), moving(2, 13, 50), moving(3, 13, 52)},
+                            facts, {gate(1, 1)});
+  CHECK(effects(result) == std::vector<Effect>{2003, 0, 0, 1, 1002, 1, 1, 1, 2003, 0, 0, 1, 100});
+  REQUIRE(result.motion.events.size() == 4);
+  CHECK(result.motion.events.front().time() == simulation::MotionTime::start());
+  CHECK(result.motion.events[1].time() == simulation::MotionTime::end());
+  CHECK(result.motion.events[2].time() == simulation::MotionTime::end());
+  CHECK(result.motion.events[3].time() == simulation::MotionTime::end());
+  CHECK(body(result, 2).body.position() == point(13, 50));
+  CHECK(body(result, 3).body.position() == point(13, 52));
+  const auto outside =
+      solve(fixture, {moving(1, 10, 50, 400), moving(2, 13, 50), moving(3, 14.5, 51.5)}, facts,
+            {gate(1, 1)});
+  CHECK(effects(outside) == std::vector<Effect>{1002, 1, 1, 1, 100});
+  CHECK(body(outside, 3).body.position() == point(14.5, 51.5));
+}
+
+TEST_CASE("retained stationary or tangent touch can gain a causal closing impact",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  Facts facts;
+  facts.pair = PairBehavior::kRetainedApproach;
+  facts.effect_policies = {any_touch(3)};
+  facts.capture_observation = true;
+  for (const auto vertical_speed : {0.0, 100.0}) {
+    const auto result = solve(fixture,
+                              {moving(1, 18, 20, 4000, vertical_speed),
+                               moving(2, 20, 20, 0, vertical_speed), moving(3, 22, 20)},
+                              facts);
+    CHECK(effects(result) == std::vector<Effect>{1002, 1, 1, 1, 2003, 1, 1, 1});
+    REQUIRE(result.motion.events.size() == 2);
+    CHECK(result.motion.events[0].time() == simulation::MotionTime::start());
+    CHECK(result.motion.events[1].time() == simulation::MotionTime::start());
+    CHECK(body(result, 3).disposition == simulation::MotionDisposition::kTerminate);
+  }
+}
+
+TEST_CASE("retained exact radial tangent still delivers only the any touch source effect",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  auto first = moving(1, -18e6, 24e6, 1, 0);
+  auto second = moving(2, 7e6, 24e6, -1, 0);
+  auto third = moving(3, 0, 0);
+  for (auto* subject : {&first, &second, &third}) {
+    subject->body =
+        subject->body.with_radius(12.5e6).with_bounds_behavior(simulation::BoundsBehavior::kCross);
+  }
+  Facts facts;
+  facts.pair = PairBehavior::kRetainedTangent;
+  facts.effect_policies = {any_touch(3)};
+  facts.capture_observation = true;
+  const auto result = solve(fixture, {first, second, third}, facts);
+  CHECK(effects(result) == std::vector<Effect>{1002, 1, 1, 1, 2003, 0, 0, 1});
+  CHECK(result.motion.work.root_queries == 4);
+  CHECK(body(result, 2).body.velocity() == point(-9.6e9, 2.8e9));
+  CHECK(body(result, 3).body.velocity() == point(0, 0));
+}
+
+TEST_CASE("any touch honors support contact finish order and immediate recipient termination",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture(simulation::TerrainDefinition::create(
+      simulation::ArenaBounds::create(100, 100), simulation::TerrainGround::kSolid, {},
+      {simulation::TerrainHole::create("pit", point(30, 50),
+                                       1.0 + simulation::kPositionTolerance)}));
+  Facts facts;
+  facts.effect_policies = {any_touch(2)};
+  facts.gates = {{point(30, 50), 1.0}};
+  const auto support_first =
+      solve(fixture, {moving(1, 30, 50), fixed(2, 31, 50)}, facts, {support(1), gate(1, 1)});
+  CHECK(effects(support_first) == std::vector<Effect>{300});
+  CHECK(support_first.trigger_cursors == std::vector<std::uint64_t>{1, 0});
+  facts.gates = {{point(20, 50), 1.0}};
+  const std::vector input{moving(1, 20, 50), fixed(2, 22, 50)};
+  const auto finish_after_touch = solve(fixture, input, facts, {gate(1, 1)});
+  CHECK(effects(finish_after_touch) == std::vector<Effect>{1002, 100});
+  REQUIRE(finish_after_touch.motion.events.size() == 2);
+  CHECK(finish_after_touch.motion.events[0].time() == finish_after_touch.motion.events[1].time());
+  facts.pair = PairBehavior::kTerminateEligibleRecipient;
+  const auto terminated = solve(fixture, input, facts, {gate(1, 1)});
+  CHECK(effects(terminated) == std::vector<Effect>{1002});
+  CHECK(body(terminated, 1).disposition == simulation::MotionDisposition::kTerminate);
+  CHECK(body(terminated, 2).disposition == simulation::MotionDisposition::kContinue);
+  CHECK(terminated.trigger_cursors == std::vector<std::uint64_t>{0});
+}
+
+TEST_CASE("any touch retains body filters exact radii and excludes static pairs",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  Facts facts;
+  facts.effect_policies = {any_touch(2)};
+  auto masked = moving(1, 20, 50);
+  masked.body = simulation::PhysicsBody::create(masked.body.position(), point(0, 0), point(0, 0),
+                                                1.0, 1.0, 1, 0, false);
+  CHECK(solve(fixture, {masked, fixed(2, 21, 50)}, facts).motion.events.empty());
+  CHECK(solve(fixture, {fixed(1, 20, 50), fixed(2, 21, 50)}, facts).motion.events.empty());
+  CHECK(solve(fixture,
+              {moving(1, 20, 50), fixed(2, 22.0 + 0.5 * simulation::kPositionTolerance, 50)}, facts)
+            .motion.events.empty());
+}
+
+TEST_CASE("contact effect policies reject duplicate absent and undeclared values before callbacks",
+          "[unit][simulation][continuous_motion][contact_effect_policy]") {
+  const Fixture fixture;
+  const auto before = fixture.world;
+  const std::vector input{moving(1, 20, 50), fixed(2, 21, 50)};
+  for (const auto& policies : std::vector<std::vector<simulation::MotionContactEffectPolicy>>{
+           {any_touch(1), any_touch(1)},
+           {any_touch(3)},
+           {{simulation::EntityId::create(1), static_cast<simulation::ContactEffectPolicy>(77)}},
+           {any_touch(1), any_touch(2), any_touch(3)}}) {
+    Facts facts;
+    facts.effect_policies = policies;
+    rejected([&] { return solve(fixture, input, facts); },
+             simulation::SimulationValidationCode::kContinuousMotionInvalidInput);
+  }
   CHECK(fixture.world == before);
 }

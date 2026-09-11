@@ -8,6 +8,7 @@
 #include "controller_id.hpp"
 #include "game_world.hpp"
 #include "match_phase.hpp"
+#include "motion_triggers.hpp"
 #include "physics.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
@@ -20,6 +21,8 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <utility>
 #include <variant>
 
 namespace gameplay = blob_royale::gameplay;
@@ -34,6 +37,14 @@ namespace {
 
 [[nodiscard]] simulation::EntityId entity(const simulation::EntityId::Value value) {
   return simulation::EntityId::create(value);
+}
+
+// Existing impact-equation fixtures supply an already admitted contact, not a second solver.
+// Explicit touch-only fixtures below construct their independent eligibility flags directly.
+[[nodiscard]] simulation::PairContactObservation
+impact_observation(const simulation::PlayerPairContact& contact) {
+  return {contact, contact.is_contact() ? std::optional{contact} : std::nullopt,
+          contact.is_contact(), contact.is_contact()};
 }
 
 // The pair is exactly touching in its authored orientation. Every pure-core test below uses these
@@ -69,8 +80,8 @@ struct GuardPairFixture final {
   }
 
   [[nodiscard]] gameplay::GuardedPairOutcome compose(const gameplay::PairGuardFacts& guards) const {
-    return gameplay::compose_guarded_pair(world, first, second, contact(), harness.context(),
-                                          guards);
+    return gameplay::compose_guarded_pair(world, first, second, impact_observation(contact()),
+                                          harness.context(), guards);
   }
 
   void make_lethal(const simulation::EntityId id) {
@@ -197,7 +208,8 @@ TEST_CASE("a static body's stored velocity is preserved but never enters separat
   const auto contact =
       simulation::detect_pair_contact(fixture.first.body, wall.with_velocity(vector(0.0)), 20.0);
   const auto result = gameplay::compose_guarded_pair(
-      fixture.world, fixture.first, fixture.second, contact, fixture.harness.context(),
+      fixture.world, fixture.first, fixture.second, impact_observation(contact),
+      fixture.harness.context(),
       gameplay::PairGuardFacts{gameplay::GuardState::kOrdinary, gameplay::GuardState::kNone});
   CHECK(result.first.body.velocity() == vector(0.0));
   CHECK(result.second.body == wall);
@@ -312,8 +324,8 @@ TEST_CASE("pair reversal preserves physical results and canonical consequence or
   const auto reversed_contact =
       simulation::detect_pair_contact(fixture.second.body, fixture.first.body, 20.0);
   const auto reversed = gameplay::compose_guarded_pair(
-      fixture.world, fixture.second, fixture.first, reversed_contact, fixture.harness.context(),
-      gameplay::PairGuardFacts{guards.second, guards.first});
+      fixture.world, fixture.second, fixture.first, impact_observation(reversed_contact),
+      fixture.harness.context(), gameplay::PairGuardFacts{guards.second, guards.first});
   CHECK(forward.first == reversed.second);
   CHECK(forward.second == reversed.first);
   CHECK(forward.effects == reversed.effects);
@@ -342,8 +354,8 @@ TEST_CASE("a newly stunned body loses acceleration but can receive a later exter
   const simulation::ContactRule::Subject bumped{fixture.first.entity, stopped.first.body};
   const simulation::ContactRule::Subject bumper{entity(3), moving_body(120.0, -10.0)};
   const auto contact = simulation::detect_pair_contact(bumped.body, bumper.body, 20.0);
-  const auto result = gameplay::compose_guarded_pair(fixture.world, bumped, bumper, contact,
-                                                     fixture.harness.context(), {});
+  const auto result = gameplay::compose_guarded_pair(
+      fixture.world, bumped, bumper, impact_observation(contact), fixture.harness.context(), {});
   CHECK(result.first.body.velocity() == vector(-10.0));
   CHECK(result.first.body.acceleration() == vector(0.0));
   CHECK_FALSE(result.first.body.is_static());
@@ -485,4 +497,209 @@ TEST_CASE("the continuous driver resolves moving and mutual perfects without zer
         });
     CHECK(stun_count == (guards.second == gameplay::GuardState::kPerfect ? 2 : 1));
   }
+}
+
+TEST_CASE("touch-only observations preserve stationary tangent and separating overlap motion",
+          "[unit][gameplay][shared][guarded_pair]") {
+  const std::array pairs{std::pair{moving_body(100.0, 0.0), moving_body(120.0, 0.0)},
+                         std::pair{moving_body(100.0, 0.0).with_velocity(vector(0.0, 8.0)),
+                                   moving_body(120.0, 0.0).with_velocity(vector(0.0, -4.0))},
+                         std::pair{moving_body(100.0, -8.0), moving_body(110.0, 4.0)}};
+  for (const auto& [first, second] : pairs) {
+    const GuardPairFixture fixture{first, second};
+    for (const auto guards : std::array{gameplay::PairGuardFacts{},
+                                        gameplay::PairGuardFacts{gameplay::GuardState::kOrdinary,
+                                                                 gameplay::GuardState::kOrdinary},
+                                        gameplay::PairGuardFacts{gameplay::GuardState::kPerfect,
+                                                                 gameplay::GuardState::kPerfect}}) {
+      const simulation::PairContactObservation observation{fixture.contact(), std::nullopt, true,
+                                                           true};
+      REQUIRE(observation.touch.is_contact());
+      const auto result =
+          gameplay::compose_guarded_pair(fixture.world, fixture.first, fixture.second, observation,
+                                         fixture.harness.context(), guards);
+      CHECK(result.first.body == first);
+      CHECK(result.second.body == second);
+      CHECK(result.first.disposition == simulation::MotionDisposition::kContinue);
+      CHECK(result.second.disposition == simulation::MotionDisposition::kContinue);
+      REQUIRE(result.effects.size() == 1);
+      CHECK(std::holds_alternative<gameplay::GuardedPairContactFact>(result.effects.front()));
+    }
+  }
+}
+
+TEST_CASE("touch-only lethal eligibility belongs to each source and reverses with its subject",
+          "[unit][gameplay][shared][guarded_pair]") {
+  GuardPairFixture fixture{moving_body(100.0, 0.0), moving_body(120.0, 0.0)};
+  fixture.make_lethal(fixture.first.entity);
+  fixture.make_lethal(fixture.second.entity);
+  for (const bool first_eligible : std::array{false, true}) {
+    for (const bool second_eligible : std::array{false, true}) {
+      const simulation::PairContactObservation observation{fixture.contact(), std::nullopt,
+                                                           first_eligible, second_eligible};
+      const auto forward = gameplay::compose_guarded_pair(
+          fixture.world, fixture.first, fixture.second, observation, fixture.harness.context(), {});
+      CHECK(forward.first.body == fixture.first.body);
+      CHECK(forward.second.body == fixture.second.body);
+      CHECK(forward.first.disposition == (second_eligible
+                                              ? simulation::MotionDisposition::kTerminate
+                                              : simulation::MotionDisposition::kContinue));
+      CHECK(forward.second.disposition == (first_eligible
+                                               ? simulation::MotionDisposition::kTerminate
+                                               : simulation::MotionDisposition::kContinue));
+      CHECK(fact_count<gameplay::GuardedPairEliminationFact>(forward) ==
+            static_cast<std::size_t>(first_eligible) + static_cast<std::size_t>(second_eligible));
+      CHECK(fact_count<gameplay::GuardedPairContactFact>(forward) ==
+            static_cast<std::size_t>(first_eligible || second_eligible));
+      const simulation::PairContactObservation reverse_observation{
+          simulation::detect_pair_contact(fixture.second.body, fixture.first.body, 20.0),
+          std::nullopt, second_eligible, first_eligible};
+      const auto reversed =
+          gameplay::compose_guarded_pair(fixture.world, fixture.second, fixture.first,
+                                         reverse_observation, fixture.harness.context(), {});
+      CHECK(forward.first == reversed.second);
+      CHECK(forward.second == reversed.first);
+      CHECK(forward.effects == reversed.effects);
+    }
+  }
+}
+
+TEST_CASE("touch-only ordinary and perfect guards block lethal effects without stopping a source",
+          "[unit][gameplay][shared][guarded_pair]") {
+  GuardPairFixture fixture{moving_body(100.0, 0.0).with_velocity(vector(0.0, 8.0)),
+                           moving_body(120.0, 0.0)};
+  fixture.make_lethal(fixture.first.entity);
+  const simulation::PairContactObservation observation{fixture.contact(), std::nullopt, true,
+                                                       false};
+  for (const auto guard :
+       std::array{gameplay::GuardState::kOrdinary, gameplay::GuardState::kPerfect}) {
+    const auto result = gameplay::compose_guarded_pair(fixture.world, fixture.first, fixture.second,
+                                                       observation, fixture.harness.context(),
+                                                       {gameplay::GuardState::kNone, guard});
+    CHECK(result.first.body == fixture.first.body);
+    CHECK(result.second.body == fixture.second.body);
+    CHECK(result.first.disposition == simulation::MotionDisposition::kContinue);
+    CHECK(result.second.disposition == simulation::MotionDisposition::kContinue);
+    REQUIRE(result.effects.size() == 1);
+    CHECK(std::holds_alternative<gameplay::GuardedPairContactFact>(result.effects.front()));
+  }
+}
+
+TEST_CASE("continuous mixed touch policies use the hazard instance rather than the victim policy",
+          "[unit][gameplay][shared][guarded_pair][continuous_motion]") {
+  for (const bool hazard_is_first : std::array{false, true}) {
+    for (const auto hazard_policy : std::array{simulation::ContactEffectPolicy::kClosingImpact,
+                                               simulation::ContactEffectPolicy::kAnyTouch}) {
+      for (const auto victim_policy : std::array{simulation::ContactEffectPolicy::kClosingImpact,
+                                                 simulation::ContactEffectPolicy::kAnyTouch}) {
+        GuardPairFixture fixture{moving_body(100.0, 0.0), moving_body(120.0, 0.0)};
+        const auto hazard = hazard_is_first ? fixture.first.entity : fixture.second.entity;
+        const auto victim = hazard_is_first ? fixture.second.entity : fixture.first.entity;
+        fixture.make_lethal(hazard);
+        const std::array subjects{fixture.second, fixture.first};
+        const std::array policies{simulation::MotionContactEffectPolicy{hazard, hazard_policy},
+                                  simulation::MotionContactEffectPolicy{victim, victim_policy}};
+        const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,
+                                                                gameplay::PairGuardFacts>(
+            fixture.world, subjects, fixture.harness.context(), {}, gameplay::compose_guarded_pair,
+            {}, {}, policies);
+        const bool lethal = hazard_policy == simulation::ContactEffectPolicy::kAnyTouch;
+        REQUIRE(result.motion.bodies.size() == 2);
+        for (const auto& body : result.motion.bodies) {
+          CHECK(body.result.body ==
+                (body.entity == fixture.first.entity ? fixture.first.body : fixture.second.body));
+          CHECK(body.result.disposition == (body.entity == victim && lethal
+                                                ? simulation::MotionDisposition::kTerminate
+                                                : simulation::MotionDisposition::kContinue));
+        }
+        const bool any_touch =
+            lethal || victim_policy == simulation::ContactEffectPolicy::kAnyTouch;
+        CHECK(result.motion.events.size() == static_cast<std::size_t>(any_touch));
+        CHECK(result.effects.size() ==
+              static_cast<std::size_t>(any_touch) + static_cast<std::size_t>(lethal));
+        if (lethal) {
+          CHECK(std::get<gameplay::GuardedPairEliminationFact>(result.effects.front().effect)
+                    .entity == victim);
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("continuous tangent lethality terminates a recipient without impulse or perfect bonus",
+          "[unit][gameplay][shared][guarded_pair][continuous_motion]") {
+  GuardPairFixture fixture{moving_body(100.0, 0.0).with_velocity(vector(0.0, 4'000.0)),
+                           moving_body(120.0, 0.0)};
+  fixture.make_lethal(fixture.first.entity);
+  const std::array subjects{fixture.first, fixture.second};
+  const std::array policies{simulation::MotionContactEffectPolicy{
+      fixture.first.entity, simulation::ContactEffectPolicy::kAnyTouch}};
+  for (const auto guard : std::array{gameplay::GuardState::kNone, gameplay::GuardState::kPerfect}) {
+    const gameplay::PairGuardFacts guards{gameplay::GuardState::kNone, guard};
+    const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,
+                                                            gameplay::PairGuardFacts>(
+        fixture.world, subjects, fixture.harness.context(), guards, gameplay::compose_guarded_pair,
+        {}, {}, policies);
+    REQUIRE(result.motion.bodies.size() == 2);
+    CHECK(result.motion.bodies[0].result.body.velocity() == fixture.first.body.velocity());
+    CHECK(result.motion.bodies[0].result.body.acceleration() == fixture.first.body.acceleration());
+    CHECK(result.motion.bodies[0].result.body.position() == vector(100.0, 110.0));
+    CHECK(result.motion.bodies[1].result.body == fixture.second.body);
+    CHECK(result.motion.bodies[1].result.disposition ==
+          (guard == gameplay::GuardState::kNone ? simulation::MotionDisposition::kTerminate
+                                                : simulation::MotionDisposition::kContinue));
+    REQUIRE(result.motion.events.size() == 1);
+    CHECK(result.motion.events.front().time() == simulation::MotionTime::start());
+    CHECK(std::none_of(result.effects.begin(), result.effects.end(), [](const auto& fact) {
+      return std::holds_alternative<gameplay::GuardedPairStunFact>(fact.effect);
+    }));
+  }
+}
+
+TEST_CASE("center support loss terminates before a tied any-touch pair regardless of guard",
+          "[unit][gameplay][shared][guarded_pair][continuous_motion]") {
+  const GuardPairFixture fixture{moving_body(100.0, 0.0), moving_body(120.0, 0.0)};
+  const auto terrain = simulation::TerrainDefinition::create(
+      simulation::ArenaBounds::create(960.0, 640.0), simulation::TerrainGround::kSolid, {},
+      {simulation::TerrainHole::create("center_void", vector(100.0, 100.0), 5.0)});
+  const testing::TickHarness harness{
+      simulation::TickSequence::create(1),
+      simulation::MapDefinition::create("touch_support", terrain, {}, {},
+                                        simulation::MapMetadata::none())};
+  const auto query =
+      +[](const simulation::GameWorld&, const simulation::ContactRule::Subject&,
+          const simulation::MotionTriggerWindow& window, const simulation::TickContext& context,
+          const gameplay::PairGuardFacts&, std::uint64_t, simulation::MotionQueryBudget& budget) {
+        return simulation::support_loss_motion_trigger(context.map().terrain(), window, budget);
+      };
+  const auto response =
+      +[](const simulation::GameWorld&, const simulation::ContactRule::Subject& subject,
+          const simulation::MotionTriggerEvent& event, const simulation::TickContext&,
+          const gameplay::PairGuardFacts&) {
+        return simulation::MotionTriggerResponse<gameplay::GuardedPairConsequence>{
+            {subject.body, simulation::MotionDisposition::kTerminate},
+            event.cursor + 1,
+            {gameplay::GuardedPairEliminationFact{subject.entity}}};
+      };
+  const std::array subjects{fixture.first, fixture.second};
+  const std::array policies{simulation::MotionContactEffectPolicy{
+                                fixture.first.entity, simulation::ContactEffectPolicy::kAnyTouch},
+                            simulation::MotionContactEffectPolicy{
+                                fixture.second.entity, simulation::ContactEffectPolicy::kAnyTouch}};
+  const std::array triggers{
+      simulation::MotionTrigger<gameplay::GuardedPairConsequence, gameplay::PairGuardFacts>{
+          fixture.first.entity, 1, 0, 1, query, response}};
+  const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,
+                                                          gameplay::PairGuardFacts>(
+      fixture.world, subjects, harness.context(),
+      {gameplay::GuardState::kPerfect, gameplay::GuardState::kPerfect},
+      gameplay::compose_guarded_pair, triggers, {}, policies);
+  REQUIRE(result.motion.bodies.size() == 2);
+  CHECK(result.motion.bodies[0].result.disposition == simulation::MotionDisposition::kTerminate);
+  CHECK(result.motion.bodies[1].result.disposition == simulation::MotionDisposition::kContinue);
+  REQUIRE(result.motion.events.size() == 1);
+  CHECK(result.motion.events.front().priority() == simulation::MotionEventPriority::kSupportLoss);
+  REQUIRE(result.effects.size() == 1);
+  CHECK(std::get<gameplay::GuardedPairEliminationFact>(result.effects.front().effect).entity ==
+        fixture.first.entity);
 }

@@ -134,6 +134,7 @@ struct EpochBody final {
   MotionTime anchor = MotionTime::start();
   std::uint64_t revision{};
   MotionDisposition disposition = MotionDisposition::kContinue;
+  ContactEffectPolicy effect_policy = ContactEffectPolicy::kClosingImpact;
 };
 
 struct PairCache final {
@@ -217,11 +218,18 @@ struct ContinuousMotionSolver::State final {
     const auto first = at(pair.first, begin);
     const auto second = at(pair.second, begin);
     const double contact_distance = pair_contact_distance(first.body, second.body, radius);
-    auto make = [&](const MotionTime time) -> std::optional<MotionGeometryEvent> {
+    const bool observes_touch = first_epoch.effect_policy == ContactEffectPolicy::kAnyTouch ||
+                                second_epoch.effect_policy == ContactEffectPolicy::kAnyTouch;
+    auto make = [&](const MotionTime time,
+                    const bool impact_geometry_admitted) -> std::optional<MotionGeometryEvent> {
+      if (!observes_touch && !impact_geometry_admitted) {
+        return std::nullopt;
+      }
       const auto first_at = at(pair.first, time);
       const auto second_at = at(pair.second, time);
       const auto geometry = contact_geometry(first_at.body, second_at.body);
-      if (!closing(relative_speed(first_at.body, second_at.body, geometry.normal))) {
+      if (!observes_touch &&
+          !closing(relative_speed(first_at.body, second_at.body, geometry.normal))) {
         return std::nullopt;
       }
       return MotionGeometryEvent{
@@ -231,7 +239,8 @@ struct ContinuousMotionSolver::State final {
           geometry.normal,
           geometry.distance,
           first_epoch.revision,
-          second_epoch.revision};
+          second_epoch.revision,
+          impact_geometry_admitted};
     };
     const auto first_velocity = geometric_velocity(first.body);
     const auto second_velocity = geometric_velocity(second.body);
@@ -246,24 +255,24 @@ struct ContinuousMotionSolver::State final {
     MotionQueryBudget{work, limits}.roots(1);
     const auto query = swept_circle_boundary_query(first.body.position(), displacement,
                                                    second.body.position(), contact_distance);
-    if (query.topology == CircleLineTopology::kStationary ||
-        query.topology == CircleLineTopology::kTangent) {
-      return std::nullopt; // Exact topology precedes a rounded normal's closing-speed residual.
-    }
+    const bool impact_topology = query.topology != CircleLineTopology::kStationary &&
+                                 query.topology != CircleLineTopology::kTangent;
     if (query.initial_relation != CircleInitialRelation::kOutside) {
-      if (!query.initial_centers_coincident &&
-          query.initial_radial_motion != CircleRadialMotion::kApproaching) {
-        return std::nullopt;
-      }
-      return make(begin); // Exact initial overlap/boundary, with the existing closing predicate.
+      const bool impact_geometry =
+          impact_topology && (query.initial_centers_coincident ||
+                              query.initial_radial_motion == CircleRadialMotion::kApproaching);
+      return make(begin, impact_geometry); // Closed initial contact needs no manufactured root.
     }
-    if (terminal_epoch || query.topology != CircleLineTopology::kSecant || query.roots.empty()) {
+    if (terminal_epoch ||
+        (query.topology != CircleLineTopology::kSecant &&
+         query.topology != CircleLineTopology::kTangent) ||
+        query.roots.empty() || (!observes_touch && !impact_topology)) {
       return std::nullopt;
     }
     // An outside secant has one entry followed by one exit. Filtering a stale entry cannot
     // promote the later exit into an impact, irrespective of its rounded normal-speed sign.
     const auto time = map_motion_time(query.roots.times().front(), begin, MotionTime::end());
-    return time >= now ? make(time) : std::nullopt;
+    return time >= now ? make(time, impact_topology) : std::nullopt;
   }
 
   void rebuild() {
@@ -392,9 +401,9 @@ struct ContinuousMotionSolver::State final {
   }
 };
 
-ContinuousMotionSolver::ContinuousMotionSolver(const std::span<const ContactRule::Subject> input,
-                                               const TickContext& context,
-                                               const MotionLimits limits)
+ContinuousMotionSolver::ContinuousMotionSolver(
+    const std::span<const ContactRule::Subject> input, const TickContext& context,
+    const MotionLimits limits, const std::span<const MotionContactEffectPolicy> effect_policies)
     : state_(std::make_unique<State>(context, limits)) {
   validate_limits(limits);
   require_motion_budget(input.size(), limits.bodies, "motion body budget exhausted");
@@ -429,6 +438,25 @@ ContinuousMotionSolver::ContinuousMotionSolver(const std::span<const ContactRule
     for (std::size_t second = index + 1; second < state_->bodies.size(); ++second) {
       state_->pairs.push_back({index, second});
     }
+  }
+  if (effect_policies.size() > state_->bodies.size()) {
+    fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
+                "motion effect policies exceed the number of bodies");
+  }
+  std::vector<bool> assigned(state_->bodies.size(), false);
+  for (const auto& policy : effect_policies) {
+    if (policy.policy != ContactEffectPolicy::kClosingImpact &&
+        policy.policy != ContactEffectPolicy::kAnyTouch) {
+      fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
+                  "undeclared motion contact effect policy");
+    }
+    const auto index = index_of(policy.entity);
+    if (assigned[index]) {
+      fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
+                  "duplicate motion contact effect policy identity");
+    }
+    assigned[index] = true;
+    state_->bodies[index].effect_policy = policy.policy;
   }
   state_->walls.resize(state_->bodies.size());
   state_->rebuild();
@@ -465,7 +493,7 @@ std::size_t ContinuousMotionSolver::index_of(const EntityId entity) const {
                        [](const auto& body, const auto& key) { return body.subject.entity < key; });
   if (found == state_->bodies.end() || found->subject.entity != entity) {
     fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
-                "motion trigger names an absent body");
+                "motion declaration names an absent body");
   }
   return static_cast<std::size_t>(found - state_->bodies.begin());
 }
@@ -487,10 +515,11 @@ MotionQueryBudget ContinuousMotionSolver::query_budget() {
   return MotionQueryBudget{state_->work, state_->limits};
 }
 
-std::optional<PlayerPairContact>
+std::optional<PairContactObservation>
 ContinuousMotionSolver::contact(const MotionGeometryEvent& event) const {
   const auto first = state_->at(event.first, event.key.time());
   const auto second = state_->at(*event.second, event.key.time());
+  bool impact_geometry_admitted = event.impact_geometry_admitted;
   if (event.first_motion_revision != state_->bodies[event.first].revision ||
       event.second_motion_revision != state_->bodies[*event.second].revision) {
     const auto first_velocity = geometric_velocity(first.body);
@@ -506,15 +535,21 @@ ContinuousMotionSolver::contact(const MotionGeometryEvent& event) const {
     const auto query =
         swept_circle_boundary_query(first.body.position(), reference, second.body.position(),
                                     pair_contact_distance(first.body, second.body, state_->radius));
-    if (!query.initial_centers_coincident &&
-        query.initial_radial_motion != CircleRadialMotion::kApproaching) {
-      return std::nullopt;
-    }
+    impact_geometry_admitted = query.initial_centers_coincident ||
+                               query.initial_radial_motion == CircleRadialMotion::kApproaching;
   }
   const double speed = relative_speed(first.body, second.body, event.normal);
-  return closing(speed) ? std::optional{MotionContactAccess::create(event.normal,
-                                                                    event.center_distance, speed)}
-                        : std::nullopt;
+  const bool impact_admitted = impact_geometry_admitted && closing(speed);
+  const bool first_eligible = impact_admitted || state_->bodies[event.first].effect_policy ==
+                                                     ContactEffectPolicy::kAnyTouch;
+  const bool second_eligible = impact_admitted || state_->bodies[*event.second].effect_policy ==
+                                                      ContactEffectPolicy::kAnyTouch;
+  if (!first_eligible && !second_eligible) {
+    return std::nullopt;
+  }
+  const auto touch = MotionContactAccess::create(event.normal, event.center_distance, speed);
+  return PairContactObservation{touch, impact_admitted ? std::optional{touch} : std::nullopt,
+                                first_eligible, second_eligible};
 }
 
 void ContinuousMotionSolver::begin_event(const MotionEventKey& key) {

@@ -87,6 +87,9 @@ the fixed 400 Hz quantum, one warm-up, nine samples, and sixteen independent sol
   `(-250, -250, 0, 0)`: stun kills current motion, but later external bumps remain physical.
 
 Each solve borrows identical already-accelerated bodies, committed world, and frozen guard facts.
+The Step 4a observation callback keeps the empty per-object policy list, so all three workloads
+retain closing-impact-only admission and their existing outcomes; mixed any-touch policies are
+covered by unit tests rather than changing these baseline workloads.
 Terrain compilation and world/grid setup are outside timing; acceleration/drag intake, ability
 activation/windows, registered stun lifecycle, live-kernel wiring, publication, and transport are
 not measured. Result allocation and solver/callback work are inside timing. The typed consequence

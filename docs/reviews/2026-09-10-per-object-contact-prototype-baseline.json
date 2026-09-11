@@ -1,0 +1,393 @@
+{
+  "schema": "blob-royale-per-object-contact-prototype-baseline-v1",
+  "recorded_on": "2026-09-10",
+  "purpose": "Step 4a advisory default-policy preservation evidence for the Step 5 human gate; not an accepted performance threshold",
+  "command": "./scripts/run-benchmarks-linux",
+  "comparison_class": "advisory",
+  "host_operating_system": "Darwin",
+  "host_architecture": "arm64",
+  "native_performance_certified": false,
+  "implementation_boundary": "Step 4a permanent per-object touch/optional-impact prototype, unwired from the live kernel",
+  "source_suite_schema": "blob-royale-benchmark-v1",
+  "source_suite_status": "passed",
+  "source_suite_cases": [
+    "sparse_64",
+    "sparse_512",
+    "sparse_2048",
+    "clustered_512",
+    "royale_deployed_roster",
+    "continuous_motion_charge_speed",
+    "continuous_motion_dense_32_holes",
+    "continuous_motion_dense_shield_contacts"
+  ],
+  "source_suite_measurement_policy": {
+    "lens": "distributional robust summaries",
+    "comparison_class": "advisory",
+    "regression_budgets_enforced": false,
+    "dedicated_native_linux_runner_required_for_budgets": true,
+    "warmup_run_count": 1,
+    "timed_sample_count": 9,
+    "timed_regions_include_correctness_hashing": false,
+    "delivery_backpressure_measured": true
+  },
+  "platform": {
+    "operating_system": "Linux",
+    "architecture": "x86_64",
+    "kernel_release": "6.8.0-100-generic",
+    "distribution": "Ubuntu 24.04.4 LTS",
+    "cpu_model": "VirtualApple @ 2.50GHz",
+    "logical_cpu_count": 8,
+    "physical_memory_bytes": 12513808384,
+    "cpu_governor": "unavailable",
+    "glibc": "2.39",
+    "compiler_id": "GNU",
+    "compiler_version": "13.3.0",
+    "compiler_version_string": "13.3.0",
+    "build_type": "Release",
+    "boost": "1_83",
+    "toolchain_id": "ubuntu-24.04-amd64-20260804",
+    "base_image_digest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+    "execution_environment": "pinned_oci_container"
+  },
+  "exclusions": [
+    "terrain compilation",
+    "acceleration and drag intake",
+    "ability windows and registered stun lifecycle",
+    "live-kernel wiring",
+    "publication and transport",
+    "worst-case supported body capacity",
+    "native performance certification",
+    "approved charge tuning"
+  ],
+  "cases": [
+    {
+      "name": "continuous_motion_charge_speed",
+      "implementation_boundary": "pure continuous-motion prototype; live kernel remains unwired",
+      "comparison_class": "advisory",
+      "native_capacity_certified": false,
+      "workload_definition": {
+        "world_width_world_units": 960,
+        "world_height_world_units": 640,
+        "body_radius_world_units": 4,
+        "fixed_delta_seconds": 0.0025,
+        "initial_body_count": 16,
+        "terrain_hole_count": 0,
+        "terrain_corridor_count": 0,
+        "terrain_feature_count": 4,
+        "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+        "support_loss_trigger_count": 8,
+        "terrain_compilation_in_timed_region": false,
+        "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+        "layout": "eight independent rows: dynamic x128, static x192; y48+72*row",
+        "dynamic_body_count": 8,
+        "static_body_count": 8,
+        "initial_speed_world_units_per_second": 40000,
+        "unreflected_travel_world_units": 100,
+        "approved_charge_tuning": false
+      },
+      "deterministic_work": {
+        "pair_examinations_per_solve": 1080,
+        "charged_root_queries_per_solve": 144,
+        "events_per_solve": 8,
+        "trigger_queries_per_solve": 16,
+        "broad_phase_rebuilds_per_solve": 9,
+        "maximum_candidate_pairs": 8,
+        "path_segments_per_solve": 16,
+        "effects_per_solve": 8,
+        "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+      },
+      "correctness": {
+        "complete_result_hash": "fnv1a64:53a16ad6bc6a44a0",
+        "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+        "independent_repeat_equal": true,
+        "timed_final_outputs_equal_reference": true,
+        "contact_fact_count": 8,
+        "stun_fact_count": 0,
+        "elimination_fact_count": 0,
+        "terminated_body_count": 0
+      },
+      "measurement": {
+        "sample_count": 9,
+        "solves_per_sample": 16,
+        "latency": {
+          "unit": "nanoseconds_per_solve",
+          "samples": [
+            47194.125,
+            34163.625,
+            34265.5,
+            33795.1875,
+            34124.4375,
+            34137.5,
+            33588.8125,
+            34085.1875,
+            33565.25
+          ],
+          "summary": {
+            "median": 34124.4375,
+            "percentile_25": 33795.1875,
+            "percentile_75": 34163.625,
+            "median_absolute_deviation": 141.0625,
+            "minimum": 33565.25,
+            "maximum": 47194.125
+          }
+        },
+        "throughput": {
+          "unit": "solves_per_second",
+          "samples": [
+            21189.078089698665,
+            29270.89850681829,
+            29183.87299178474,
+            29590.01189148603,
+            29304.51234544159,
+            29293.299157817648,
+            29771.817625288182,
+            29338.25727084529,
+            29792.717170287724
+          ],
+          "summary": {
+            "median": 29304.51234544159,
+            "percentile_25": 29270.89850681829,
+            "percentile_75": 29590.01189148603,
+            "median_absolute_deviation": 120.63935365685029,
+            "minimum": 21189.078089698665,
+            "maximum": 29792.717170287724
+          }
+        }
+      }
+    },
+    {
+      "name": "continuous_motion_dense_32_holes",
+      "implementation_boundary": "pure continuous-motion prototype; live kernel remains unwired",
+      "comparison_class": "advisory",
+      "native_capacity_certified": false,
+      "workload_definition": {
+        "world_width_world_units": 960,
+        "world_height_world_units": 640,
+        "body_radius_world_units": 4,
+        "fixed_delta_seconds": 0.0025,
+        "initial_body_count": 32,
+        "terrain_hole_count": 32,
+        "terrain_corridor_count": 0,
+        "terrain_feature_count": 36,
+        "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+        "support_loss_trigger_count": 32,
+        "terrain_compilation_in_timed_region": false,
+        "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+        "layout": "8x4 hole centers (128+80*column,128+160*row); one body starts40wu left of each",
+        "dynamic_body_count": 32,
+        "static_body_count": 0,
+        "hole_radius_world_units": 8,
+        "initial_speed_world_units_per_second": 40000,
+        "collision_mask": 0,
+        "authored_hole_limit_exercised": true
+      },
+      "deterministic_work": {
+        "pair_examinations_per_solve": 2118,
+        "charged_root_queries_per_solve": 1680,
+        "events_per_solve": 32,
+        "trigger_queries_per_solve": 32,
+        "broad_phase_rebuilds_per_solve": 33,
+        "maximum_candidate_pairs": 0,
+        "path_segments_per_solve": 32,
+        "effects_per_solve": 32,
+        "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+      },
+      "correctness": {
+        "complete_result_hash": "fnv1a64:8f206d66b10f4e84",
+        "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+        "independent_repeat_equal": true,
+        "timed_final_outputs_equal_reference": true,
+        "contact_fact_count": 0,
+        "stun_fact_count": 0,
+        "elimination_fact_count": 32,
+        "terminated_body_count": 32
+      },
+      "measurement": {
+        "sample_count": 9,
+        "solves_per_sample": 16,
+        "latency": {
+          "unit": "nanoseconds_per_solve",
+          "samples": [
+            749812.5625,
+            748265.75,
+            706206,
+            701884.25,
+            702192.5625,
+            702265.75,
+            700988,
+            701137,
+            687988.875
+          ],
+          "summary": {
+            "median": 702192.5625,
+            "percentile_25": 701137,
+            "percentile_75": 706206,
+            "median_absolute_deviation": 1204.5625,
+            "minimum": 687988.875,
+            "maximum": 749812.5625
+          }
+        },
+        "throughput": {
+          "unit": "solves_per_second",
+          "samples": [
+            1333.6666388541603,
+            1336.4235901482862,
+            1416.0174226783686,
+            1424.736343635008,
+            1424.1107830019205,
+            1423.9623675225512,
+            1426.5579439305666,
+            1426.2547833019794,
+            1453.511875464556
+          ],
+          "summary": {
+            "median": 1424.1107830019205,
+            "percentile_25": 1416.0174226783686,
+            "percentile_75": 1426.2547833019794,
+            "median_absolute_deviation": 2.447160928646099,
+            "minimum": 1333.6666388541603,
+            "maximum": 1453.511875464556
+          }
+        }
+      }
+    },
+    {
+      "name": "continuous_motion_dense_shield_contacts",
+      "implementation_boundary": "pure continuous-motion prototype; live kernel remains unwired",
+      "comparison_class": "advisory",
+      "native_capacity_certified": false,
+      "workload_definition": {
+        "world_width_world_units": 960,
+        "world_height_world_units": 640,
+        "body_radius_world_units": 4,
+        "fixed_delta_seconds": 0.0025,
+        "initial_body_count": 32,
+        "terrain_hole_count": 0,
+        "terrain_corridor_count": 0,
+        "terrain_feature_count": 4,
+        "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+        "support_loss_trigger_count": 32,
+        "terrain_compilation_in_timed_region": false,
+        "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+        "layout": "eight touching collinear four-body chains; x128+8*member,y64+64*group",
+        "dynamic_body_count": 32,
+        "static_body_count": 0,
+        "group_count": 8,
+        "bodies_per_group": 4,
+        "within_group_center_spacing_world_units": 8,
+        "between_group_spacing_world_units": 64,
+        "initial_x_velocities_per_group": [
+          8000,
+          4000,
+          -4000,
+          -8000
+        ],
+        "frozen_guards_per_group": [
+          "ordinary",
+          "perfect",
+          "perfect",
+          "ordinary"
+        ],
+        "expected_terminal_x_velocities_per_group": [
+          -250,
+          -250,
+          0,
+          0
+        ],
+        "cascade_policy": "stun clears current motion; later external bumps remain physical"
+      },
+      "deterministic_work": {
+        "pair_examinations_per_solve": 17834,
+        "charged_root_queries_per_solve": 1520,
+        "events_per_solve": 40,
+        "trigger_queries_per_solve": 112,
+        "broad_phase_rebuilds_per_solve": 41,
+        "maximum_candidate_pairs": 48,
+        "path_segments_per_solve": 32,
+        "effects_per_solve": 80,
+        "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+      },
+      "correctness": {
+        "complete_result_hash": "fnv1a64:8d567eb367dea076",
+        "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+        "independent_repeat_equal": true,
+        "timed_final_outputs_equal_reference": true,
+        "contact_fact_count": 40,
+        "stun_fact_count": 40,
+        "elimination_fact_count": 0,
+        "terminated_body_count": 0
+      },
+      "measurement": {
+        "sample_count": 9,
+        "solves_per_sample": 16,
+        "latency": {
+          "unit": "nanoseconds_per_solve",
+          "samples": [
+            282085.75,
+            280889.0625,
+            280403,
+            280233.1875,
+            280468.3125,
+            280363.875,
+            280408.5625,
+            279958.625,
+            280428.75
+          ],
+          "summary": {
+            "median": 280408.5625,
+            "percentile_25": 280363.875,
+            "percentile_75": 280468.3125,
+            "median_absolute_deviation": 59.75,
+            "minimum": 279958.625,
+            "maximum": 282085.75
+          }
+        },
+        "throughput": {
+          "unit": "solves_per_second",
+          "samples": [
+            3545.021327734563,
+            3560.1243818455905,
+            3566.2956530422284,
+            3568.4567160697197,
+            3565.465171756257,
+            3566.793332414884,
+            3566.224907985825,
+            3571.9563917703913,
+            3565.9681826488904
+          ],
+          "summary": {
+            "median": 3566.224907985825,
+            "percentile_25": 3565.465171756257,
+            "percentile_75": 3566.793332414884,
+            "median_absolute_deviation": 0.7597362295682615,
+            "minimum": 3545.021327734563,
+            "maximum": 3571.9563917703913
+          }
+        }
+      }
+    }
+  ],
+  "source_parent_commit": "dd3c7b0",
+  "contact_effect_policy": "empty frozen policy span; every object defaults to closing_impact",
+  "comparison_reference": "2026-09-10-continuous-motion-prototype-baseline.json",
+  "default_policy_comparisons": [
+    {
+      "name": "continuous_motion_charge_speed",
+      "workload_definition_unchanged": true,
+      "correctness_unchanged": true,
+      "deterministic_work_unchanged": true
+    },
+    {
+      "name": "continuous_motion_dense_32_holes",
+      "workload_definition_unchanged": true,
+      "correctness_unchanged": true,
+      "deterministic_work_unchanged": true
+    },
+    {
+      "name": "continuous_motion_dense_shield_contacts",
+      "workload_definition_unchanged": true,
+      "correctness_unchanged": true,
+      "deterministic_work_unchanged": true
+    }
+  ]
+}

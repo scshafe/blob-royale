@@ -143,7 +143,7 @@ void append_recipients(std::vector<GuardedPairConsequence>& effects,
 GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
                                         const simulation::ContactRule::Subject& first,
                                         const simulation::ContactRule::Subject& second,
-                                        const simulation::PlayerPairContact& contact,
+                                        const simulation::PairContactObservation& observation,
                                         const simulation::TickContext&,
                                         const PairGuardFacts& guards) {
   require_guard_facts(first, guards.first);
@@ -154,14 +154,16 @@ GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
         "a pair must name two distinct entities"};
   }
   GuardedPairOutcome outcome{{first.body}, {second.body}, {}};
-  if (!contact.is_contact()) {
+  if (!observation.touch.is_contact() ||
+      (!observation.impact.has_value() && !observation.first_effect_eligible &&
+       !observation.second_effect_eligible)) {
     return outcome;
   }
 
-  const bool first_eliminated = !is_guarded(guards.first) &&
+  const bool first_eliminated = observation.second_effect_eligible && !is_guarded(guards.first) &&
                                 body_is_player_driven(committed, first.entity) &&
                                 body_is_lethal_hazard(committed, second.entity);
-  const bool second_eliminated = !is_guarded(guards.second) &&
+  const bool second_eliminated = observation.first_effect_eligible && !is_guarded(guards.second) &&
                                  body_is_player_driven(committed, second.entity) &&
                                  body_is_lethal_hazard(committed, first.entity);
   if (first_eliminated || second_eliminated) {
@@ -173,11 +175,19 @@ GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
     append_recipients<GuardedPairEliminationFact>(outcome.effects, first.entity, first_eliminated,
                                                   second.entity, second_eliminated);
     outcome.effects.emplace_back(GuardedPairContactFact{simulation::contact_event_of(
-        first, second, contact,
+        first, second, observation.touch,
         simulation::ContactRuleName::create(kLethalHazardContactRuleName))});
     return outcome;
   }
 
+  if (!observation.impact.has_value()) {
+    // A geometric touch may block lethality, but it cannot create quartered impulse, separation
+    // correction, or a perfect stop. The solver owns the independent closing-impact admission.
+    outcome.effects.emplace_back(GuardedPairContactFact{simulation::contact_event_of(
+        first, second, observation.touch, simulation::ContactRuleName::create("guarded_pair"))});
+    return outcome;
+  }
+  const simulation::PlayerPairContact& contact = *observation.impact;
   if (!first.body.is_static() && !second.body.is_static()) {
     const simulation::PlayerPairCollisionResult collision =
         simulation::body_has_baseline_physics(first.body) &&
@@ -232,7 +242,7 @@ GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
   append_recipients<GuardedPairStunFact>(outcome.effects, first.entity, first_stunned,
                                          second.entity, second_stunned);
   outcome.effects.emplace_back(GuardedPairContactFact{simulation::contact_event_of(
-      first, second, contact, simulation::ContactRuleName::create("guarded_pair"))});
+      first, second, observation.touch, simulation::ContactRuleName::create("guarded_pair"))});
   return outcome;
 }
 

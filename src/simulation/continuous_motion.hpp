@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_CONTINUOUS_MOTION_HPP
 
 #include "contact_rule.hpp"
+#include "motion_contact_observation.hpp"
 #include "motion_event_order.hpp"
 #include "motion_response.hpp"
 #include "simulation_limits.hpp"
@@ -124,7 +125,7 @@ template <class Effect, class Facts>
 using PairMotionResponseFunction = PairMotionResponse<Effect> (*)(const GameWorld&,
                                                                   const ContactRule::Subject&,
                                                                   const ContactRule::Subject&,
-                                                                  const PlayerPairContact&,
+                                                                  const PairContactObservation&,
                                                                   const TickContext&, const Facts&);
 
 template <class Effect> struct OrderedMotionEffect final {
@@ -163,6 +164,9 @@ struct MotionGeometryEvent final {
   // Walls leave these zero; a retained pair checks them before current-velocity admission.
   std::uint64_t first_motion_revision{};
   std::uint64_t second_motion_revision{};
+  // Exact topology/radial admission at the generating revisions. A revised retained touch
+  // instead uses the canonical current-radial veto without revoking certified geometry.
+  bool impact_geometry_admitted{};
 };
 
 // Concrete canonical geometry/caching mechanism. Only typed facts/effects orchestration is a
@@ -170,7 +174,8 @@ struct MotionGeometryEvent final {
 class ContinuousMotionSolver final {
 public:
   ContinuousMotionSolver(std::span<const ContactRule::Subject> bodies, const TickContext& context,
-                         MotionLimits limits);
+                         MotionLimits limits,
+                         std::span<const MotionContactEffectPolicy> effect_policies);
   ~ContinuousMotionSolver();
   ContinuousMotionSolver(const ContinuousMotionSolver&) = delete;
   ContinuousMotionSolver& operator=(const ContinuousMotionSolver&) = delete;
@@ -182,7 +187,8 @@ public:
   [[nodiscard]] bool terminated(std::size_t index) const;
   [[nodiscard]] MotionTime now() const;
   [[nodiscard]] MotionQueryBudget query_budget();
-  [[nodiscard]] std::optional<PlayerPairContact> contact(const MotionGeometryEvent& event) const;
+  [[nodiscard]] std::optional<PairContactObservation>
+  contact(const MotionGeometryEvent& event) const;
   void begin_event(const MotionEventKey& key);
   void replace(std::size_t index, const MotionBodyResult& result);
   void reflect_wall(const MotionGeometryEvent& event);
@@ -212,6 +218,10 @@ private:
 // An epoch created exactly at t=1 uses a canonical-quantum reference line solely to classify
 // closing initial contact topology. It can admit causal touching-body chains at t=1, but its
 // nonzero reference roots never create additional travel or later contact events.
+// Frozen per-object effect policies may request certified closed touches, including tangent,
+// stationary, and separating overlap, through this same pair path. Impulse admission is unchanged.
+// Observations are consumed at both post-response revisions even when the response is a no-op;
+// external trajectory changes may re-enable them, within the same bounded event/effect budgets.
 template <class Effect, class Facts>
 [[nodiscard]] ContinuousMotionResult<Effect>
 solve_continuous_motion(const GameWorld& committed_world,
@@ -219,14 +229,15 @@ solve_continuous_motion(const GameWorld& committed_world,
                         const TickContext& context, const Facts& facts,
                         const PairMotionResponseFunction<Effect, Facts> pair_response,
                         const std::span<const MotionTrigger<Effect, Facts>> triggers = {},
-                        const MotionLimits limits = {}) {
+                        const MotionLimits limits = {},
+                        const std::span<const MotionContactEffectPolicy> effect_policies = {}) {
   if (pair_response == nullptr) {
     detail::fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
                         "continuous motion requires a pair response function");
   }
   detail::require_motion_budget(triggers.size(), limits.trigger_declarations,
                                 "motion trigger declaration budget");
-  detail::ContinuousMotionSolver solver{bodies, context, limits};
+  detail::ContinuousMotionSolver solver{bodies, context, limits, effect_policies};
   struct TriggerCache final {
     std::size_t body;
     std::uint64_t cursor;

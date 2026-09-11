@@ -1350,12 +1350,12 @@ struct MotionPrototypeCase final {
 [[nodiscard]] simulation::PairMotionResponse<MotionPrototypeEffect>
 prototype_pair_response(const GameWorld& world, const simulation::ContactRule::Subject& first,
                         const simulation::ContactRule::Subject& second,
-                        const simulation::PlayerPairContact& contact,
+                        const simulation::PairContactObservation& observation,
                         const simulation::TickContext& context, const MotionPrototypeFacts& facts) {
   const gameplay::PairGuardFacts pair{
       facts.guards.at(static_cast<std::size_t>(first.entity.value() - 1)),
       facts.guards.at(static_cast<std::size_t>(second.entity.value() - 1))};
-  return gameplay::compose_guarded_pair(world, first, second, contact, context, pair);
+  return gameplay::compose_guarded_pair(world, first, second, observation, context, pair);
 }
 
 [[nodiscard]] std::optional<simulation::MotionTriggerProposal>

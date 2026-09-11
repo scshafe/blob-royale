@@ -15,6 +15,7 @@
 #include "tick_sequence.hpp"
 #include "world_snapshot.hpp"
 
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -91,7 +92,7 @@ public:
 
   [[nodiscard]] const SimulationConfig& configuration() const& noexcept { return configuration_; }
   [[nodiscard]] const SimulationConfig& configuration() const&& = delete;
-  [[nodiscard]] const MapDefinition& map() const& noexcept { return map_; }
+  [[nodiscard]] const MapDefinition& map() const& noexcept { return *map_; }
   [[nodiscard]] const MapDefinition& map() const&& = delete;
   [[nodiscard]] const ContactRuleTable& contact_rules() const& noexcept { return contact_rules_; }
   [[nodiscard]] const ContactRuleTable& contact_rules() const&& = delete;
@@ -113,17 +114,19 @@ public:
   // `InputBatch::empty()`, not a different code path.
   void step(FixedDelta fixed_delta, const InputBatch& input_batch);
 
-  // Copies one complete committed state. The returned value never aliases the mutable world.
+  // Copies one complete committed state and retains the immutable map's terrain. The returned
+  // value never aliases the mutable world and remains valid after this simulation is destroyed.
   [[nodiscard]] WorldSnapshot snapshot() const;
 
 private:
-  GameSimulation(SimulationConfig configuration, MapDefinition map, GameWorld world,
-                 SpatialGrid grid, SystemPipeline system_pipeline, ContactRuleTable contact_rules,
-                 SpawnSystem spawn_system, std::string mode_name,
+  GameSimulation(SimulationConfig configuration, std::shared_ptr<const MapDefinition> map,
+                 GameWorld world, SpatialGrid grid, SystemPipeline system_pipeline,
+                 ContactRuleTable contact_rules, SpawnSystem spawn_system, std::string mode_name,
                  CommandKindMask accepted_command_kinds, TickSequence tick_sequence) noexcept;
 
   SimulationConfig configuration_;
-  MapDefinition map_;
+  // Snapshots alias this map's actual terrain member, so one immutable map outlives every reader.
+  std::shared_ptr<const MapDefinition> map_;
   GameWorld world_;
   SpatialGrid grid_;
   // Holds the mode's declared systems with the engine's MatchLifecycleSystem appended last at

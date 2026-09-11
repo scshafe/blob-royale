@@ -1,9 +1,10 @@
 import type { ValidateFunction } from 'ajv/dist/2020.js';
 
 import { SimulationApiError } from './SimulationApiError';
-import { protocolV2Schemas } from './generated/protocolV2Schemas.generated';
+import { protocolV3Schemas } from './generated/protocolV3Schemas.generated';
 import {
   createProtocolAjv,
+  assertNoNegativeZero,
   deepFreeze,
   formatValidationErrors,
 } from './protocolValidationSupport';
@@ -15,30 +16,33 @@ import type {
   SessionWelcomeMessage,
 } from './simulationProtocolTypes';
 import { HTTP_ERROR_REGISTRY } from './simulationProtocolValidation';
+import { assertTerrainSemantics } from './terrainValidation';
 
 const WELCOME_MESSAGE_SCHEMA_ID =
-  'https://schemas.blob-royale.invalid/protocol/v2/welcome-message.schema.json';
+  'https://schemas.blob-royale.invalid/protocol/v3/welcome-message.schema.json';
 const SNAPSHOT_MESSAGE_SCHEMA_ID =
-  'https://schemas.blob-royale.invalid/protocol/v2/snapshot-message.schema.json';
+  'https://schemas.blob-royale.invalid/protocol/v3/snapshot-message.schema.json';
 const COMMAND_ENVELOPE_SCHEMA_ID =
-  'https://schemas.blob-royale.invalid/protocol/v2/command-envelope.schema.json';
+  'https://schemas.blob-royale.invalid/protocol/v3/command-envelope.schema.json';
 const LOBBY_DIRECTORY_MESSAGE_SCHEMA_ID =
-  'https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-message.schema.json';
+  'https://schemas.blob-royale.invalid/protocol/v3/lobby-directory-message.schema.json';
 const HTTP_ERROR_RESPONSE_SCHEMA_ID =
-  'https://schemas.blob-royale.invalid/protocol/v2/error-response.schema.json';
+  'https://schemas.blob-royale.invalid/protocol/v3/error-response.schema.json';
 
 /**
- * Status and retryability per v2 error code: v1's registry, which v2 accepts unchanged, plus the
- * one row v2.0 added and the three lobby rows 2.4 added (`docs/protocol/v2.md` § "Error registry
- * additions"). `satisfies` over the generated enum is what makes a code the schema names and this
+ * Status and retryability for the active v3 error vocabulary. `satisfies` over the generated enum is what makes a code the schema names and this
  * table forgets a build failure rather than an envelope the client cannot check.
  */
-const V2_HTTP_ERROR_REGISTRY = Object.freeze({
+const V3_HTTP_ERROR_REGISTRY = Object.freeze({
   ...HTTP_ERROR_REGISTRY,
   'LOBBY.FULL': { retryable: true, status: 409 },
   'LOBBY.NOT_FOUND': { retryable: false, status: 404 },
   'LOBBY.UNAVAILABLE': { retryable: true, status: 503 },
   'PROTOCOL.INVALID_FORWARDED_CLIENT': { retryable: false, status: 400 },
+  'PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED': {
+    retryable: false,
+    status: 426,
+  },
 } as const satisfies Record<
   SessionHttpErrorResponse['error']['code'],
   { readonly retryable: boolean; readonly status: number }
@@ -49,18 +53,18 @@ const V2_HTTP_ERROR_REGISTRY = Object.freeze({
  * list: a kind this client does not know is exactly a kind the accepted schemas do not name.
  */
 const KNOWN_COMPONENT_KINDS: ReadonlySet<string> = new Set<string>(
-  protocolV2Schemas.common.$defs.component_kind.enum,
+  protocolV3Schemas.common.$defs.component_kind.enum,
 );
 const KNOWN_MODE_STATE_SCHEMA_IDS: ReadonlySet<string> = new Set<string>(
-  protocolV2Schemas.common.$defs.mode_state_schema_id.enum,
+  protocolV3Schemas.common.$defs.mode_state_schema_id.enum,
 );
 const KNOWN_COMMAND_KINDS: ReadonlySet<string> = new Set<string>(
-  protocolV2Schemas.common.$defs.command_kind.enum,
+  protocolV3Schemas.common.$defs.command_kind.enum,
 );
 
 /** The exact wire version this build decodes, taken from the const in `common.schema.json`. */
 export const SUPPORTED_PROTOCOL_VERSION: string =
-  protocolV2Schemas.common.$defs.protocol_version.const;
+  protocolV3Schemas.common.$defs.protocol_version.const;
 
 export interface SessionSequenceState {
   readonly messageSequence: number;
@@ -69,7 +73,7 @@ export interface SessionSequenceState {
 }
 
 const ajv = createProtocolAjv();
-for (const schema of Object.values(protocolV2Schemas)) {
+for (const schema of Object.values(protocolV3Schemas)) {
   ajv.addSchema(schema);
 }
 
@@ -110,14 +114,14 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 
 /**
  * Logs an unknown wire kind by name exactly once per detection, before the caller closes. Protocol
- * v2 requires the name to survive in a log even though the frame itself never reaches a component.
+ * v3 requires the name to survive in a log even though the frame itself never reaches a component.
  */
 function warnUnknownKind(
   detail: Readonly<Record<string, string | number>>,
 ): void {
   console.warn(
     JSON.stringify({
-      event: 'protocol.v2.unknown_kind',
+      event: 'protocol.v3.unknown_kind',
       ...detail,
     }),
   );
@@ -266,20 +270,6 @@ function assertKnownWelcomeKinds(document: unknown): void {
   }
 }
 
-function assertNoNegativeZero(
-  value: number,
-  fieldName: string,
-  entityId: number,
-): void {
-  if (Object.is(value, -0)) {
-    throw new SimulationApiError(
-      'SIMULATION.SESSION_INVARIANT_VIOLATION',
-      `Session snapshot ${fieldName} contains forbidden negative zero.`,
-      { context: { entity_id: entityId, field_name: fieldName } },
-    );
-  }
-}
-
 function assertSnapshotEntityInvariants(
   snapshot: SessionSnapshotMessage,
 ): void {
@@ -328,7 +318,7 @@ function assertSnapshotEntityInvariants(
   }
 }
 
-/** Validates the one welcome frame of a session and freezes it before any component sees it. */
+/** Schema and terrain semantics precede freezing; the API additionally checks fetched bounds. */
 export function validateSessionWelcomeMessage(
   document: unknown,
   previousSequence: SessionSequenceState | null,
@@ -339,7 +329,7 @@ export function validateSessionWelcomeMessage(
   if (!validateWelcomeSchema(document)) {
     throw new SimulationApiError(
       'SIMULATION.SESSION_FRAME_INVALID',
-      'Session welcome does not match protocol v2.',
+      'Session welcome does not match protocol v3.',
       {
         context: {
           validation_errors: formatValidationErrors(
@@ -362,6 +352,7 @@ export function validateSessionWelcomeMessage(
     );
   }
 
+  assertTerrainSemantics(document.data.terrain);
   return deepFreeze(document);
 }
 
@@ -379,7 +370,7 @@ export function validateSessionSnapshotMessage(
   if (!validateSnapshotSchema(document)) {
     throw new SimulationApiError(
       'SIMULATION.SESSION_FRAME_INVALID',
-      'Session snapshot does not match protocol v2.',
+      'Session snapshot does not match protocol v3.',
       {
         context: {
           validation_errors: formatValidationErrors(
@@ -454,7 +445,7 @@ export function validateSessionSnapshotMessage(
 export function validateSessionCommand(command: SessionCommand): void {
   if (!KNOWN_COMMAND_KINDS.has(command.kind)) {
     throw unknownKindError(
-      'Client command names a kind protocol v2 does not register.',
+      'Client command names a kind protocol v3 does not register.',
       { command_kind: command.kind },
     );
   }
@@ -465,7 +456,7 @@ export function validateSessionCommand(command: SessionCommand): void {
   if (!validateCommandEnvelopeSchema(commandDocument)) {
     throw new SimulationApiError(
       'SIMULATION.COMMAND_REJECTED',
-      'Client command does not match protocol v2.',
+      'Client command does not match protocol v3.',
       {
         context: {
           command_kind: command.kind,
@@ -479,7 +470,7 @@ export function validateSessionCommand(command: SessionCommand): void {
 }
 
 /**
- * Validates and freezes one lobby directory document, `GET /api/v2/lobbies`. Version first, then
+ * Validates and freezes one lobby directory document, `GET /api/v3/lobbies`. Version first, then
  * the closed schema, then the two facts the schema cannot state: the response's `X-Request-ID`
  * echoes the envelope's, and the rooms are numbered `1..N` in order -- the directory that Step 13's
  * router serves is exactly that, and a client that trusted a disordered one would join the wrong
@@ -494,7 +485,7 @@ export function validateLobbyDirectoryMessage(
   if (!validateLobbyDirectorySchema(document)) {
     throw new SimulationApiError(
       'SIMULATION.LOBBY_DIRECTORY_RESPONSE_INVALID',
-      'Lobby directory does not match protocol v2.',
+      'Lobby directory does not match protocol v3.',
       {
         context: {
           validation_errors: formatValidationErrors(
@@ -534,7 +525,7 @@ export function validateLobbyDirectoryMessage(
 }
 
 /**
- * Validates and freezes the v2 failure envelope of a `/api/v2/` target, holding it to the same
+ * Validates and freezes the v3 failure envelope of a `/api/v3/` target, holding it to the same
  * registry discipline as v1's: the status, the code, and the retryable flag must agree with what
  * the protocol registers for that code, and the request id must be echoed.
  */
@@ -546,7 +537,7 @@ export function validateSessionHttpErrorResponse(
   if (!validateHttpErrorSchema(document)) {
     throw new SimulationApiError(
       'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
-      'HTTP error response does not match protocol v2.',
+      'HTTP error response does not match protocol v3.',
       {
         context: {
           validation_errors: formatValidationErrors(
@@ -557,14 +548,14 @@ export function validateSessionHttpErrorResponse(
     );
   }
 
-  const registeredError = V2_HTTP_ERROR_REGISTRY[document.error.code];
+  const registeredError = V3_HTTP_ERROR_REGISTRY[document.error.code];
   if (
     httpStatus !== registeredError.status ||
     document.error.retryable !== registeredError.retryable
   ) {
     throw new SimulationApiError(
       'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
-      'HTTP status, protocol error code, and retryable flag do not match the protocol v2 registry.',
+      'HTTP status, protocol error code, and retryable flag do not match the protocol v3 registry.',
       {
         context: {
           actual_http_status: httpStatus,

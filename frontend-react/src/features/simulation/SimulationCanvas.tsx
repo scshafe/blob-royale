@@ -7,9 +7,11 @@ import {
 import type {
   SimulationConfiguration,
   SessionWorldSnapshot,
+  SessionTerrain,
 } from './simulationProtocolTypes';
 import { visualEntityRenderers } from './rendering/entityRendererRegistry';
 import { modeStateRendererRegistry } from './rendering/modeStateRendererRegistry';
+import { drawTerrain } from './rendering/terrainRenderer';
 import { countAlivePlayers, eliminationGraceTicks } from './sessionSelectors';
 import { useCanvasViewport } from './useCanvasViewport';
 import {
@@ -24,6 +26,7 @@ export interface SimulationCanvasProps {
   readonly configuration: SimulationConfiguration;
   readonly ownEntityId: number | null;
   readonly snapshot: SessionWorldSnapshot | null;
+  readonly terrain: SessionTerrain | null;
   readonly camera: {
     readonly mode: 'follow' | 'manual';
     readonly center: WorldPoint;
@@ -33,13 +36,14 @@ export interface SimulationCanvasProps {
 
 /**
  * Draws only validated immutable values and never owns transport state. It names no component kind:
- * geometry comes from `modeStateRendererRegistry` once per frame, then `entityRendererRegistry`
- * across each entity layer. New kinds and blocks add registrations rather than canvas branches.
+ * welcome terrain supplies the bottom layer, followed by mode objectives once per frame and
+ * `entityRendererRegistry` across entity layers. New kinds add registrations, not canvas branches.
  */
 export function SimulationCanvas({
   configuration,
   ownEntityId,
   snapshot,
+  terrain,
   camera,
   onPan,
 }: SimulationCanvasProps) {
@@ -121,8 +125,8 @@ export function SimulationCanvas({
       projection,
       configuration.world.height_world_units,
     );
-    context.fillStyle = '#f8fafc';
-    context.fillRect(origin.x, origin.y, worldWidth, worldHeight);
+    if (terrain !== null)
+      drawTerrain(terrain, { projection, surface: context });
     context.strokeStyle = '#334155';
     context.lineWidth = 1;
     context.strokeRect(origin.x, origin.y, worldWidth, worldHeight);
@@ -156,6 +160,7 @@ export function SimulationCanvas({
     configuration,
     ownEntityId,
     snapshot,
+    terrain,
     camera.center,
     viewport.height,
     viewport.width,

@@ -12,7 +12,7 @@ namespace blob_royale::protocol {
 // canonical: bounded_json_serialization -- the one way a protocol document becomes bytes.
 //
 // **This header is `blob_protocol`-internal.** It is the single exception to the domain rule that
-// no header in `src/protocol` names a Boost type, and it exists so the v1 and v2 encoders share one
+// no header in `src/protocol` names a Boost type, and it exists so the v1 and v3 encoders share one
 // bounded serializer instead of two: only this domain's own `.cpp` files include it, so no consumer
 // of `blob_protocol` needs Boost.JSON to link or to compile, which is what that rule protects
 // (`src/protocol/README.md`).
@@ -21,11 +21,11 @@ namespace blob_royale::protocol {
 // protocol needs: an oversized frame is refused rather than built and measured, so a hostile or
 // misconfigured world cannot make the process allocate a document it will then throw away.
 // related: protocol_json_encoding.cpp -- the v1 encoders.
-// related: protocol_v2_json_encoding.cpp -- the v2 encoders.
+// related: protocol_v3_json_encoding.cpp -- the v3 encoders.
 
 // One JSON number in the round-trip-safe representation both schema sets expect: an exact integer
 // when the value is integral and within the safe-integer range, otherwise a binary64 literal.
-// Canonicalizes `-0` to `0`, which `docs/protocol/v2.md` § "Object member order" requires and v1's
+// Canonicalizes `-0` to `0`, which `docs/protocol/v3.md` § "Object member order" requires and v1's
 // snapshot contract already required of the values it publishes.
 [[nodiscard]] boost::json::value encode_json_number(double value);
 

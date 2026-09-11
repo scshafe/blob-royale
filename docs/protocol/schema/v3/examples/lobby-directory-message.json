@@ -1,0 +1,40 @@
+{
+  "data": {
+    "lobbies": [
+      {
+        "lobby_id": 1,
+        "mode": "royale",
+        "map": "arena-960x640",
+        "phase": "running",
+        "phase_started_tick": 10904,
+        "tick_sequence": 12904,
+        "seat_count": 4,
+        "seat_count_maximum": 32,
+        "filled_seat_count": 2,
+        "npc_seat_count": 2,
+        "session_count": 1,
+        "healthy": true
+      },
+      {
+        "lobby_id": 2,
+        "mode": "royale",
+        "map": "arena-960x640",
+        "phase": "lobby",
+        "phase_started_tick": 0,
+        "tick_sequence": 12904,
+        "seat_count": 4,
+        "seat_count_maximum": 32,
+        "filled_seat_count": 1,
+        "npc_seat_count": 1,
+        "session_count": 0,
+        "healthy": true
+      }
+    ]
+  },
+  "error": null,
+  "meta": {
+    "protocol_version": "3.0",
+    "schema_id": "blob-royale://protocol/v3/lobby-directory",
+    "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"
+  }
+}

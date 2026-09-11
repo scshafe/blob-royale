@@ -306,3 +306,14 @@ immutable snapshots, and a server that never receives `GameSimulation&` or `Simu
 [`0004-gameplay-architecture.md`](0004-gameplay-architecture.md) specifies the component model, the
 stage list, the mode contract, and the controller contract; this amendment admits them into the
 ownership and dependency contract only, and the decision and its `Accepted` status are unchanged.
+
+## Amendment: retained immutable terrain, 2026-09-10 (plan Step 7)
+
+The immutable-publication boundary now includes the selected map's authored terrain.
+`GameSimulation` retains `shared_ptr<const MapDefinition>`, allocated after validation and
+before its private `noexcept` constructor. `WorldSnapshot` aliases that owner's actual terrain
+member; observations expose the retained value, not a mutable-world query. Old snapshots survive
+simulation destruction and compare authored terrain values rather than pointer identity.
+The runtime still atomically publishes one immutable snapshot and the server still has no
+mutable simulation capability. Session v3 serializes terrain only in welcome, never per frame.
+No kernel phase, motion equation, or command authority changes in this step.

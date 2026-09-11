@@ -9,7 +9,7 @@
 namespace blob_royale::protocol {
 
 // The `physics_body` wire object: everything the physics kernel reads or writes, in the order
-// `docs/protocol/v2.md` § "Object member order" declares. Units are ADR 0003's -- position `wu`,
+// `docs/protocol/v3.md` § "Object member order" declares. Units are ADR 0003's -- position `wu`,
 // velocity `wu/s`, acceleration `wu/s^2`, radius `wu` -- and the encoder converts none of them.
 //
 // **The wire requires a declared radius and the world does not.** `PhysicsBody::kUndeclaredRadius`
@@ -18,7 +18,7 @@ namespace blob_royale::protocol {
 // encoder says so with a named failure rather than substituting the configuration's radius: a
 // substituted value is a body drawn at a size no phase used, and the encoder does not invent
 // physics. Seating a body with its real radius is the fix, and it belongs in the simulation.
-// related: docs/protocol/schema/v2/physics-body-component.schema.json -- the closed wire shape.
+// related: docs/protocol/schema/v3/physics-body-component.schema.json -- the closed wire shape.
 // related: component_wire_bound.hpp -- why these two bounds are checked and the others are not.
 template <> struct ComponentWireEncoding<simulation::PhysicsBody> {
   static void encode(const simulation::PhysicsBody& body, const ComponentEncodingContext&,

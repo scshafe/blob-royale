@@ -1,7 +1,7 @@
 #include "match_startup_validation.hpp"
 
 #include "application_input_error.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 #include "runtime_limits.hpp"
 #include "server_limits.hpp"
 #include "shared/hazard_crossing.hpp"

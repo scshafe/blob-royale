@@ -24,7 +24,7 @@ import { drawZoneExposure } from './zoneExposureRenderer';
  *
  * Nothing else changes. `SimulationCanvas` iterates this registry and never names a component kind,
  * so a new kind renders without the canvas being edited. The `satisfies` clause is the guard: a
- * kind added to `docs/protocol/schema/v2/common.schema.json` and regenerated but not registered
+ * kind added to `docs/protocol/schema/v3/common.schema.json` and regenerated but not registered
  * here fails the build rather than rendering as nothing, because an entity nobody draws is an
  * invisible entity and an invisible entity is an incorrect world.
  */

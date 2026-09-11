@@ -1,7 +1,7 @@
 #include "peer_identity.hpp"
 #include "server_test_fixture.hpp"
 
-#include "v2_http_error.hpp"
+#include "v3_http_error.hpp"
 
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/http/verb.hpp>
@@ -30,7 +30,8 @@ constexpr std::string_view kTailscaleUserNameHeader = "Tailscale-User-Name";
 }
 
 [[nodiscard]] server::GameApiHttpRequest forwarded_request(const std::string_view forwarded_for) {
-  server::GameApiHttpRequest request = fixture::request(http::verb::get, "/api/v2/session");
+  server::GameApiHttpRequest request =
+      fixture::request(http::verb::get, "/api/v3/lobbies/1/session");
   request.set(kForwardedForHeader, forwarded_for);
   return request;
 }
@@ -74,7 +75,7 @@ TEST_CASE("derive_peer_identity rejects an absent forwarded client address",
           "[unit][server][identity][trust-boundary]") {
   const server::ServerConfig config = config_trusting_loopback_proxy();
   const server::PeerIdentityResolution resolution = server::derive_peer_identity(
-      config, kProxyAddress, fixture::request(http::verb::get, "/api/v2/session"));
+      config, kProxyAddress, fixture::request(http::verb::get, "/api/v3/lobbies/1/session"));
 
   CHECK_FALSE(resolution.accepted());
   REQUIRE(resolution.forwarded_client_rejection.has_value());

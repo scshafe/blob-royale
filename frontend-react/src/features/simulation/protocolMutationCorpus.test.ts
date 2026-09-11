@@ -281,7 +281,7 @@ const snapshotMutations: readonly MutationCase<MutableSnapshotDocument>[] = [
     name: 'mode state value that does not match its schema id',
     mutate: (document) => {
       document.data.match.mode_state.schema_id =
-        'blob-royale://protocol/v2/mode-state/none';
+        'blob-royale://protocol/v3/mode-state/none';
     },
   },
 ];
@@ -356,7 +356,7 @@ describe('protocol v1 configuration deterministic mutation corpus', () => {
   });
 });
 
-describe('protocol v2 session deterministic mutation corpus', () => {
+describe('protocol v3 session deterministic mutation corpus', () => {
   it.each(welcomeMutations)('rejects welcome mutation: $name', ({ mutate }) => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const document = welcomeDocument();

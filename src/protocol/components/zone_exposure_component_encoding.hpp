@@ -9,7 +9,7 @@ namespace blob_royale::protocol {
 
 // The `zone_exposure` wire object. An absent component reads as zero on the wire exactly as it does
 // in the world, so the encoder publishes the entry the store holds and synthesizes none.
-// related: docs/protocol/schema/v2/zone-exposure-component.schema.json -- the closed wire shape.
+// related: docs/protocol/schema/v3/zone-exposure-component.schema.json -- the closed wire shape.
 template <> struct ComponentWireEncoding<simulation::ZoneExposure> {
   static void encode(const simulation::ZoneExposure& exposure, const ComponentEncodingContext&,
                      ComponentObjectSink& sink) {

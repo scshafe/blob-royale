@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/lifetime-component.schema.json",
   "title": "Blob Royale protocol v2 lifetime component",
   "description": "A self-expiring entity's remaining committed ticks.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["ticks_remaining"],

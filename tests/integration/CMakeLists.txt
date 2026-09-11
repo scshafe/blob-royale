@@ -178,7 +178,7 @@ add_test(
 
 set_tests_properties(integration.server_session_fixture.setup PROPERTIES
   FIXTURES_SETUP blob_royale_server_session_process
-  LABELS "integration;server;process;session;v2"
+  LABELS "integration;server;process;session;v3"
   RESOURCE_LOCK blob_royale_server_process_fixture
   TIMEOUT 25
 )
@@ -192,7 +192,7 @@ add_test(
 
 set_tests_properties(integration.server_session_contracts PROPERTIES
   FIXTURES_REQUIRED blob_royale_server_session_process
-  LABELS "integration;server;session;v2;websocket;protocol"
+  LABELS "integration;server;session;v3;websocket;protocol"
   RESOURCE_LOCK blob_royale_server_process_fixture
   TIMEOUT 60
 )
@@ -207,7 +207,7 @@ add_test(
 
 set_tests_properties(integration.server_session_fixture.cleanup PROPERTIES
   FIXTURES_CLEANUP blob_royale_server_session_process
-  LABELS "integration;server;process;session;v2"
+  LABELS "integration;server;process;session;v3"
   RESOURCE_LOCK blob_royale_server_process_fixture
   TIMEOUT 20
 )

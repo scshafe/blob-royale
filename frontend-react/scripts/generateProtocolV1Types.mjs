@@ -4,7 +4,7 @@
 // nothing and fails on drift; without arguments it deterministically rewrites
 // both generated files. The operation is idempotent.
 //
-// The pipeline itself lives in ./protocolTypeGeneration.mjs, which protocol v2
+// The pipeline itself lives in ./protocolTypeGeneration.mjs, which protocol v3
 // runs with a different descriptor; this file is only v1's descriptor, so the
 // two versions cannot drift apart in how they are generated.
 

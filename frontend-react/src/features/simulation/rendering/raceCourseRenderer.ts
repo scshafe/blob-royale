@@ -2,7 +2,6 @@ import type { RaceModeState } from '../sessionSelectors';
 import {
   RACE_CHECKPOINT_FILL,
   RACE_CHECKPOINT_STROKE,
-  RACE_COURSE_FILL,
   RACE_FINISH_FILL,
   RACE_FINISH_STROKE,
   RACE_GATE_LABEL_FONT,
@@ -17,34 +16,15 @@ export interface RaceCourseRenderInput {
 }
 
 /**
- * @canonical race_course_rendering -- draws the validated course once, below every entity.
+ * @canonical race_course_rendering -- draws the validated race objectives below every entity.
  *
- * A round stroke is the server's union of segment capsules: no closing segment, square ends, or
- * miter extensions. The canonical projection transforms every point and world-space width at one
- * uniform scale; the course cannot acquire a camera independent of its bodies. Gate labels and
- * rims stay readable in logical pixels. The finish remains distinguishable without color.
+ * Welcome terrain owns all ground geometry; the retained track/width wire mirror is not rendered.
+ * Gate centers and radii share the canonical world projection with bodies and terrain. Gate labels
+ * and rims stay readable in logical pixels. The finish remains distinguishable without color.
  */
 export function drawRaceCourse({ frame, value }: RaceCourseRenderInput): void {
   const { projection, surface } = frame;
   surface.save();
-  surface.lineCap = 'round';
-  surface.lineJoin = 'round';
-  surface.lineWidth = projectWorldDistance(
-    projection,
-    2 * value.track_half_width,
-  );
-  surface.strokeStyle = RACE_COURSE_FILL;
-  surface.beginPath();
-  value.track.forEach((node, index) => {
-    const point = projectWorldPoint(projection, node);
-    if (index === 0) {
-      surface.moveTo(point.x, point.y);
-    } else {
-      surface.lineTo(point.x, point.y);
-    }
-  });
-  surface.stroke();
-
   value.checkpoints.forEach((checkpoint, index) => {
     const isFinish = index === value.checkpoints.length - 1;
     const center = projectWorldPoint(projection, checkpoint);
@@ -75,6 +55,6 @@ export function drawRaceCourse({ frame, value }: RaceCourseRenderInput): void {
       center.y,
     );
   });
-  // Round joins and label alignment must not reach the entity layers sharing this surface.
+  // Gate styling and label alignment must not reach entity layers sharing this surface.
   surface.restore();
 }

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/set-seat-count-command.schema.json",
+  "title": "Blob Royale protocol v3 set_seat_count command payload",
+  "description": "How many seats the pre-match lobby should have. The payload names no sender: the server stamps the sending session's controller id, so a controller id is not merely ignored here, it is a closed-schema violation that closes the connection.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seat_count"],
+  "properties": {
+    "seat_count": {
+      "$ref": "common.schema.json#/$defs/seat_count"
+    }
+  },
+  "$comment": "A count, not a delta, so two clients who both choose four agree rather than compounding. A shrink that would remove a filled seat is refused by the tick and changes nothing; a client renders that rule by flooring its control one above the highest filled seat. Added in 2.3."
+}

@@ -2,7 +2,7 @@
 #define BLOB_ROYALE_SERVER_PEER_IDENTITY_HPP
 
 #include "server_config.hpp"
-#include "v2_http_error.hpp"
+#include "v3_http_error.hpp"
 
 #include <boost/beast/http/message.hpp>
 #include <boost/beast/http/string_body.hpp>
@@ -18,10 +18,10 @@ namespace blob_royale::server {
 // How the boundary classified one connection's socket peer.
 //
 // **Trusted-proxy membership is tested first and the answer is total**, which is the precedence
-// rule protocol v2 adds to v1's rule 7: on the accepted deployment the proxy *is* loopback, so a
+// rule protocol v3 adds to v1's rule 7: on the accepted deployment the proxy *is* loopback, so a
 // classification that consulted loopback first would grant every proxy-forwarded connection the
 // direct-peer Origin relaxation in exactly the configuration that ships
-// (`docs/protocol/v2.md` § "Upgrade validation deltas"). Making the two exclusive arms of one
+// (`docs/protocol/v3.md` § "Upgrade validation deltas"). Making the two exclusive arms of one
 // enumeration is what keeps that from being a rule someone has to remember.
 enum class PeerClassification : std::uint8_t {
   kProxyForwarded = 0,
@@ -43,7 +43,7 @@ peer_classification_name(const PeerClassification classification) noexcept {
 //
 // Only `kProxySupplied` publishes a byte a proxy sent; every other value publishes the generated
 // fallback. The value is a closed enumeration because it is logged and must never carry a byte of
-// the received header (`docs/protocol/v2.md` § "Display names" rule 2).
+// the received header (`docs/protocol/v3.md` § "Display names" rule 2).
 enum class DisplayNameOutcome : std::uint8_t {
   // A trusted proxy supplied one field whose trimmed value matches the accepted grammar exactly.
   kProxySupplied = 0,
@@ -78,7 +78,7 @@ display_name_outcome_name(const DisplayNameOutcome outcome) noexcept {
 //
 // **The tailnet authenticates; this does not.** What the application derives is one accounting
 // principal and one display name per request, by a total function of the socket peer address and
-// two header fields, before any route runs (`docs/protocol/v2.md` § "Identity"). Neither value
+// two header fields, before any route runs (`docs/protocol/v3.md` § "Identity"). Neither value
 // authorizes anything: the principal is a rate-accounting key and the name is a label.
 //
 // **Headers are credited only from a socket peer in `trusted_proxy_addresses`.** For a direct
@@ -91,7 +91,7 @@ display_name_outcome_name(const DisplayNameOutcome outcome) noexcept {
 // is a credential, and no character of a name is ever substituted -- a sanitizer that replaced
 // characters would turn one real name into a different real-looking name, which is worse than a
 // visible `player-7`.
-// related: docs/protocol/v2.md -- the accepted rules this implements verbatim.
+// related: docs/protocol/v3.md -- the accepted rules this implements verbatim.
 // related: peer_traffic_policy.hpp -- what the principal keys.
 // related: session_websocket_session.hpp -- what the display name is published through.
 class PeerIdentity final {
@@ -143,7 +143,7 @@ public:
   // fallback `player-<connection_ordinal>`. Never a substitution of the received bytes.
   //
   // **The fallback is keyed on the server's own monotonic connection ordinal, and the reason is a
-  // dependency cycle rather than a preference.** `docs/protocol/v2.md` § "Display names" spells the
+  // dependency cycle rather than a preference.** `docs/protocol/v3.md` § "Display names" spells the
   // fallback `player-<entity_id>`. A published name is fixed exactly once, at
   // `runtime::CommandSink::open_session`, which registers the directory entry in the same call
   // that issues the `ControllerId` -- and `runtime::ControllerDirectory` refuses a second
@@ -173,9 +173,9 @@ private:
 
 // The total answer to "who is this connection": one identity, or one closed rejection reason.
 //
-// Exactly one member is engaged. A rejection is `400` on both protocol versions -- v2 names it
+// Exactly one member is engaged. A rejection is `400` on both protocol versions -- v3 names it
 // `PROTOCOL.INVALID_FORWARDED_CLIENT` with the reason as a detail, and v1, whose closed code
-// registry v2 may not widen, names it `PROTOCOL.INVALID_REQUEST` with the same closed reason as
+// registry v3 may not widen, names it `PROTOCOL.INVALID_REQUEST` with the same closed reason as
 // its `reason` detail.
 struct PeerIdentityResolution final {
   std::optional<PeerIdentity> identity;

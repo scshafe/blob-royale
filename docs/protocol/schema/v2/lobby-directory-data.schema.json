@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-data.schema.json",
   "title": "Blob Royale protocol v2 lobby directory data",
   "description": "Every room this process runs, in lobby-id order, as a client chooses one to join. It is read from each room's latest published snapshot and its admitted-session count, so it is exactly as current as the newest snapshot and never more: a client that joins on it may still find the room changed by the time it is admitted, which is what the 409 and 503 refusals and the lobby_full close are for. Added in 2.4.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["lobbies"],

@@ -3,6 +3,8 @@
 #include "server_fixture_state.hpp"
 #include "session_websocket_client.hpp"
 
+#include <boost/beast/core/string.hpp>
+#include <boost/beast/http/field.hpp>
 #include <boost/beast/http/status.hpp>
 #include <boost/beast/http/verb.hpp>
 
@@ -11,6 +13,7 @@
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
 
+#include <array>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -38,10 +41,10 @@ constexpr auto kTransportOperationTimeout = std::chrono::seconds{5};
 // spawn markers -- so the commanding blob provably moved and provably did not reach anyone else.
 constexpr std::uint64_t kTicksAwaitedAfterCommand = 40;
 constexpr std::uint16_t kPolicyErrorCloseCode = 1'008;
-constexpr std::string_view kRoomTwoTarget = "/api/v2/lobbies/2/session";
-constexpr std::string_view kDirectoryTarget = "/api/v2/lobbies";
-constexpr std::string_view kLobbyDirectorySchemaId = "blob-royale://protocol/v2/lobby-directory";
-constexpr std::string_view kV2ErrorSchemaId = "blob-royale://protocol/v2/error-response";
+constexpr std::string_view kRoomTwoTarget = "/api/v3/lobbies/2/session";
+constexpr std::string_view kDirectoryTarget = "/api/v3/lobbies";
+constexpr std::string_view kLobbyDirectorySchemaId = "blob-royale://protocol/v3/lobby-directory";
+constexpr std::string_view kV3ErrorSchemaId = "blob-royale://protocol/v3/error-response";
 // The fixture trusts the loopback proxy, so every client names the address it is forwarding and is
 // accounted to it: six sessions from one test process, none sharing an upgrade bucket.
 constexpr std::string_view kFirstClient = "100.64.0.1";
@@ -50,6 +53,11 @@ constexpr std::string_view kRoomTwoFirstClient = "100.64.0.3";
 constexpr std::string_view kRoomTwoSecondClient = "100.64.0.4";
 constexpr std::string_view kRoomTwoRefusedClient = "100.64.0.5";
 constexpr std::string_view kHttpClient = "100.64.0.6";
+constexpr std::string_view kRetiredHttpClient = "100.64.0.7";
+constexpr std::string_view kRetiredPipelineClient = "100.64.0.8";
+constexpr std::array<std::string_view, 4> kRetiredTargets{"/api/v2/session", "/api/v2/lobbies",
+                                                          "/api/v2/lobbies/1/session",
+                                                          "/api/v2/lobbies/999/session"};
 
 // One directory listing, as `lobby-directory-data.schema.json` shapes it and this contract reads
 // it.
@@ -263,7 +271,7 @@ require_body(const std::map<std::uint64_t, PublishedBody>& bodies, const std::ui
   return member->to_number<std::uint64_t>();
 }
 
-// `GET /api/v2/lobbies`, validated to the shape the contract asserts over.
+// `GET /api/v3/lobbies`, validated to the shape the contract asserts over.
 [[nodiscard]] std::vector<PublishedLobby> read_directory(const LoopbackHttpClient& http_client,
                                                          const std::string_view request_id,
                                                          const std::string_view origin) {
@@ -283,7 +291,7 @@ require_body(const std::map<std::uint64_t, PublishedBody>& bodies, const std::ui
   const json::object& envelope = document.as_object();
   const json::object& meta = required_object(envelope, "meta", kOperation);
   if (required_string(meta, "schema_id", kOperation) != kLobbyDirectorySchemaId ||
-      required_string(meta, "protocol_version", kOperation) != "2.5") {
+      required_string(meta, "protocol_version", kOperation) != "3.0") {
     throw_contract_violation(kOperation, "the directory named the wrong schema or version");
   }
   const json::value* const error = envelope.if_contains("error");
@@ -319,7 +327,7 @@ require_body(const std::map<std::uint64_t, PublishedBody>& bodies, const std::ui
   return result;
 }
 
-// The v2 error envelope of a refused request: its code, and the room it named, if any.
+// The v3 error envelope of a refused request: its code, and the room it named, if any.
 struct RefusedRequest final {
   std::uint16_t status;
   std::string code;
@@ -336,8 +344,9 @@ parse_refusal(const boost::beast::http::response<boost::beast::http::string_body
   }
   const json::object& envelope = document.as_object();
   const json::object& meta = required_object(envelope, "meta", operation);
-  if (required_string(meta, "schema_id", operation) != kV2ErrorSchemaId) {
-    throw_contract_violation(operation, "the refusal did not carry the v2 error envelope");
+  if (required_string(meta, "schema_id", operation) != kV3ErrorSchemaId ||
+      required_string(meta, "protocol_version", operation) != "3.0") {
+    throw_contract_violation(operation, "the refusal did not carry the v3 error envelope");
   }
   const json::object& error = required_object(envelope, "error", operation);
   const json::value* const retryable = error.if_contains("retryable");
@@ -353,6 +362,95 @@ parse_refusal(const boost::beast::http::response<boost::beast::http::string_body
                         .code = required_string(error, "code", operation),
                         .retryable = retryable->as_bool(),
                         .lobby_id = lobby_id};
+}
+
+void require_retired_response(const IntegrationHttpResponse& response,
+                              const std::string_view target) {
+  constexpr std::string_view kOperation = "session_contracts.retired_version";
+  const RefusedRequest refused = parse_refusal(response, kOperation);
+  if (refused.status != 426 || refused.code != "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED" ||
+      refused.retryable || refused.lobby_id.has_value()) {
+    throw_contract_violation(kOperation, "retired route did not return fixed non-retryable 426");
+  }
+  if (!boost::beast::iequals(response.at(boost::beast::http::field::upgrade), "websocket") ||
+      !boost::beast::iequals(response.at(boost::beast::http::field::connection),
+                             response.keep_alive() ? "Upgrade" : "close, Upgrade")) {
+    throw_contract_violation(kOperation, "retired 426 omitted its required Upgrade transport hint");
+  }
+  const json::value document = json::parse(response.body());
+  const json::object& error = required_object(document.as_object(), "error", kOperation);
+  const json::object& details = required_object(error, "details", kOperation);
+  const std::string guidance = required_string(error, "message", kOperation);
+  if (details.size() != 1 ||
+      required_string(details, "required_protocol_version", kOperation) != "3.0" ||
+      guidance.find("/api/v3/lobbies/<lobby_id>/session") == std::string::npos ||
+      guidance.find("blob-royale.session.v3") == std::string::npos ||
+      response.body().find(target) != std::string::npos || response.body().size() >= 1'024) {
+    throw_contract_violation(kOperation, "retirement guidance was not bounded fixed v3 guidance");
+  }
+}
+
+void require_retired_http_contracts(const LoopbackHttpClient& http_client,
+                                    const std::string_view origin) {
+  namespace http = boost::beast::http;
+  for (const std::string_view target : kRetiredTargets) {
+    for (const http::verb method : {http::verb::get, http::verb::post}) {
+      require_retired_response(http_client.request(method, target, "integration.session.retired",
+                                                   origin, kRetiredHttpClient),
+                               target);
+    }
+
+    // An old, otherwise valid mixed-token upgrade between two v1 config reads remains HTTP on
+    // the same socket. Receiving the final response proves it was neither upgraded immediately
+    // nor held as a pending WebSocket after the preceding response drained.
+    std::array<IntegrationHttpRequest, 3> requests{
+        IntegrationHttpRequest{http::verb::get, "/api/v1/config", 11},
+        IntegrationHttpRequest{http::verb::get, target, 11},
+        IntegrationHttpRequest{http::verb::get, "/api/v1/config", 11}};
+    constexpr std::array<std::string_view, 3> kRequestIds{"integration.retired.pipeline.before",
+                                                          "integration.retired.pipeline.upgrade",
+                                                          "integration.retired.pipeline.after"};
+    for (std::size_t index = 0; index < requests.size(); ++index) {
+      requests[index].set(http::field::host, http_client.host_authority());
+      requests[index].set(http::field::origin, origin);
+      requests[index].set("X-Forwarded-For", kRetiredPipelineClient);
+      requests[index].set("X-Request-ID", kRequestIds[index]);
+      requests[index].keep_alive(index + 1 < requests.size());
+    }
+    requests[1].set(http::field::connection, "keep-alive, Upgrade");
+    requests[1].set(http::field::upgrade, "websocket");
+    requests[1].set(http::field::sec_websocket_version, "13");
+    requests[1].set(http::field::sec_websocket_key, "dGhlIHNhbXBsZSBub25jZQ==");
+    requests[1].set(http::field::sec_websocket_protocol,
+                    "blob-royale.session.v2, blob-royale.session.v3");
+    const std::vector<IntegrationHttpResponse> responses = http_client.request_pipeline(requests);
+    if (responses.size() != requests.size()) {
+      throw_contract_violation("session_contracts.retired_pipeline",
+                               "HTTP pipeline did not return all three responses");
+    }
+    for (std::size_t index = 0; index < responses.size(); ++index) {
+      if (std::string_view{responses[index].at("X-Request-ID")} != kRequestIds[index]) {
+        throw_contract_violation("session_contracts.retired_pipeline",
+                                 "HTTP pipeline changed response order or request correlation");
+      }
+    }
+    require_retired_response(responses[1], target);
+    const json::value before = json::parse(responses.front().body());
+    const json::value after = json::parse(responses.back().body());
+    constexpr std::string_view kOperation = "session_contracts.retired_pipeline";
+    for (const std::size_t index : {std::size_t{0}, std::size_t{2}}) {
+      if (responses[index].result() != http::status::ok) {
+        throw_contract_violation(kOperation, "v1 config on either side of retirement failed");
+      }
+    }
+    if (required_string(required_object(before.as_object(), "meta", kOperation), "protocol_version",
+                        kOperation) != "1.0" ||
+        required_string(required_object(after.as_object(), "meta", kOperation), "protocol_version",
+                        kOperation) != "1.0" ||
+        before.as_object().at("data") != after.as_object().at("data")) {
+      throw_contract_violation(kOperation, "retirement changed immutable v1 configuration");
+    }
+  }
 }
 
 // Reads snapshots until the roster publishes exactly `seat_count` seats, then returns that frame.
@@ -392,7 +490,7 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
       std::string{"http://127.0.0.1:"}.append(std::to_string(fixture.port()));
 
   // Two sessions join the same royale match the configured bot is already in: room 1, which is
-  // what `/api/v2/session` has always named.
+  // what `/api/v3/lobbies/1/session` has always named.
   SessionWebSocketClient first{fixture.port(),
                                allowed_origin,
                                "integration.session.first",
@@ -415,9 +513,9 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
     throw_contract_violation("session_contracts.welcome",
                              "the welcome did not name room 1 and the map's six markers");
   }
-  if (first.handshake_response().at("Sec-WebSocket-Protocol") != "blob-royale.session.v2") {
+  if (first.handshake_response().at("Sec-WebSocket-Protocol") != "blob-royale.session.v3") {
     throw_contract_violation("session_contracts.handshake",
-                             "the 101 response did not select the v2 session subprotocol");
+                             "the 101 response did not select the v3 session subprotocol");
   }
 
   const std::string seated_frame =
@@ -583,6 +681,23 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
                              "the directory's census disagrees with who is in each room");
   }
 
+  require_retired_http_contracts(http_client, allowed_origin);
+  const std::vector<PublishedLobby> after_retirement =
+      read_directory(http_client, "integration.session.directory.retired", allowed_origin);
+  if (after_retirement.size() != directory.size()) {
+    throw_contract_violation("session_contracts.retired_allocation",
+                             "retired requests changed the room directory");
+  }
+  for (std::size_t index = 0; index < directory.size(); ++index) {
+    if (after_retirement[index].lobby_id != directory[index].lobby_id ||
+        after_retirement[index].session_count != directory[index].session_count ||
+        after_retirement[index].filled_seat_count != directory[index].filled_seat_count ||
+        after_retirement[index].npc_seat_count != directory[index].npc_seat_count) {
+      throw_contract_violation("session_contracts.retired_allocation",
+                               "retired HTTP or pipelined upgrades allocated a room session");
+    }
+  }
+
   // A session joins room 2 by its target and is told so in its welcome, with the same map ceiling.
   SessionWebSocketClient room_two_first{fixture.port(),
                                         allowed_origin,
@@ -636,10 +751,10 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   // that exist, and the classic ways a parametric matcher is written wrong. Each is a plain GET,
   // because the 404 precedes every upgrade rule.
   for (const std::string_view target :
-       {"/api/v2/lobbies/3/session", "/api/v2/lobbies/0/session", "/api/v2/lobbies/02/session",
-        "/api/v2/lobbies/1000/session", "/api/v2/lobbies/1/session/", "/api/v2/lobbies/%32/session",
-        "/api/v2/lobbies/2/session?room=2", "/api/v2/lobbies//session", "/api/v2/lobbies/",
-        "/api/v2/lobbies/2"}) {
+       {"/api/v3/lobbies/3/session", "/api/v3/lobbies/0/session", "/api/v3/lobbies/02/session",
+        "/api/v3/lobbies/1000/session", "/api/v3/lobbies/1/session/", "/api/v3/lobbies/%32/session",
+        "/api/v3/lobbies/2/session?room=2", "/api/v3/lobbies//session", "/api/v3/lobbies/",
+        "/api/v3/lobbies/2"}) {
     const IntegrationHttpResponse response =
         http_client.request(boost::beast::http::verb::get, target, "integration.session.not-a-room",
                             allowed_origin, kHttpClient);
@@ -669,7 +784,7 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   success.emplace("disconnect_tick_sequence", disconnect_tick);
   success.emplace("directory_room_count", directory.size());
   success.emplace("room_two_full_status", full.status);
-  success.emplace("validated_session_contracts", 9);
+  success.emplace("validated_session_contracts", 11);
   std::cout << json::serialize(success) << '\n';
   return 0;
 }

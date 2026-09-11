@@ -1,5 +1,5 @@
 #include "command_decoding.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"

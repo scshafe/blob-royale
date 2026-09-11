@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/race-progress-component.schema.json",
   "title": "Blob Royale protocol v2 race_progress component",
   "description": "The zero-based index of the next gate a racer must reach in declared order. Zero means no gate taken; the course's checkpoint count means finished. Progress persists while the racer's body is absent so the last gate determines its return location.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["next_checkpoint"],

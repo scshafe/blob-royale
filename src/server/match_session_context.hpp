@@ -15,21 +15,22 @@
 
 namespace blob_royale::server {
 
-// canonical: match_session_context -- everything `/api/v2/session` needs that protocol v1 did not.
+// canonical: match_session_context -- everything `/api/v3/lobbies/1/session` needs that protocol v1
+// did not.
 //
 // **It is a capability bundle, and its size is the whole point.** Protocol v1's server reads only
-// immutable `ServerConfig` and `const SnapshotPublication&`. v2 adds a route that can cause an
+// immutable `ServerConfig` and `const SnapshotPublication&`. v3 adds a route that can cause an
 // effect, so it adds exactly three things and no fourth: a write-only `runtime::CommandSink&`
 // whose entire interface is `open_session`, `submit`, and `close_session`; a read-only
 // presentation directory to join `controller_kind` and `display_name` at the encoding boundary;
 // and the two match identities a `welcome` announces. It grants no world read, no lifecycle
 // transition, and no reference to `GameSimulation`, `GameWorld`, or `SimulationRuntime`, which is
-// why the absence of a v2 lifecycle route is structural rather than a rule
-// (`docs/protocol/v2.md` § "Boundaries").
+// why the absence of a v3 lifecycle route is structural rather than a rule
+// (`docs/protocol/v3.md` § "Boundaries").
 //
 // **The mode name is deliberately absent.** Every snapshot already carries it
 // (`simulation::MatchSnapshot::mode_name`), and two sources for one value is the defect the whole
-// v2 match section refuses. The map name is here because no snapshot carries it.
+// v3 match section refuses. The map name is here because no snapshot carries it.
 //
 // **`accepted_command_kinds` is the running mode's own mask**, read once at composition from the
 // mode the engine is constructed with, so the advertised set and the enforced set cannot drift:
@@ -42,7 +43,7 @@ namespace blob_royale::server {
 // earns its place by being the one value that makes "registering a bot costs no client change" true
 // -- the `welcome` publishes it and `decode_command_envelope` enforces it, from one source
 // (`src/protocol/session_welcome.hpp`).
-// related: docs/protocol/v2.md -- the boundary this crosses.
+// related: docs/protocol/v3.md -- the boundary this crosses.
 // related: session_websocket_session.hpp -- the only consumer.
 class MatchSessionContext final {
 public:

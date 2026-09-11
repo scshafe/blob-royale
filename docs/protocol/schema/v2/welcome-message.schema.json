@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/welcome-message.schema.json",
   "title": "Blob Royale protocol v2 WebSocket welcome message",
   "description": "The first and only welcome frame of a session. It is always message_sequence 1, so a client that receives a snapshot first has lost a frame and must close.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["data", "error", "meta"],

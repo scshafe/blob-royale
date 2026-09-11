@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { protocolV2Schemas } from '../generated/protocolV2Schemas.generated';
+import { protocolV3Schemas } from '../generated/protocolV3Schemas.generated';
 import { modeStateRendererRegistry } from './modeStateRendererRegistry';
 
 describe('modeStateRendererRegistry', () => {
   it('registers exactly the schema ids protocol validation accepts', () => {
     expect(Object.keys(modeStateRendererRegistry).sort()).toEqual(
-      [...protocolV2Schemas.common.$defs.mode_state_schema_id.enum].sort(),
+      [...protocolV3Schemas.common.$defs.mode_state_schema_id.enum].sort(),
     );
   });
 
@@ -22,7 +22,7 @@ describe('modeStateRendererRegistry', () => {
       }
     }
     expect(visualSchemaIds).toEqual([
-      'blob-royale://protocol/v2/mode-state/race',
+      'blob-royale://protocol/v3/mode-state/race',
     ]);
   });
 });

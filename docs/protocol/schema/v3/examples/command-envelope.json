@@ -1,0 +1,7 @@
+{
+  "kind": "set_thrust",
+  "payload": {
+    "x": 1,
+    "y": -0.5
+  }
+}

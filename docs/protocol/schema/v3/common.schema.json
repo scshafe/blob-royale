@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/common.schema.json",
+  "title": "Blob Royale protocol v3 common definitions",
+  "description": "Canonical scalar, identifier, vector, kind-name, error, and metadata definitions shared by protocol v3 messages. protocol_version is a const rather than a grammar so an older decoder fails closed on a newer minor instead of silently ignoring an unknown kind or an unread member.",
+  "x-status": "Accepted",
+  "$defs": {
+    "protocol_version": {
+      "type": "string",
+      "const": "3.0",
+      "$comment": "One session major opens with required welcome terrain and explicit v2 retirement. Later planned authoritative behaviors land under 3.0 with their complete contracts; development commits are not independent deployable releases. See docs/protocol/v3.md."
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "schema_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^blob-royale://protocol/v3/[a-z][a-z0-9-]*$"
+    },
+    "mode_state_schema_id": {
+      "type": "string",
+      "enum": [
+        "blob-royale://protocol/v3/mode-state/none",
+        "blob-royale://protocol/v3/mode-state/royale",
+        "blob-royale://protocol/v3/mode-state/king-of-the-hill",
+        "blob-royale://protocol/v3/mode-state/race"
+      ],
+      "$comment": "Closed, not a grammar: an unregistered mode-state schema id is a decode failure, not a value a client may skip."
+    },
+    "utc_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "minLength": 20,
+      "maxLength": 32,
+      "pattern": "Z$"
+    },
+    "safe_integer": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "positive_safe_integer": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "signed_safe_integer": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "entity_id": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "controller_id": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "team_id": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "tick_sequence": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "phase_start_tick": {
+      "$ref": "#/$defs/safe_integer",
+      "$comment": "A tick sequence that also admits 0. Zero is the truthful value for 'no phase transition has been committed yet': a match begins in lobby at load, before tick 1 exists, and MatchState holds TickSequence::zero() for that whole lobby. Every other tick-valued member is a tick_sequence, whose minimum is 1."
+    },
+    "message_sequence": {
+      "$ref": "#/$defs/positive_safe_integer"
+    },
+    "snapshot_entity_limit": {
+      "type": "integer",
+      "const": 1024,
+      "$comment": "Protocol constant. Every published entity counts, including map static bodies and the zone entity. Sized so the worst-case encoded frame fits the 2,097,152-byte ceiling with headroom; see docs/protocol/v3.md section 'Limits'."
+    },
+    "placement_rank": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1024
+    },
+    "finite_world_scalar": {
+      "type": "number",
+      "minimum": -1000000000000,
+      "maximum": 1000000000000
+    },
+    "nonnegative_world_scalar": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1000000000000
+    },
+    "positive_world_scalar": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1000000000000
+    },
+    "unit_interval_scalar": {
+      "type": "number",
+      "minimum": -1,
+      "maximum": 1
+    },
+    "collision_bitmask": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295
+    },
+    "vector2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/finite_world_scalar"
+        },
+        "y": {
+          "$ref": "#/$defs/finite_world_scalar"
+        }
+      }
+    },
+    "kind_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "mode_name": {
+      "$ref": "#/$defs/kind_name"
+    },
+    "controller_kind": {
+      "$ref": "#/$defs/kind_name"
+    },
+    "map_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 ._'@-]{0,62}[A-Za-z0-9])?$",
+      "$comment": "Printable ASCII only, so maxLength is simultaneously a 64-byte bound; no leading or trailing space; no control byte, so the value cannot inject a log line or a terminal escape. Derived from Tailscale-User-Name by exact match after trimming, never by character substitution."
+    },
+    "component_kind": {
+      "type": "string",
+      "enum": [
+        "controllable",
+        "hill",
+        "hill_presence",
+        "lethal_on_contact",
+        "lifetime",
+        "physics_body",
+        "race_progress",
+        "respawn_timer",
+        "score",
+        "team",
+        "zone",
+        "zone_exposure"
+      ]
+    },
+    "command_kind": {
+      "type": "string",
+      "enum": [
+        "clear_seat",
+        "seat_npc",
+        "set_seat_count",
+        "set_thrust",
+        "start_match"
+      ],
+      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire. Four of the five operate the pre-match lobby and were added in 2.3; a mode that has no lobby to operate omits them from welcome.accepted_command_kinds rather than accepting a command it cannot honour."
+    },
+    "lobby_id": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "$comment": "Which room, 1..N in the order the process built them. The maximum is the protocol's directory limit, kLobbyDirectoryLimit, which is also how many rooms one process may run. Added in 2.4."
+    },
+    "seat_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 64,
+      "$comment": "How many seats one lobby may declare. The maximum is a protocol constant mirroring the engine's own bound; the tighter and more meaningful ceiling is the running map's spawn-marker count, which the server enforces at startup and which no client can read from this schema."
+    },
+    "seat_index": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 63,
+      "$comment": "Zero-based, so the maximum is one below seat_count's. It bounds the value rather than the running lobby: an index inside this bound that names no seat in the current roster is ignored by the server, because a client's view of the roster lags by a frame and racing it must not close a connection."
+    },
+    "seat_kind": {
+      "type": "string",
+      "enum": ["controller", "empty", "npc"],
+      "$comment": "Closed. A seat is empty, held by a live controller, or declared for an NPC of a named kind; the three are exclusive and every published seat names exactly one."
+    },
+    "match_phase": {
+      "type": "string",
+      "enum": ["lobby", "countdown", "running", "ended"]
+    },
+    "outcome_kind": {
+      "type": "string",
+      "enum": ["none", "won_by_entity", "won_by_team", "drawn"]
+    },
+    "error_details": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required_protocol_version": {
+          "const": "3.0",
+          "$comment": "Present only for PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED."
+        },
+        "lobby_id": {
+          "$ref": "#/$defs/lobby_id",
+          "$comment": "Present on LOBBY.FULL and LOBBY.UNAVAILABLE, naming the room the request named. Absent on LOBBY.NOT_FOUND, which by definition names no room. Added in 2.4."
+        },
+        "allowed_methods": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["GET"]
+          }
+        },
+        "expected_websocket_version": {
+          "type": "string",
+          "const": "13"
+        },
+        "forwarded_client_reason": {
+          "type": "string",
+          "enum": ["absent", "multiple_values", "not_canonical"],
+          "$comment": "A closed enum, not free text, so no byte of an attacker-supplied forwarding header can ever reach a response body or a log line."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "retry_after_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60000
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "details"],
+      "allOf": [
+        {
+          "if": {"properties": {"code": {"const": "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED"}}, "required": ["code"]},
+          "then": {
+            "properties": {
+              "retryable": {"const": false},
+              "details": {
+                "type": "object",
+                "properties": {"required_protocol_version": {"const": "3.0"}},
+                "required": ["required_protocol_version"],
+                "maxProperties": 1
+              }
+            }
+          },
+          "else": {"properties": {"details": {"type": "object", "properties": {"required_protocol_version": false}}}}
+        }
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "LOBBY.FULL",
+            "LOBBY.NOT_FOUND",
+            "LOBBY.UNAVAILABLE",
+            "PROTOCOL.CONNECTION_LIMIT_REACHED",
+            "PROTOCOL.HEADER_TOO_LARGE",
+            "PROTOCOL.INVALID_FORWARDED_CLIENT",
+            "PROTOCOL.INVALID_REQUEST",
+            "PROTOCOL.INVALID_REQUEST_ID",
+            "PROTOCOL.METHOD_NOT_ALLOWED",
+            "PROTOCOL.ORIGIN_REJECTED",
+            "PROTOCOL.PAYLOAD_TOO_LARGE",
+            "PROTOCOL.RATE_LIMITED",
+            "PROTOCOL.ROUTE_NOT_FOUND",
+            "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED",
+            "PROTOCOL.SUBPROTOCOL_REQUIRED",
+            "PROTOCOL.UPGRADE_REQUIRED",
+            "PROTOCOL.WEBSOCKET_VERSION_UNSUPPORTED",
+            "SERVICE.INTERNAL_FAILURE",
+            "SERVICE.NOT_READY"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "details": {
+          "$ref": "#/$defs/error_details"
+        }
+      }
+    }
+  }
+}

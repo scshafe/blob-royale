@@ -1,0 +1,163 @@
+{
+  "data": {
+    "tick_sequence": 12904,
+    "entities": [
+      {
+        "entity_id": 1,
+        "components": {
+          "physics_body": {
+            "position": {
+              "x": 480,
+              "y": 160
+            },
+            "velocity": {
+              "x": 0,
+              "y": 0
+            },
+            "acceleration": {
+              "x": 0,
+              "y": 0
+            },
+            "radius": 40,
+            "mass": 0,
+            "collision_layer": 2,
+            "collision_mask": 1,
+            "is_static": true
+          }
+        }
+      },
+      {
+        "entity_id": 7,
+        "components": {
+          "controllable": {
+            "controller_id": 3,
+            "controller_kind": "session",
+            "display_name": "Cole Shaffer"
+          },
+          "physics_body": {
+            "position": {
+              "x": 412.5,
+              "y": 288.25
+            },
+            "velocity": {
+              "x": 18.75,
+              "y": -42.5
+            },
+            "acceleration": {
+              "x": 400,
+              "y": 0
+            },
+            "radius": 10,
+            "mass": 1,
+            "collision_layer": 1,
+            "collision_mask": 3,
+            "is_static": false
+          },
+          "zone_exposure": {
+            "outside_ticks": 0
+          }
+        }
+      },
+      {
+        "entity_id": 8,
+        "components": {
+          "controllable": {
+            "controller_id": 4,
+            "controller_kind": "wanderer",
+            "display_name": "wanderer-1"
+          },
+          "physics_body": {
+            "position": {
+              "x": 760.5,
+              "y": 512.25
+            },
+            "velocity": {
+              "x": -6.25,
+              "y": 31.5
+            },
+            "acceleration": {
+              "x": 0,
+              "y": -400
+            },
+            "radius": 10,
+            "mass": 1,
+            "collision_layer": 1,
+            "collision_mask": 3,
+            "is_static": false
+          },
+          "zone_exposure": {
+            "outside_ticks": 214
+          }
+        }
+      },
+      {
+        "entity_id": 9,
+        "components": {
+          "zone": {
+            "center": {
+              "x": 480,
+              "y": 320
+            },
+            "radius": 210.5
+          }
+        }
+      }
+    ],
+    "match": {
+      "mode": "royale",
+      "phase": "running",
+      "phase_started_tick": 10904,
+      "seats": [
+        {
+          "kind": "controller",
+          "controller_id": 3,
+          "npc_kind": null
+        },
+        {
+          "kind": "npc",
+          "controller_id": 12,
+          "npc_kind": "wanderer"
+        },
+        {
+          "kind": "npc",
+          "controller_id": null,
+          "npc_kind": "chaser"
+        },
+        {
+          "kind": "empty",
+          "controller_id": null,
+          "npc_kind": null
+        }
+      ],
+      "start_requested": true,
+      "outcome": {
+        "kind": "none",
+        "winner_entity_id": null,
+        "winner_team_id": null
+      },
+      "placements": [
+        {
+          "entity_id": 5,
+          "controller_id": 6,
+          "placement": 3,
+          "eliminated_tick": 12400
+        }
+      ],
+      "mode_state": {
+        "schema_id": "blob-royale://protocol/v3/mode-state/royale",
+        "value": {
+          "previous_phase": "running",
+          "elimination_grace_ticks": 1200
+        }
+      }
+    }
+  },
+  "error": null,
+  "meta": {
+    "protocol_version": "3.0",
+    "schema_id": "blob-royale://protocol/v3/snapshot-message",
+    "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
+    "message_sequence": 129,
+    "sent_at_utc": "2026-09-06T18:04:17.750Z"
+  }
+}

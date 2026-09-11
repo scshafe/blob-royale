@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/zone-component.schema.json",
   "title": "Blob Royale protocol v2 zone component",
   "description": "The safe-zone circle carried by the zone entity, in wu. The zone entity owns no physics_body and no controllable. This component is the only place the zone is published.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["center", "radius"],

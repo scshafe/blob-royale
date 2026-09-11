@@ -23,7 +23,7 @@ namespace blob_royale::server {
 // canonical: game_server -- bounded foreground ownership of the network event loop.
 //
 // Its only world-state source is `const SnapshotPublication&`; no simulation or runtime lifecycle
-// capability can cross this constructor boundary. Protocol v2 adds one write capability and it is
+// capability can cross this constructor boundary. Protocol v3 adds one write capability and it is
 // named explicitly: `MatchSessionContext` carries a write-only `runtime::CommandSink&`, a read-only
 // presentation directory, and the match identities a `welcome` announces, and nothing else. The
 // server still cannot start, pause, stop, step, or reset the simulation, and it cannot read world

@@ -1,5 +1,5 @@
-#ifndef BLOB_ROYALE_PROTOCOL_PROTOCOL_V2_CONSTANTS_HPP
-#define BLOB_ROYALE_PROTOCOL_PROTOCOL_V2_CONSTANTS_HPP
+#ifndef BLOB_ROYALE_PROTOCOL_PROTOCOL_V3_CONSTANTS_HPP
+#define BLOB_ROYALE_PROTOCOL_PROTOCOL_V3_CONSTANTS_HPP
 
 #include <algorithm>
 #include <array>
@@ -9,10 +9,10 @@
 
 namespace blob_royale::protocol {
 
-// canonical: protocol_v2_constants -- exact limits, identities, and closed vocabularies of the
-// accepted protocol v2 schemas (`docs/protocol/schema/v2`).
+// canonical: protocol_v3_constants -- exact limits, identities, and closed vocabularies of the
+// accepted protocol v3 schemas (`docs/protocol/schema/v3`).
 //
-// It is a separate file from `protocol_constants.hpp` for the reason `docs/protocol/v2.md`
+// It is a separate file from `protocol_constants.hpp` for the reason `docs/protocol/v3.md`
 // § "Normative language and canonical artifacts" gives for the separate error schema: v1 pins its
 // own consts and a shared vocabulary would silently widen what a v1 client must accept. v1's file
 // is untouched by this one and keeps meaning exactly what it meant.
@@ -22,53 +22,52 @@ namespace blob_royale::protocol {
 // mirrors are checked against the simulation's own registries by `static_assert` in
 // `component_encoding_registry.hpp` and `command_wire_kind.hpp`, so a kind added to the simulation
 // without being added to the wire fails to compile instead of shipping.
-// related: docs/protocol/v2.md -- the accepted contract these values are read from.
+// related: docs/protocol/v3.md -- the accepted contract these values are read from.
 // related: protocol_constants.hpp -- the v1 twin, deliberately not shared.
 
-// 2.5 opens with the `respawn_timer` component kind, and the further kinds and mode-state blocks of
-// `docs/architecture/0007-king-of-the-hill-and-race-modes.md` are added under this one minor until
-// it ships (`docs/protocol/v2.md` § "Versioning and fail-closed decoding").
-inline constexpr std::string_view kProtocolV2Version = "2.5";
+// This major opens with immutable welcome terrain. Planned behaviors extend 3.0 with their
+// authoritative implementation and complete wire contract; development commits are not releases.
+inline constexpr std::string_view kProtocolV3Version = "3.0";
 
 inline constexpr std::string_view kWelcomeMessageSchemaId =
-    "blob-royale://protocol/v2/welcome-message";
-inline constexpr std::string_view kSnapshotMessageV2SchemaId =
-    "blob-royale://protocol/v2/snapshot-message";
-inline constexpr std::string_view kErrorResponseV2SchemaId =
-    "blob-royale://protocol/v2/error-response";
-// The body of `GET /api/v2/lobbies`: an HTTP document in the v2 envelope, never a WebSocket frame
-// (`docs/protocol/v2.md` § "The lobby directory"). Added in 2.4.
+    "blob-royale://protocol/v3/welcome-message";
+inline constexpr std::string_view kSnapshotMessageV3SchemaId =
+    "blob-royale://protocol/v3/snapshot-message";
+inline constexpr std::string_view kErrorResponseV3SchemaId =
+    "blob-royale://protocol/v3/error-response";
+// The body of `GET /api/v3/lobbies`: an HTTP document in the v3 envelope, never a WebSocket frame
+// (`docs/protocol/v3.md` § "The lobby directory"). Added in 2.4.
 inline constexpr std::string_view kLobbyDirectorySchemaId =
-    "blob-royale://protocol/v2/lobby-directory";
+    "blob-royale://protocol/v3/lobby-directory";
 
 // The four registered mode-state blocks. Closed, not a grammar
 // (`common.schema.json#/$defs/mode_state_schema_id`). The hill's and race's were added in 2.5.
 inline constexpr std::string_view kNoModeStateSchemaId =
-    "blob-royale://protocol/v2/mode-state/none";
+    "blob-royale://protocol/v3/mode-state/none";
 inline constexpr std::string_view kRoyaleModeStateSchemaId =
-    "blob-royale://protocol/v2/mode-state/royale";
+    "blob-royale://protocol/v3/mode-state/royale";
 inline constexpr std::string_view kKingOfTheHillModeStateSchemaId =
-    "blob-royale://protocol/v2/mode-state/king-of-the-hill";
+    "blob-royale://protocol/v3/mode-state/king-of-the-hill";
 inline constexpr std::string_view kRaceModeStateSchemaId =
-    "blob-royale://protocol/v2/mode-state/race";
+    "blob-royale://protocol/v3/mode-state/race";
 
 // The welcome is always message 1 and the first snapshot is 2
-// (`docs/protocol/v2.md` § "Server message model").
+// (`docs/protocol/v3.md` § "Server message model").
 inline constexpr std::uint64_t kWelcomeMessageSequence = 1;
 inline constexpr std::uint64_t kFirstSnapshotMessageSequence = 2;
 
 // One published entity of any kind: a player, a bot, a map static body, or the zone entity.
-// 1,024 rather than v1's 4,096 because a v2 entity is much larger than a v1 player row and 4,096
+// 1,024 rather than v1's 4,096 because a v3 entity is much larger than a v1 player row and 4,096
 // entities plus 4,096 placements do not fit the unchanged frame ceiling
-// (`docs/protocol/v2.md` § "Limits").
+// (`docs/protocol/v3.md` § "Limits").
 inline constexpr std::size_t kSnapshotEntityLimit = 1'024;
 inline constexpr std::size_t kMatchPlacementLimit = 1'024;
 // Each published race polyline/gate array is bounded by the map's marker ceiling. The combined
 // authored marker count is validated by MapDefinition; a schema bounds each array independently.
 inline constexpr std::size_t kRaceCoursePointLimit = 4'096;
-inline constexpr std::size_t kSnapshotFrameV2MaximumByteCount = 2'097'152;
+inline constexpr std::size_t kSnapshotFrameV3MaximumByteCount = 2'097'152;
 // v1's inbound bound, unchanged, now reached by real traffic
-// (`docs/protocol/v2.md` § "Admission order" step 1).
+// (`docs/protocol/v3.md` § "Admission order" step 1).
 inline constexpr std::size_t kClientMessageMaximumByteCount = 1'024;
 inline constexpr std::size_t kDisplayNameMaximumCharacterCount = 64;
 inline constexpr std::size_t kKindNameMaximumCharacterCount = 64;
@@ -76,9 +75,9 @@ inline constexpr std::size_t kMapNameMaximumCharacterCount = 64;
 inline constexpr double kThrustComponentMaximumMagnitude = 1.0;
 
 // The closed component-kind vocabulary of `common.schema.json#/$defs/component_kind`, in the
-// schema's own ascending order, which is also the order `docs/protocol/v2.md`
+// schema's own ascending order, which is also the order `docs/protocol/v3.md`
 // § "Object member order" requires component keys to be encoded in.
-inline constexpr std::array<std::string_view, 12> kV2ComponentKindNames{
+inline constexpr std::array<std::string_view, 12> kV3ComponentKindNames{
     "controllable", "hill",         "hill_presence", "lethal_on_contact",
     "lifetime",     "physics_body", "race_progress", "respawn_timer",
     "score",        "team",         "zone",          "zone_exposure"};
@@ -86,15 +85,15 @@ inline constexpr std::array<std::string_view, 12> kV2ComponentKindNames{
 // The client-sendable command vocabulary of `common.schema.json#/$defs/command_kind`, in the
 // schema's own ascending order. It names neither `spawn` nor `despawn`: both are server-issued on
 // session admission and close, and advertising one would name a capability the boundary must refuse
-// (`docs/protocol/v2.md` § "welcome").
+// (`docs/protocol/v3.md` § "welcome").
 //
 // Four of the five operate the pre-match lobby and were added in 2.3. They are a client's whole
 // authority over a match: which seats exist, who is cleared out of one, which NPC fills one, and
 // whether to begin.
-inline constexpr std::array<std::string_view, 5> kV2ClientCommandKindNames{
+inline constexpr std::array<std::string_view, 5> kV3ClientCommandKindNames{
     "clear_seat", "seat_npc", "set_seat_count", "set_thrust", "start_match"};
 
-// canonical: lobby_seat_wire_bounds -- the seat index and seat count a v2 frame may carry.
+// canonical: lobby_seat_wire_bounds -- the seat index and seat count a v3 frame may carry.
 //
 // Mirrors `simulation::kMaximumLobbySeatCount`, and the mirror is checked by `static_assert` in
 // `command_wire_kind.hpp` rather than by including a simulation header here, for the reason the
@@ -118,24 +117,24 @@ inline constexpr std::size_t kLobbyDirectoryLimit = 8;
 // registering a bot costs no client change, and a bound that tracked the registry's size would put
 // a schema edit -- and therefore a protocol version -- behind every new bot. Sixty-four is a
 // generous ceiling on how many kinds one build can register and is a bound the frame budget can
-// afford (`docs/protocol/v2.md` § "Limits").
+// afford (`docs/protocol/v3.md` § "Limits").
 inline constexpr std::size_t kNpcControllerKindLimit = 64;
 
-// Whether a name is a registered v2 component kind. The vocabulary is closed, so this is the whole
+// Whether a name is a registered v3 component kind. The vocabulary is closed, so this is the whole
 // question and an unlisted name is a failure rather than a value to skip.
-[[nodiscard]] constexpr bool is_v2_component_kind(const std::string_view kind_name) noexcept {
-  return std::ranges::find(kV2ComponentKindNames, kind_name) != kV2ComponentKindNames.cend();
+[[nodiscard]] constexpr bool is_v3_component_kind(const std::string_view kind_name) noexcept {
+  return std::ranges::find(kV3ComponentKindNames, kind_name) != kV3ComponentKindNames.cend();
 }
 
-// Whether a name is a registered v2 client command kind. This is admission-order step 6's first
-// half (`docs/protocol/v2.md` § "Admission order"); the mode's accepted set is the second half.
-[[nodiscard]] constexpr bool is_v2_client_command_kind(const std::string_view kind_name) noexcept {
-  return std::ranges::find(kV2ClientCommandKindNames, kind_name) !=
-         kV2ClientCommandKindNames.cend();
+// Whether a name is a registered v3 client command kind. This is admission-order step 6's first
+// half (`docs/protocol/v3.md` § "Admission order"); the mode's accepted set is the second half.
+[[nodiscard]] constexpr bool is_v3_client_command_kind(const std::string_view kind_name) noexcept {
+  return std::ranges::find(kV3ClientCommandKindNames, kind_name) !=
+         kV3ClientCommandKindNames.cend();
 }
 
-// Whether a name is a registered v2 mode-state schema id.
-[[nodiscard]] constexpr bool is_v2_mode_state_schema_id(const std::string_view schema_id) noexcept {
+// Whether a name is a registered v3 mode-state schema id.
+[[nodiscard]] constexpr bool is_v3_mode_state_schema_id(const std::string_view schema_id) noexcept {
   return schema_id == kNoModeStateSchemaId || schema_id == kRoyaleModeStateSchemaId ||
          schema_id == kKingOfTheHillModeStateSchemaId || schema_id == kRaceModeStateSchemaId;
 }
@@ -145,14 +144,14 @@ inline constexpr std::size_t kNpcControllerKindLimit = 64;
 // A disconnect erases the directory entry immediately while the entity survives until the next
 // tick despawns it, and a placement outlives its controller's session for the whole match, so a
 // snapshot naming a closed controller is **ordinary** and not a defect
-// (`src/runtime/controller_directory.hpp`). `docs/protocol/v2.md` § "Field dictionary" describes
+// (`src/runtime/controller_directory.hpp`). `docs/protocol/v3.md` § "Field dictionary" describes
 // `controller_kind` as `session` or a registered bot kind and names no third value; failing the
 // frame instead would turn one peer's disconnect into every peer's dropped frame, which is the
 // remotely reachable availability failure the same document refuses elsewhere. The deviation is
 // deliberate and is recorded in this step's report.
 inline constexpr std::string_view kUnknownControllerKind = "unknown";
 // The generated display-name fallback's prefix, completed with the entity id exactly as
-// `docs/protocol/v2.md` § "Display names" rule 2 spells it.
+// `docs/protocol/v3.md` § "Display names" rule 2 spells it.
 inline constexpr std::string_view kFallbackDisplayNamePrefix = "player-";
 
 } // namespace blob_royale::protocol

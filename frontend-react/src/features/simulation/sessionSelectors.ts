@@ -109,7 +109,7 @@ export function phaseElapsedSeconds(
  * fails this build instead of silently making every royale frame read as an unknown mode.
  */
 const ROYALE_MODE_STATE_SCHEMA_ID: SessionMatchSection['mode_state']['schema_id'] =
-  'blob-royale://protocol/v2/mode-state/royale';
+  'blob-royale://protocol/v3/mode-state/royale';
 
 /**
  * `G`, the consecutive outside ticks the running mode allows before it eliminates, or `null` when
@@ -233,7 +233,7 @@ export function zoneExposureReport(
 
 /** The mode-state schema id of the hill block, typed like the royale id and for the same reason. */
 const KING_OF_THE_HILL_MODE_STATE_SCHEMA_ID: SessionMatchSection['mode_state']['schema_id'] =
-  'blob-royale://protocol/v2/mode-state/king-of-the-hill';
+  'blob-royale://protocol/v3/mode-state/king-of-the-hill';
 
 /**
  * The three declared constants of the `king_of_the_hill` block (`king-of-the-hill-mode-state.schema.json`):
@@ -513,7 +513,7 @@ export interface RaceModeState {
 }
 
 const RACE_MODE_STATE_SCHEMA_ID: SessionMatchSection['mode_state']['schema_id'] =
-  'blob-royale://protocol/v2/mode-state/race';
+  'blob-royale://protocol/v3/mode-state/race';
 
 function isPositiveNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;

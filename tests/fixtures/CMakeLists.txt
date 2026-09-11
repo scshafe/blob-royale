@@ -7,6 +7,7 @@ add_executable(blob_royale_fixture_tests
   replay_map_fixture_tests.cpp
   royale_replay_fixture_tests.cpp
   scenario_fixture_tests.cpp
+  terrain_geometry_fixture_tests.cpp
 )
 
 blob_royale_configure_first_party_target(blob_royale_fixture_tests)
@@ -16,6 +17,7 @@ target_compile_definitions(blob_royale_fixture_tests PRIVATE
   BLOB_ROYALE_MAPS_DIRECTORY="${CMAKE_SOURCE_DIR}/maps"
   BLOB_ROYALE_REPLAY_FIXTURE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/replays"
   BLOB_ROYALE_SCENARIO_FIXTURE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}"
+  BLOB_ROYALE_TERRAIN_FIXTURE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/terrain"
 )
 
 target_include_directories(blob_royale_fixture_tests PRIVATE
@@ -24,6 +26,7 @@ target_include_directories(blob_royale_fixture_tests PRIVATE
 
 target_link_libraries(blob_royale_fixture_tests PRIVATE
   Catch2::Catch2WithMain
+  Boost::json
   blob_application
   blob_gameplay
 )

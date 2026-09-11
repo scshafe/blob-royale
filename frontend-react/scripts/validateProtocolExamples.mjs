@@ -1,12 +1,12 @@
 // canonical: protocol_example_validation -- the only validator for checked-in protocol examples.
 //
 // What it does: validates every golden example under docs/protocol/schema/<version>/examples
-//   against its mapped schema, offline, for every accepted protocol version.
+//   against its mapped schema, offline, including explicitly historical versions.
 // Inputs: none. The schema and example trees are discovered from the repository layout below.
 // Side effects: none beyond stdout. Idempotent.
 // Failure modes, each an explicit PROTOCOL.CONFORMANCE.* error rather than a silent skip:
 //   SCHEMAS_MISSING          a version directory contains no *.schema.json
-//   SCHEMA_NOT_ACCEPTED      a schema is missing x-status: Accepted
+//   SCHEMA_STATUS_MISMATCH   a schema disagrees with its version's explicit lifecycle status
 //   SCHEMA_ID_MISMATCH       a schema's $id does not live under its own version namespace
 //   SCHEMA_UNCOMPILABLE      a schema (or a $ref it reaches) does not resolve locally
 //   ROOT_SCHEMA_MISSING      an example maps to a schema file that does not exist
@@ -31,11 +31,12 @@ const protocolSchemaRoot = resolve(
   '../../docs/protocol/schema',
 );
 
-// One entry per accepted protocol version. A new version adds one entry; the mapping is exhaustive
+// One entry per published protocol version. A new version adds one entry; the mapping is exhaustive
 // by construction because an unmapped example file is a failure, not a skip.
 const protocolVersions = [
   {
     version: 'v1',
+    expectedStatus: 'Accepted',
     exampleSchemas: new Map([
       ['configuration-response.json', 'configuration-response.schema.json'],
       ['error-response.json', 'error-response.schema.json'],
@@ -46,6 +47,20 @@ const protocolVersions = [
   },
   {
     version: 'v2',
+    expectedStatus: 'Historical',
+    exampleSchemas: new Map([
+      ['command-envelope.json', 'command-envelope.schema.json'],
+      ['error-response.json', 'error-response.schema.json'],
+      ['lobby-directory-message.json', 'lobby-directory-message.schema.json'],
+      ['race-progress-component.json', 'race-progress-component.schema.json'],
+      ['race-mode-state.json', 'race-mode-state.schema.json'],
+      ['snapshot-message.json', 'snapshot-message.schema.json'],
+      ['welcome-message.json', 'welcome-message.schema.json'],
+    ]),
+  },
+  {
+    version: 'v3',
+    expectedStatus: 'Accepted',
     exampleSchemas: new Map([
       ['command-envelope.json', 'command-envelope.schema.json'],
       ['error-response.json', 'error-response.schema.json'],
@@ -70,10 +85,11 @@ ajv.addKeyword({ keyword: 'x-status', schemaType: 'string', valid: true });
  * Loads and registers every schema of one protocol version.
  *
  * @param {string} version Version directory name, for example `v1`.
+ * @param {string} expectedStatus The explicit lifecycle status of this version.
  * @returns {Promise<Map<string, object>>} Schema documents keyed by file name.
- * @throws {Error} PROTOCOL.CONFORMANCE.SCHEMAS_MISSING, .SCHEMA_NOT_ACCEPTED, .SCHEMA_ID_MISMATCH
+ * @throws {Error} PROTOCOL.CONFORMANCE.SCHEMAS_MISSING, .SCHEMA_STATUS_MISMATCH, .SCHEMA_ID_MISMATCH
  */
-async function loadVersionSchemas(version) {
+async function loadVersionSchemas(version, expectedStatus) {
   const schemaRoot = resolve(protocolSchemaRoot, version);
   const schemaFileNames = (await readdir(schemaRoot, { withFileTypes: true }))
     .filter(
@@ -95,9 +111,9 @@ async function loadVersionSchemas(version) {
     const schema = JSON.parse(
       await readFile(resolve(schemaRoot, schemaFileName), 'utf8'),
     );
-    if (schema['x-status'] !== 'Accepted') {
+    if (schema['x-status'] !== expectedStatus) {
       throw new Error(
-        `PROTOCOL.CONFORMANCE.SCHEMA_NOT_ACCEPTED: ${version}/${schemaFileName}`,
+        `PROTOCOL.CONFORMANCE.SCHEMA_STATUS_MISMATCH: ${version}/${schemaFileName}; expected ${expectedStatus}`,
       );
     }
     if (schema.$id !== `${expectedIdPrefix}${schemaFileName}`) {
@@ -218,8 +234,8 @@ async function validateVersionExamples(
 }
 
 const loadedSchemas = new Map();
-for (const { version } of protocolVersions) {
-  loadedSchemas.set(version, await loadVersionSchemas(version));
+for (const { version, expectedStatus } of protocolVersions) {
+  loadedSchemas.set(version, await loadVersionSchemas(version, expectedStatus));
 }
 
 let totalSchemaCount = 0;

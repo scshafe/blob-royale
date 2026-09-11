@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/king-of-the-hill-mode-state.schema.json",
+  "title": "Blob Royale protocol v3 king of the hill mode state",
+  "description": "The king_of_the_hill mode's non-entity-shaped match state (ADR 0007): three declared constants and nothing observed. Scores are the score components of the player entities, the hill is the hill component of its entity, and progress toward the next point is each entity's hill_presence; this block carries the denominators a client cannot compute from the frame.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["points_to_win", "point_interval_ticks", "time_limit_ticks"],
+  "properties": {
+    "points_to_win": {
+      "$ref": "common.schema.json#/$defs/safe_integer",
+      "$comment": "At least one; the score at which the match is decided. Added in 2.5."
+    },
+    "point_interval_ticks": {
+      "$ref": "common.schema.json#/$defs/safe_integer",
+      "$comment": "The consecutive inside ticks that earn one point: the denominator of hill_presence.inside_ticks. Zero is legal and means a point on the first inside tick, so a client dividing by it must guard rather than treat zero as absent. Added in 2.5."
+    },
+    "time_limit_ticks": {
+      "$ref": "common.schema.json#/$defs/safe_integer",
+      "$comment": "Running ticks after which the leader wins; the elapsed running time is tick_sequence minus phase_started_tick while running. Added in 2.5."
+    }
+  }
+}

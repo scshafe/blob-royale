@@ -1,7 +1,7 @@
 #include "command_decoding.hpp"
 
 #include "command_wire_kind.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include "commands/clear_seat_command.hpp"
 #include "commands/seat_npc_command.hpp"
@@ -66,7 +66,7 @@ namespace json = boost::json;
 // The per-component bound admits `(1, 1)`, whose magnitude is sqrt(2). **Clamping the magnitude is
 // a mode rule** applied by `thrust_steering`, not a wire rule, so this decoder must not clamp:
 // clamping here and again in the system would scale twice and would not be bit-identical to scaling
-// once (`docs/protocol/v2.md` § "set_thrust"; `src/simulation/commands/thrust_command.hpp`).
+// once (`docs/protocol/v3.md` § "set_thrust"; `src/simulation/commands/thrust_command.hpp`).
 [[nodiscard]] CommandDecodeResult decode_set_thrust(const json::object& payload,
                                                     const simulation::EntityId stamped_entity) {
   if (payload.size() != 2) {
@@ -172,7 +172,7 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
 // them is whether the client could have known: the seat roster changes under a client between
 // frames and racing it is unavoidable, while the NPC vocabulary is constant for the process
 // lifetime and was handed to this client in its first frame. Naming something outside it is a
-// defect, and v2's stance on a defect is to fail closed and say so (`docs/protocol/v2.md` §
+// defect, and v3's stance on a defect is to fail closed and say so (`docs/protocol/v3.md` §
 // "Versioning and fail-closed decoding").
 [[nodiscard]] CommandDecodeResult
 decode_seat_npc(const json::object& payload, const simulation::ControllerId controller,

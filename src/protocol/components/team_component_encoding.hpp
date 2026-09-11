@@ -9,7 +9,7 @@ namespace blob_royale::protocol {
 
 // The `team` wire object. An entity without this component is unaligned, so the wire has no
 // reserved "no team" value and absence carries the whole meaning.
-// related: docs/protocol/schema/v2/team-component.schema.json -- the closed wire shape.
+// related: docs/protocol/schema/v3/team-component.schema.json -- the closed wire shape.
 template <> struct ComponentWireEncoding<simulation::Team> {
   static void encode(const simulation::Team& team, const ComponentEncodingContext&,
                      ComponentObjectSink& sink) {

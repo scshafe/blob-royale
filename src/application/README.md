@@ -49,7 +49,7 @@ declared for either ground type. The fixed map name/display name/bounds and the 
 required. See `maps/circuit-960x640/map.cfg` for an authored corridor.
 
 `match_startup_validation.hpp` holds the rules that span two independently validated values: the
-worst-case published population against protocol v2's 1,024-entity snapshot bound, the map's
+worst-case published population against protocol v3's 1,024-entity snapshot bound, the map's
 arena against the `[world]` scalars protocol v1 publishes, and the map's `spawn` markers against
 `[match] lobby_seat_count` for a mode that has a lobby. No one value can own its rule, and each
 would otherwise only fail once a match was being played. `LobbiesConfiguration` is the validated

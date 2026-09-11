@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/error-response.schema.json",
+  "title": "Blob Royale protocol v3 HTTP error response",
+  "description": "Current session failure envelope for representable errors on parsed /api/v3/ and retired /api/v2/ targets. Only grammar-valid retired routes receive SESSION_VERSION_UPGRADE_REQUIRED after global checks; earlier security failures retain their original code and precedence. v1 routes retain their immutable envelope. There is no in-band WebSocket error frame: a session failure is a close code.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data", "error", "meta"],
+  "properties": {
+    "data": {
+      "type": "null"
+    },
+    "error": {
+      "$ref": "common.schema.json#/$defs/error"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "schema_id", "request_id"],
+      "properties": {
+        "protocol_version": {
+          "$ref": "common.schema.json#/$defs/protocol_version"
+        },
+        "schema_id": {
+          "const": "blob-royale://protocol/v3/error-response"
+        },
+        "request_id": {
+          "$ref": "common.schema.json#/$defs/request_id"
+        }
+      }
+    }
+  }
+}

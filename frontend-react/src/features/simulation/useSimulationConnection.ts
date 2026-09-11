@@ -20,6 +20,7 @@ import type {
   SessionEntitySnapshot,
   SessionMatchSection,
   SessionSnapshotMessage,
+  SessionTerrain,
   SessionWelcomeMessage,
   SimulationConfiguration,
 } from './simulationProtocolTypes';
@@ -49,6 +50,7 @@ export interface SimulationSessionIdentity {
   readonly npcControllerKinds: readonly string[];
   /** The most seats the room's map can seat, which is what bounds a seat-count control. */
   readonly seatCountMaximum: number;
+  readonly terrain: SessionTerrain;
 }
 
 export interface SimulationConnectionState {
@@ -157,6 +159,7 @@ export function simulationConnectionReducer(
           mode: action.welcome.data.mode,
           npcControllerKinds: action.welcome.data.npc_controller_kinds,
           seatCountMaximum: action.welcome.data.seat_count_maximum,
+          terrain: action.welcome.data.terrain,
         }),
         status: 'connected',
       });
@@ -263,7 +266,7 @@ function roomRefusedError(
  *
  * `lobbyId` is the room to be in, or `null` to be in none. Changing it is a leave and a join: the
  * old socket is disposed and a fresh attempt is made against the new room, and nothing carries
- * over, because a socket is bound to one room for its life (`docs/protocol/v2.md` § "The lobby
+ * over, because a socket is bound to one room for its life (`docs/protocol/v3.md` § "The lobby
  * directory").
  *
  * **A refusal is not a failure and is never retried.** The server answers a join it will not admit

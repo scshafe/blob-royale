@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/race-progress-component.schema.json",
+  "title": "Blob Royale protocol v3 race_progress component",
+  "description": "The zero-based index of the next gate a racer must reach in declared order. Zero means no gate taken; the course's checkpoint count means finished. Progress persists while the racer's body is absent so the last gate determines its return location.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["next_checkpoint"],
+  "properties": {
+    "next_checkpoint": {
+      "$ref": "common.schema.json#/$defs/safe_integer",
+      "$comment": "At most the course's checkpoint count, enforced by gameplay. Added in 2.5."
+    }
+  }
+}

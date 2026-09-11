@@ -1,9 +1,10 @@
 #include "session_welcome.hpp"
 
 #include "protocol_encoding_error.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include "simulation_limits.hpp"
+#include "snake_case_identity.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -60,18 +61,8 @@ bool is_accepted_display_name(const std::string_view display_name) noexcept {
 
 // `^[a-z][a-z0-9_]*$` bounded at 64.
 bool is_accepted_kind_name(const std::string_view kind_name) noexcept {
-  if (kind_name.empty() || kind_name.size() > kKindNameMaximumCharacterCount) {
-    return false;
-  }
-  if (!is_lowercase_letter(kind_name.front())) {
-    return false;
-  }
-  for (const char character : kind_name) {
-    if (!is_lowercase_letter(character) && !is_ascii_digit(character) && character != '_') {
-      return false;
-    }
-  }
-  return true;
+  static_assert(kKindNameMaximumCharacterCount == simulation::kMaximumKindNameLength);
+  return simulation::is_wire_kind_name(kind_name);
 }
 
 // `^[a-z0-9][a-z0-9._-]*$` bounded at 64.
@@ -97,7 +88,8 @@ SessionWelcome::create(const simulation::EntityId entity, const simulation::Cont
                        std::string display_name, std::string mode_name, std::string map_name,
                        const simulation::CommandKindMask accepted_command_kinds,
                        std::vector<std::string> npc_controller_kinds, const std::uint64_t lobby_id,
-                       const std::uint64_t seat_count_maximum) {
+                       const std::uint64_t seat_count_maximum,
+                       simulation::TerrainDefinition terrain) {
   require(entity.value() >= simulation::kMinimumEntityId, "welcome_message.data.entity_id",
           "entity id must be in the inclusive range 1 to 2^53-1");
   require(controller.value() >= simulation::kMinimumControllerId,
@@ -142,7 +134,8 @@ SessionWelcome::create(const simulation::EntityId entity, const simulation::Cont
                         accepted_command_kinds,
                         std::move(npc_controller_kinds),
                         lobby_id,
-                        seat_count_maximum};
+                        seat_count_maximum,
+                        std::move(terrain)};
 }
 
 SessionWelcome::SessionWelcome(const simulation::EntityId entity,
@@ -150,12 +143,12 @@ SessionWelcome::SessionWelcome(const simulation::EntityId entity,
                                std::string mode_name, std::string map_name,
                                const simulation::CommandKindMask accepted_command_kinds,
                                std::vector<std::string> npc_controller_kinds,
-                               const std::uint64_t lobby_id,
-                               const std::uint64_t seat_count_maximum) noexcept
+                               const std::uint64_t lobby_id, const std::uint64_t seat_count_maximum,
+                               simulation::TerrainDefinition terrain) noexcept
     : entity_(entity), controller_(controller), display_name_(std::move(display_name)),
       mode_name_(std::move(mode_name)), map_name_(std::move(map_name)),
       accepted_command_kinds_(accepted_command_kinds),
       npc_controller_kinds_(std::move(npc_controller_kinds)), lobby_id_(lobby_id),
-      seat_count_maximum_(seat_count_maximum) {}
+      seat_count_maximum_(seat_count_maximum), terrain_(std::move(terrain)) {}
 
 } // namespace blob_royale::protocol

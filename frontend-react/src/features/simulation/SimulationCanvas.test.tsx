@@ -20,6 +20,11 @@ import type {
 } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import {
+  raceTerrain,
+  solidTerrain,
+  validatedTerrain,
+} from './fixtures/terrainFrames';
+import {
   raceSnapshotDocument,
   snapshotDocument,
 } from './fixtures/sessionFrames';
@@ -42,8 +47,8 @@ const goldenSnapshot = validateSessionSnapshotMessage(snapshotDocument(), {
 }).data;
 
 function SimulationCanvas(
-  props: Omit<SimulationCanvasProps, 'camera' | 'onPan'> &
-    Partial<Pick<SimulationCanvasProps, 'camera' | 'onPan'>>,
+  props: Omit<SimulationCanvasProps, 'camera' | 'onPan' | 'terrain'> &
+    Partial<Pick<SimulationCanvasProps, 'camera' | 'onPan' | 'terrain'>>,
 ) {
   return (
     <CameraCanvas
@@ -55,6 +60,7 @@ function SimulationCanvas(
         },
       }}
       onPan={() => undefined}
+      terrain={solidTerrain}
       {...props}
     />
   );
@@ -69,6 +75,7 @@ function createCanvasContext() {
   const restore = vi.fn();
   const setTransform = vi.fn();
   const strokeRect = vi.fn();
+  const fillRect = vi.fn();
   const fillText = vi.fn((text: string, x: number, y: number) => {
     void text;
     void x;
@@ -82,9 +89,11 @@ function createCanvasContext() {
   const context = {
     arc,
     beginPath: vi.fn(),
+    clip: vi.fn(),
+    rect: vi.fn(),
     clearRect: vi.fn(),
     fill: vi.fn(),
-    fillRect: vi.fn(),
+    fillRect,
     fillText,
     font: '',
     lineTo,
@@ -111,6 +120,7 @@ function createCanvasContext() {
     arc,
     assignments,
     context,
+    fillRect,
     fillText,
     lineTo,
     moveTo,
@@ -157,7 +167,73 @@ afterEach(() => {
 });
 
 describe('SimulationCanvas', () => {
-  it('draws the course once before entity layers and still draws it with no entities', () => {
+  it('does not infer solid ground before terrain arrives in welcome', () => {
+    const { context, fillRect } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    const view = render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={null}
+        snapshot={null}
+        terrain={null}
+      />,
+    );
+    expect(fillRect).toHaveBeenCalledTimes(1);
+    // Only the outside/void background exists before welcome; configuration is not terrain.
+    expect(fillRect).toHaveBeenLastCalledWith(0, 0, 960, 640);
+    view.rerender(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={null}
+        snapshot={null}
+        terrain={solidTerrain}
+      />,
+    );
+    expect(fillRect).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps hole geometry on the same camera projection through fractional DPR and manual movement', () => {
+    const { context, arc, setTransform } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    const terrain = validatedTerrain({
+      ...solidTerrain,
+      holes: [{ name: 'pit', center: { x: 240, y: 300 }, radius: 10 }],
+    });
+    const view = render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={null}
+        snapshot={null}
+        terrain={terrain}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+      />,
+    );
+    expect(arc).toHaveBeenLastCalledWith(480, 320, 10, 0, 2 * Math.PI);
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(601);
+    });
+    vi.stubGlobal('devicePixelRatio', 1.25);
+    fireEvent.resize(window);
+    expect(setTransform).toHaveBeenLastCalledWith(751 / 601, 0, 0, 1.25, 0, 0);
+    expect(arc).toHaveBeenLastCalledWith(300.5, 200, 10, 0, 2 * Math.PI);
+    view.rerender(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={null}
+        snapshot={null}
+        terrain={terrain}
+        camera={{ mode: 'manual', center: { x: 400, y: 400 } }}
+      />,
+    );
+    expect(arc).toHaveBeenLastCalledWith(140.5, 100, 10, 0, 2 * Math.PI);
+  });
+
+  it('draws welcome terrain once before race gates and bodies, including bodyless frames', () => {
     const { arc, context, lineTo, moveTo, restore } = createCanvasContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
       context,
@@ -173,6 +249,7 @@ describe('SimulationCanvas', () => {
         configuration={configuration}
         ownEntityId={null}
         snapshot={{ ...race, entities: [bodyEntity(21), bodyEntity(22)] }}
+        terrain={raceTerrain}
       />,
     );
 
@@ -189,6 +266,7 @@ describe('SimulationCanvas', () => {
         configuration={configuration}
         ownEntityId={null}
         snapshot={{ ...race, entities: [] }}
+        terrain={raceTerrain}
       />,
     );
     expect(moveTo).toHaveBeenCalledTimes(2);

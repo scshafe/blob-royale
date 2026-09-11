@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/terrain-data.schema.json",
+  "title": "Blob Royale protocol v3 authored terrain",
+  "description": "Complete immutable terrain published once in welcome, in authored order. Support is the bounded positive ground minus the union of open circular holes. Compiled arrangements are not wire data.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bounds", "ground", "corridors", "holes"],
+  "properties": {
+    "bounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width_world_units", "height_world_units"],
+      "properties": {
+        "width_world_units": {"$ref": "#/$defs/positive_world_scalar"},
+        "height_world_units": {"$ref": "#/$defs/positive_world_scalar"}
+      }
+    },
+    "ground": {"type": "string", "enum": ["solid", "corridors"]},
+    "corridors": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/corridor"}
+    },
+    "holes": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {"$ref": "#/$defs/hole"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"ground": {"const": "solid"}}, "required": ["ground"]},
+      "then": {"properties": {"corridors": {"type": "array", "maxItems": 0}}},
+      "else": {"properties": {"corridors": {"type": "array", "minItems": 1}}}
+    }
+  ],
+  "$comment": "Semantic validation additionally requires unique names per family, at most 32 segments and 40 points across all corridors, finite positive squared lengths for consecutive segments, centers and points inside the closed bounds, and exact bounds agreement with validated v1 configuration. Width and radius may extend outside the envelope. No clipping or fallback is allowed.",
+  "$defs": {
+    "positive_world_scalar": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000000},
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {"type": "number", "minimum": 0, "maximum": 1000000000},
+        "y": {"type": "number", "minimum": 0, "maximum": 1000000000}
+      }
+    },
+    "corridor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "half_width", "points"],
+      "properties": {
+        "name": {"$ref": "common.schema.json#/$defs/kind_name"},
+        "half_width": {"$ref": "#/$defs/positive_world_scalar"},
+        "points": {"type": "array", "minItems": 2, "maxItems": 33, "items": {"$ref": "#/$defs/point"}}
+      }
+    },
+    "hole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "center", "radius"],
+      "properties": {
+        "name": {"$ref": "common.schema.json#/$defs/kind_name"},
+        "center": {"$ref": "#/$defs/point"},
+        "radius": {"$ref": "#/$defs/positive_world_scalar"}
+      }
+    }
+  }
+}

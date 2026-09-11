@@ -1334,3 +1334,19 @@ readers as a shared immutable reference on the snapshot value (Step 7). § "Enti
 and stores": a per-kind body-bound lifetime trait beside `ComponentPublication` lets shared
 respawn clear every bound kind generically (Step 13). Nothing above changes until those steps;
 the decision and its `Accepted` status are unchanged today.
+
+## Amendment: session v3 terrain publication, 2026-09-10 (plan Step 7)
+
+The current session wire contract and extension registrations are now `docs/protocol/v3.md`
+and `docs/protocol/schema/v3`; historical v2 references above record the former implementation.
+There is one active session encoder/decoder. Immutable observations now retain the map's actual
+terrain through the snapshot; the renderer draws that geometry once and race draws only its
+objectives. The race road fields remain a derived equality-tested mirror for this development
+step only, with removal in Step 8. No released v3 retains that mirror.
+
+The coordinated development major stays 3.0 while each later feature adds its complete schema,
+encoding/decoding, validation, generated types, examples, and implementation row in the same
+commit as authoritative behavior. No command vocabulary is advertised before its handler.
+These commits are not separately deployable releases; released versioning discipline resumes
+after the final coordinated release. This does not approve the Step 5 physics gate or change
+the kernel's policy sockets.

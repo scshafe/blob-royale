@@ -10,7 +10,7 @@
 #include "fixed_delta.hpp"
 #include "map_definition.hpp"
 #include "physics_body.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 #include "seat_roster.hpp"
 #include "server_limits.hpp"
 #include "simulation_config.hpp"

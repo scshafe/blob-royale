@@ -69,7 +69,7 @@ enum class FixtureOperation {
 enum class FixtureWorkload {
   kContract,
   kBackpressure,
-  // A `royale` match with one bot, for the protocol v2 session contracts. It is the only workload
+  // A `royale` match with one bot, for the protocol v3 session contracts. It is the only workload
   // that seats a bot, because the human/bot symmetry is only observable when both are present.
   kSession,
 };
@@ -530,7 +530,7 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("countdown_seconds=5\n");
   configuration.append("restart_delay_seconds=8\n");
   // Two rooms for the session workload, so the directory lists more than the room every other
-  // route serves and a room target can name one that `/api/v2/session` does not.
+  // route serves and a room target can name one that `/api/v3/lobbies/1/session` does not.
   configuration.append("\n[lobbies]\n");
   configuration.append(session_workload ? "count=2\n" : "count=1\n");
   write_fixture_text_file_atomically(fixture_directory / kConfigurationFileName, configuration,

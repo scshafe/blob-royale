@@ -23,16 +23,16 @@ function nonVisualModeState(reason: string): NonVisualModeState {
  * omission. Schema-to-value narrowing remains in sessionSelectors alongside the HUD's reads.
  */
 export const modeStateRendererRegistry = Object.freeze({
-  'blob-royale://protocol/v2/mode-state/none': nonVisualModeState(
+  'blob-royale://protocol/v3/mode-state/none': nonVisualModeState(
     'The empty block declares no geometry; this mode is drawn entirely through its entities.',
   ),
-  'blob-royale://protocol/v2/mode-state/royale': nonVisualModeState(
+  'blob-royale://protocol/v3/mode-state/royale': nonVisualModeState(
     'The shrinking zone is an entity; the block carries lifecycle rules and no course geometry.',
   ),
-  'blob-royale://protocol/v2/mode-state/king-of-the-hill': nonVisualModeState(
+  'blob-royale://protocol/v3/mode-state/king-of-the-hill': nonVisualModeState(
     'The touring hill is an entity; the block carries scoring denominators for the HUD.',
   ),
-  'blob-royale://protocol/v2/mode-state/race': {
+  'blob-royale://protocol/v3/mode-state/race': {
     renders: true,
     drawModeState: (match, frame) => {
       const value = raceModeState(match);

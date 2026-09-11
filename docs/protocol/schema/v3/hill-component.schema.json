@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/hill-component.schema.json",
+  "title": "Blob Royale protocol v3 hill component",
+  "description": "The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This component is the only place the hill is published.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["center", "radius"],
+  "properties": {
+    "center": {
+      "$ref": "common.schema.json#/$defs/vector2"
+    },
+    "radius": {
+      "$ref": "common.schema.json#/$defs/nonnegative_world_scalar"
+    }
+  },
+  "$comment": "Added in 2.5."
+}

@@ -13,7 +13,7 @@
 //   WEB.PROTOCOL_TYPE_GENERATION_EMPTY            the schema compiler emitted no declarations
 //   WEB.PROTOCOL_GENERATION_DRIFT                 a generated file is missing or out of date
 //
-// **One implementation, one location, two versions.** Protocol v2 needed the identical pipeline
+// **One implementation, one location, two versions.** Protocol v3 needed the identical pipeline
 // over a different schema tree, and a second copy of it would have been the drift the --check mode
 // exists to prevent, one level up. Everything a version differs in is a field of the descriptor
 // below; nothing here branches on which version is running.
@@ -22,7 +22,7 @@
 // generated file still points at the command that produced it and the v1 outputs stay byte-for-byte
 // what they were before v2 existed.
 // related: scripts/generateProtocolV1Types.mjs -- the v1 entry point.
-// related: scripts/generateProtocolV2Types.mjs -- the v2 entry point.
+// related: scripts/generateProtocolV3Types.mjs -- the v3 entry point.
 // related: scripts/validateProtocolExamples.mjs -- the sibling that validates the golden examples.
 
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';

@@ -882,3 +882,27 @@ shared tick-window lifecycle rather than introducing a second shield response.
 
 This is a gameplay decision, not approval of live continuous-physics adoption at Step 5,
 native capacity/performance certification, or evidence that the live shield is implemented.
+
+## Session terrain publication contract, 2026-09-10 (plan Step 7)
+
+The selected map is shared immutable ownership, and snapshot/observation terrain aliases that
+map's actual member with authored-value equality and lifetime retention. Welcome requires its
+explicit complete terrain; frames omit it. Wire terrain carries bounds, positive ground kind,
+ordered named corridors, and ordered named circular holes under existing shape/point/name
+limits. Clients validate the whole shape, aggregate/containment/segment constraints, and exact
+agreement with v1 configuration bounds before publication or rendering. No geometry repair or
+fallback rectangle is permitted. One world layer draws positive ground minus the union of
+holes through the existing camera projection; race draws objectives only.
+
+Canonical routes are `/api/v3/lobbies` and `/api/v3/lobbies/<lobby_id>/session`, subprotocol
+`blob-royale.session.v3`; no new room-one alias. Recognized old v2 routes fail explicitly before
+upgrade/session/controller admission but after global request security checks. The one v3
+error envelope also handles global errors on both parsed session-version prefixes; v1 remains
+closed. The full fixed retirement response and precedence are normative in `docs/protocol/v3.md`.
+Historical v2 schemas/examples remain validated, without an active v2 encoder.
+
+Shared JSON geometry goldens cover positive corridor unions, overlapping-hole subtraction,
+round caps, and envelope clipping. C++ cases use the canonical factories and support query;
+browser tests use the same data for validation/rendering. Raster antialiasing is not a second
+gameplay support predicate. Phase C adoption and release/native verification remain separate
+gates; this entry specifies the Step 7 contract and does not claim those gates passed.

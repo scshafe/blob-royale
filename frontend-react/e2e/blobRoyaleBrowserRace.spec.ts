@@ -56,7 +56,7 @@ const test = playwrightTest.extend<RaceFixtures>({
   },
 });
 
-/** The road is one declared path, irrespective of the number of racers in the frame. */
+/** Welcome terrain supplies one declared road, irrespective of racers or retained mode mirrors. */
 function requireCoursePath(frame: RecordedFrame): RecordedPath {
   const paths = frame.paths.filter(
     (path) => path.strokeStyle === COURSE_STROKE,

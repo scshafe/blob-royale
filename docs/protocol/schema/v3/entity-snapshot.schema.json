@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/entity-snapshot.schema.json",
+  "title": "Blob Royale protocol v3 entity snapshot",
+  "description": "One entity of one committed tick: its stable id and the closed map of the components it carries, keyed by component kind. An entity is its component set and nothing else (ADR 0004). This file is the registration point for a component kind on the wire.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["entity_id", "components"],
+  "properties": {
+    "entity_id": {
+      "$ref": "common.schema.json#/$defs/entity_id"
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "controllable": {
+          "$ref": "controllable-component.schema.json"
+        },
+        "hill": {
+          "$ref": "hill-component.schema.json"
+        },
+        "hill_presence": {
+          "$ref": "hill-presence-component.schema.json"
+        },
+        "lethal_on_contact": {
+          "$ref": "lethal-on-contact-component.schema.json"
+        },
+        "lifetime": {
+          "$ref": "lifetime-component.schema.json"
+        },
+        "physics_body": {
+          "$ref": "physics-body-component.schema.json"
+        },
+        "race_progress": {
+          "$ref": "race-progress-component.schema.json"
+        },
+        "respawn_timer": {
+          "$ref": "respawn-timer-component.schema.json"
+        },
+        "score": {
+          "$ref": "score-component.schema.json"
+        },
+        "team": {
+          "$ref": "team-component.schema.json"
+        },
+        "zone": {
+          "$ref": "zone-component.schema.json"
+        },
+        "zone_exposure": {
+          "$ref": "zone-exposure-component.schema.json"
+        }
+      },
+      "$comment": "@extension-point snapshot_component_kind -- a new component kind adds one property here, one <kind>-component.schema.json file, and one enum member in common.schema.json#/$defs/component_kind, and is a protocol minor version. additionalProperties is false so a 2.0 decoder fails closed on a kind it does not know rather than rendering an incomplete world."
+    }
+  }
+}

@@ -32,7 +32,7 @@
 
 namespace blob_royale::server {
 
-// canonical: session_websocket_session -- one protocol v2 session connection, bound to one room.
+// canonical: session_websocket_session -- one protocol v3 session connection, bound to one room.
 //
 // **It is a controller, filling the same role a bot fills, without deriving from anything.** What
 // the role requires is two capabilities and a command vocabulary, not an interface: a write-only
@@ -44,7 +44,7 @@ namespace blob_royale::server {
 // **The socket is the credential and the stamp is the ownership check.** A command envelope carries
 // no entity id, so there is no field for a client to put someone else's id in; this session stamps
 // its own current body onto every decoded command and there is exactly one line that does it. The
-// consequence is stated plainly in `docs/protocol/v2.md` § "Abuse cases": a hijacked socket is
+// consequence is stated plainly in `docs/protocol/v3.md` § "Abuse cases": a hijacked socket is
 // total control of that player's entity, and no per-command check would catch it.
 //
 // **Every close path calls `close_session` exactly once.** Retirement happens in `finish()`, which
@@ -68,7 +68,7 @@ namespace blob_royale::server {
 // seat, so nothing on the wire can. The ask is logged. A roster the join could not change at all --
 // no empty seat, and no declared bot's seat to take while the match has not started -- is not asked
 // again: it is the last-seat race lost, or a room joined after its match filled, and the session
-// closes `1013 lobby_full` before any welcome (`docs/protocol/v2.md` § "The lobby directory").
+// closes `1013 lobby_full` before any welcome (`docs/protocol/v3.md` § "The lobby directory").
 //
 // **The room is the router's decision, made once.** The entry this session is bound to -- its
 // publication, its command sink, its session count -- arrives validated at construction, and every
@@ -86,7 +86,7 @@ namespace blob_royale::server {
 // egress budget -- with one welcome frame ahead of it.
 // related: snapshot_websocket_session.hpp -- the v1 twin, read-only and unchanged.
 // related: match_session_context.hpp -- the capability this runs on.
-// related: docs/protocol/v2.md -- the accepted contract.
+// related: docs/protocol/v3.md -- the accepted contract.
 class SessionWebSocketSession final : public std::enable_shared_from_this<SessionWebSocketSession> {
 public:
   SessionWebSocketSession(boost::asio::ip::tcp::socket socket,
@@ -108,8 +108,8 @@ private:
   using Clock = std::chrono::steady_clock;
   using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
 
-  // Every close this session can initiate or observe. The v2 rows carry the stable reasons of
-  // `docs/protocol/v2.md` § "Close codes"; the rest are v1's, unchanged, minus
+  // Every close this session can initiate or observe. The v3 rows carry the stable reasons of
+  // `docs/protocol/v3.md` § "Close codes"; the rest are v1's, unchanged, minus
   // `client_data_forbidden`, which cannot occur on a route that accepts client data.
   enum class CloseIntent {
     kNormal,

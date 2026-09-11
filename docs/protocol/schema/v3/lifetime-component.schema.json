@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/lifetime-component.schema.json",
+  "title": "Blob Royale protocol v3 lifetime component",
+  "description": "A self-expiring entity's remaining committed ticks.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticks_remaining"],
+  "properties": {
+    "ticks_remaining": {
+      "$ref": "common.schema.json#/$defs/safe_integer"
+    }
+  }
+}

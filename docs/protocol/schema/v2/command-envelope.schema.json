@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/command-envelope.schema.json",
   "title": "Blob Royale protocol v2 client command envelope",
   "description": "Every application data message a client may send. The envelope carries no entity id, no protocol version, no request id, and no client sequence number: identity and version are properties of the connection, and a client-supplied version would be a downgrade lever.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["kind", "payload"],

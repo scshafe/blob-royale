@@ -78,9 +78,9 @@ function pageIsVisible(): boolean {
 }
 
 /**
- * @canonical lobby_directory -- the one reader of `GET /api/v2/lobbies`, and the client's only poll.
+ * @canonical lobby_directory -- the one reader of `GET /api/v3/lobbies`, and the client's only poll.
  *
- * The directory is a point-in-time read and not a subscription (`docs/protocol/v2.md` § "The lobby
+ * The directory is a point-in-time read and not a subscription (`docs/protocol/v3.md` § "The lobby
  * directory"), so this reads it once a second for exactly as long as somebody is looking at it:
  * while `enabled` and while the page is visible. The next read is scheduled after the last one
  * completes, never on an interval, so a slow server is asked at most once at a time; a read that

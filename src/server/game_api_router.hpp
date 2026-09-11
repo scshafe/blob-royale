@@ -8,7 +8,7 @@
 #include "request_id.hpp"
 #include "request_id_generator.hpp"
 #include "server_config.hpp"
-#include "v2_http_error.hpp"
+#include "v3_http_error.hpp"
 
 #include <boost/beast/http/message.hpp>
 #include <boost/beast/http/string_body.hpp>
@@ -36,13 +36,13 @@ enum class GameApiRouteDisposition {
 // token is `400 PROTOCOL.SUBPROTOCOL_REQUIRED` even though a token was offered. Selecting by
 // first-acceptable-offer is the classic way this check is written wrong, and it would let a client
 // choose which version's semantics a route runs -- which means choosing the weaker one
-// (`docs/protocol/v2.md` § "Upgrade validation deltas").
+// (`docs/protocol/v3.md` § "Upgrade validation deltas").
 enum class GameApiUpgradeRoute : std::uint8_t {
   // `/api/v1/snapshots` with `blob-royale.snapshot.v1`: read-only, accepts no client data.
   kSnapshotsV1 = 0,
-  // `/api/v2/session` and `/api/v2/lobbies/<lobby_id>/session` with `blob-royale.session.v2`:
+  // `/api/v3/lobbies/<lobby_id>/session` with `blob-royale.session.v3`:
   // joins one room and accepts commands. Which room is the result's `lobby_id()`.
-  kSessionV2 = 1,
+  kSessionV3 = 1,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -50,8 +50,8 @@ game_api_upgrade_route_name(const GameApiUpgradeRoute route) noexcept {
   switch (route) {
   case GameApiUpgradeRoute::kSnapshotsV1:
     return "/api/v1/snapshots";
-  case GameApiUpgradeRoute::kSessionV2:
-    return "/api/v2/session";
+  case GameApiUpgradeRoute::kSessionV3:
+    return "/api/v3/lobbies/<lobby_id>/session";
   }
   return "game_api_upgrade_route_invalid";
 }
@@ -61,8 +61,8 @@ game_api_upgrade_subprotocol(const GameApiUpgradeRoute route) noexcept {
   switch (route) {
   case GameApiUpgradeRoute::kSnapshotsV1:
     return "blob-royale.snapshot.v1";
-  case GameApiUpgradeRoute::kSessionV2:
-    return "blob-royale.session.v2";
+  case GameApiUpgradeRoute::kSessionV3:
+    return "blob-royale.session.v3";
   }
   return "game_api_upgrade_subprotocol_invalid";
 }
@@ -97,7 +97,8 @@ public:
   [[nodiscard]] const PeerIdentity& peer_identity() const&;
   [[nodiscard]] const PeerIdentity& peer_identity() const&& = delete;
   // The room an upgrade was admitted into, validated against the directory: room 1 for the v1
-  // stream and for `/api/v2/session`, the named room for `/api/v2/lobbies/<lobby_id>/session`.
+  // stream and for `/api/v3/lobbies/1/session`, the named room for
+  // `/api/v3/lobbies/<lobby_id>/session`.
   [[nodiscard]] std::uint64_t lobby_id() const;
 
 private:
@@ -122,14 +123,15 @@ private:
 //
 // It validates untrusted request values once, derives the connection's accounting principal before
 // any route runs, consumes that principal's budgets, and emits only the four accepted read-only v1
-// routes plus v2's three targets: the lobby directory, room 1's session, and one session target per
-// room. It owns no socket, timer, mutable simulation, or lifecycle hook.
+// routes plus v3's two active target families: the lobby directory and canonical room session.
+// Recognized retired v2 routes receive a fixed upgrade-required response before admission.
+// It owns no socket, timer, mutable simulation, or lifecycle hook.
 //
-// **v2 is admitted under v1's policies, not beside them.** The same host allowlist, request-ID
+// **v3 is admitted under v1's policies, not beside them.** The same host allowlist, request-ID
 // grammar, origin allowlist, readiness gate, connection caps, and token buckets decide a session
 // upgrade, and it consumes one HTTP request token and one upgrade token from the same buckets. What
-// v2 adds here is the route/subprotocol pairing, the proxy-forwarded accounting principal, the v2
-// error envelope on `/api/v2/` targets (`docs/protocol/v2.md` § "Deltas from v1"), and since 2.4
+// v3 adds here is the route/subprotocol pairing, the proxy-forwarded accounting principal, the v3
+// error envelope on `/api/v3/` targets (`docs/protocol/v3.md` § "Deltas from v1"), and since 2.4
 // the one parametric segment the router has and the admission a room makes before its `101`:
 // `503 LOBBY.UNAVAILABLE` for a room that is not serving and `409 LOBBY.FULL` for one whose
 // admitted sessions already fill its seats (§ "The lobby directory").
@@ -160,28 +162,27 @@ public:
                                          PeerTrafficPolicy::Clock::time_point now);
 
 private:
-  // One error envelope, in the version the request target selects. A target whose path begins
-  // `/api/v2/` gets the v2 envelope and every other target, including an unrouted one, gets v1's,
-  // so a 404 is never ambiguous about which schema it validates against.
+  // One current session envelope for parsed targets beginning `/api/v3/` or `/api/v2/`, even
+  // when unrouted or rejected by a global check. Every other target gets the v1 envelope.
   [[nodiscard]] GameApiRouteResult
   error_response(const GameApiHttpRequest& request, const protocol::RequestId& request_id,
                  protocol::HttpError error,
                  std::optional<std::string_view> allowed_origin = std::nullopt) const;
 
-  // The one row v2 adds, rendered in whichever envelope the target selects. On a `/api/v2/` target
+  // The one row v3 adds, rendered in whichever envelope the target selects. On a `/api/v3/` target
   // it is `PROTOCOL.INVALID_FORWARDED_CLIENT` with `forwarded_client_reason`; on a v1 target it is
-  // `PROTOCOL.INVALID_REQUEST` carrying the same closed reason, because v2 may not widen the code
+  // `PROTOCOL.INVALID_REQUEST` carrying the same closed reason, because v3 may not widen the code
   // registry a v1 client must accept.
   [[nodiscard]] GameApiRouteResult
   forwarded_client_error_response(const GameApiHttpRequest& request,
                                   const protocol::RequestId& request_id,
                                   protocol::ForwardedClientReason reason) const;
 
-  // A v2-only row, which has no v1 rendering: the lobby rows and the forwarded-client row on a v2
-  // target. `LOBBY.UNAVAILABLE` carries `Retry-After` like every other retryable 503.
+  // A session-only row with no v1 rendering: lobby, forwarded-client, or retired-version refusal.
+  // `LOBBY.UNAVAILABLE` carries `Retry-After` like every other retryable 503.
   [[nodiscard]] GameApiRouteResult
-  v2_error_response(const GameApiHttpRequest& request, const protocol::RequestId& request_id,
-                    const protocol::V2HttpError& error,
+  v3_error_response(const GameApiHttpRequest& request, const protocol::RequestId& request_id,
+                    const protocol::V3HttpError& error,
                     std::optional<std::string_view> allowed_origin) const;
 
   const ServerConfig& server_config_;

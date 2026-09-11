@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/seat-npc-command.schema.json",
+  "title": "Blob Royale protocol v3 seat_npc command payload",
+  "description": "Fill one empty seat with a declaration for a named NPC kind. The payload names no sender: the server stamps the sending session's controller id, so a controller id is not merely ignored here, it is a closed-schema violation that closes the connection.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seat_index", "npc_kind"],
+  "properties": {
+    "seat_index": {
+      "$ref": "common.schema.json#/$defs/seat_index"
+    },
+    "npc_kind": {
+      "$ref": "common.schema.json#/$defs/controller_kind",
+      "$comment": "MUST be one of the names welcome.npc_controller_kinds published to this session. The grammar here is the whole schema check; membership is enforced by the server against the same list it published, and a name outside it is command_payload_invalid. The vocabulary is deliberately not an enum: it is read from the server's controller registry, so registering a bot costs no schema revision and no client change."
+    }
+  },
+  "$comment": "Fills an empty seat and never replaces an occupied one, so two clients seating one seat in one tick resolve by the batch's order and the second press is a no-op rather than an eviction. Replacing an occupant is clear_seat followed by seat_npc, which the server applies in that order within one tick. Added in 2.3."
+}

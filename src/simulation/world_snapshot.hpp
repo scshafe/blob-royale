@@ -6,9 +6,11 @@
 #include "entity_id.hpp"
 #include "match_snapshot.hpp"
 #include "player_snapshot.hpp"
+#include "terrain_definition.hpp"
 #include "tick_sequence.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string>
 #include <tuple>
@@ -18,6 +20,7 @@ namespace blob_royale::simulation {
 
 class GameWorld;
 class GameSimulation;
+class MapDefinition;
 
 // canonical: world_snapshot -- complete immutable copy of one committed simulation state.
 //
@@ -43,6 +46,10 @@ class GameSimulation;
 // count, which is committed in every snapshot so two runs that diverge in how many draws they took
 // diverge visibly at the first differing tick
 // (`docs/architecture/0004-gameplay-architecture.md` § "Snapshots and protocol shape").
+//
+// `terrain()` retains the actual immutable terrain member of the simulation's map. All snapshots
+// from that simulation share that same object, including after the simulation is destroyed.
+// Session welcome publishes it once; frame encoding does not serialize it again.
 // related: component_publication.hpp -- what each kind publishes.
 // related: match_snapshot.hpp -- the match section this carries.
 class WorldSnapshot final {
@@ -75,7 +82,11 @@ public:
 
   [[nodiscard]] std::uint64_t random_draw_count() const noexcept { return random_draw_count_; }
 
-  friend bool operator==(const WorldSnapshot&, const WorldSnapshot&) = default;
+  [[nodiscard]] const TerrainDefinition& terrain() const& noexcept { return *terrain_; }
+  [[nodiscard]] const TerrainDefinition& terrain() const&& = delete;
+
+  // Equality is committed value equality, including authored terrain rather than its owner.
+  friend bool operator==(const WorldSnapshot& left, const WorldSnapshot& right);
 
 private:
   friend class GameSimulation;
@@ -83,11 +94,13 @@ private:
   // Copies one state already committed by GameSimulation, publishing each store through its kind's
   // ComponentPublication and deriving the roster from the copies it just made.
   [[nodiscard]] static WorldSnapshot from_world(TickSequence tick_sequence, const GameWorld& world,
-                                                std::string mode_name);
+                                                std::string mode_name,
+                                                const std::shared_ptr<const MapDefinition>& map);
 
   WorldSnapshot(TickSequence tick_sequence, std::vector<EntityId> entities,
                 ComponentStores<ComponentRegistry> stores, std::vector<PlayerSnapshot> players,
-                MatchSnapshot match, std::uint64_t random_draw_count) noexcept;
+                MatchSnapshot match, std::uint64_t random_draw_count,
+                std::shared_ptr<const TerrainDefinition> terrain) noexcept;
 
   TickSequence tick_sequence_;
   std::vector<EntityId> entities_;
@@ -95,6 +108,7 @@ private:
   std::vector<PlayerSnapshot> players_;
   MatchSnapshot match_;
   std::uint64_t random_draw_count_;
+  std::shared_ptr<const TerrainDefinition> terrain_;
 };
 
 } // namespace blob_royale::simulation

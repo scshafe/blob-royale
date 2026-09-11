@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { protocolV2Schemas } from '../generated/protocolV2Schemas.generated';
+import { protocolV3Schemas } from '../generated/protocolV3Schemas.generated';
 import type { SessionEntitySnapshot } from '../simulationProtocolTypes';
 import {
   entityRendererRegistry,
@@ -163,7 +163,7 @@ const bodilessExposureEntity: SessionEntitySnapshot = {
 describe('entityRendererRegistry', () => {
   it('registers every component kind the accepted schema set names, and no other', () => {
     expect(Object.keys(entityRendererRegistry).sort()).toEqual(
-      [...protocolV2Schemas.common.$defs.component_kind.enum].sort(),
+      [...protocolV3Schemas.common.$defs.component_kind.enum].sort(),
     );
   });
 

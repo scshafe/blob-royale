@@ -1,8 +1,8 @@
-#include "protocol_v2_test_fixture.hpp"
+#include "protocol_v3_test_fixture.hpp"
 
 #include "command_decoding.hpp"
 #include "command_wire_kind.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
@@ -25,7 +25,7 @@
 #include <vector>
 
 namespace protocol = blob_royale::protocol;
-namespace fixture = blob_royale::protocol::v2_test_fixture;
+namespace fixture = blob_royale::protocol::v3_test_fixture;
 namespace simulation = blob_royale::simulation;
 
 namespace {
@@ -86,8 +86,8 @@ void require_lobby_rejection(const std::string_view frame,
 } // namespace
 
 TEST_CASE("Command decoder accepts the accepted golden envelope and stamps the session's entity",
-          "[unit][protocol][v2][decoding][golden]") {
-  const std::string golden = fixture::read_v2_golden_example("command-envelope.json");
+          "[unit][protocol][v3][decoding][golden]") {
+  const std::string golden = fixture::read_v3_golden_example("command-envelope.json");
   const protocol::CommandDecodeResult result = decode(golden);
 
   REQUIRE(result.is_accepted());
@@ -99,7 +99,7 @@ TEST_CASE("Command decoder accepts the accepted golden envelope and stamps the s
 }
 
 TEST_CASE("Command decoder stamps only the session's own entity, whatever the client sends",
-          "[unit][protocol][v2][decoding]") {
+          "[unit][protocol][v3][decoding]") {
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   const protocol::CommandDecodeResult result = protocol::decode_command_envelope(
       R"({"kind":"set_thrust","payload":{"x":0,"y":1}})", thrust_only(),
@@ -112,7 +112,7 @@ TEST_CASE("Command decoder stamps only the session's own entity, whatever the cl
 }
 
 TEST_CASE("Command decoder carries a thrust of magnitude greater than one verbatim",
-          "[unit][protocol][v2][decoding]") {
+          "[unit][protocol][v3][decoding]") {
   const protocol::CommandDecodeResult result = decode(R"({"kind":"set_thrust",)"
                                                       R"("payload":{"x":1,"y":1}})");
 
@@ -123,7 +123,7 @@ TEST_CASE("Command decoder carries a thrust of magnitude greater than one verbat
 }
 
 TEST_CASE("Command decoder rejects an inbound message above the 1,024-byte bound",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   const std::string padding(protocol::kClientMessageMaximumByteCount, 'a');
   const std::string oversized =
       R"({"kind":"set_thrust","payload":{"x":0,"y":0},"padding":")" + padding + R"("})";
@@ -135,7 +135,7 @@ TEST_CASE("Command decoder rejects an inbound message above the 1,024-byte bound
 }
 
 TEST_CASE("Command decoder rejects an envelope carrying an extra member",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   require_rejection(R"({"kind":"set_thrust","payload":{"x":0,"y":0},"protocol_version":"2.0"})",
                     protocol::CommandDecodeRejection::kMalformed);
   require_rejection(R"({"kind":"set_thrust","payload":{"x":0,"y":0},"data":null,"error":null})",
@@ -143,7 +143,7 @@ TEST_CASE("Command decoder rejects an envelope carrying an extra member",
 }
 
 TEST_CASE("Command decoder rejects an envelope missing a member or carrying a non-object payload",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   require_rejection(R"({"kind":"set_thrust"})", protocol::CommandDecodeRejection::kMalformed);
   require_rejection(R"({"payload":{"x":0,"y":0}})", protocol::CommandDecodeRejection::kMalformed);
   require_rejection(R"({"kind":"set_thrust","payload":[0,0]})",
@@ -153,7 +153,7 @@ TEST_CASE("Command decoder rejects an envelope missing a member or carrying a no
 }
 
 TEST_CASE("Command decoder rejects a non-finite value and every non-standard JSON literal",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   require_rejection(R"({"kind":"set_thrust","payload":{"x":NaN,"y":0}})",
                     protocol::CommandDecodeRejection::kMalformed);
   require_rejection(R"({"kind":"set_thrust","payload":{"x":Infinity,"y":0}})",
@@ -166,7 +166,7 @@ TEST_CASE("Command decoder rejects a non-finite value and every non-standard JSO
 }
 
 TEST_CASE("Command decoder rejects an unknown command kind",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   require_rejection(R"({"kind":"set_radius","payload":{"radius":40}})",
                     protocol::CommandDecodeRejection::kKindRejected);
   require_rejection(R"({"kind":7,"payload":{"x":0,"y":0}})",
@@ -175,7 +175,7 @@ TEST_CASE("Command decoder rejects an unknown command kind",
 }
 
 TEST_CASE("Command decoder rejects the server-issued kinds the wire deliberately does not name",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   require_rejection(R"({"kind":"spawn","payload":{}})",
                     protocol::CommandDecodeRejection::kKindRejected);
   require_rejection(R"({"kind":"despawn","payload":{}})",
@@ -200,7 +200,7 @@ TEST_CASE("Command decoder rejects the server-issued kinds the wire deliberately
 }
 
 TEST_CASE("Command decoder rejects a registered kind the running mode does not accept",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   const protocol::CommandDecodeResult result = protocol::decode_command_envelope(
       R"({"kind":"set_thrust","payload":{"x":0,"y":0}})", simulation::CommandKindMask::none(),
@@ -211,7 +211,7 @@ TEST_CASE("Command decoder rejects a registered kind the running mode does not a
 }
 
 TEST_CASE("Command decoder rejects a thrust component outside the closed interval",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   require_rejection(R"({"kind":"set_thrust","payload":{"x":1.0000001,"y":0}})",
                     protocol::CommandDecodeRejection::kPayloadInvalid);
   require_rejection(R"({"kind":"set_thrust","payload":{"x":0,"y":-1.5}})",
@@ -221,7 +221,7 @@ TEST_CASE("Command decoder rejects a thrust component outside the closed interva
 }
 
 TEST_CASE("Command decoder rejects a payload carrying an entity id or any other extra member",
-          "[unit][protocol][v2][decoding][rejection]") {
+          "[unit][protocol][v3][decoding][rejection]") {
   require_rejection(R"({"kind":"set_thrust","payload":{"x":1,"y":0,"entity_id":9}})",
                     protocol::CommandDecodeRejection::kPayloadInvalid);
   require_rejection(R"({"kind":"set_thrust","payload":{"x":1}})",
@@ -235,7 +235,7 @@ TEST_CASE("Command decoder rejects a payload carrying an entity id or any other 
 }
 
 TEST_CASE("Command decoder accepts a frame at exactly the inbound byte bound",
-          "[unit][protocol][v2][decoding]") {
+          "[unit][protocol][v3][decoding]") {
   const std::string envelope = R"({"kind":"set_thrust","payload":{"x":0,"y":0}})";
   const std::string spaced =
       envelope + std::string(protocol::kClientMessageMaximumByteCount - envelope.size(), ' ');
@@ -248,7 +248,7 @@ TEST_CASE("Command decoder accepts a frame at exactly the inbound byte bound",
 }
 
 TEST_CASE("Command decoder stamps the session's own controller on every lobby command",
-          "[unit][protocol][v2][decoding][lobby]") {
+          "[unit][protocol][v3][decoding][lobby]") {
   // The lobby envelopes name no sender, exactly as `set_thrust` names no entity, so "ignore the
   // client's controller id" is a shape that does not exist rather than a check to maintain.
   const protocol::CommandDecodeResult seat_count =
@@ -286,7 +286,7 @@ TEST_CASE("Command decoder stamps the session's own controller on every lobby co
 }
 
 TEST_CASE("Command decoder accepts exactly the NPC kinds the welcome published",
-          "[unit][protocol][v2][decoding][lobby]") {
+          "[unit][protocol][v3][decoding][lobby]") {
   // **This is the acceptance test for "registering a bot costs no client change".** The decoder is
   // handed the same list the welcome frame published, so what a client may name and what the server
   // can build are one value; a kind outside it is refused whatever its grammar.
@@ -322,7 +322,7 @@ TEST_CASE("Command decoder accepts exactly the NPC kinds the welcome published",
 }
 
 TEST_CASE("Command decoder bounds a seat index and a seat count and refuses a fractional one",
-          "[unit][protocol][v2][decoding][lobby][rejection]") {
+          "[unit][protocol][v3][decoding][lobby][rejection]") {
   // The published constants, not the running lobby's size: the boundary holds no world, and an
   // index inside this bound that names no seat is a disagreement the tick ignores rather than a
   // frame that closes a connection.
@@ -347,7 +347,7 @@ TEST_CASE("Command decoder bounds a seat index and a seat count and refuses a fr
 }
 
 TEST_CASE("Command decoder refuses any member a lobby payload does not declare",
-          "[unit][protocol][v2][decoding][lobby][rejection]") {
+          "[unit][protocol][v3][decoding][lobby][rejection]") {
   require_lobby_rejection(R"({"kind":"start_match","payload":{"seat_index":0}})",
                           protocol::CommandDecodeRejection::kPayloadInvalid);
   require_lobby_rejection(R"({"kind":"set_seat_count","payload":{"seat_count":4,"force":true}})",
@@ -363,7 +363,7 @@ TEST_CASE("Command decoder refuses any member a lobby payload does not declare",
 }
 
 TEST_CASE("A mode that accepts no lobby kind refuses every lobby command",
-          "[unit][protocol][v2][decoding][lobby][rejection]") {
+          "[unit][protocol][v3][decoding][lobby][rejection]") {
   // Sandbox's shape: the kinds are registered on the wire and absent from the mode's mask, which is
   // admission-order step 6's second half.
   require_rejection(R"({"kind":"start_match","payload":{}})",

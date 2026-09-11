@@ -16,6 +16,7 @@ import type {
 } from './useSimulationConnection';
 import type { SessionEntitySnapshot } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
+import { solidTerrain } from './fixtures/terrainFrames';
 import {
   hillSnapshotDocument,
   raceScenarioDocument,
@@ -52,6 +53,7 @@ const session: SimulationSessionIdentity = Object.freeze({
   mode: 'royale',
   npcControllerKinds: ['wanderer', 'chaser'],
   seatCountMaximum: 32,
+  terrain: solidTerrain,
 });
 
 const zeroThrust = Object.freeze({ x: 0, y: 0 });
@@ -436,7 +438,7 @@ describe('SimulationViewer', () => {
           match: {
             ...snapshot.data.match,
             mode_state: {
-              schema_id: 'blob-royale://protocol/v2/mode-state/none',
+              schema_id: 'blob-royale://protocol/v3/mode-state/none',
               value: {},
             },
           },

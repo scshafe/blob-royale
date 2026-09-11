@@ -49,7 +49,7 @@ public:
   [[nodiscard]] const ServerConfig& config() const& noexcept { return server_config_; }
   [[nodiscard]] const ServerConfig& config() const&& = delete;
   // Every room the router can admit a session into, and room 1, which the v1 routes and the v1
-  // stream serve. A v2 session is bound to the room the router resolved for it
+  // stream serve. A v3 session is bound to the room the router resolved for it
   // (`SessionWebSocketSession`), so nothing here names "the" match session any more.
   [[nodiscard]] const LobbyDirectory& lobbies() const& noexcept { return lobbies_; }
   [[nodiscard]] const LobbyDirectory& lobbies() const&& = delete;

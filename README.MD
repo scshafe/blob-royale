@@ -154,7 +154,7 @@ the local follow-up implementation; the recorded `b1e80d4` tailnet deployment pr
 - `src/controllers` — the in-process agents that decide, through the same command sink as a browser
 - `src/observability` — injected, bounded, atomic structured JSON-lines events
 - `src/runtime` — single-writer clock lifecycle, the command path, and snapshot publication
-- `src/protocol` — the only Boost.JSON boundary; protocol v1 and v2 encoders and the command decoder
+- `src/protocol` — the only Boost.JSON boundary; protocol v1 and v3 encoders and the command decoder
 - `src/server` — bounded Beast HTTP/WebSocket transport and trust-boundary enforcement
 - `src/application` — strict CLI/INI/CSV input and the composition root
 - `maps` — arenas as data: `map.cfg`, `static_bodies.csv`, and `markers.csv` per directory
@@ -165,8 +165,8 @@ the local follow-up implementation; the recorded `b1e80d4` tailnet deployment pr
 - `docs/operations/tailnet.md` — deploying and operating the tailnet game host `cole-ubuntu-pc`
 - `deploy/ubuntu-pc` — committed configuration for that host
 
-Commands arrive over protocol v2 (`docs/protocol/v2.md`) on its own versioned route, `GET
-/api/v2/session`, and never over v1's read-only snapshot stream. Network code still holds only
+Commands arrive over protocol v3 (`docs/protocol/v3.md`) on its own versioned route, `GET
+/api/v3/lobbies/<lobby_id>/session`, and never over v1's read-only snapshot stream. Network code still holds only
 `CommandSink&` and `const SnapshotPublication&`; a further command protocol must do the same again
 on a new versioned route rather than widening either capability.
 

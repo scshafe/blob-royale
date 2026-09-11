@@ -1,10 +1,10 @@
-#ifndef BLOB_ROYALE_TESTS_UNIT_PROTOCOL_PROTOCOL_V2_TEST_FIXTURE_HPP
-#define BLOB_ROYALE_TESTS_UNIT_PROTOCOL_PROTOCOL_V2_TEST_FIXTURE_HPP
+#ifndef BLOB_ROYALE_TESTS_UNIT_PROTOCOL_PROTOCOL_V3_TEST_FIXTURE_HPP
+#define BLOB_ROYALE_TESTS_UNIT_PROTOCOL_PROTOCOL_V3_TEST_FIXTURE_HPP
 
 #include "controller_directory_view.hpp"
 #include "lobby_listing.hpp"
 #include "protocol_encoding_error.hpp"
-#include "protocol_v2_json_encoding.hpp"
+#include "protocol_v3_json_encoding.hpp"
 #include "request_id.hpp"
 #include "session_welcome.hpp"
 
@@ -64,15 +64,15 @@
 #include <utility>
 #include <vector>
 
-#ifndef BLOB_ROYALE_PROTOCOL_V2_SCHEMA_DIRECTORY
-#error "BLOB_ROYALE_PROTOCOL_V2_SCHEMA_DIRECTORY must name docs/protocol/schema/v2"
+#ifndef BLOB_ROYALE_PROTOCOL_V3_SCHEMA_DIRECTORY
+#error "BLOB_ROYALE_PROTOCOL_V3_SCHEMA_DIRECTORY must name docs/protocol/schema/v3"
 #endif
 
-namespace blob_royale::protocol::v2_test_fixture {
+namespace blob_royale::protocol::v3_test_fixture {
 
 namespace simulation = blob_royale::simulation;
 
-// The exact values of `docs/protocol/schema/v2/examples/*.json`, named once so a golden-byte test
+// The exact values of `docs/protocol/schema/v3/examples/*.json`, named once so a golden-byte test
 // and the world that produces it cannot disagree about what the accepted document says.
 inline constexpr std::string_view kSessionRequestId = "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2";
 inline constexpr std::string_view kWelcomeTimestamp = "2026-09-06T18:04:11.500Z";
@@ -411,6 +411,10 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
   return {std::string{kGoldenNpcControllerKinds[0]}, std::string{kGoldenNpcControllerKinds[1]}};
 }
 
+[[nodiscard]] inline simulation::TerrainDefinition golden_terrain() {
+  return simulation::TerrainDefinition::solid(simulation::ArenaBounds::create(960.0, 640.0));
+}
+
 [[nodiscard]] inline SessionWelcome golden_welcome() {
   return SessionWelcome::create(
       simulation::EntityId::create(kPlayerEntityId),
@@ -420,7 +424,48 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
           {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
            simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
            simulation::CommandKind::kStartMatch}),
-      golden_npc_controller_kinds(), kGoldenLobbyId, kGoldenSeatCountMaximum);
+      golden_npc_controller_kinds(), kGoldenLobbyId, kGoldenSeatCountMaximum, golden_terrain());
+}
+
+// Maximum authored shape/point/segment counts and maximum bounded string lengths, all valid
+// simultaneously. Repeated geometry has distinct authored names and keeps compilation bounded;
+// the wire still carries every authored row. This is a complete welcome budget workload, not a
+// claim that one selected floating-point spelling maximizes all possible JSON byte sequences.
+[[nodiscard]] inline SessionWelcome maximum_cardinality_welcome() {
+  const auto maximum_name = [](const std::size_t index) {
+    const std::string suffix = std::to_string(index);
+    return std::string(kKindNameMaximumCharacterCount - suffix.size(), 'a') + suffix;
+  };
+  std::vector<simulation::TerrainCorridor> corridors;
+  corridors.reserve(simulation::kMaximumTerrainCorridorCount);
+  for (std::size_t index = 0; index < simulation::kMaximumTerrainCorridorCount; ++index) {
+    corridors.push_back(simulation::TerrainCorridor::create(
+        maximum_name(index), 70.0,
+        {simulation::Vector2::create(100.0, 320.0), simulation::Vector2::create(280.0, 320.0),
+         simulation::Vector2::create(460.0, 320.0), simulation::Vector2::create(640.0, 320.0),
+         simulation::Vector2::create(820.0, 320.0)}));
+  }
+  std::vector<simulation::TerrainHole> holes;
+  holes.reserve(simulation::kMaximumTerrainHoleCount);
+  for (std::size_t index = 0; index < simulation::kMaximumTerrainHoleCount; ++index) {
+    holes.push_back(simulation::TerrainHole::create(
+        maximum_name(index), simulation::Vector2::create(460.0, 320.0), 20.0));
+  }
+  std::vector<std::string> npc_kinds;
+  npc_kinds.reserve(kNpcControllerKindLimit);
+  for (std::size_t index = 0; index < kNpcControllerKindLimit; ++index) {
+    npc_kinds.push_back(maximum_name(index));
+  }
+  return SessionWelcome::create(
+      simulation::EntityId::create(kMaximumSafeInteger),
+      simulation::ControllerId::create(kMaximumSafeInteger),
+      std::string(kDisplayNameMaximumCharacterCount, 'A'),
+      std::string(kKindNameMaximumCharacterCount, 'a'),
+      std::string(kMapNameMaximumCharacterCount, 'a'), simulation::CommandKindMask::all(),
+      std::move(npc_kinds), kLobbyDirectoryLimit, kLobbySeatCountMaximum,
+      simulation::TerrainDefinition::create(simulation::ArenaBounds::create(960.0, 640.0),
+                                            simulation::TerrainGround::kCorridors,
+                                            std::move(corridors), std::move(holes)));
 }
 
 // The two rooms of the golden directory: room 1 is the golden snapshot's match as the directory
@@ -454,24 +499,24 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
                        .healthy = true}};
 }
 
-[[nodiscard]] inline std::string read_v2_golden_example(const std::string_view filename) {
+[[nodiscard]] inline std::string read_v3_golden_example(const std::string_view filename) {
   const std::filesystem::path fixture_path =
-      std::filesystem::path{BLOB_ROYALE_PROTOCOL_V2_SCHEMA_DIRECTORY} / "examples" / filename;
+      std::filesystem::path{BLOB_ROYALE_PROTOCOL_V3_SCHEMA_DIRECTORY} / "examples" / filename;
   std::ifstream input{fixture_path, std::ios::binary};
   if (!input.is_open()) {
-    throw std::runtime_error{"failed to open protocol v2 golden example: " + fixture_path.string()};
+    throw std::runtime_error{"failed to open protocol v3 golden example: " + fixture_path.string()};
   }
   std::string contents{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
   if (input.bad()) {
-    throw std::runtime_error{"failed to read protocol v2 golden example: " + fixture_path.string()};
+    throw std::runtime_error{"failed to read protocol v3 golden example: " + fixture_path.string()};
   }
   return contents;
 }
 
-inline void require_json_matches_v2_golden_example(const std::string_view encoded,
+inline void require_json_matches_v3_golden_example(const std::string_view encoded,
                                                    const std::string_view filename) {
   const boost::json::value encoded_value = boost::json::parse(encoded);
-  const boost::json::value fixture_value = boost::json::parse(read_v2_golden_example(filename));
+  const boost::json::value fixture_value = boost::json::parse(read_v3_golden_example(filename));
   REQUIRE(encoded_value == fixture_value);
 }
 
@@ -489,6 +534,6 @@ void require_protocol_error_code(Action&& action,
   FAIL("expected ProtocolEncodingError");
 }
 
-} // namespace blob_royale::protocol::v2_test_fixture
+} // namespace blob_royale::protocol::v3_test_fixture
 
 #endif

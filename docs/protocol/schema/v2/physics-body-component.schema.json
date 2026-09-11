@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/physics-body-component.schema.json",
   "title": "Blob Royale protocol v2 physics_body component",
   "description": "The one physical body value of an entity: everything the physics kernel reads or writes. Units follow ADR 0003: position in wu, velocity in wu/s, acceleration in wu/s^2, radius in wu.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": [

@@ -16,7 +16,7 @@ const DASH_PATTERN_PIXELS = Object.freeze([9, 6]);
  * Draws the danger of a body that eliminates on contact.
  *
  * `lethal_on_contact` is a marker: it publishes an empty object, and its **presence** is the whole
- * message (`docs/protocol/schema/v2/lethal-on-contact-component.schema.json`). So this renderer has
+ * message (`docs/protocol/schema/v3/lethal-on-contact-component.schema.json`). So this renderer has
  * no field to read and no state to threshold -- if the component is on the entity this frame, the
  * body is lethal this frame.
  *

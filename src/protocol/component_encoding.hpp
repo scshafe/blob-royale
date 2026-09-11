@@ -13,7 +13,7 @@ namespace blob_royale::protocol {
 
 // canonical: component_object_sink -- the members one component publishes, without naming a parser.
 //
-// A component encoder writes members in the order `docs/protocol/v2.md` § "Object member order"
+// A component encoder writes members in the order `docs/protocol/v3.md` § "Object member order"
 // declares, and the sink turns each into one JSON member. It is an interface rather than a
 // `boost::json::object&` for the reason `src/protocol/README.md` already states: Boost.JSON is a
 // private implementation dependency of this domain's encoding source and no header exposes a Boost
@@ -23,7 +23,7 @@ namespace blob_royale::protocol {
 // It also puts **number canonicalization in one place**. `set_number` is the only path a physical
 // component value takes to the wire, so the round-trip-safe integral form and the refusal of `-0`
 // are properties of the sink rather than rules seven encoders each remember.
-// related: protocol_v2_json_encoding.cpp -- the one Boost.JSON-backed implementation.
+// related: protocol_v3_json_encoding.cpp -- the one Boost.JSON-backed implementation.
 class ComponentObjectSink {
 public:
   ComponentObjectSink() = default;
@@ -35,7 +35,7 @@ public:
 
   // A finite binary64 physical value. Integral magnitudes below 2^53 are written as integers, which
   // is the round-trip-safe decimal representation the schemas' examples use, and `-0` is written as
-  // `0` because `docs/protocol/v2.md` § "Object member order" forbids it on the wire.
+  // `0` because `docs/protocol/v3.md` § "Object member order" forbids it on the wire.
   virtual void set_number(std::string_view member_name, double value) = 0;
   virtual void set_unsigned(std::string_view member_name, std::uint64_t value) = 0;
   virtual void set_signed(std::string_view member_name, std::int64_t value) = 0;
@@ -63,7 +63,7 @@ struct ComponentEncodingContext final {
   const ControllerDirectoryView* directory;
 };
 
-// canonical: component_wire_encoding -- what one component kind publishes on the protocol v2 wire.
+// canonical: component_wire_encoding -- what one component kind publishes on the protocol v3 wire.
 // @extension-point snapshot_component_kind
 //
 // Declared beside the kind's own encoder header, exactly as `ComponentKindName` and
@@ -78,12 +78,12 @@ struct ComponentEncodingContext final {
 //   edit src/simulation/component_registry.hpp                 one type in the list
 //   new  src/protocol/components/<kind>_component_encoding.hpp this specialization
 //   edit src/protocol/component_encoding_registry.hpp          one include
-//   new  docs/protocol/schema/v2/<kind>-component.schema.json  the closed wire schema
-//   edit docs/protocol/schema/v2/entity-snapshot.schema.json   one property
-//   edit docs/protocol/schema/v2/common.schema.json            one component_kind enum member
-//   edit src/protocol/protocol_v2_constants.hpp                one name in the closed vocabulary
+//   new  docs/protocol/schema/v3/<kind>-component.schema.json  the closed wire schema
+//   edit docs/protocol/schema/v3/entity-snapshot.schema.json   one property
+//   edit docs/protocol/schema/v3/common.schema.json            one component_kind enum member
+//   edit src/protocol/protocol_v3_constants.hpp                one name in the closed vocabulary
 //
-// which is a protocol minor version (`docs/protocol/v2.md` § "Versioning and fail-closed
+// which is a protocol minor version (`docs/protocol/v3.md` § "Versioning and fail-closed
 // decoding"). Nothing else changes: the snapshot encoder, the entity walk, the ordering, and the
 // bounds are all generated from `ComponentRegistry` and the kind's own declared name.
 // related: src/simulation/component_kind_name.hpp -- the wire name each kind declares.

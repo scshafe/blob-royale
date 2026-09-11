@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { lobbyDirectoryMessageExample } from './fixtures/protocolV2Examples';
+import { lobbyDirectoryMessageExample } from './fixtures/protocolV3Examples';
 import {
   describeLobbyListing,
   describeRoomRefusal,

@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/match-data.schema.json",
   "title": "Blob Royale protocol v2 match section",
   "description": "The generic match lifecycle header, the pre-match seat roster the first transition reads, plus one mode-state block identified by a schema id. Entity-shaped mode state is published only as components and never duplicated here; the royale safe zone is the zone component of the zone entity (ADR 0005). Alive count is not a field: it is the number of published entities carrying both physics_body and controllable.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": [

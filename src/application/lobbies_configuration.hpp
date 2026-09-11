@@ -1,7 +1,7 @@
 #ifndef BLOB_ROYALE_APPLICATION_LOBBIES_CONFIGURATION_HPP
 #define BLOB_ROYALE_APPLICATION_LOBBIES_CONFIGURATION_HPP
 
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include <cstdint>
 
@@ -17,7 +17,7 @@ namespace blob_royale::application {
 // (`docs/architecture/0006-lobbies-as-rooms.md` § "Rooms"). `1` is the single-match server this
 // tree has always been.
 // related: application_config.hpp -- the aggregate this is one value of.
-// related: ../protocol/protocol_v2_constants.hpp -- `kLobbyDirectoryLimit`, the bound.
+// related: ../protocol/protocol_v3_constants.hpp -- `kLobbyDirectoryLimit`, the bound.
 class LobbiesConfiguration final {
 public:
   static constexpr std::uint64_t kMinimumCount = 1;

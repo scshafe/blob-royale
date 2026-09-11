@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/respawn-timer-component.schema.json",
+  "title": "Blob Royale protocol v3 respawn_timer component",
+  "description": "The committed ticks left before an entity that was knocked out of play is offered a seat again. An entity carrying it has no physics_body; an entity without it is not respawning, so absence is the whole of 'in play' and no member can hold zero on a committed tick.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ticks_remaining"],
+  "properties": {
+    "ticks_remaining": {
+      "$ref": "common.schema.json#/$defs/safe_integer",
+      "$comment": "Ticks, not seconds, because the simulation stores ticks and nothing else on this wire is expressed in seconds. Added in 2.5."
+    }
+  }
+}

@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/royale-mode-state.schema.json",
   "title": "Blob Royale protocol v2 royale mode state",
   "description": "The royale mode's non-entity-shaped match state (ADR 0005). Placements are generic and travel in match.placements; the zone is the zone component of its entity. What remains is previous_phase, which royale observed, and elimination_grace_ticks, which royale was configured with.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["previous_phase", "elimination_grace_ticks"],

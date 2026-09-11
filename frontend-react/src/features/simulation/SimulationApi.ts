@@ -38,6 +38,8 @@ import {
   validateSessionWelcomeMessage,
 } from './sessionProtocolValidation';
 
+import { assertTerrainConfiguration } from './terrainValidation';
+
 const WEBSOCKET_CONNECTING = 0;
 const WEBSOCKET_OPEN = 1;
 
@@ -112,8 +114,8 @@ export interface SimulationApiDependencies {
 
 /**
  * Derives the exact configuration, directory, and WebSocket endpoints from one validated browser
- * authority. Configuration stays on protocol v1 because v2 deliberately adds no second source for
- * one set of numbers; the directory and the room session targets are v2's.
+ * authority. Configuration stays on protocol v1 because v3 deliberately adds no second source for
+ * one set of numbers; the directory and the room session targets are v3's.
  */
 export function deriveSimulationEndpoints(
   location: SimulationBrowserLocation,
@@ -170,7 +172,7 @@ export function deriveSimulationEndpoints(
 }
 
 /**
- * The session target of one room, `/api/v2/lobbies/<lobby_id>/session`. The id must already be
+ * The session target of one room, `/api/v3/lobbies/<lobby_id>/session`. The id must already be
  * one the grammar admits: this client never builds a target from a string the server did not
  * publish, and a number outside `[1-9][0-9]{0,2}` is a defect in whatever produced it.
  */
@@ -413,7 +415,7 @@ function sessionCloseIntentFor(error: SimulationApiError): SessionCloseIntent {
   }
 }
 
-/** @canonical simulation_api -- owns all browser transport for protocol v2 sessions. */
+/** @canonical simulation_api -- owns all browser transport for protocol v3 sessions. */
 export class SimulationApi implements SimulationApiBoundary {
   private readonly endpoints: SimulationEndpoints;
   private readonly fetchImplementation: typeof fetch;
@@ -666,7 +668,7 @@ export class SimulationApi implements SimulationApiBoundary {
     } catch (error) {
       console.warn(
         JSON.stringify({
-          event: 'protocol.v2.command_refused',
+          event: 'protocol.v3.command_refused',
           command_kind: command.kind,
           reason:
             error instanceof SimulationApiError ? error.code : 'unexpected',
@@ -680,7 +682,7 @@ export class SimulationApi implements SimulationApiBoundary {
     ) {
       console.warn(
         JSON.stringify({
-          event: 'protocol.v2.command_refused',
+          event: 'protocol.v3.command_refused',
           command_kind: command.kind,
           reason: 'command_message_too_large',
         }),
@@ -734,6 +736,13 @@ export class SimulationApi implements SimulationApiBoundary {
 
     if (this.sequenceState === null) {
       const welcome = validateSessionWelcomeMessage(untrustedDocument, null);
+      if (this.configuration === null) {
+        throw new SimulationApiError(
+          'SIMULATION.SESSION_INVARIANT_VIOLATION',
+          'A welcome requires the validated configuration used to open its session.',
+        );
+      }
+      assertTerrainConfiguration(welcome.data.terrain, this.configuration);
       this.sequenceState = Object.freeze({
         messageSequence: welcome.meta.message_sequence,
         requestId: welcome.meta.request_id,
@@ -899,7 +908,7 @@ export class SimulationApi implements SimulationApiBoundary {
       );
     }
     if (response.status !== 200) {
-      // A `/api/v2/` target fails in the v2 envelope, whose registry is v1's plus the lobby rows.
+      // A `/api/v3/` target fails in the v3 envelope, whose registry is v1's plus the lobby rows.
       const errorResponse = validateSessionHttpErrorResponse(
         responseDocument,
         response.status,

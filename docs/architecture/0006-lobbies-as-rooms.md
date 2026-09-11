@@ -517,3 +517,22 @@ are retained as evidence of their original inputs, not rewritten to imply the mi
 was measured then. This does not certify native performance. ADR 0008's later owner
 clarification defers capacity selection and removes native evidence from the present human
 Step 5 design gate, while retaining it for Step 24 performance/release claims.
+
+## Amendment: canonical session-v3 routes, 2026-09-10 (plan Step 7)
+
+The active directory is now `GET /api/v3/lobbies`, and room joins use
+`GET /api/v3/lobbies/<lobby_id>/session` with `blob-royale.session.v3`. There is no new
+`/api/v3/session` room-one alias. V1 configuration, health, and read-only snapshots remain
+unchanged. Room ownership, identity derivation, admission ledger, and command authority do not
+change. Existing deployment/review measurements above remain historical evidence, not a claim
+that this migration is deployed.
+
+Exact old directory/alias paths and grammar-valid old room-session paths are recognized as
+retired before room lookup, method/handshake, upgrade-token, or session/controller admission,
+after the existing global security checks. They receive fixed non-retryable
+`426 PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED` with `required_protocol_version: "3.0"`.
+All representable errors for parsed `/api/v2/` and `/api/v3/` targets use the one current v3
+envelope; early security failures retain their established codes and precedence, and malformed
+aliases remain ordinary route errors. The closed v1 error registry is unchanged. See
+`docs/protocol/v3.md` for the exact retirement and global-error contract. Reverting a release
+requires coordinated server/assets rollback, not a hidden v2 compatibility implementation.

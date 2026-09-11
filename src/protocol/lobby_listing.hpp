@@ -8,12 +8,12 @@
 
 namespace blob_royale::protocol {
 
-// canonical: lobby_listing -- one room as `GET /api/v2/lobbies` publishes it.
+// canonical: lobby_listing -- one room as `GET /api/v3/lobbies` publishes it.
 //
 // A plain value the server fills from a room's latest snapshot and its admitted-session count, in
 // the members and order `lobby-directory-data.schema.json#/$defs/lobby_listing` names. The
 // encoder validates every bound before it emits a byte, so a directory that could not validate is
-// an encoding failure here rather than a document a client refuses (`docs/protocol/v2.md`
+// an encoding failure here rather than a document a client refuses (`docs/protocol/v3.md`
 // § "The lobby directory"). `tick_sequence` zero is the one non-snapshot value: a room that has
 // published no tick, because its runtime is not ready or has failed, lists as unhealthy with every
 // count zero.

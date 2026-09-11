@@ -10,7 +10,7 @@
 
 namespace blob_royale::server {
 
-// canonical: runtime_controller_directory_view -- the one production implementation of the v2
+// canonical: runtime_controller_directory_view -- the one production implementation of the v3
 // encoder's presentation port.
 //
 // **It lives here because `blob_server` is the only target allowed to depend on both.**

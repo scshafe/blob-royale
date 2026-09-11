@@ -1,4 +1,4 @@
-// Protocol v1 remains the only source of public configuration: v2 deliberately adds no config
+// Protocol v1 remains the only source of public configuration: v3 deliberately adds no config
 // route, so a client that wants world dimensions still calls `/api/v1/config`.
 export type {
   BlobRoyaleProtocolV1ConfigurationResponse as SimulationConfigurationResponse,
@@ -6,53 +6,56 @@ export type {
   BlobRoyaleProtocolV1PublicConfigurationData as SimulationConfiguration,
 } from './generated/protocolV1Types.generated';
 
-// Protocol v2 owns every session frame, every command, and since 2.4 the lobby directory and the
-// HTTP failure envelope of every `/api/v2/` target.
+// Protocol v3 owns every session frame, every command, and since 2.4 the lobby directory and the
+// HTTP failure envelope of every `/api/v3/` target.
 export type {
-  BlobRoyaleProtocolV2ControllableComponent as SessionControllableComponent,
-  BlobRoyaleProtocolV2EntitySnapshot as SessionEntitySnapshot,
-  BlobRoyaleProtocolV2HTTPErrorResponse as SessionHttpErrorResponse,
-  BlobRoyaleProtocolV2LobbyDirectoryResponse as SessionLobbyDirectoryMessage,
+  BlobRoyaleProtocolV3ControllableComponent as SessionControllableComponent,
+  BlobRoyaleProtocolV3EntitySnapshot as SessionEntitySnapshot,
+  BlobRoyaleProtocolV3HTTPErrorResponse as SessionHttpErrorResponse,
+  BlobRoyaleProtocolV3LobbyDirectoryResponse as SessionLobbyDirectoryMessage,
   LobbyListing as SessionLobbyListing,
   Seat as SessionSeat,
-  BlobRoyaleProtocolV2LifetimeComponent as SessionLifetimeComponent,
-  BlobRoyaleProtocolV2MatchSection as SessionMatchSection,
-  BlobRoyaleProtocolV2PhysicsBodyComponent as SessionPhysicsBodyComponent,
-  BlobRoyaleProtocolV2ScoreComponent as SessionScoreComponent,
-  BlobRoyaleProtocolV2TeamComponent as SessionTeamComponent,
-  BlobRoyaleProtocolV2WebSocketSnapshotMessage as SessionSnapshotMessage,
-  BlobRoyaleProtocolV2WebSocketWelcomeMessage as SessionWelcomeMessage,
-  BlobRoyaleProtocolV2WelcomeData as SessionWelcomeData,
-  BlobRoyaleProtocolV2WorldSnapshotData as SessionWorldSnapshot,
-  BlobRoyaleProtocolV2ZoneComponent as SessionZoneComponent,
-  BlobRoyaleProtocolV2ZoneExposureComponent as SessionZoneExposureComponent,
+  BlobRoyaleProtocolV3LifetimeComponent as SessionLifetimeComponent,
+  BlobRoyaleProtocolV3MatchSection as SessionMatchSection,
+  BlobRoyaleProtocolV3PhysicsBodyComponent as SessionPhysicsBodyComponent,
+  BlobRoyaleProtocolV3ScoreComponent as SessionScoreComponent,
+  BlobRoyaleProtocolV3TeamComponent as SessionTeamComponent,
+  BlobRoyaleProtocolV3WebSocketSnapshotMessage as SessionSnapshotMessage,
+  BlobRoyaleProtocolV3WebSocketWelcomeMessage as SessionWelcomeMessage,
+  BlobRoyaleProtocolV3WelcomeData as SessionWelcomeData,
+  BlobRoyaleProtocolV3WorldSnapshotData as SessionWorldSnapshot,
+  BlobRoyaleProtocolV3ZoneComponent as SessionZoneComponent,
+  BlobRoyaleProtocolV3ZoneExposureComponent as SessionZoneExposureComponent,
   Outcome as SessionOutcome,
   Placement as SessionPlacement,
   Vector2 as SessionVector2,
-} from './generated/protocolV2Types.generated';
+} from './generated/protocolV3Types.generated';
 
 import type {
-  BlobRoyaleProtocolV2EntitySnapshot,
-  BlobRoyaleProtocolV2MatchSection,
-  BlobRoyaleProtocolV2WelcomeData,
-} from './generated/protocolV2Types.generated';
+  BlobRoyaleProtocolV3EntitySnapshot,
+  BlobRoyaleProtocolV3MatchSection,
+  BlobRoyaleProtocolV3WelcomeData,
+} from './generated/protocolV3Types.generated';
 
 /** The closed component vocabulary of `entity-snapshot.schema.json#/properties/components`. */
 export type SessionComponentKind =
-  keyof BlobRoyaleProtocolV2EntitySnapshot['components'];
+  keyof BlobRoyaleProtocolV3EntitySnapshot['components'];
 
 /** The component value carried under one kind, with the schema's optionality removed. */
 export type SessionComponentOfKind<Kind extends SessionComponentKind> =
-  NonNullable<BlobRoyaleProtocolV2EntitySnapshot['components'][Kind]>;
+  NonNullable<BlobRoyaleProtocolV3EntitySnapshot['components'][Kind]>;
 
-export type SessionMatchPhase = BlobRoyaleProtocolV2MatchSection['phase'];
+export type SessionMatchPhase = BlobRoyaleProtocolV3MatchSection['phase'];
 
 /** The client-sendable command vocabulary; `spawn` and `despawn` are server-issued and absent. */
 export type SessionCommandKind =
-  BlobRoyaleProtocolV2WelcomeData['accepted_command_kinds'][number];
+  BlobRoyaleProtocolV3WelcomeData['accepted_command_kinds'][number];
+
+/** Immutable authored geometry, owned by the validated welcome rather than per-tick frames. */
+export type SessionTerrain = BlobRoyaleProtocolV3WelcomeData['terrain'];
 
 /**
- * The commands a v2 client may send. The generated envelope type is deliberately looser than the
+ * The commands a v3 client may send. The generated envelope type is deliberately looser than the
  * schema — json-schema-to-typescript cannot express the if/then payload correlation — so each
  * outbound shape is stated exactly here and validated against the schema before it is sent.
  */

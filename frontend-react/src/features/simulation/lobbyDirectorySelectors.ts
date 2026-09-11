@@ -2,7 +2,7 @@ import type { SessionLobbyListing } from './simulationProtocolTypes';
 
 /**
  * Why the directory says a join to a room would be refused at the door. The rule is admission's
- * (`docs/protocol/v2.md` § "The lobby directory"): a room that is not serving answers `503`, a
+ * (`docs/protocol/v3.md` § "The lobby directory"): a room that is not serving answers `503`, a
  * room whose sessions already number its seats answers `409`, and an id the directory does not
  * list is `404`. A room with no lobby publishes an empty roster and is never full.
  */

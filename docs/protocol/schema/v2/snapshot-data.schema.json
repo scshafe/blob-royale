@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/snapshot-data.schema.json",
   "title": "Blob Royale protocol v2 world snapshot data",
   "description": "One complete immutable simulation tick: every published entity in ascending entity_id order with the components it carries, plus the generic match section. Never a delta, never partial.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["tick_sequence", "entities", "match"],

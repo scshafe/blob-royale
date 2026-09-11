@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { SimulationApiBoundary } from './SimulationApi';
 import { SimulationApiError } from './SimulationApiError';
-import { lobbyDirectoryMessageExample } from './fixtures/protocolV2Examples';
+import { lobbyDirectoryMessageExample } from './fixtures/protocolV3Examples';
 import { LOBBY_DIRECTORY_POLL_MILLISECONDS } from './simulationConstants';
 import type { SessionLobbyListing } from './simulationProtocolTypes';
 import { validateLobbyDirectoryMessage } from './sessionProtocolValidation';

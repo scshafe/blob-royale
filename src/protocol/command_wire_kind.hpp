@@ -1,7 +1,7 @@
 #ifndef BLOB_ROYALE_PROTOCOL_COMMAND_WIRE_KIND_HPP
 #define BLOB_ROYALE_PROTOCOL_COMMAND_WIRE_KIND_HPP
 
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include "command_registry.hpp"
 #include "simulation_limits.hpp"
@@ -20,7 +20,7 @@ namespace blob_royale::protocol {
 // **The wire vocabulary is a narrowing of the simulation's, not a copy of it.** `spawn` and
 // `despawn` exist in the `Command` variant and are issued by the server on session admission and
 // close; naming either on the wire would advertise a capability the boundary must refuse
-// (`docs/protocol/v2.md` § "welcome"). So each kind declares an *optional* wire name, and
+// (`docs/protocol/v3.md` § "welcome"). So each kind declares an *optional* wire name, and
 // `std::nullopt` means server-issued.
 //
 // The primary template is declared and never defined, so a command kind added to the variant
@@ -56,9 +56,9 @@ template <> struct CommandWireKind<simulation::JoinCommand> {
 
 // The whole 2.0 client vocabulary. The wire name differs from the simulation kind name on purpose:
 // `set_thrust` says the command *replaces* a steering intent that otherwise persists, which is the
-// property a client must know to release a key correctly (`docs/protocol/v2.md` § "set_thrust").
+// property a client must know to release a key correctly (`docs/protocol/v3.md` § "set_thrust").
 template <> struct CommandWireKind<simulation::ThrustCommand> {
-  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[3];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[3];
 };
 
 // The four lobby kinds, added in 2.3. **Each one is a decision that a client may operate the
@@ -68,22 +68,22 @@ template <> struct CommandWireKind<simulation::ThrustCommand> {
 //
 // Each names itself, unlike `set_thrust`: none of them replaces a persistent intent, so there is no
 // property a differing wire name would have to teach. The array indices are the schema's own
-// ascending order (`protocol_v2_constants.hpp`), which is why they do not read in the order they
+// ascending order (`protocol_v3_constants.hpp`), which is why they do not read in the order they
 // are applied.
 template <> struct CommandWireKind<simulation::SetSeatCountCommand> {
-  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[2];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[2];
 };
 
 template <> struct CommandWireKind<simulation::ClearSeatCommand> {
-  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[0];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[0];
 };
 
 template <> struct CommandWireKind<simulation::SeatNpcCommand> {
-  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[1];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[1];
 };
 
 template <> struct CommandWireKind<simulation::StartMatchCommand> {
-  static constexpr std::optional<std::string_view> value = kV2ClientCommandKindNames[4];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[4];
 };
 
 namespace detail {
@@ -136,7 +136,7 @@ client_command_wire_name(const simulation::CommandKind kind) noexcept {
 }
 
 // The simulation kind one wire name selects, or nullopt when no registered client kind bears it.
-// This is admission-order step 6's first half (`docs/protocol/v2.md` § "Admission order").
+// This is admission-order step 6's first half (`docs/protocol/v3.md` § "Admission order").
 [[nodiscard]] constexpr std::optional<simulation::CommandKind>
 client_command_kind_of_wire_name(const std::string_view wire_name) noexcept {
   return detail::kind_of_wire_name<0>(wire_name);
@@ -145,8 +145,8 @@ client_command_kind_of_wire_name(const std::string_view wire_name) noexcept {
 // The declarations above and the closed schema vocabulary must name the same set. Counting rather
 // than listing means a kind that gains a wire name without gaining a schema enum member -- or the
 // reverse -- fails to compile.
-static_assert(detail::client_sendable_kind_count() == kV2ClientCommandKindNames.size(),
-              "the client-sendable command kinds and the closed v2 command_kind vocabulary must "
+static_assert(detail::client_sendable_kind_count() == kV3ClientCommandKindNames.size(),
+              "the client-sendable command kinds and the closed v3 command_kind vocabulary must "
               "name the same set");
 
 namespace detail {
@@ -156,7 +156,7 @@ namespace detail {
 // name selects nothing at all. Written as a fold over the whole vocabulary rather than one assert
 // per index, so a sixth kind costs no new line here.
 [[nodiscard]] constexpr bool every_published_name_selects_a_kind() noexcept {
-  for (const std::string_view wire_name : kV2ClientCommandKindNames) {
+  for (const std::string_view wire_name : kV3ClientCommandKindNames) {
     if (!client_command_kind_of_wire_name(wire_name).has_value()) {
       return false;
     }
@@ -167,10 +167,10 @@ namespace detail {
 } // namespace detail
 
 static_assert(detail::every_published_name_selects_a_kind(),
-              "every name in the closed v2 command_kind vocabulary must select a registered kind");
+              "every name in the closed v3 command_kind vocabulary must select a registered kind");
 
 // The seat bounds this file's schema transcription pins and the bound the engine actually enforces
-// are one number, and this is where the mirror is checked. `protocol_v2_constants.hpp` deliberately
+// are one number, and this is where the mirror is checked. `protocol_v3_constants.hpp` deliberately
 // includes no simulation header -- it is a transcription of the published schemas -- so the check
 // lives in the first file that legitimately sees both.
 static_assert(kLobbySeatCountMaximum == simulation::kMaximumLobbySeatCount,

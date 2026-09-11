@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/clear-seat-command.schema.json",
+  "title": "Blob Royale protocol v3 clear_seat command payload",
+  "description": "Empty one seat that holds a declared NPC. The payload names no sender: the server stamps the sending session's controller id, so a controller id is not merely ignored here, it is a closed-schema violation that closes the connection.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["seat_index"],
+  "properties": {
+    "seat_index": {
+      "$ref": "common.schema.json#/$defs/seat_index"
+    }
+  },
+  "$comment": "Clears a seat whose kind is npc and leaves a seat whose kind is controller alone: a controller seat belongs to a live session and only the runtime may give or take it. Clearing an already-empty seat is a no-op, so pressing the same control twice is one decision. Added in 2.3."
+}

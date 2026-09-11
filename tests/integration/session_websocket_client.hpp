@@ -16,19 +16,19 @@
 
 namespace blob_royale::integration_test {
 
-inline constexpr std::string_view kDefaultSessionTarget = "/api/v2/session";
+inline constexpr std::string_view kDefaultSessionTarget = "/api/v3/lobbies/1/session";
 
-// One protocol v2 session connection, exposing only the observations these contracts assert. The
-// target defaults to `/api/v2/session` (room 1) and may name a room,
-// `/api/v2/lobbies/<lobby_id>/session`; `forwarded_client`, when non-empty, is sent as
+// One protocol v3 session connection, exposing only the observations these contracts assert. The
+// target defaults to `/api/v3/lobbies/1/session` (room 1) and may name a room,
+// `/api/v3/lobbies/<lobby_id>/session`; `forwarded_client`, when non-empty, is sent as
 // `X-Forwarded-For` so a fixture that trusts the loopback proxy accounts each client separately.
 //
 // It is a separate client from `SnapshotWebSocketClient` because the two speak different
-// protocols: v1's stream is read-only and closes on any client data, and v2's is bidirectional and
+// protocols: v1's stream is read-only and closes on any client data, and v3's is bidirectional and
 // begins with one welcome frame. Sharing one client would mean one class whose behavior depended on
 // which subprotocol it happened to offer, which is exactly the route/subprotocol confusion the
 // server refuses.
-// related: docs/protocol/v2.md -- the contract this exercises.
+// related: docs/protocol/v3.md -- the contract this exercises.
 class SessionWebSocketClient final {
 public:
   SessionWebSocketClient(std::uint16_t port, std::string origin, std::string request_id,
@@ -91,7 +91,7 @@ private:
   std::string display_name_;
 };
 
-// Offers a complete, well-formed v2 session upgrade to `target` and returns the HTTP response the
+// Offers a complete, well-formed v3 session upgrade to `target` and returns the HTTP response the
 // server declined it with. Throws unless the server declined: a `101` here is the contract
 // violation, because the caller is asserting a refusal (`409`, `404`, `503`).
 [[nodiscard]] boost::beast::http::response<boost::beast::http::string_body>

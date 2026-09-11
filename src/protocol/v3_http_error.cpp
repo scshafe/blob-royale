@@ -1,4 +1,4 @@
-#include "v2_http_error.hpp"
+#include "v3_http_error.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -7,35 +7,45 @@
 
 namespace blob_royale::protocol {
 
-V2HttpError V2HttpError::shared(HttpError error) { return V2HttpError{std::move(error)}; }
-
-V2HttpError V2HttpError::invalid_forwarded_client(const ForwardedClientReason reason) {
-  return V2HttpError{reason};
+V3HttpError V3HttpError::session_version_upgrade_required() {
+  return V3HttpError{SessionVersionUpgradeRequired{}};
 }
 
-V2HttpError::V2HttpError(HttpError shared_error) noexcept
+V3HttpError::V3HttpError(SessionVersionUpgradeRequired) noexcept
+    : session_version_upgrade_required_(true) {}
+
+V3HttpError V3HttpError::shared(HttpError error) { return V3HttpError{std::move(error)}; }
+
+V3HttpError V3HttpError::invalid_forwarded_client(const ForwardedClientReason reason) {
+  return V3HttpError{reason};
+}
+
+V3HttpError::V3HttpError(HttpError shared_error) noexcept
     : shared_error_(std::move(shared_error)) {}
 
-V2HttpError::V2HttpError(const ForwardedClientReason reason) noexcept
+V3HttpError::V3HttpError(const ForwardedClientReason reason) noexcept
     : forwarded_client_reason_(reason) {}
 
-V2HttpError V2HttpError::lobby_not_found() {
-  return V2HttpError{LobbyErrorKind::kNotFound, std::nullopt};
+V3HttpError V3HttpError::lobby_not_found() {
+  return V3HttpError{LobbyErrorKind::kNotFound, std::nullopt};
 }
 
-V2HttpError V2HttpError::lobby_full(const std::uint64_t lobby_id) {
-  return V2HttpError{LobbyErrorKind::kFull, lobby_id};
+V3HttpError V3HttpError::lobby_full(const std::uint64_t lobby_id) {
+  return V3HttpError{LobbyErrorKind::kFull, lobby_id};
 }
 
-V2HttpError V2HttpError::lobby_unavailable(const std::uint64_t lobby_id) {
-  return V2HttpError{LobbyErrorKind::kUnavailable, lobby_id};
+V3HttpError V3HttpError::lobby_unavailable(const std::uint64_t lobby_id) {
+  return V3HttpError{LobbyErrorKind::kUnavailable, lobby_id};
 }
 
-V2HttpError::V2HttpError(const LobbyErrorKind lobby_error,
+V3HttpError::V3HttpError(const LobbyErrorKind lobby_error,
                          const std::optional<std::uint64_t> lobby_id) noexcept
     : lobby_error_(lobby_error), lobby_id_(lobby_id) {}
 
-std::uint16_t V2HttpError::status_code() const noexcept {
+std::uint16_t V3HttpError::status_code() const noexcept {
+  if (session_version_upgrade_required_) {
+    return std::uint16_t{426};
+  }
   if (shared_error_.has_value()) {
     return shared_error_->status_code();
   }
@@ -52,7 +62,10 @@ std::uint16_t V2HttpError::status_code() const noexcept {
   return std::uint16_t{400};
 }
 
-std::string_view V2HttpError::code() const noexcept {
+std::string_view V3HttpError::code() const noexcept {
+  if (session_version_upgrade_required_) {
+    return kSessionVersionUpgradeRequiredCode;
+  }
   if (shared_error_.has_value()) {
     return shared_error_->code();
   }
@@ -69,7 +82,10 @@ std::string_view V2HttpError::code() const noexcept {
   return kInvalidForwardedClientCode;
 }
 
-std::string_view V2HttpError::message() const noexcept {
+std::string_view V3HttpError::message() const noexcept {
+  if (session_version_upgrade_required_) {
+    return kSessionVersionUpgradeRequiredMessage;
+  }
   if (shared_error_.has_value()) {
     return std::string_view{shared_error_->message()};
   }
@@ -86,14 +102,14 @@ std::string_view V2HttpError::message() const noexcept {
   return kInvalidForwardedClientMessage;
 }
 
-bool V2HttpError::retryable() const noexcept {
+bool V3HttpError::retryable() const noexcept {
   if (shared_error_.has_value()) {
     return shared_error_->retryable();
   }
   return lobby_error_.has_value() && *lobby_error_ != LobbyErrorKind::kNotFound;
 }
 
-const HttpError* V2HttpError::shared_error() const& noexcept {
+const HttpError* V3HttpError::shared_error() const& noexcept {
   return shared_error_.has_value() ? &*shared_error_ : nullptr;
 }
 

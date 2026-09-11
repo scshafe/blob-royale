@@ -26,6 +26,7 @@
 #include <string_view>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <utility>
 
 namespace blob_royale::integration_test {
 namespace {
@@ -35,6 +36,7 @@ using Tcp = boost::asio::ip::tcp;
 
 constexpr std::uint64_t kMaximumHttpResponseBytes = 65'536;
 constexpr std::size_t kMaximumConnectionChurnCount = 1'024;
+constexpr std::size_t kMaximumPipelineRequestCount = 4;
 
 void configure_native_socket_timeout(Tcp::socket& socket, const std::chrono::milliseconds timeout) {
   const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(timeout);
@@ -98,11 +100,6 @@ LoopbackHttpClient::request(const http::verb method, const std::string_view targ
                             const std::string_view request_id,
                             const std::optional<std::string_view> origin,
                             const std::optional<std::string_view> forwarded_client) const {
-  boost::asio::io_context io_context{1};
-  boost::beast::tcp_stream stream{io_context};
-  open_and_connect(stream, port_, operation_timeout_, "http");
-  boost::system::error_code operation_error;
-
   http::request<http::empty_body> request{method, target, 11};
   request.set(http::field::host, host_authority_);
   request.set(http::field::user_agent, "blob-royale-native-integration");
@@ -115,25 +112,55 @@ LoopbackHttpClient::request(const http::verb method, const std::string_view targ
   }
   request.keep_alive(false);
 
-  stream.expires_after(operation_timeout_);
-  http::write(stream, request, operation_error);
-  if (operation_error) {
-    throw_transport_error("http.write", operation_error);
+  const std::array requests{std::move(request)};
+  std::vector<IntegrationHttpResponse> responses = request_pipeline(requests);
+  return std::move(responses.front());
+}
+
+std::vector<IntegrationHttpResponse>
+LoopbackHttpClient::request_pipeline(const std::span<const IntegrationHttpRequest> requests) const {
+  if (requests.empty() || requests.size() > kMaximumPipelineRequestCount) {
+    throw IntegrationTestError{IntegrationTestErrorCode::kArgumentInvalid, "http.pipeline",
+                               "pipeline request count is outside 1..4"};
+  }
+  for (std::size_t index = 0; index + 1 < requests.size(); ++index) {
+    if (!requests[index].keep_alive()) {
+      throw IntegrationTestError{IntegrationTestErrorCode::kArgumentInvalid, "http.pipeline",
+                                 "a request closes the socket before the pipeline ends"};
+    }
+  }
+  boost::asio::io_context io_context{1};
+  boost::beast::tcp_stream stream{io_context};
+  open_and_connect(stream, port_, operation_timeout_, "http");
+  boost::system::error_code operation_error;
+  // All requests are sent before any read, exercising the server's pending-response/upgrade
+  // boundary without a separate transport implementation or an unbounded raw-byte interface.
+  for (const IntegrationHttpRequest& request : requests) {
+    stream.expires_after(operation_timeout_);
+    http::write(stream, request, operation_error);
+    if (operation_error) {
+      throw_transport_error("http.write", operation_error);
+    }
   }
 
   boost::beast::flat_buffer read_buffer;
-  http::response_parser<http::string_body> parser;
-  parser.body_limit(kMaximumHttpResponseBytes);
-  stream.expires_after(operation_timeout_);
-  http::read(stream, read_buffer, parser, operation_error);
-  if (operation_error) {
-    throw_transport_error("http.read", operation_error);
+  std::vector<IntegrationHttpResponse> responses;
+  responses.reserve(requests.size());
+  for (std::size_t index = 0; index < requests.size(); ++index) {
+    http::response_parser<http::string_body> parser;
+    parser.body_limit(kMaximumHttpResponseBytes);
+    stream.expires_after(operation_timeout_);
+    http::read(stream, read_buffer, parser, operation_error);
+    if (operation_error) {
+      throw_transport_error("http.read", operation_error);
+    }
+    responses.push_back(parser.release());
   }
 
   boost::system::error_code ignored;
   stream.socket().shutdown(Tcp::socket::shutdown_both, ignored);
   stream.socket().close(ignored);
-  return parser.release();
+  return responses;
 }
 
 void LoopbackHttpClient::exercise_closed_connection_churn(

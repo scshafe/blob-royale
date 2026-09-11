@@ -53,7 +53,10 @@ export function cameraConfiguration(): SimulationConfiguration {
 
 /** Every call is a new welcome identity even when the server reuses the same numeric IDs. */
 export function cameraSessionIdentity(): SimulationSessionIdentity {
-  const welcome = validateSessionWelcomeMessage(welcomeDocument(), null).data;
+  const document = welcomeDocument();
+  document.data.terrain.bounds.width_world_units = CAMERA_WORLD_SIZE.width;
+  document.data.terrain.bounds.height_world_units = CAMERA_WORLD_SIZE.height;
+  const welcome = validateSessionWelcomeMessage(document, null).data;
   return Object.freeze({
     acceptedCommandKinds: welcome.accepted_command_kinds,
     controllerId: welcome.controller_id,
@@ -64,6 +67,7 @@ export function cameraSessionIdentity(): SimulationSessionIdentity {
     mode: welcome.mode,
     npcControllerKinds: welcome.npc_controller_kinds,
     seatCountMaximum: welcome.seat_count_maximum,
+    terrain: welcome.terrain,
   });
 }
 

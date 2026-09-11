@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/snapshot-message.schema.json",
+  "title": "Blob Royale protocol v3 WebSocket snapshot message",
+  "description": "A world snapshot frame on an established session. message_sequence starts at 2 because the welcome message is always message 1 of a session.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["data", "error", "meta"],
+  "properties": {
+    "data": {
+      "$ref": "snapshot-data.schema.json"
+    },
+    "error": {
+      "type": "null"
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol_version", "schema_id", "request_id", "message_sequence", "sent_at_utc"],
+      "properties": {
+        "protocol_version": {
+          "$ref": "common.schema.json#/$defs/protocol_version"
+        },
+        "schema_id": {
+          "const": "blob-royale://protocol/v3/snapshot-message"
+        },
+        "request_id": {
+          "$ref": "common.schema.json#/$defs/request_id"
+        },
+        "message_sequence": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 9007199254740991
+        },
+        "sent_at_utc": {
+          "$ref": "common.schema.json#/$defs/utc_timestamp"
+        }
+      }
+    }
+  }
+}

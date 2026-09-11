@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/king-of-the-hill-mode-state.schema.json",
   "title": "Blob Royale protocol v2 king of the hill mode state",
   "description": "The king_of_the_hill mode's non-entity-shaped match state (ADR 0007): three declared constants and nothing observed. Scores are the score components of the player entities, the hill is the hill component of its entity, and progress toward the next point is each entity's hill_presence; this block carries the denominators a client cannot compute from the frame.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["points_to_win", "point_interval_ticks", "time_limit_ticks"],

@@ -1,4 +1,4 @@
-#include "protocol_v2_json_encoding.hpp"
+#include "protocol_v3_json_encoding.hpp"
 
 #include "bounded_json_serialization.hpp"
 #include "command_wire_kind.hpp"
@@ -47,8 +47,8 @@ namespace {
 namespace json = boost::json;
 namespace simulation = blob_royale::simulation;
 
-static_assert(kSnapshotFrameV2MaximumByteCount == kSnapshotFrameMaximumByteCount,
-              "protocol v2 inherits v1's unchanged 2 MiB frame ceiling");
+static_assert(kSnapshotFrameV3MaximumByteCount == kSnapshotFrameMaximumByteCount,
+              "protocol v3 inherits v1's unchanged 2 MiB frame ceiling");
 static_assert(kSnapshotEntityLimit <= simulation::kMaximumEntityCount,
               "a published entity is a world entity slot, so the wire bound cannot exceed the "
               "entity slot count");
@@ -153,7 +153,7 @@ struct DeclaredKindTable final {
 
 inline constexpr DeclaredKindTable kDeclaredKinds = declared_kinds();
 
-// The declared kinds' positions sorted by kind name, because `docs/protocol/v2.md`
+// The declared kinds' positions sorted by kind name, because `docs/protocol/v3.md`
 // § "Object member order" encodes component keys in ascending kind-name order while
 // `ComponentRegistry` is ordered by declaration. Deriving the permutation from the declared names
 // means a kind added anywhere in the registry lands in the right place on the wire with no second
@@ -228,7 +228,7 @@ void validate_publishable_tick(const simulation::TickSequence tick,
                                                    const std::string_view sent_at_utc) {
   json::object metadata;
   metadata.reserve(5);
-  metadata.emplace("protocol_version", kProtocolV2Version);
+  metadata.emplace("protocol_version", kProtocolV3Version);
   metadata.emplace("schema_id", schema_id);
   metadata.emplace("request_id", request_id.value());
   metadata.emplace("message_sequence", message_sequence);
@@ -243,6 +243,50 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   envelope.emplace("error", nullptr);
   envelope.emplace("meta", std::move(metadata));
   return envelope;
+}
+
+// canonical: terrain_wire_encoding -- publishes authored geometry in declared order, once per
+// welcome. TerrainDefinition has already validated every scalar, name, and aggregate bound.
+[[nodiscard]] json::object encode_terrain(const simulation::TerrainDefinition& terrain) {
+  json::object bounds;
+  bounds.emplace("width_world_units", encode_json_number(terrain.bounds().width()));
+  bounds.emplace("height_world_units", encode_json_number(terrain.bounds().height()));
+  const auto encode_point = [](const simulation::Vector2& point) {
+    json::object encoded;
+    encoded.emplace("x", encode_json_number(point.x()));
+    encoded.emplace("y", encode_json_number(point.y()));
+    return encoded;
+  };
+  json::array corridors;
+  corridors.reserve(terrain.corridors().size());
+  for (const simulation::TerrainCorridor& corridor : terrain.corridors()) {
+    json::array points;
+    points.reserve(corridor.points().size());
+    for (const simulation::Vector2& point : corridor.points()) {
+      points.emplace_back(encode_point(point));
+    }
+    json::object encoded;
+    encoded.emplace("name", corridor.name());
+    encoded.emplace("half_width", encode_json_number(corridor.half_width()));
+    encoded.emplace("points", std::move(points));
+    corridors.emplace_back(std::move(encoded));
+  }
+  json::array holes;
+  holes.reserve(terrain.holes().size());
+  for (const simulation::TerrainHole& hole : terrain.holes()) {
+    json::object encoded;
+    encoded.emplace("name", hole.name());
+    encoded.emplace("center", encode_point(hole.center()));
+    encoded.emplace("radius", encode_json_number(hole.radius()));
+    holes.emplace_back(std::move(encoded));
+  }
+  json::object encoded;
+  encoded.emplace("bounds", std::move(bounds));
+  encoded.emplace("ground",
+                  terrain.ground() == simulation::TerrainGround::kSolid ? "solid" : "corridors");
+  encoded.emplace("corridors", std::move(corridors));
+  encoded.emplace("holes", std::move(holes));
+  return encoded;
 }
 
 [[nodiscard]] json::object encode_entity(const simulation::WorldSnapshot& snapshot,
@@ -290,7 +334,7 @@ void validate_publishable_tick(const simulation::TickSequence tick,
     throw ProtocolEncodingError{ProtocolEncodingErrorCode::kPlacementLimitExceeded,
                                 "snapshot_message.data.match.placements",
                                 "placement count " + std::to_string(ranking.size()) +
-                                    " exceeds the accepted protocol v2 limit " +
+                                    " exceeds the accepted protocol v3 limit " +
                                     std::to_string(kMatchPlacementLimit)};
   }
 
@@ -387,7 +431,7 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
     throw ProtocolEncodingError{
         ProtocolEncodingErrorCode::kSeatLimitExceeded, "snapshot_message.data.match.seats",
         "seat count " + std::to_string(seats.seat_count()) +
-            " exceeds the accepted protocol v2 limit " + std::to_string(kLobbySeatCountMaximum)};
+            " exceeds the accepted protocol v3 limit " + std::to_string(kLobbySeatCountMaximum)};
   }
   json::array encoded;
   encoded.reserve(seats.seat_count());
@@ -407,7 +451,7 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
   // `match-data.schema.json` types it as `phase_start_tick`, which admits zero, because zero is the
   // truthful value for "no transition has been committed yet": a match loaded into `lobby` holds
   // `TickSequence::zero()` for the whole lobby, and every snapshot of that lobby is a legitimate
-  // frame (`docs/protocol/v2.md` § "Field dictionary and invariants").
+  // frame (`docs/protocol/v3.md` § "Field dictionary and invariants").
 
   json::object encoded;
   encoded.reserve(8);
@@ -480,8 +524,8 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   // A kind the mode does not accept is absent, and a kind with no wire name cannot appear at all
   // because it has no name to appear under (`command_wire_kind.hpp`).
   json::array accepted_command_kinds;
-  accepted_command_kinds.reserve(kV2ClientCommandKindNames.size());
-  for (const std::string_view wire_name : kV2ClientCommandKindNames) {
+  accepted_command_kinds.reserve(kV3ClientCommandKindNames.size());
+  for (const std::string_view wire_name : kV3ClientCommandKindNames) {
     const std::optional<simulation::CommandKind> kind = client_command_kind_of_wire_name(wire_name);
     if (kind.has_value() && welcome.accepted_command_kinds().contains(*kind)) {
       accepted_command_kinds.emplace_back(wire_name);
@@ -498,7 +542,7 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   }
 
   json::object data;
-  data.reserve(9);
+  data.reserve(10);
   data.emplace("entity_id", welcome.entity().value());
   data.emplace("controller_id", welcome.controller().value());
   data.emplace("display_name", welcome.display_name());
@@ -508,15 +552,16 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   data.emplace("npc_controller_kinds", std::move(npc_controller_kinds));
   data.emplace("lobby_id", welcome.lobby_id());
   data.emplace("seat_count_maximum", welcome.seat_count_maximum());
+  data.emplace("terrain", encode_terrain(welcome.terrain()));
 
   json::object envelope = encode_envelope_with_data(
       json::value(std::move(data)), encode_message_metadata(kWelcomeMessageSchemaId, request_id,
                                                             kWelcomeMessageSequence, sent_at_utc));
   return serialize_bounded_json(json::value(std::move(envelope)), output_byte_limit,
-                                kSnapshotFrameV2MaximumByteCount, "welcome_message.encoding");
+                                kSnapshotFrameV3MaximumByteCount, "welcome_message.encoding");
 }
 
-std::string encode_snapshot_message_v2(const simulation::WorldSnapshot& snapshot,
+std::string encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot,
                                        const ControllerDirectoryView& directory,
                                        const RequestId& request_id,
                                        const std::uint64_t message_sequence,
@@ -532,7 +577,7 @@ std::string encode_snapshot_message_v2(const simulation::WorldSnapshot& snapshot
     throw ProtocolEncodingError{
         ProtocolEncodingErrorCode::kSnapshotEntityLimitExceeded, "snapshot_message.data.entities",
         "published entity count " + std::to_string(entities.size()) +
-            " exceeds the accepted protocol v2 limit " + std::to_string(kSnapshotEntityLimit)};
+            " exceeds the accepted protocol v3 limit " + std::to_string(kSnapshotEntityLimit)};
   }
   validate_ascending_unique_entities(entities, "snapshot_message.data.entities.entity_id");
 
@@ -550,13 +595,13 @@ std::string encode_snapshot_message_v2(const simulation::WorldSnapshot& snapshot
   data.emplace("match", encode_match(snapshot.match()));
 
   json::object envelope = encode_envelope_with_data(
-      json::value(std::move(data)), encode_message_metadata(kSnapshotMessageV2SchemaId, request_id,
+      json::value(std::move(data)), encode_message_metadata(kSnapshotMessageV3SchemaId, request_id,
                                                             message_sequence, sent_at_utc));
   return serialize_bounded_json(json::value(std::move(envelope)), output_byte_limit,
-                                kSnapshotFrameV2MaximumByteCount, "snapshot_message_v2.encoding");
+                                kSnapshotFrameV3MaximumByteCount, "snapshot_message_v3.encoding");
 }
 
-std::string encode_error_response_v2(const V2HttpError& error, const RequestId& request_id,
+std::string encode_error_response_v3(const V3HttpError& error, const RequestId& request_id,
                                      const std::size_t output_byte_limit) {
   json::object details;
   details.reserve(6);
@@ -597,6 +642,9 @@ std::string encode_error_response_v2(const V2HttpError& error, const RequestId& 
   if (error.lobby_id().has_value()) {
     details.emplace("lobby_id", *error.lobby_id());
   }
+  if (error.requires_session_version_upgrade()) {
+    details.emplace("required_protocol_version", kProtocolV3Version);
+  }
 
   json::object encoded_error;
   encoded_error.reserve(4);
@@ -607,8 +655,8 @@ std::string encode_error_response_v2(const V2HttpError& error, const RequestId& 
 
   json::object metadata;
   metadata.reserve(3);
-  metadata.emplace("protocol_version", kProtocolV2Version);
-  metadata.emplace("schema_id", kErrorResponseV2SchemaId);
+  metadata.emplace("protocol_version", kProtocolV3Version);
+  metadata.emplace("schema_id", kErrorResponseV3SchemaId);
   metadata.emplace("request_id", request_id.value());
 
   json::object envelope;
@@ -617,7 +665,7 @@ std::string encode_error_response_v2(const V2HttpError& error, const RequestId& 
   envelope.emplace("error", std::move(encoded_error));
   envelope.emplace("meta", std::move(metadata));
   return serialize_bounded_json(json::value(std::move(envelope)), output_byte_limit,
-                                kHttpJsonResponseMaximumByteCount, "error_response_v2.encoding");
+                                kHttpJsonResponseMaximumByteCount, "error_response_v3.encoding");
 }
 
 std::string encode_lobby_directory_message(const std::span<const LobbyListing> lobbies,
@@ -691,10 +739,10 @@ std::string encode_lobby_directory_message(const std::span<const LobbyListing> l
   data.emplace("lobbies", std::move(encoded_lobbies));
 
   // An HTTP document, so the metadata is the error envelope's three members and not a frame's five
-  // (`docs/protocol/v2.md` § "The lobby directory").
+  // (`docs/protocol/v3.md` § "The lobby directory").
   json::object metadata;
   metadata.reserve(3);
-  metadata.emplace("protocol_version", kProtocolV2Version);
+  metadata.emplace("protocol_version", kProtocolV3Version);
   metadata.emplace("schema_id", kLobbyDirectorySchemaId);
   metadata.emplace("request_id", request_id.value());
 

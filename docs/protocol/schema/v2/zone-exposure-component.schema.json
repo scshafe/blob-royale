@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/zone-exposure-component.schema.json",
   "title": "Blob Royale protocol v2 zone_exposure component",
   "description": "Consecutive committed ticks an entity's center has been outside the zone. An absent component reads as zero.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["outside_ticks"],

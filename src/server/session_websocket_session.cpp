@@ -6,8 +6,8 @@
 
 #include "command_decoding.hpp"
 #include "protocol_encoding_error.hpp"
-#include "protocol_v2_constants.hpp"
-#include "protocol_v2_json_encoding.hpp"
+#include "protocol_v3_constants.hpp"
+#include "protocol_v3_json_encoding.hpp"
 #include "session_welcome.hpp"
 
 #include "command_sink.hpp"
@@ -58,7 +58,7 @@ void cancel_timer_noexcept(boost::asio::steady_timer& timer) noexcept {
 
 // The controller kind every networked player publishes. It is the one value a client uses to tell
 // a player from a bot, and the simulation never branches on it
-// (`docs/protocol/v2.md` § "Entities, controllers, and what survives what").
+// (`docs/protocol/v3.md` § "Entities, controllers, and what survives what").
 inline constexpr std::string_view kSessionControllerKind = "session";
 
 } // namespace
@@ -99,7 +99,7 @@ void SessionWebSocketSession::run(GameApiHttpRequest request) {
           response.set(boost::beast::http::field::server, "blob-royale");
           // The route selected this token; the client's offer list never did.
           response.set(boost::beast::http::field::sec_websocket_protocol,
-                       game_api_upgrade_subprotocol(GameApiUpgradeRoute::kSessionV2));
+                       game_api_upgrade_subprotocol(GameApiUpgradeRoute::kSessionV3));
           response.set("X-Request-ID", request_id);
         }));
     websocket_.control_callback([weak_self](const websocket::frame_type frame_type,
@@ -539,7 +539,7 @@ void SessionWebSocketSession::request_seat_if_absent(
   // condition on committed state, so the answer is `1013 lobby_full` now rather than an ask every
   // tenth of a second until the socket times out. The rule is the tick's own: `first_joinable_seat`
   // is what `apply_join` seats with, so a session is never closed for a seat the tick would have
-  // given it (`docs/protocol/v2.md` § "The lobby directory").
+  // given it (`docs/protocol/v3.md` § "The lobby directory").
   const simulation::MatchPhase phase = snapshot.match().phase();
   if (!simulation::first_joinable_seat(seats, phase).has_value()) {
     server_context_->logger().write(
@@ -590,7 +590,8 @@ void SessionWebSocketSession::start_welcome_write(const simulation::EntityId ent
         std::string{lobby_->snapshot_publication().latest()->match().mode_name()},
         match_session.map_name(), match_session.accepted_command_kinds(),
         std::vector<std::string>{npc_controller_kinds.begin(), npc_controller_kinds.end()},
-        match_session.lobby_id(), match_session.seat_count_maximum());
+        match_session.lobby_id(), match_session.seat_count_maximum(),
+        lobby_->snapshot_publication().latest()->terrain());
     active_write_payload_ = protocol::encode_welcome_message(
         welcome, request_id_, current_utc_timestamp(), active_egress_lease_->owned_byte_count());
   } catch (const protocol::ProtocolEncodingError& error) {
@@ -644,10 +645,10 @@ void SessionWebSocketSession::start_snapshot_write(SnapshotDelivery delivery,
                                                    SnapshotEgressLease egress_lease) {
   active_egress_lease_.emplace(std::move(egress_lease));
   try {
-    // `SnapshotDeliveryState` counts delivered snapshots from one; on a v2 session the welcome
+    // `SnapshotDeliveryState` counts delivered snapshots from one; on a v3 session the welcome
     // already spent message sequence one, so a snapshot's sequence is its delivery number plus the
     // welcome's. The first snapshot is therefore two, which is what the schema pins.
-    active_write_payload_ = protocol::encode_snapshot_message_v2(
+    active_write_payload_ = protocol::encode_snapshot_message_v3(
         *delivery.snapshot, lobby_->match_session().directory_view(), request_id_,
         delivery.message_sequence + protocol::kWelcomeMessageSequence, current_utc_timestamp(),
         active_egress_lease_->owned_byte_count());

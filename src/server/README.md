@@ -2,13 +2,12 @@
 
 # Server domain
 
-`blob_server` owns the one bounded HTTP/1.1 and WebSocket listener for protocol v1 and protocol v2.
+`blob_server` owns the one bounded HTTP/1.1 and WebSocket listener for protocol v1 and protocol v3.
 It reads immutable `ServerConfig` and a `LobbyDirectory`: one `LobbyEntry` per room, each a
 `const SnapshotPublication` to read and one write capability, `MatchSessionContext`, whose entire
 interface is `CommandSink::open_session`, `submit`, and `close_session` plus a read-only
-presentation directory and the match identities a `welcome` announces. The v1 routes and
-`/api/v2/session` serve room 1; `GET /api/v2/lobbies` lists every room from its latest committed
-snapshot and its admission count, and `GET /api/v2/lobbies/<lobby_id>/session` joins the room it
+presentation directory and the match identities a `welcome` announces. The v1 routes serve room 1; `GET /api/v3/lobbies` lists every room from its latest committed
+snapshot and its admission count, and `GET /api/v3/lobbies/<lobby_id>/session` joins the room it
 names. A session is bound at admission to its room's entry for its life and counts itself in and
 out of it, so the application can tell when a room has been abandoned. It cannot start, pause, stop, step, or otherwise mutate the simulation, and it cannot
 read world state through the write path. `GameServer::run()` is a single foreground event loop. The
@@ -23,12 +22,12 @@ closes acceptance before sessions and enforces a fixed shutdown deadline.
 * `TcpListener` owns one acceptor and rejects peers outside loopback or the exact trusted-proxy set.
 * `HttpSession` owns one bounded parser, at most eight queued responses, and at most 100 requests.
 * `GameApiRouter` is the sole HTTP trust-boundary validator and exposes only the four v1 routes plus
-  v2's three targets: the lobby directory, `/api/v2/session`, and
-  `/api/v2/lobbies/<lobby_id>/session`. The one parametric segment is matched by the grammar
+  v3's two active target families: the lobby directory and
+  `/api/v3/lobbies/<lobby_id>/session`. The one parametric segment is matched by the grammar
   `[1-9][0-9]{0,2}` between exact neighbours and resolved through `LobbyDirectory::find`; every
   other string under the prefix is `404 LOBBY.NOT_FOUND` before the method or the handshake is
-  examined. Route and subprotocol are validated as a pair, never by first-acceptable offer, and a
-  `/api/v2/` target's failure is rendered in the v2 error envelope. Admission runs after every
+  examined. Route and subprotocol are validated as a pair, never by first-acceptable offer, and any parsed
+  `/api/v3/` or `/api/v2/` target's failure is rendered in the current v3 error envelope. Admission runs after every
   upgrade rule and before the WebSocket reservation: `503 LOBBY.UNAVAILABLE` for a room that is
   not serving and `409 LOBBY.FULL` when the room's admitted sessions already number its live seat
   count, both naming the room; a room with no lobby is never full this way.
@@ -37,15 +36,15 @@ closes acceptance before sessions and enforces a fixed shutdown deadline.
   configured proxy never inherits the direct-peer Origin relaxation.
 * `SnapshotWebSocketSession` samples immutable publication at presentation cadence, permits one
   data write plus one replaceable pending snapshot, and accepts no application data from clients.
-* `SessionWebSocketSession` is the protocol v2 half, bound for its life to the room the router
+* `SessionWebSocketSession` is the protocol v3 half, bound for its life to the room the router
   admitted it into: it opens one `CommandSink` session, asks for a seat and a body the way the
   tick gives them, sends one `welcome` once it has a body, decodes command envelopes under the
-  per-session command bucket, stamps its own current body onto every command, pushes v2 snapshots
+  per-session command bucket, stamps its own current body onto every command, pushes v3 snapshots
   on v1's cadence algorithm, and retires its controller exactly once on every close path. A session
   whose join could take no seat -- the last-seat race lost, or a room past `countdown` with every
   seat held -- is closed `1013 lobby_full` before any welcome, by the same rule the tick seats with
   (`first_joinable_seat`).
-* `RuntimeControllerDirectoryView` is the one production implementation of the v2 encoder's
+* `RuntimeControllerDirectoryView` is the one production implementation of the v3 encoder's
   presentation port, and lives here because this is the only target allowed to depend on both
   `blob_protocol` and `blob_runtime`.
 * `PeerTrafficPolicy` owns direct-peer connection and token-bucket accounting. Move-only TCP and
@@ -65,6 +64,12 @@ capacity and the egress lease are released after write completion. A stalled wri
 buffer until its cancellation handler runs, preventing use-after-free; because a close frame cannot
 overtake that write, the peer may observe an abnormal transport close instead of the intended
 `1013 slow_consumer` frame.
+
+Recognized retired `/api/v2/session`, `/api/v2/lobbies`, and grammar-valid old room-session
+paths return fixed `426 PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED` after global request security
+checks but before method/handshake, upgrade-token, or session/controller admission. Recognition
+does not require an existing room. Malformed old paths retain ordinary route errors. There is no
+`/api/v3/session` alias and no general v2 encoder. See `docs/protocol/v3.md` for precise precedence.
 
 ## Trust and deployment boundary
 
@@ -94,7 +99,7 @@ substituted character by character, and is never logged; every other outcome pub
 connection must present a valid `Origin` and a valid `X-Forwarded-For`. The residual is accepted and
 severe: a loopback trusted proxy lets any local process forge both the principal and the name, which
 is why this deployment is supported only on a single-operator host
-(`docs/protocol/v2.md` § "Abuse cases and controls").
+(`docs/protocol/v3.md` § "Abuse cases and controls").
 
 Before Beast parses a request, `HttpSession` scans the bounded raw header section for `CRLF`
 followed by space/tab and rejects obsolete folding without field normalization. It consumes only
@@ -119,7 +124,7 @@ received Origin value as required by browsers.
 ## Extension constraints
 
 The versioned JSON encoding seam remains in `blob_protocol`; server sessions do not serialize
-domain values themselves. Protocol v2 answered the "future command protocol" this section reserved:
+domain values themselves. Protocol v3 answered the "future command protocol" this section reserved:
 it uses its own route and subprotocol, its ownership model is the socket rather than a credential,
 its ordering rule is "the last command of a kind in a tick wins", and its disconnect semantics are a
 server-issued `leave`, enqueued by `CommandSink::close_session` before the controller is retired,

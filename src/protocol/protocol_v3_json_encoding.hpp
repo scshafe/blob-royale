@@ -1,13 +1,13 @@
-#ifndef BLOB_ROYALE_PROTOCOL_PROTOCOL_V2_JSON_ENCODING_HPP
-#define BLOB_ROYALE_PROTOCOL_PROTOCOL_V2_JSON_ENCODING_HPP
+#ifndef BLOB_ROYALE_PROTOCOL_PROTOCOL_V3_JSON_ENCODING_HPP
+#define BLOB_ROYALE_PROTOCOL_PROTOCOL_V3_JSON_ENCODING_HPP
 
 #include "controller_directory_view.hpp"
 #include "lobby_listing.hpp"
 #include "protocol_constants.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 #include "request_id.hpp"
 #include "session_welcome.hpp"
-#include "v2_http_error.hpp"
+#include "v3_http_error.hpp"
 
 #include "controller_id.hpp"
 #include "entity_id.hpp"
@@ -25,14 +25,14 @@ class WorldSnapshot;
 
 namespace blob_royale::protocol {
 
-// canonical: protocol_v2_json_encoding -- sole production entry points for v2 JSON encoding.
+// canonical: protocol_v3_json_encoding -- sole production entry points for v3 JSON encoding.
 //
-// v1's encoders are untouched and still served; this file is additive, exactly as protocol v2 is
-// additive to protocol v1 (`docs/protocol/v2.md` § "Decision"). The two versions share the bounded
+// v1's encoders are untouched and still served; this file is additive, exactly as protocol v3 is
+// additive to protocol v1 (`docs/protocol/v3.md` § "Decision"). The two versions share the bounded
 // serializer, the number canonicalization, and the timestamp grammar, and share nothing else: every
 // version-bearing constant, vocabulary, and envelope is its own, so widening one cannot widen the
 // other.
-// related: docs/protocol/v2.md -- the accepted contract every function here implements.
+// related: docs/protocol/v3.md -- the accepted contract every function here implements.
 // related: component_encoding_registry.hpp -- the per-kind encoders the snapshot walk drives.
 // related: command_decoding.hpp -- the inbound direction.
 
@@ -42,9 +42,9 @@ namespace blob_royale::protocol {
 [[nodiscard]] std::string
 encode_welcome_message(const SessionWelcome& welcome, const RequestId& request_id,
                        std::string_view sent_at_utc,
-                       std::size_t output_byte_limit = kSnapshotFrameV2MaximumByteCount);
+                       std::size_t output_byte_limit = kSnapshotFrameV3MaximumByteCount);
 
-// @extension-point snapshot_encoding -- encodes one immutable snapshot as protocol v2 JSON.
+// @extension-point snapshot_encoding -- encodes one immutable snapshot as protocol v3 JSON.
 //
 // Every published entity in ascending `entity_id` order with the components it carries keyed by
 // component kind, plus the generic `match` section. The component set of an entity is generated
@@ -61,19 +61,19 @@ encode_welcome_message(const SessionWelcome& welcome, const RequestId& request_i
 // distinct, a placement whose controller the directory cannot name, or a complete frame above the
 // byte limit.
 [[nodiscard]] std::string
-encode_snapshot_message_v2(const simulation::WorldSnapshot& snapshot,
+encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot,
                            const ControllerDirectoryView& directory, const RequestId& request_id,
                            std::uint64_t message_sequence, std::string_view sent_at_utc,
-                           std::size_t output_byte_limit = kSnapshotFrameV2MaximumByteCount);
+                           std::size_t output_byte_limit = kSnapshotFrameV3MaximumByteCount);
 
-// Encodes one complete schema-valid v2 HTTP error envelope. The V2HttpError owns status/code
-// parity; this function owns only the v2 envelope around it.
+// Encodes one complete schema-valid v3 HTTP error envelope. The V3HttpError owns status/code
+// parity; this function owns only the v3 envelope around it.
 // Throws ProtocolEncodingError if the caller's byte limit is invalid or exceeded.
 [[nodiscard]] std::string
-encode_error_response_v2(const V2HttpError& error, const RequestId& request_id,
+encode_error_response_v3(const V3HttpError& error, const RequestId& request_id,
                          std::size_t output_byte_limit = kHttpJsonResponseMaximumByteCount);
 
-// Encodes the body of `GET /api/v2/lobbies`: every room in lobby-id order, in the v2 envelope
+// Encodes the body of `GET /api/v3/lobbies`: every room in lobby-id order, in the v3 envelope
 // (`lobby-directory-message.schema.json`, 2.4). Fails closed: throws ProtocolEncodingError with
 // `LOBBY_DIRECTORY_INVALID` for no rooms, more than `kLobbyDirectoryLimit`, ids that are not
 // exactly `1..N` in order, a mode or map name outside its grammar, a count outside its bound, a
@@ -88,7 +88,7 @@ encode_lobby_directory_message(std::span<const LobbyListing> lobbies, const Requ
 // **The client's rule, implemented once on the server side too.** A client resolves its own body
 // each frame by finding the entity whose `controllable.controller_id` equals its own, and must
 // treat "no such entity this frame" as the ordinary state of a player who is eliminated, waiting,
-// or deferred by the spawn policy (`docs/protocol/v2.md` § "Entities, controllers, and what
+// or deferred by the spawn policy (`docs/protocol/v3.md` § "Entities, controllers, and what
 // survives what"). The session needs the same answer for two of its own jobs -- filling
 // `welcome.entity_id` with its first body, and stamping every decoded command with its current one
 // -- so the resolution lives here rather than being written a third time at the boundary.
@@ -123,7 +123,7 @@ find_controlled_body(const simulation::WorldSnapshot& snapshot,
 // The ascending-and-distinct rule on `snapshot.entities`, as its own named check.
 //
 // Public because it is a normative invariant **JSON Schema cannot express** and the specification
-// requires C++ conformance tests to cover it (`docs/protocol/v2.md` § "Field dictionary and
+// requires C++ conformance tests to cover it (`docs/protocol/v3.md` § "Field dictionary and
 // invariants"). `WorldSnapshot` derives its roster from its own stores and so cannot represent a
 // violation, which is exactly why the guard is exercised through this entry point rather than
 // through a snapshot no code can build.

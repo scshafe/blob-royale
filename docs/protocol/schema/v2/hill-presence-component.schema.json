@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/hill-presence-component.schema.json",
   "title": "Blob Royale protocol v2 hill_presence component",
   "description": "How many consecutive committed ticks an entity has held the hill toward its next point. An absent component reads as zero; the bound it counts toward is the king_of_the_hill mode-state block's point_interval_ticks.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["inside_ticks"],

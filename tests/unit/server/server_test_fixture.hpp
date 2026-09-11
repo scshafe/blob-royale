@@ -80,7 +80,7 @@ inline constexpr std::string_view kFixtureMapName = "arena-960x640";
 // count, so it is the shipped arena's 32.
 inline constexpr std::uint64_t kFixtureSeatCountMaximum = 32;
 
-// Everything `/api/v2/session` requires, owned for the life of one test.
+// Everything `/api/v3/lobbies/1/session` requires, owned for the life of one test.
 //
 // The runtime is constructed and never started, which is enough: `CommandSink` and
 // `ControllerDirectory` are fully usable before the first tick, and a test that started the worker

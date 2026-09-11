@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/error-response.schema.json",
   "title": "Blob Royale protocol v2 HTTP error response",
   "description": "Failure envelope for every representable HTTP failure on a /api/v2/ target. It is a separate artifact from the v1 envelope rather than a reuse because meta.protocol_version and meta.schema_id are both consts that name the version, and because v2 adds PROTOCOL.INVALID_FORWARDED_CLIENT and, in 2.4, LOBBY.NOT_FOUND, LOBBY.FULL, and LOBBY.UNAVAILABLE to the code registry. There is no in-band WebSocket error frame in v2: a session failure is a close code.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["data", "error", "meta"],

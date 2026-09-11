@@ -1,0 +1,33 @@
+{
+  "data": {
+    "terrain": {
+      "bounds": {"width_world_units": 960, "height_world_units": 640},
+      "ground": "solid",
+      "corridors": [],
+      "holes": []
+    },
+    "entity_id": 7,
+    "controller_id": 3,
+    "display_name": "Cole Shaffer",
+    "mode": "royale",
+    "map": "arena-960x640",
+    "accepted_command_kinds": [
+      "clear_seat",
+      "seat_npc",
+      "set_seat_count",
+      "set_thrust",
+      "start_match"
+    ],
+    "npc_controller_kinds": ["wanderer", "chaser"],
+    "lobby_id": 1,
+    "seat_count_maximum": 32
+  },
+  "error": null,
+  "meta": {
+    "protocol_version": "3.0",
+    "schema_id": "blob-royale://protocol/v3/welcome-message",
+    "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
+    "message_sequence": 1,
+    "sent_at_utc": "2026-09-06T18:04:11.500Z"
+  }
+}

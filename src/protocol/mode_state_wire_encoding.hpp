@@ -5,7 +5,7 @@
 #include "component_wire_bound.hpp"
 #include "protocol_constants.hpp"
 #include "protocol_encoding_error.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include "controller_id.hpp"
 #include "entity_id.hpp"
@@ -31,7 +31,7 @@ namespace blob_royale::protocol {
 //
 // **Placements are generic on the wire and mode-owned in the world.** They describe entities that
 // no longer exist, so they are not entity-shaped and cannot be components, which is why
-// `docs/protocol/v2.md` § "Alternatives considered" publishes them in `match` while refusing to
+// `docs/protocol/v3.md` § "Alternatives considered" publishes them in `match` while refusing to
 // publish the zone there. This value is the seam: every mode-state arm contributes its ranking in
 // this one shape and the encoder writes one array.
 struct ModeStatePlacement final {
@@ -46,7 +46,7 @@ struct ModeStatePlacement final {
   friend bool operator==(const ModeStatePlacement&, const ModeStatePlacement&) = default;
 };
 
-// canonical: mode_state_wire_encoding -- what one mode-state block publishes on the v2 wire.
+// canonical: mode_state_wire_encoding -- what one mode-state block publishes on the v3 wire.
 // @extension-point snapshot_mode_state
 //
 // Declared and never defined, exactly like `simulation::ModeMatchStateSchemaId`, so an arm added to
@@ -55,7 +55,7 @@ struct ModeStatePlacement final {
 //
 // The wire schema id is **not** the simulation's schema id. The world calls royale's block
 // `royale_placements` because that is what it holds; the wire calls it
-// `blob-royale://protocol/v2/mode-state/royale` because the wire block is the mode's state minus
+// `blob-royale://protocol/v3/mode-state/royale` because the wire block is the mode's state minus
 // the ranking the generic `match.placements` array already carries. Mapping here rather than
 // renaming either side keeps both names accurate.
 //
@@ -64,16 +64,16 @@ struct ModeStatePlacement final {
 //   new  src/simulation/mode_states/<schema>_mode_state.hpp     the value struct
 //   edit src/simulation/mode_match_state_registry.hpp           one variant arm, one schema id
 //   edit src/protocol/mode_state_wire_encoding.hpp              this specialization
-//   new  docs/protocol/schema/v2/<mode>-mode-state.schema.json  the closed wire shape
-//   edit docs/protocol/schema/v2/common.schema.json             one mode_state_schema_id member
-//   edit docs/protocol/schema/v2/match-data.schema.json         one if/then row
-//   edit src/protocol/protocol_v2_constants.hpp                 the id constant
+//   new  docs/protocol/schema/v3/<mode>-mode-state.schema.json  the closed wire shape
+//   edit docs/protocol/schema/v3/common.schema.json             one mode_state_schema_id member
+//   edit docs/protocol/schema/v3/match-data.schema.json         one if/then row
+//   edit src/protocol/protocol_v3_constants.hpp                 the id constant
 // related: src/simulation/mode_match_state_registry.hpp -- the closed list this mirrors.
 template <typename ModeStateType> struct ModeStateWireEncoding;
 
 // A mode whose state is entirely entity-shaped publishes the `none` id and an **empty object**
 // rather than a null, so a decoder has one code path instead of a nullable branch
-// (`docs/protocol/v2.md` § "snapshot").
+// (`docs/protocol/v3.md` § "snapshot").
 template <> struct ModeStateWireEncoding<simulation::NoModeState> {
   static constexpr std::string_view kSchemaId = kNoModeStateSchemaId;
 
@@ -96,7 +96,7 @@ template <> struct ModeStateWireEncoding<simulation::NoModeState> {
 template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> {
   static constexpr std::string_view kSchemaId = kRoyaleModeStateSchemaId;
 
-  // Member order is the order `docs/protocol/v2.md` § "Object member order" declares for this
+  // Member order is the order `docs/protocol/v3.md` § "Object member order" declares for this
   // block, which is the order they are written here.
   static void encode_value(const simulation::RoyalePlacementsModeState& mode_state,
                            ComponentObjectSink& sink) {
@@ -123,7 +123,7 @@ template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> 
 template <> struct ModeStateWireEncoding<simulation::KingOfTheHillModeState> {
   static constexpr std::string_view kSchemaId = kKingOfTheHillModeStateSchemaId;
 
-  // Member order is the order `docs/protocol/v2.md` § "Object member order" declares.
+  // Member order is the order `docs/protocol/v3.md` § "Object member order" declares.
   static void encode_value(const simulation::KingOfTheHillModeState& mode_state,
                            ComponentObjectSink& sink) {
     sink.set_unsigned("points_to_win", mode_state.points_to_win);
@@ -161,7 +161,7 @@ template <> struct ModeStateWireEncoding<simulation::RaceModeState> {
     if (mode_state.standings.size() > kMatchPlacementLimit) {
       throw ProtocolEncodingError{ProtocolEncodingErrorCode::kPlacementLimitExceeded,
                                   "snapshot_message.data.match.mode_state.value.standings",
-                                  "standing count exceeds the accepted protocol v2 ranking limit"};
+                                  "standing count exceeds the accepted protocol v3 ranking limit"};
     }
     sink.set_number("track_half_width", mode_state.track_half_width);
     sink.set_number("checkpoint_radius", mode_state.checkpoint_radius);

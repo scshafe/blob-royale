@@ -1,7 +1,7 @@
 #include "match_session_context.hpp"
 
 #include "game_server_error.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 #include "session_welcome.hpp"
 
 #include <string>
@@ -41,7 +41,7 @@ MatchSessionContext::create(const std::uint64_t lobby_id, runtime::CommandSink& 
   if (!protocol::is_accepted_map_name(map_name)) {
     throw GameServerError{
         GameServerErrorCode::kSessionInvariantFailed, "match_session_context.map_name",
-        "the map name is not a protocol v2 map_name of at most " +
+        "the map name is not a protocol v3 map_name of at most " +
             std::to_string(protocol::kMapNameMaximumCharacterCount) + " characters"};
   }
   // A registered bot whose name the welcome could not publish is a build-time mistake, and this is
@@ -58,7 +58,7 @@ MatchSessionContext::create(const std::uint64_t lobby_id, runtime::CommandSink& 
       throw GameServerError{GameServerErrorCode::kSessionInvariantFailed,
                             "match_session_context.npc_controller_kinds",
                             "the registered controller kind " + npc_controller_kind +
-                                " is not a protocol v2 kind_name"};
+                                " is not a protocol v3 kind_name"};
     }
   }
   return {lobby_id,

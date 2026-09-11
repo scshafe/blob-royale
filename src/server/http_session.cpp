@@ -267,9 +267,9 @@ void HttpSession::begin_websocket_upgrade(GameApiHttpRequest request,
                                           const std::uint64_t lobby_id) {
   try {
     // Two session classes, chosen by route and never by offered subprotocol: v1's stream accepts no
-    // client data and v2's accepts commands, so the route is what decides which semantics run. A
-    // v2 session is bound for its life to the room the router admitted it into.
-    if (upgrade_route == GameApiUpgradeRoute::kSessionV2) {
+    // client data and v3's accepts commands, so the route is what decides which semantics run. A
+    // v3 session is bound for its life to the room the router admitted it into.
+    if (upgrade_route == GameApiUpgradeRoute::kSessionV3) {
       auto session = std::make_shared<SessionWebSocketSession>(
           stream_.release_socket(), server_context_, server_context_->lobbies().room(lobby_id),
           peer_address_, std::move(request_id), std::move(peer_identity),

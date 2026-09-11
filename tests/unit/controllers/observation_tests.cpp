@@ -6,20 +6,33 @@
 #include "controllers_test_fixture.hpp"
 #include "controllers_validation_error.hpp"
 #include "entity_id.hpp"
+#include "fixtures/racer_observation_fixture.hpp"
 #include "tick_sequence.hpp"
 #include "world_snapshot.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
 namespace controllers = blob_royale::controllers;
 namespace simulation = blob_royale::simulation;
 namespace testing = blob_royale::testing;
 
 namespace {
+
+template <typename Value>
+concept RvalueTerrainReadable = requires(Value&& value) { std::move(value).terrain(); };
+
+static_assert(std::is_same_v<decltype(std::declval<const controllers::Observation&>().terrain()),
+                             const simulation::TerrainDefinition&>);
+static_assert(!RvalueTerrainReadable<controllers::Observation>);
+static_assert(!RvalueTerrainReadable<const controllers::Observation>);
 
 constexpr std::uint64_t kFirstController = simulation::kMinimumControllerId;
 constexpr std::uint64_t kSecondController = simulation::kMinimumControllerId + 1;
@@ -88,6 +101,41 @@ TEST_CASE("Observation retains the exact published snapshot rather than a copy o
   // another thread, and what keeps that world alive underneath it is the shared handle.
   CHECK(observation.retained_snapshot() == published);
   CHECK(&observation.snapshot() == published.get());
+}
+
+TEST_CASE("Observation retains the actual terrain after the publisher and simulation are destroyed",
+          "[unit][controllers][observation][terrain]") {
+  const simulation::TerrainDefinition* original_terrain = nullptr;
+  const controllers::Observation observation = [&original_terrain] {
+    const testing::ControllersFixture fixture(testing::controllers_map_of(4), 1);
+    original_terrain = &fixture.game().map().terrain();
+    return fixture.observation_for(kFirstController);
+  }();
+
+  CHECK(&observation.terrain() == original_terrain);
+  CHECK(&observation.terrain() == &observation.snapshot().terrain());
+  const simulation::MapDefinition expected = testing::controllers_map_of(4);
+  CHECK(observation.terrain() == expected.terrain());
+}
+
+TEST_CASE("Racer observation fixtures publish their exact authored straight and bent roads",
+          "[unit][controllers][observation][terrain][racer]") {
+  for (const simulation::RaceModeState& course :
+       {testing::straight_racer_course(), testing::bent_racer_course()}) {
+    const controllers::Observation observation = testing::racer_observation(
+        testing::racer_observation_world(simulation::Vector2::create(200.0, 320.0), 0, course));
+    REQUIRE(observation.terrain().ground() == simulation::TerrainGround::kCorridors);
+    REQUIRE(observation.terrain().corridors().size() == 1);
+    const simulation::TerrainCorridor& road = observation.terrain().corridors().front();
+    CHECK(road.name() == "road");
+    CHECK(road.half_width() == 80.0);
+    CHECK(road.half_width() == course.track_half_width);
+    CHECK(std::ranges::equal(road.points(), course.track));
+    CHECK(observation.terrain().holes().empty());
+    CHECK(std::get<simulation::RaceModeState>(observation.snapshot().match().mode_state()) ==
+          course);
+    CHECK(observation.tick_sequence() == simulation::TickSequence::zero());
+  }
 }
 
 TEST_CASE("Observation refuses an absent snapshot with a named code",

@@ -14,7 +14,7 @@
 #include "components/team_component_encoding.hpp"
 #include "components/zone_component_encoding.hpp"
 #include "components/zone_exposure_component_encoding.hpp"
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 
 #include "component_kind_name.hpp"
 #include "component_registry.hpp"
@@ -54,7 +54,7 @@ struct WireEncodingCompletenessCheck final {
   template <typename Component> constexpr void operator()() noexcept {
     every_kind_encodes = every_kind_encodes && kHasWireEncoding<Component>;
     every_kind_named_on_the_wire = every_kind_named_on_the_wire &&
-                                   is_v2_component_kind(simulation::component_kind_name<Component>);
+                                   is_v3_component_kind(simulation::component_kind_name<Component>);
   }
 };
 
@@ -68,21 +68,21 @@ struct WireEncodingCompletenessCheck final {
 
 // A kind registered in the world must be publishable, because an entity is its component set and a
 // component the wire drops is a world the client renders wrongly rather than partially
-// (`docs/protocol/v2.md` § "Versioning and fail-closed decoding").
+// (`docs/protocol/v3.md` § "Versioning and fail-closed decoding").
 static_assert(detail::wire_encoding_completeness().every_kind_encodes,
               "every simulation::ComponentRegistry kind must declare a ComponentWireEncoding");
 
-// ...and its declared kind name must be one the accepted v2 schema set names. A kind the schemas do
+// ...and its declared kind name must be one the accepted v3 schema set names. A kind the schemas do
 // not name is a decode failure on every client, so shipping one is a broken wire rather than a
 // forward-compatible addition.
 static_assert(detail::wire_encoding_completeness().every_kind_named_on_the_wire,
-              "every simulation::ComponentRegistry kind name must be a registered v2 component "
-              "kind in protocol_v2_constants.hpp and docs/protocol/schema/v2/common.schema.json");
+              "every simulation::ComponentRegistry kind name must be a registered v3 component "
+              "kind in protocol_v3_constants.hpp and docs/protocol/schema/v3/common.schema.json");
 
 // The wire vocabulary is closed: it names exactly the kinds the world registers and no others, so
 // neither side can carry a kind the other has never heard of.
-static_assert(simulation::ComponentRegistry::kKindCount == kV2ComponentKindNames.size(),
-              "the closed v2 component-kind vocabulary must name exactly the registered kinds");
+static_assert(simulation::ComponentRegistry::kKindCount == kV3ComponentKindNames.size(),
+              "the closed v3 component-kind vocabulary must name exactly the registered kinds");
 
 } // namespace blob_royale::protocol
 

@@ -1,13 +1,13 @@
-#include "protocol_v2_test_fixture.hpp"
+#include "protocol_v3_test_fixture.hpp"
 
 #include "component_encoding_registry.hpp"
 #include "controller_directory_view.hpp"
 #include "protocol_encoding_error.hpp"
-#include "protocol_v2_constants.hpp"
-#include "protocol_v2_frame_conformance.hpp"
-#include "protocol_v2_json_encoding.hpp"
+#include "protocol_v3_constants.hpp"
+#include "protocol_v3_frame_conformance.hpp"
+#include "protocol_v3_json_encoding.hpp"
 #include "session_welcome.hpp"
-#include "v2_http_error.hpp"
+#include "v3_http_error.hpp"
 
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
@@ -19,6 +19,7 @@
 #include "mode_state_wire_encoding.hpp"
 #include "simulation_limits.hpp"
 
+#include <boost/json/serialize.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
@@ -31,7 +32,7 @@
 #include <vector>
 
 namespace protocol = blob_royale::protocol;
-namespace fixture = blob_royale::protocol::v2_test_fixture;
+namespace fixture = blob_royale::protocol::v3_test_fixture;
 namespace simulation = blob_royale::simulation;
 
 namespace {
@@ -51,73 +52,176 @@ void require_members_in_order(const std::string_view encoded,
   }
 }
 
+// Mutations start from encoded production values, then edit only the property under test. The
+// cached complete frame is immutable; each check owns a copy with two named shapes per family.
+[[nodiscard]] boost::json::value terrain_conformance_document() {
+  static const boost::json::value complete = boost::json::parse(
+      protocol::encode_welcome_message(fixture::maximum_cardinality_welcome(),
+                                       fixture::session_request_id(), fixture::kWelcomeTimestamp));
+  boost::json::value document = complete;
+  boost::json::object& terrain =
+      document.as_object().at("data").as_object().at("terrain").as_object();
+  terrain.at("corridors").as_array().resize(2);
+  terrain.at("holes").as_array().resize(2);
+  return document;
+}
+
+[[nodiscard]] boost::json::object& terrain_of(boost::json::value& document) {
+  return document.as_object().at("data").as_object().at("terrain").as_object();
+}
+
+template <typename Mutation> void check_invalid_terrain(const Mutation& mutate) {
+  boost::json::value document = terrain_conformance_document();
+  mutate(terrain_of(document));
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(document)) ==
+        protocol::V3FrameConformance::kWelcomeTerrainInvalid);
+}
+
 } // namespace
 
 TEST_CASE("Welcome encoder matches the accepted golden example and canonical bytes",
-          "[unit][protocol][v2][encoding][golden]") {
+          "[unit][protocol][v3][encoding][golden]") {
   const std::string encoded = protocol::encode_welcome_message(
       fixture::golden_welcome(), fixture::session_request_id(), fixture::kWelcomeTimestamp);
 
-  fixture::require_json_matches_v2_golden_example(encoded, "welcome-message.json");
+  fixture::require_json_matches_v3_golden_example(encoded, "welcome-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32},"error":null,"meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
+      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]}},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
 }
 
-TEST_CASE("Snapshot v2 encoder matches the accepted golden example",
-          "[unit][protocol][v2][encoding][golden]") {
+TEST_CASE("Snapshot v3 encoder matches the accepted golden example",
+          "[unit][protocol][v3][encoding][golden]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::golden_snapshot(), directory, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
-  fixture::require_json_matches_v2_golden_example(encoded, "snapshot-message.json");
+  fixture::require_json_matches_v3_golden_example(encoded, "snapshot-message.json");
+  CHECK_FALSE(boost::json::parse(encoded).as_object().at("data").as_object().contains("terrain"));
 }
 
-TEST_CASE("Snapshot v2 encoder emits canonical bytes for the accepted golden world",
-          "[unit][protocol][v2][encoding][golden]") {
-  const fixture::StubControllerDirectory directory = fixture::golden_directory();
-  const std::string encoded = protocol::encode_snapshot_message_v2(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
-      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
-
-  CHECK(
-      encoded ==
-      R"({"data":{"tick_sequence":12904,"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
-}
-
-TEST_CASE("Error response v2 encoder matches the accepted golden example and canonical bytes",
-          "[unit][protocol][v2][encoding][golden]") {
+TEST_CASE("Maximum-cardinality welcome publishes complete terrain and fits the unchanged budget",
+          "[unit][protocol][v3][encoding][terrain][budget]") {
+  const protocol::SessionWelcome welcome = fixture::maximum_cardinality_welcome();
+  const protocol::RequestId request_id = protocol::decode_request_id(std::string(64, 'r'));
   const std::string encoded =
-      protocol::encode_error_response_v2(protocol::V2HttpError::invalid_forwarded_client(
+      protocol::encode_welcome_message(welcome, request_id, fixture::kWelcomeTimestamp);
+  INFO("maximum-cardinality complete welcome byte count: " << encoded.size());
+  CHECK(encoded.size() < protocol::kSnapshotFrameV3MaximumByteCount);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
+  const boost::json::value document = boost::json::parse(encoded);
+  const boost::json::object& data = document.as_object().at("data").as_object();
+  REQUIRE(data.size() == 10);
+  REQUIRE(data.at("npc_controller_kinds").as_array().size() == protocol::kNpcControllerKindLimit);
+  const boost::json::object& terrain = data.at("terrain").as_object();
+  REQUIRE(terrain.size() == 4);
+  CHECK(terrain.at("ground").as_string() == "corridors");
+  CHECK(terrain.at("bounds").as_object().at("width_world_units").as_int64() == 960);
+  CHECK(terrain.at("bounds").as_object().at("height_world_units").as_int64() == 640);
+  const boost::json::array& corridors = terrain.at("corridors").as_array();
+  REQUIRE(corridors.size() == simulation::kMaximumTerrainCorridorCount);
+  std::size_t point_count = 0;
+  for (std::size_t index = 0; index < corridors.size(); ++index) {
+    const boost::json::object& corridor = corridors[index].as_object();
+    CHECK(corridor.at("name").as_string() == welcome.terrain().corridors()[index].name());
+    CHECK(corridor.at("half_width").as_int64() == 70);
+    point_count += corridor.at("points").as_array().size();
+  }
+  CHECK(point_count == simulation::kMaximumTerrainPointCount);
+  CHECK(point_count - corridors.size() == simulation::kMaximumTerrainSegmentCount);
+  const boost::json::array& holes = terrain.at("holes").as_array();
+  REQUIRE(holes.size() == simulation::kMaximumTerrainHoleCount);
+  for (std::size_t index = 0; index < holes.size(); ++index) {
+    const boost::json::object& hole = holes[index].as_object();
+    CHECK(hole.at("name").as_string() == welcome.terrain().holes()[index].name());
+    CHECK(hole.at("radius").as_int64() == 20);
+    CHECK(hole.at("center").as_object().at("x").as_int64() == 460);
+    CHECK(hole.at("center").as_object().at("y").as_int64() == 320);
+  }
+  CHECK(encoded == protocol::encode_welcome_message(welcome, request_id, fixture::kWelcomeTimestamp,
+                                                    encoded.size()));
+  fixture::require_protocol_error_code(
+      [&] {
+        return protocol::encode_welcome_message(welcome, request_id, fixture::kWelcomeTimestamp,
+                                                encoded.size() - 1);
+      },
+      protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
+}
+
+TEST_CASE("Session retirement error is fixed non-retryable v3 guidance with an exact byte boundary",
+          "[unit][protocol][v3][encoding][retirement]") {
+  const protocol::V3HttpError error = protocol::V3HttpError::session_version_upgrade_required();
+  CHECK(error.status_code() == 426);
+  CHECK_FALSE(error.retryable());
+  CHECK(error.shared_error() == nullptr);
+  CHECK_FALSE(error.forwarded_client_reason().has_value());
+  CHECK_FALSE(error.lobby_error().has_value());
+  CHECK_FALSE(error.lobby_id().has_value());
+  const std::string encoded =
+      protocol::encode_error_response_v3(error, fixture::session_request_id());
+  const boost::json::value document = boost::json::parse(encoded);
+  const boost::json::object& encoded_error = document.as_object().at("error").as_object();
+  CHECK(encoded_error.at("code").as_string() == "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED");
+  CHECK(encoded_error.at("message").as_string() ==
+        protocol::V3HttpError::kSessionVersionUpgradeRequiredMessage);
+  CHECK(encoded_error.at("details").as_object().size() == 1);
+  CHECK(encoded_error.at("details").as_object().at("required_protocol_version").as_string() ==
+        "3.0");
+  CHECK(encoded ==
+        protocol::encode_error_response_v3(error, fixture::session_request_id(), encoded.size()));
+  fixture::require_protocol_error_code(
+      [&] {
+        return protocol::encode_error_response_v3(error, fixture::session_request_id(),
+                                                  encoded.size() - 1);
+      },
+      protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
+}
+
+TEST_CASE("Snapshot v3 encoder emits canonical bytes for the accepted golden world",
+          "[unit][protocol][v3][encoding][golden]") {
+  const fixture::StubControllerDirectory directory = fixture::golden_directory();
+  const std::string encoded = protocol::encode_snapshot_message_v3(
+      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+
+  CHECK(
+      encoded ==
+      R"({"data":{"tick_sequence":12904,"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
+}
+
+TEST_CASE("Error response v3 encoder matches the accepted golden example and canonical bytes",
+          "[unit][protocol][v3][encoding][golden]") {
+  const std::string encoded =
+      protocol::encode_error_response_v3(protocol::V3HttpError::invalid_forwarded_client(
                                              protocol::ForwardedClientReason::kMultipleValues),
                                          fixture::session_request_id());
 
-  fixture::require_json_matches_v2_golden_example(encoded, "error-response.json");
+  fixture::require_json_matches_v3_golden_example(encoded, "error-response.json");
   CHECK(
       encoded ==
-      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
 }
 
-TEST_CASE("Error response v2 encoder carries the fourteen rows v2 shares with v1",
-          "[unit][protocol][v2][encoding]") {
+TEST_CASE("Error response v3 encoder carries the fourteen rows v3 shares with v1",
+          "[unit][protocol][v3][encoding]") {
   const std::string encoded =
-      protocol::encode_error_response_v2(protocol::V2HttpError::shared(protocol::HttpError::create(
+      protocol::encode_error_response_v3(protocol::V3HttpError::shared(protocol::HttpError::create(
                                              protocol::HttpErrorCode::kMethodNotAllowed,
                                              "GET is the only method allowed for this route.")),
                                          fixture::session_request_id());
 
   CHECK(encoded.find(R"("code":"PROTOCOL.METHOD_NOT_ALLOWED")") != std::string::npos);
   CHECK(encoded.find(R"("allowed_methods":["GET"])") != std::string::npos);
-  CHECK(encoded.find(R"("protocol_version":"2.5")") != std::string::npos);
-  CHECK(encoded.find(R"("schema_id":"blob-royale://protocol/v2/error-response")") !=
+  CHECK(encoded.find(R"("protocol_version":"3.0")") != std::string::npos);
+  CHECK(encoded.find(R"("schema_id":"blob-royale://protocol/v3/error-response")") !=
         std::string::npos);
 }
 
-TEST_CASE("Snapshot v2 encoder emits every normative object member in canonical order",
-          "[unit][protocol][v2][encoding]") {
+TEST_CASE("Snapshot v3 encoder emits every normative object member in canonical order",
+          "[unit][protocol][v3][encoding]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::golden_snapshot(), directory, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
@@ -160,179 +264,391 @@ TEST_CASE("Snapshot v2 encoder emits every normative object member in canonical 
                                      R"("sent_at_utc")"});
 }
 
-TEST_CASE("Snapshot v2 encoder returns identical bytes across repeated encodings",
-          "[unit][protocol][v2][encoding]") {
+TEST_CASE("Snapshot v3 encoder returns identical bytes across repeated encodings",
+          "[unit][protocol][v3][encoding]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
-  const std::string first = protocol::encode_snapshot_message_v2(
+  const std::string first = protocol::encode_snapshot_message_v3(
       fixture::golden_snapshot(), directory, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
-  const std::string second = protocol::encode_snapshot_message_v2(
+  const std::string second = protocol::encode_snapshot_message_v3(
       fixture::golden_snapshot(), directory, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(first == second);
 }
 
-TEST_CASE("Every encoded v2 frame satisfies the invariants JSON Schema cannot express",
-          "[unit][protocol][v2][conformance]") {
+TEST_CASE("Every encoded v3 frame satisfies the invariants JSON Schema cannot express",
+          "[unit][protocol][v3][conformance]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
 
-  CHECK(protocol::check_v2_server_frame(protocol::encode_welcome_message(
+  CHECK(protocol::check_v3_server_frame(protocol::encode_welcome_message(
             fixture::golden_welcome(), fixture::session_request_id(),
-            fixture::kWelcomeTimestamp)) == protocol::V2FrameConformance::kConforms);
-  CHECK(protocol::check_v2_server_frame(protocol::encode_snapshot_message_v2(
+            fixture::kWelcomeTimestamp)) == protocol::V3FrameConformance::kConforms);
+  CHECK(protocol::check_v3_server_frame(protocol::encode_snapshot_message_v3(
             fixture::golden_snapshot(), directory, fixture::session_request_id(),
             fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp)) ==
-        protocol::V2FrameConformance::kConforms);
+        protocol::V3FrameConformance::kConforms);
   CHECK(
-      protocol::check_v2_server_frame(protocol::encode_error_response_v2(
-          protocol::V2HttpError::invalid_forwarded_client(protocol::ForwardedClientReason::kAbsent),
-          fixture::session_request_id())) == protocol::V2FrameConformance::kConforms);
+      protocol::check_v3_server_frame(protocol::encode_error_response_v3(
+          protocol::V3HttpError::invalid_forwarded_client(protocol::ForwardedClientReason::kAbsent),
+          fixture::session_request_id())) == protocol::V3FrameConformance::kConforms);
+}
+
+TEST_CASE("Welcome conformance requires terrain and typed inputs to its semantic readers",
+          "[unit][protocol][v3][conformance][terrain][rejection]") {
+  boost::json::value missing = terrain_conformance_document();
+  missing.as_object().at("data").as_object().erase("terrain");
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(missing)) ==
+        protocol::V3FrameConformance::kWelcomeTerrainInvalid);
+  missing.as_object().at("data").as_object()["terrain"] = nullptr;
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(missing)) ==
+        protocol::V3FrameConformance::kWelcomeTerrainInvalid);
+  for (const std::string_view member : {"bounds", "ground", "corridors", "holes"}) {
+    INFO("member " << member);
+    check_invalid_terrain([member](boost::json::object& terrain) { terrain.erase(member); });
+    check_invalid_terrain([member](boost::json::object& terrain) { terrain.at(member) = nullptr; });
+  }
+  for (const std::string_view family : {"corridors", "holes"}) {
+    check_invalid_terrain([family](boost::json::object& terrain) {
+      terrain.at(family).as_array().front() = nullptr;
+    });
+  }
+  CHECK(protocol::v3_frame_conformance_name(protocol::V3FrameConformance::kWelcomeTerrainInvalid) ==
+        "welcome_terrain_invalid");
+}
+
+TEST_CASE("Welcome conformance bounds authored families points and segments before traversal",
+          "[unit][protocol][v3][conformance][terrain][rejection]") {
+  check_invalid_terrain([](boost::json::object& terrain) {
+    boost::json::array& corridors = terrain.at("corridors").as_array();
+    boost::json::value shape = corridors.front();
+    shape.as_object().at("points").as_array().resize(2);
+    corridors.clear();
+    for (std::size_t index = 0; index <= simulation::kMaximumTerrainCorridorCount; ++index) {
+      shape.as_object().at("name") = "road_" + std::to_string(index);
+      corridors.push_back(shape);
+    }
+  });
+  check_invalid_terrain([](boost::json::object& terrain) {
+    boost::json::array& holes = terrain.at("holes").as_array();
+    boost::json::value shape = holes.front();
+    holes.clear();
+    for (std::size_t index = 0; index <= simulation::kMaximumTerrainHoleCount; ++index) {
+      shape.as_object().at("name") = "hole_" + std::to_string(index);
+      holes.push_back(shape);
+    }
+  });
+  for (const std::size_t point_count :
+       {std::size_t{0}, std::size_t{1}, simulation::kMaximumTerrainSegmentCount + 2,
+        simulation::kMaximumTerrainPointCount + 1}) {
+    INFO("single-corridor points " << point_count);
+    check_invalid_terrain([point_count](boost::json::object& terrain) {
+      boost::json::array& corridors = terrain.at("corridors").as_array();
+      corridors.resize(1);
+      boost::json::array& points = corridors.front().as_object().at("points").as_array();
+      points.clear();
+      for (std::size_t index = 0; index < point_count; ++index) {
+        points.push_back(boost::json::object{{"x", static_cast<double>(index)}, {"y", 320}});
+      }
+    });
+  }
+  boost::json::value aggregate = boost::json::parse(
+      protocol::encode_welcome_message(fixture::maximum_cardinality_welcome(),
+                                       fixture::session_request_id(), fixture::kWelcomeTimestamp));
+  terrain_of(aggregate)
+      .at("corridors")
+      .as_array()
+      .front()
+      .as_object()
+      .at("points")
+      .as_array()
+      .push_back(boost::json::object{{"x", 900}, {"y", 320}});
+  // 41 points across eight roads also means 33 segments; both aggregate budgets are explicit.
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(aggregate)) ==
+        protocol::V3FrameConformance::kWelcomeTerrainInvalid);
+}
+
+TEST_CASE("Welcome conformance requires unique bounded canonical names within each terrain family",
+          "[unit][protocol][v3][conformance][terrain][rejection]") {
+  for (const std::string_view family : {"corridors", "holes"}) {
+    for (const std::string& name : {std::string{}, std::string{"Road"}, std::string{"road-name"},
+                                    std::string{"0road"}, std::string(65, 'a')}) {
+      INFO("family " << family << " name " << name);
+      check_invalid_terrain([family, &name](boost::json::object& terrain) {
+        terrain.at(family).as_array().front().as_object().at("name") = name;
+      });
+    }
+    check_invalid_terrain([family](boost::json::object& terrain) {
+      boost::json::array& shapes = terrain.at(family).as_array();
+      shapes[1].as_object().at("name") = shapes[0].as_object().at("name");
+    });
+    check_invalid_terrain([family](boost::json::object& terrain) {
+      terrain.at(family).as_array().front().as_object().at("name") = 1;
+    });
+  }
+  // The valid workload already has 64-character names reused across the two distinct families.
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(terrain_conformance_document())) ==
+        protocol::V3FrameConformance::kConforms);
+}
+
+TEST_CASE("Welcome conformance rejects invalid bounds widths and radii",
+          "[unit][protocol][v3][conformance][terrain][rejection]") {
+  for (const boost::json::value& invalid :
+       {boost::json::value(0), boost::json::value(-1), boost::json::value(1'000'000'001.0),
+        boost::json::value("1"), boost::json::value(nullptr)}) {
+    for (const std::size_t extent :
+         {std::size_t{0}, std::size_t{1}, std::size_t{2}, std::size_t{3}}) {
+      INFO("extent " << extent << " invalid " << boost::json::serialize(invalid));
+      check_invalid_terrain([extent, &invalid](boost::json::object& terrain) {
+        if (extent < 2) {
+          terrain.at("bounds").as_object().at(extent == 0 ? "width_world_units"
+                                                          : "height_world_units") = invalid;
+        } else if (extent == 2) {
+          terrain.at("corridors").as_array().front().as_object().at("half_width") = invalid;
+        } else {
+          terrain.at("holes").as_array().front().as_object().at("radius") = invalid;
+        }
+      });
+    }
+  }
+}
+
+TEST_CASE("Welcome conformance checks each authored point and center against closed bounds",
+          "[unit][protocol][v3][conformance][terrain][rejection]") {
+  for (const bool hole : {false, true}) {
+    for (const std::string_view axis : {"x", "y"}) {
+      for (const double coordinate : {-1.0, 961.0, 1'000'000'001.0}) {
+        INFO("hole " << hole << " axis " << axis << " coordinate " << coordinate);
+        check_invalid_terrain([hole, axis, coordinate](boost::json::object& terrain) {
+          boost::json::object& point =
+              hole ? terrain.at("holes").as_array().front().as_object().at("center").as_object()
+                   : terrain.at("corridors")
+                         .as_array()
+                         .front()
+                         .as_object()
+                         .at("points")
+                         .as_array()
+                         .front()
+                         .as_object();
+          point.at(axis) = coordinate;
+        });
+      }
+    }
+  }
+  check_invalid_terrain([](boost::json::object& terrain) {
+    terrain.at("holes").as_array().front().as_object().at("center") = nullptr;
+  });
+  check_invalid_terrain([](boost::json::object& terrain) {
+    terrain.at("corridors").as_array().front().as_object().at("points").as_array().front() =
+        nullptr;
+  });
+}
+
+TEST_CASE("Welcome conformance rejects incompatible ground and unrepresentable segments",
+          "[unit][protocol][v3][conformance][terrain][rejection]") {
+  for (const std::string_view ground : {"solid", "unknown"}) {
+    check_invalid_terrain(
+        [ground](boost::json::object& terrain) { terrain.at("ground") = ground; });
+  }
+  check_invalid_terrain(
+      [](boost::json::object& terrain) { terrain.at("corridors").as_array().clear(); });
+  check_invalid_terrain([](boost::json::object& terrain) {
+    boost::json::array& points =
+        terrain.at("corridors").as_array().front().as_object().at("points").as_array();
+    points[1] = points[0];
+  });
+  check_invalid_terrain([](boost::json::object& terrain) {
+    terrain.at("corridors").as_array().front().as_object().at("points") = boost::json::array{
+        boost::json::object{{"x", 0}, {"y", 0}}, boost::json::object{{"x", 1e-200}, {"y", 0}}};
+  });
+}
+
+TEST_CASE(
+    "Welcome conformance rejects negative-zero tokens without treating quoted text as numbers",
+    "[unit][protocol][v3][conformance][terrain][rejection]") {
+  const std::string base = boost::json::serialize(terrain_conformance_document());
+  constexpr std::string_view kPointX = "\"x\":100";
+  const std::size_t position = base.find(kPointX);
+  REQUIRE(position != std::string::npos);
+  for (const std::string_view number : {"-0", "-0.0", "-0e0", "-0.000E+12"}) {
+    std::string mutated = base;
+    mutated.replace(position, kPointX.size(), std::string{"\"x\":"} + std::string{number});
+    CHECK(protocol::check_v3_server_frame(mutated) ==
+          protocol::V3FrameConformance::kWelcomeTerrainInvalid);
+  }
+  for (const std::string_view number : {"1e309", "-1e309", "NaN", "Infinity"}) {
+    std::string mutated = base;
+    mutated.replace(position, kPointX.size(), std::string{"\"x\":"} + std::string{number});
+    CHECK(protocol::check_v3_server_frame(mutated) != protocol::V3FrameConformance::kConforms);
+  }
+  std::string positive_exponent = base;
+  positive_exponent.replace(position, kPointX.size(), "\"x\":1e-0");
+  CHECK(protocol::check_v3_server_frame(positive_exponent) ==
+        protocol::V3FrameConformance::kConforms);
+  boost::json::value quoted = terrain_conformance_document();
+  quoted.as_object().at("data").as_object().at("display_name") = "text -0 \\\"-0.0\\\"";
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(quoted)) ==
+        protocol::V3FrameConformance::kConforms);
+}
+
+TEST_CASE("Welcome conformance accepts closed rims and extents outside the authored envelope",
+          "[unit][protocol][v3][conformance][terrain]") {
+  boost::json::value document = terrain_conformance_document();
+  boost::json::object& terrain = terrain_of(document);
+  boost::json::object& road = terrain.at("corridors").as_array().front().as_object();
+  road.at("points").as_array().front() = boost::json::object{{"x", 0}, {"y", 0}};
+  road.at("points").as_array().back() = boost::json::object{{"x", 960}, {"y", 640}};
+  road.at("half_width") = simulation::kMaximumWorldDimension;
+  boost::json::object& hole = terrain.at("holes").as_array().front().as_object();
+  hole.at("center") = boost::json::object{{"x", 0}, {"y", 640}};
+  hole.at("radius") = simulation::kMaximumWorldDimension;
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(document)) ==
+        protocol::V3FrameConformance::kConforms);
+  terrain.at("bounds").as_object().at("width_world_units") = simulation::kMaximumWorldDimension;
+  terrain.at("bounds").as_object().at("height_world_units") = simulation::kMaximumWorldDimension;
+  // Cross-document agreement with v1 configuration is deliberately not a single-frame check.
+  CHECK(protocol::check_v3_server_frame(boost::json::serialize(document)) ==
+        protocol::V3FrameConformance::kConforms);
 }
 
 TEST_CASE("Conformance rejects a frame carrying both data and error",
-          "[unit][protocol][v2][conformance][rejection]") {
+          "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kDataAndError =
       R"({"data":{"tick_sequence":1,"entities":[],"match":{}},)"
       R"("error":{"code":"SERVICE.INTERNAL_FAILURE","message":"m","retryable":false,"details":{}},)"
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kDataAndError) ==
-        protocol::V2FrameConformance::kDataAndErrorExclusivityViolated);
+  CHECK(protocol::check_v3_server_frame(kDataAndError) ==
+        protocol::V3FrameConformance::kDataAndErrorExclusivityViolated);
 }
 
 TEST_CASE("Conformance rejects a frame carrying neither data nor error",
-          "[unit][protocol][v2][conformance][rejection]") {
+          "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kNeither =
       R"({"data":null,"error":null,)"
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kNeither) ==
-        protocol::V2FrameConformance::kDataAndErrorExclusivityViolated);
+  CHECK(protocol::check_v3_server_frame(kNeither) ==
+        protocol::V3FrameConformance::kDataAndErrorExclusivityViolated);
 }
 
 TEST_CASE("Conformance rejects a snapshot carrying an unregistered component kind",
-          "[unit][protocol][v2][conformance][rejection]") {
+          "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kUnknownComponentKind =
       R"({"data":{"tick_sequence":1,"entities":[{"entity_id":1,"components":)"
       R"({"blob_shape":{"sides":5}}}],"match":{"mode":"royale","phase":"lobby",)"
       R"("phase_started_tick":1,"outcome":{"kind":"none","winner_entity_id":null,)"
       R"("winner_team_id":null},"placements":[],"mode_state":)"
-      R"({"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},"error":null,)"
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"({"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},"error":null,)"
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kUnknownComponentKind) ==
-        protocol::V2FrameConformance::kComponentKindUnregistered);
+  CHECK(protocol::check_v3_server_frame(kUnknownComponentKind) ==
+        protocol::V3FrameConformance::kComponentKindUnregistered);
 }
 
 TEST_CASE("Conformance rejects a snapshot whose entity ids are not ascending and distinct",
-          "[unit][protocol][v2][conformance][rejection]") {
+          "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kDescending =
       R"({"data":{"tick_sequence":1,"entities":[)"
       R"({"entity_id":9,"components":{"score":{"points":0}}},)"
       R"({"entity_id":2,"components":{"score":{"points":0}}}],)"
       R"("match":{"mode":"royale","phase":"lobby","phase_started_tick":1,)"
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
-      R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
+      R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kDescending) ==
-        protocol::V2FrameConformance::kEntitiesNotAscending);
+  CHECK(protocol::check_v3_server_frame(kDescending) ==
+        protocol::V3FrameConformance::kEntitiesNotAscending);
 }
 
 TEST_CASE("Conformance rejects a published entity carrying no component",
-          "[unit][protocol][v2][conformance][rejection]") {
+          "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kEmptyComponents =
       R"({"data":{"tick_sequence":1,"entities":[{"entity_id":1,"components":{}}],)"
       R"("match":{"mode":"royale","phase":"lobby","phase_started_tick":1,)"
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
-      R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
+      R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kEmptyComponents) ==
-        protocol::V2FrameConformance::kEntityWithoutComponents);
+  CHECK(protocol::check_v3_server_frame(kEmptyComponents) ==
+        protocol::V3FrameConformance::kEntityWithoutComponents);
 }
 
 TEST_CASE("Conformance rejects a frame naming a protocol version this schema set does not pin",
-          "[unit][protocol][v2][conformance][rejection]") {
-  // One minor ahead of whatever this build pins. It moved 2.1 -> 2.2 when `lethal_on_contact` was
-  // published, 2.2 -> 2.3 when the royale mode-state block gained `elimination_grace_ticks`,
-  // 2.3 -> 2.4 when the lobby command kinds and the match seat roster landed, 2.4 -> 2.5 when
-  // the lobby directory and the welcome's room landed, and 2.5 -> 2.6 when `respawn_timer` opened
-  // 2.5, because a case named "a version this schema set does not pin" that names the pinned one
-  // tests nothing.
+          "[unit][protocol][v3][conformance][rejection]") {
+  // A newer version is not interpreted through this build's closed vocabulary.
   constexpr std::string_view kMinorAhead =
       R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale",)"
       R"("map":"arena-960x640","accepted_command_kinds":["set_thrust"],)"
       R"("npc_controller_kinds":[],"lobby_id":1,"seat_count_maximum":32},"error":null,)"
-      R"("meta":{"protocol_version":"2.6","schema_id":"blob-royale://protocol/v2/welcome-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/welcome-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kMinorAhead) ==
-        protocol::V2FrameConformance::kProtocolVersionUnsupported);
+  CHECK(protocol::check_v3_server_frame(kMinorAhead) ==
+        protocol::V3FrameConformance::kProtocolVersionUnsupported);
 }
 
 TEST_CASE("Conformance rejects a snapshot delivered as message one",
-          "[unit][protocol][v2][conformance][rejection]") {
+          "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kSnapshotAsFirstFrame =
       R"({"data":{"tick_sequence":1,"entities":[],)"
       R"("match":{"mode":"royale","phase":"lobby","phase_started_tick":1,)"
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
-      R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/none","value":{}}}},)"
+      R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kSnapshotAsFirstFrame) ==
-        protocol::V2FrameConformance::kMessageSequenceInvalid);
+  CHECK(protocol::check_v3_server_frame(kSnapshotAsFirstFrame) ==
+        protocol::V3FrameConformance::kMessageSequenceInvalid);
 }
 
 TEST_CASE("Conformance rejects a snapshot naming an unregistered mode-state schema id",
-          "[unit][protocol][v2][conformance][rejection]") {
+          "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kUnknownModeState =
       R"({"data":{"tick_sequence":1,"entities":[],)"
       R"("match":{"mode":"royale","phase":"lobby","phase_started_tick":1,)"
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
-      R"("mode_state":{"schema_id":"blob-royale://protocol/v2/mode-state/capture","value":{}}}},)"
+      R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/capture","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
-  CHECK(protocol::check_v2_server_frame(kUnknownModeState) ==
-        protocol::V2FrameConformance::kModeStateSchemaIdUnregistered);
+  CHECK(protocol::check_v3_server_frame(kUnknownModeState) ==
+        protocol::V3FrameConformance::kModeStateSchemaIdUnregistered);
 }
 
-TEST_CASE("The closed v2 component vocabulary names exactly the registered component kinds",
-          "[unit][protocol][v2][vocabulary]") {
+TEST_CASE("The closed v3 component vocabulary names exactly the registered component kinds",
+          "[unit][protocol][v3][vocabulary]") {
   std::vector<std::string_view> registered_names;
   simulation::ComponentRegistry::for_each_kind([&registered_names]<typename Component>() {
     registered_names.push_back(simulation::component_kind_name<Component>);
   });
 
-  REQUIRE(registered_names.size() == protocol::kV2ComponentKindNames.size());
+  REQUIRE(registered_names.size() == protocol::kV3ComponentKindNames.size());
   for (const std::string_view name : registered_names) {
-    CHECK(protocol::is_v2_component_kind(name));
+    CHECK(protocol::is_v3_component_kind(name));
   }
-  CHECK_FALSE(protocol::is_v2_component_kind("blob_shape"));
-  CHECK_FALSE(protocol::is_v2_component_kind(""));
-  CHECK(std::ranges::is_sorted(protocol::kV2ComponentKindNames));
+  CHECK_FALSE(protocol::is_v3_component_kind("blob_shape"));
+  CHECK_FALSE(protocol::is_v3_component_kind(""));
+  CHECK(std::ranges::is_sorted(protocol::kV3ComponentKindNames));
 }
 
 TEST_CASE("Race progress is published without a body and matches the accepted component example",
-          "[unit][protocol][v2][encoding][race_progress][golden]") {
+          "[unit][protocol][v3][encoding][race_progress][golden]") {
   const simulation::WorldSnapshot snapshot =
       fixture::race_progress_snapshot(fixture::kGoldenNextCheckpoint);
   const auto& progress = snapshot.components<simulation::RaceProgress>();
   REQUIRE(progress.size() == 1);
   CHECK(progress[0].value.next_checkpoint == fixture::kGoldenNextCheckpoint);
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       snapshot, fixture::golden_directory(), fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   CHECK(encoded.find(R"("components":{"race_progress":{"next_checkpoint":2}})") !=
@@ -349,18 +665,18 @@ TEST_CASE("Race progress is published without a body and matches the accepted co
                                             .as_object()
                                             .at("race_progress");
   CHECK(component ==
-        boost::json::parse(fixture::read_v2_golden_example("race-progress-component.json")));
-  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+        boost::json::parse(fixture::read_v3_golden_example("race-progress-component.json")));
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
 TEST_CASE("Race progress preserves zero and is never synthesized for an entity without it",
-          "[unit][protocol][v2][encoding][race_progress]") {
-  const std::string starting = protocol::encode_snapshot_message_v2(
+          "[unit][protocol][v3][encoding][race_progress]") {
+  const std::string starting = protocol::encode_snapshot_message_v3(
       fixture::race_progress_snapshot(0), fixture::golden_directory(),
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
   CHECK(starting.find(R"("race_progress":{"next_checkpoint":0})") != std::string::npos);
-  const std::string absent = protocol::encode_snapshot_message_v2(
+  const std::string absent = protocol::encode_snapshot_message_v3(
       fixture::untransitioned_lobby_snapshot(), fixture::golden_directory(),
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
@@ -368,11 +684,11 @@ TEST_CASE("Race progress preserves zero and is never synthesized for an entity w
 }
 
 TEST_CASE("Hill publication preserves the exact configured radius and score ceilings",
-          "[unit][protocol][v2][encoding][king_of_the_hill][boundary]") {
+          "[unit][protocol][v3][encoding][king_of_the_hill][boundary]") {
   STATIC_REQUIRE(simulation::kMaximumPhysicalComponentMagnitude ==
                  protocol::kMaximumFiniteWorldScalar);
   STATIC_REQUIRE(simulation::kMaximumProtocolSafeInteger == protocol::kMaximumSafeInteger);
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::hill_mode_snapshot(simulation::kMaximumPhysicalComponentMagnitude,
                                   simulation::kMaximumProtocolSafeInteger),
       fixture::golden_directory(), fixture::session_request_id(), fixture::kSnapshotMessageSequence,
@@ -393,14 +709,14 @@ TEST_CASE("Hill publication preserves the exact configured radius and score ceil
   CHECK(state.at("schema_id").as_string() == protocol::kKingOfTheHillModeStateSchemaId);
   CHECK(state.at("value").as_object().at("points_to_win").as_int64() ==
         static_cast<std::int64_t>(simulation::kMaximumProtocolSafeInteger));
-  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
 TEST_CASE("Race mode state publishes its course and shared standings in canonical order",
-          "[unit][protocol][v2][encoding][race][golden]") {
+          "[unit][protocol][v3][encoding][race][golden]") {
   const simulation::WorldSnapshot snapshot =
       fixture::race_mode_snapshot(fixture::golden_race_mode_state());
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       snapshot, fixture::golden_directory(), fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   const boost::json::value document = boost::json::parse(encoded);
@@ -409,25 +725,25 @@ TEST_CASE("Race mode state publishes its course and shared standings in canonica
   const boost::json::object& block = match.at("mode_state").as_object();
   CHECK(block.at("schema_id").as_string() == protocol::kRaceModeStateSchemaId);
   CHECK(block.at("value") ==
-        boost::json::parse(fixture::read_v2_golden_example("race-mode-state.json")));
+        boost::json::parse(fixture::read_v3_golden_example("race-mode-state.json")));
   CHECK(match.at("placements").as_array().empty());
   CHECK(simulation::mode_match_state_schema_id_of(snapshot.match().mode_state()) == "race");
   CHECK(
       encoded.find(
           R"("track_half_width":60,"checkpoint_radius":20,"track":[{"x":100,"y":100},{"x":700,"y":100},{"x":700,"y":500}],"checkpoints":[{"x":300,"y":100},{"x":700,"y":200},{"x":700,"y":500}],"time_limit_ticks":96000,"finish_window_ticks":2000,"standings":[{"entity_id":7,"controller_id":3,"placement":1,"finished_tick":1},{"entity_id":8,"controller_id":4,"placement":1,"finished_tick":1}])") !=
       std::string::npos);
-  CHECK(encoded == protocol::encode_snapshot_message_v2(
+  CHECK(encoded == protocol::encode_snapshot_message_v3(
                        snapshot, fixture::golden_directory(), fixture::session_request_id(),
                        fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
-  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
 TEST_CASE("Race publishes an empty standings array and canonicalizes nested vector numbers",
-          "[unit][protocol][v2][encoding][race]") {
+          "[unit][protocol][v3][encoding][race]") {
   simulation::RaceModeState state = fixture::golden_race_mode_state();
   state.standings.clear();
   state.track[0] = simulation::Vector2::create(-0.0, 100.0);
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
@@ -437,13 +753,13 @@ TEST_CASE("Race publishes an empty standings array and canonicalizes nested vect
 }
 
 TEST_CASE("Race publication preserves both exact configured dimension ceilings",
-          "[unit][protocol][v2][encoding][race][boundary]") {
+          "[unit][protocol][v3][encoding][race][boundary]") {
   STATIC_REQUIRE(simulation::kMaximumPhysicalComponentMagnitude ==
                  protocol::kMaximumFiniteWorldScalar);
   simulation::RaceModeState state = fixture::golden_race_mode_state();
   state.track_half_width = simulation::kMaximumPhysicalComponentMagnitude;
   state.checkpoint_radius = simulation::kMaximumPhysicalComponentMagnitude;
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
@@ -461,11 +777,11 @@ TEST_CASE("Race publication preserves both exact configured dimension ceilings",
         static_cast<std::int64_t>(simulation::kMaximumPhysicalComponentMagnitude));
   CHECK(block.at("checkpoint_radius").as_int64() ==
         static_cast<std::int64_t>(simulation::kMaximumPhysicalComponentMagnitude));
-  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
 TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fields",
-          "[unit][protocol][v2][encoding][race][rejection]") {
+          "[unit][protocol][v3][encoding][race][rejection]") {
   simulation::RaceModeState state = fixture::golden_race_mode_state();
   protocol::ProtocolEncodingErrorCode expected =
       protocol::ProtocolEncodingErrorCode::kComponentValueOutOfRange;
@@ -502,7 +818,7 @@ TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fie
   }
   fixture::require_protocol_error_code(
       [&state] {
-        return protocol::encode_snapshot_message_v2(
+        return protocol::encode_snapshot_message_v3(
             fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
             fixture::session_request_id(), fixture::kSnapshotMessageSequence,
             fixture::kSnapshotTimestamp);
@@ -510,44 +826,44 @@ TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fie
       expected);
 }
 
-TEST_CASE("Snapshot v2 encoder rejects a message sequence below the first snapshot's",
-          "[unit][protocol][v2][encoding][rejection]") {
+TEST_CASE("Snapshot v3 encoder rejects a message sequence below the first snapshot's",
+          "[unit][protocol][v3][encoding][rejection]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
   fixture::require_protocol_error_code(
       [&directory] {
-        return protocol::encode_snapshot_message_v2(fixture::golden_snapshot(), directory,
+        return protocol::encode_snapshot_message_v3(fixture::golden_snapshot(), directory,
                                                     fixture::session_request_id(), 1,
                                                     fixture::kSnapshotTimestamp);
       },
       protocol::ProtocolEncodingErrorCode::kMessageSequenceOutOfRange);
 }
 
-TEST_CASE("Snapshot v2 encoder rejects a malformed UTC timestamp",
-          "[unit][protocol][v2][encoding][rejection]") {
+TEST_CASE("Snapshot v3 encoder rejects a malformed UTC timestamp",
+          "[unit][protocol][v3][encoding][rejection]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
   fixture::require_protocol_error_code(
       [&directory] {
-        return protocol::encode_snapshot_message_v2(
+        return protocol::encode_snapshot_message_v3(
             fixture::golden_snapshot(), directory, fixture::session_request_id(),
             fixture::kSnapshotMessageSequence, "2026-09-06 18:04:17Z");
       },
       protocol::ProtocolEncodingErrorCode::kTimestampInvalid);
 }
 
-TEST_CASE("Snapshot v2 encoder rejects a complete frame above the configured byte limit",
-          "[unit][protocol][v2][encoding][rejection]") {
+TEST_CASE("Snapshot v3 encoder rejects a complete frame above the configured byte limit",
+          "[unit][protocol][v3][encoding][rejection]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
   fixture::require_protocol_error_code(
       [&directory] {
-        return protocol::encode_snapshot_message_v2(
+        return protocol::encode_snapshot_message_v3(
             fixture::golden_snapshot(), directory, fixture::session_request_id(),
             fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp, 512);
       },
       protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
 }
 
-TEST_CASE("Snapshot v2 encoder publishes a phase_started_tick of zero for an untransitioned lobby",
-          "[unit][protocol][v2][encoding]") {
+TEST_CASE("Snapshot v3 encoder publishes a phase_started_tick of zero for an untransitioned lobby",
+          "[unit][protocol][v3][encoding]") {
   // `match-data.schema.json` types this one member as `phase_start_tick`, which admits zero, while
   // every other tick-valued member is a `tick_sequence` with a minimum of one. Zero is the truthful
   // value for "no transition has been committed yet": a match begins in `lobby` at load, before
@@ -556,16 +872,16 @@ TEST_CASE("Snapshot v2 encoder publishes a phase_started_tick of zero for an unt
   REQUIRE(fixture::untransitioned_lobby_snapshot().match().phase_started_tick() ==
           simulation::TickSequence::zero());
 
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::untransitioned_lobby_snapshot(), directory, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(encoded.find(R"("phase":"lobby","phase_started_tick":0)") != std::string::npos);
-  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
-TEST_CASE("Snapshot v2 encoder publishes a placement controller the directory has forgotten",
-          "[unit][protocol][v2][encoding]") {
+TEST_CASE("Snapshot v3 encoder publishes a placement controller the directory has forgotten",
+          "[unit][protocol][v3][encoding]") {
   // The placed entity was destroyed on the tick that recorded it and its session has closed, so
   // `golden_directory()` holds no entry for `kPlacedControllerId`. The encoder still publishes the
   // link, because `simulation::RoyalePlacement` recorded it at elimination: this is the whole
@@ -575,16 +891,16 @@ TEST_CASE("Snapshot v2 encoder publishes a placement controller the directory ha
       directory.find_controller(simulation::ControllerId::create(fixture::kPlacedControllerId))
           .has_value());
 
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::golden_snapshot(), directory, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(encoded.find(R"("entity_id":5,"controller_id":6,"placement":3)") != std::string::npos);
-  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
-TEST_CASE("Snapshot v2 encoder rejects entity ids that are not ascending and distinct",
-          "[unit][protocol][v2][encoding][rejection]") {
+TEST_CASE("Snapshot v3 encoder rejects entity ids that are not ascending and distinct",
+          "[unit][protocol][v3][encoding][rejection]") {
   const std::vector<simulation::EntityId> descending{simulation::EntityId::create(9),
                                                      simulation::EntityId::create(2)};
   const std::vector<simulation::EntityId> duplicated{simulation::EntityId::create(4),
@@ -602,23 +918,23 @@ TEST_CASE("Snapshot v2 encoder rejects entity ids that are not ascending and dis
       protocol::ProtocolEncodingErrorCode::kSnapshotEntityOrderInvalid);
 }
 
-TEST_CASE("Snapshot v2 encoder publishes the documented fallback for a closed controller",
-          "[unit][protocol][v2][encoding]") {
+TEST_CASE("Snapshot v3 encoder publishes the documented fallback for a closed controller",
+          "[unit][protocol][v3][encoding]") {
   fixture::StubControllerDirectory directory = fixture::golden_directory();
   directory.forget_controller(fixture::kPlayerControllerId);
 
-  const std::string encoded = protocol::encode_snapshot_message_v2(
+  const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::golden_snapshot(), directory, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(encoded.find(R"("controller_kind":"unknown","display_name":"player-7")") !=
         std::string::npos);
   CHECK(encoded.find(R"("display_name":"Cole Shaffer")") == std::string::npos);
-  CHECK(protocol::check_v2_server_frame(encoded) == protocol::V2FrameConformance::kConforms);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
 TEST_CASE("Own-body resolution finds the entity a controller drives and no other",
-          "[unit][protocol][v2][encoding]") {
+          "[unit][protocol][v3][encoding]") {
   const std::optional<simulation::EntityId> player = protocol::find_controlled_body(
       fixture::golden_snapshot(), simulation::ControllerId::create(fixture::kPlayerControllerId));
   const std::optional<simulation::EntityId> bot = protocol::find_controlled_body(
@@ -634,7 +950,7 @@ TEST_CASE("Own-body resolution finds the entity a controller drives and no other
 }
 
 TEST_CASE("Welcome value rejects a display name outside the accepted grammar",
-          "[unit][protocol][v2][encoding][rejection]") {
+          "[unit][protocol][v3][encoding][rejection]") {
   const auto welcome_with_display_name = [](const std::string& display_name) {
     return [display_name] {
       return protocol::SessionWelcome::create(
@@ -642,7 +958,7 @@ TEST_CASE("Welcome value rejects a display name outside the accepted grammar",
           "royale", "arena-960x640",
           simulation::CommandKindMask::create({simulation::CommandKind::kThrust}),
           fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
-          fixture::kGoldenSeatCountMaximum);
+          fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
     };
   };
 
@@ -657,17 +973,17 @@ TEST_CASE("Welcome value rejects a display name outside the accepted grammar",
 }
 
 TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
-          "[unit][protocol][v2][encoding]") {
+          "[unit][protocol][v3][encoding]") {
   const protocol::SessionWelcome every_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
       "royale", "arena-960x640", simulation::CommandKindMask::all(),
       fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
-      fixture::kGoldenSeatCountMaximum);
+      fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
   const protocol::SessionWelcome no_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
       "sandbox", "arena-960x640", simulation::CommandKindMask::none(),
       fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
-      fixture::kGoldenSeatCountMaximum);
+      fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
 
   const std::string advertised_all = protocol::encode_welcome_message(
       every_kind, fixture::session_request_id(), fixture::kWelcomeTimestamp);
@@ -693,14 +1009,14 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
                                            simulation::CommandKind::kDespawn,
                                            simulation::CommandKind::kThrust}),
       fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
-      fixture::kGoldenSeatCountMaximum);
+      fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
   CHECK(protocol::encode_welcome_message(thrust_only, fixture::session_request_id(),
                                          fixture::kWelcomeTimestamp)
             .find(R"("accepted_command_kinds":["set_thrust"])") != std::string::npos);
 }
 
 TEST_CASE("Welcome publishes the NPC kinds the registry declared, in registry order",
-          "[unit][protocol][v2][encoding][lobby]") {
+          "[unit][protocol][v3][encoding][lobby]") {
   // **The acceptance test for "registering a bot costs no client change", on the publishing side.**
   // The list is data the composition root read from `ControllerRegistry`, so a build with one more
   // registered bot publishes one more name through the same encoder, the same schema, and the same
@@ -709,7 +1025,8 @@ TEST_CASE("Welcome publishes the NPC kinds the registry declared, in registry or
     return protocol::SessionWelcome::create(
         simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
         "royale", "arena-960x640", simulation::CommandKindMask::all(),
-        std::move(npc_controller_kinds), fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum);
+        std::move(npc_controller_kinds), fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum,
+        fixture::golden_terrain());
   };
 
   const std::string two_bots =
@@ -738,7 +1055,7 @@ TEST_CASE("Welcome publishes the NPC kinds the registry declared, in registry or
 }
 
 TEST_CASE("Welcome refuses a registered controller kind it could not publish",
-          "[unit][protocol][v2][encoding][rejection]") {
+          "[unit][protocol][v3][encoding][rejection]") {
   // A registry row whose name is not a `kind_name` is a build-time mistake, and it fails at the
   // value rather than in the encoder: the encoder never has to decide what to do with a name it
   // cannot write.
@@ -747,7 +1064,7 @@ TEST_CASE("Welcome refuses a registered controller kind it could not publish",
       return protocol::SessionWelcome::create(
           simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
           "royale", "arena-960x640", simulation::CommandKindMask::all(), npc_controller_kinds,
-          fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum);
+          fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
     };
   };
 
@@ -761,14 +1078,14 @@ TEST_CASE("Welcome refuses a registered controller kind it could not publish",
 }
 
 TEST_CASE("Welcome refuses a room or a seat ceiling outside the protocol's bounds",
-          "[unit][protocol][v2][welcome][validation]") {
+          "[unit][protocol][v3][welcome][validation]") {
   const auto welcome_with = [](const std::uint64_t lobby_id,
                                const std::uint64_t seat_count_maximum) {
     return [lobby_id, seat_count_maximum] {
       static_cast<void>(protocol::SessionWelcome::create(
           simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
           "royale", "arena-960x640", simulation::CommandKindMask::all(), {}, lobby_id,
-          seat_count_maximum));
+          seat_count_maximum, fixture::golden_terrain()));
     };
   };
   CHECK_NOTHROW(welcome_with(1, 1)());
@@ -784,19 +1101,19 @@ TEST_CASE("Welcome refuses a room or a seat ceiling outside the protocol's bound
 }
 
 TEST_CASE("Lobby directory encoder matches the accepted golden example and canonical bytes",
-          "[unit][protocol][v2][encoding][golden][lobbies]") {
+          "[unit][protocol][v3][encoding][golden][lobbies]") {
   const std::vector<protocol::LobbyListing> lobbies = fixture::golden_lobby_listings();
   const std::string encoded =
       protocol::encode_lobby_directory_message(lobbies, fixture::session_request_id());
 
-  fixture::require_json_matches_v2_golden_example(encoded, "lobby-directory-message.json");
+  fixture::require_json_matches_v3_golden_example(encoded, "lobby-directory-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"lobbies":[{"lobby_id":1,"mode":"royale","map":"arena-960x640","phase":"running","phase_started_tick":10904,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":2,"npc_seat_count":2,"session_count":1,"healthy":true},{"lobby_id":2,"mode":"royale","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":1,"npc_seat_count":1,"session_count":0,"healthy":true}]},"error":null,"meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/lobby-directory","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+      R"({"data":{"lobbies":[{"lobby_id":1,"mode":"royale","map":"arena-960x640","phase":"running","phase_started_tick":10904,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":2,"npc_seat_count":2,"session_count":1,"healthy":true},{"lobby_id":2,"mode":"royale","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":1,"npc_seat_count":1,"session_count":0,"healthy":true}]},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/lobby-directory","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
 }
 
 TEST_CASE("Lobby directory encoder fails closed on a directory it could not publish",
-          "[unit][protocol][v2][encoding][lobbies][validation]") {
+          "[unit][protocol][v3][encoding][lobbies][validation]") {
   const auto encode = [](std::vector<protocol::LobbyListing> lobbies) {
     return [lobbies = std::move(lobbies)] {
       static_cast<void>(
@@ -848,34 +1165,34 @@ TEST_CASE("Lobby directory encoder fails closed on a directory it could not publ
 }
 
 TEST_CASE(
-    "V2 error envelope carries the three lobby rows with their status, retryability, and room",
-    "[unit][protocol][v2][encoding][lobbies]") {
-  const protocol::V2HttpError not_found = protocol::V2HttpError::lobby_not_found();
+    "V3 error envelope carries the three lobby rows with their status, retryability, and room",
+    "[unit][protocol][v3][encoding][lobbies]") {
+  const protocol::V3HttpError not_found = protocol::V3HttpError::lobby_not_found();
   CHECK(not_found.status_code() == 404);
   CHECK(not_found.code() == "LOBBY.NOT_FOUND");
   CHECK_FALSE(not_found.retryable());
   CHECK_FALSE(not_found.lobby_id().has_value());
   const std::string encoded_not_found =
-      protocol::encode_error_response_v2(not_found, fixture::session_request_id());
+      protocol::encode_error_response_v3(not_found, fixture::session_request_id());
   CHECK(encoded_not_found.find(R"("code":"LOBBY.NOT_FOUND")") != std::string::npos);
   CHECK(encoded_not_found.find(R"("details":{})") != std::string::npos);
 
-  const protocol::V2HttpError full = protocol::V2HttpError::lobby_full(3);
+  const protocol::V3HttpError full = protocol::V3HttpError::lobby_full(3);
   CHECK(full.status_code() == 409);
   CHECK(full.code() == "LOBBY.FULL");
   CHECK(full.retryable());
   CHECK(full.lobby_id() == 3);
   const std::string encoded_full =
-      protocol::encode_error_response_v2(full, fixture::session_request_id());
+      protocol::encode_error_response_v3(full, fixture::session_request_id());
   CHECK(encoded_full.find(R"("retryable":true,"details":{"lobby_id":3})") != std::string::npos);
 
-  const protocol::V2HttpError unavailable = protocol::V2HttpError::lobby_unavailable(2);
+  const protocol::V3HttpError unavailable = protocol::V3HttpError::lobby_unavailable(2);
   CHECK(unavailable.status_code() == 503);
   CHECK(unavailable.code() == "LOBBY.UNAVAILABLE");
   CHECK(unavailable.retryable());
   const std::string encoded_unavailable =
-      protocol::encode_error_response_v2(unavailable, fixture::session_request_id());
+      protocol::encode_error_response_v3(unavailable, fixture::session_request_id());
   CHECK(encoded_unavailable.find(R"("details":{"lobby_id":2})") != std::string::npos);
-  CHECK(encoded_unavailable.find(R"("schema_id":"blob-royale://protocol/v2/error-response")") !=
+  CHECK(encoded_unavailable.find(R"("schema_id":"blob-royale://protocol/v3/error-response")") !=
         std::string::npos);
 }

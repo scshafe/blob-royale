@@ -29,7 +29,7 @@ namespace json = boost::json;
 namespace websocket = boost::beast::websocket;
 using Tcp = boost::asio::ip::tcp;
 
-constexpr std::string_view kSessionSubprotocol = "blob-royale.session.v2";
+constexpr std::string_view kSessionSubprotocol = "blob-royale.session.v3";
 constexpr std::size_t kMaximumSessionFrameBytes = 2'097'152;
 constexpr std::size_t kMaximumFramesBeforeClose = 8;
 constexpr std::size_t kMaximumSnapshotFramesAwaited = 4'096;
@@ -173,6 +173,20 @@ std::string SessionWebSocketClient::read_welcome_message() {
   const json::value* const data = envelope.if_contains("data");
   if (meta == nullptr || !meta->is_object() || data == nullptr || !data->is_object()) {
     throw_contract_violation("session.welcome", "welcome frame is missing data or meta");
+  }
+  const json::value* const version = meta->as_object().if_contains("protocol_version");
+  const json::value* const schema_id = meta->as_object().if_contains("schema_id");
+  if (version == nullptr || !version->is_string() || version->as_string() != "3.0" ||
+      schema_id == nullptr || !schema_id->is_string() ||
+      schema_id->as_string() != "blob-royale://protocol/v3/welcome-message") {
+    throw_contract_violation("session.welcome",
+                             "welcome does not identify the current v3 contract");
+  }
+  const json::value* const terrain = data->as_object().if_contains("terrain");
+  if (terrain == nullptr || !terrain->is_object() || terrain->as_object().size() != 4 ||
+      !terrain->as_object().contains("bounds") || !terrain->as_object().contains("ground") ||
+      !terrain->as_object().contains("corridors") || !terrain->as_object().contains("holes")) {
+    throw_contract_violation("session.welcome", "welcome is missing complete authored terrain");
   }
   // A client that receives a snapshot as its first frame has lost the welcome and must close
   // rather than proceed with an unknown controller_id.

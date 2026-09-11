@@ -43,7 +43,7 @@ function matchWith(
   return { ...snapshot.match, ...overrides };
 }
 
-/** The built hill frame, accepted by the 2.5 schemas before any selector reads it. */
+/** The built hill frame, accepted by the 3.0 schemas before any selector reads it. */
 const hill = validateSessionSnapshotMessage(hillSnapshotDocument(), {
   messageSequence: 1,
   requestId: hillSnapshotDocument().meta.request_id,
@@ -128,7 +128,7 @@ describe('sessionSelectors', () => {
       eliminationGraceTicks(
         matchWith({
           mode_state: {
-            schema_id: 'blob-royale://protocol/v2/mode-state/none',
+            schema_id: 'blob-royale://protocol/v3/mode-state/none',
             value: {},
           },
         }),
@@ -142,7 +142,7 @@ describe('sessionSelectors', () => {
       eliminationGraceTicks(
         matchWith({
           mode_state: {
-            schema_id: 'blob-royale://protocol/v2/mode-state/royale',
+            schema_id: 'blob-royale://protocol/v3/mode-state/royale',
             value: { previous_phase: 'running' },
           },
         }),
@@ -315,7 +315,7 @@ describe('sessionSelectors for the hill', () => {
       kingOfTheHillRules(
         matchWith({
           mode_state: {
-            schema_id: 'blob-royale://protocol/v2/mode-state/none',
+            schema_id: 'blob-royale://protocol/v3/mode-state/none',
             value: {},
           },
         }),
@@ -328,7 +328,7 @@ describe('sessionSelectors for the hill', () => {
       kingOfTheHillRules(
         hillMatchWith({
           mode_state: {
-            schema_id: 'blob-royale://protocol/v2/mode-state/king-of-the-hill',
+            schema_id: 'blob-royale://protocol/v3/mode-state/king-of-the-hill',
             value: { points_to_win: 30, point_interval_ticks: 400 },
           },
         }),
@@ -338,7 +338,7 @@ describe('sessionSelectors for the hill', () => {
       kingOfTheHillRules(
         hillMatchWith({
           mode_state: {
-            schema_id: 'blob-royale://protocol/v2/mode-state/king-of-the-hill',
+            schema_id: 'blob-royale://protocol/v3/mode-state/king-of-the-hill',
             value: {
               points_to_win: 30,
               point_interval_ticks: -1,

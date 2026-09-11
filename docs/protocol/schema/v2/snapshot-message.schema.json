@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/snapshot-message.schema.json",
   "title": "Blob Royale protocol v2 WebSocket snapshot message",
   "description": "A world snapshot frame on an established session. message_sequence starts at 2 because the welcome message is always message 1 of a session.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["data", "error", "meta"],

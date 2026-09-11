@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/respawn-timer-component.schema.json",
   "title": "Blob Royale protocol v2 respawn_timer component",
   "description": "The committed ticks left before an entity that was knocked out of play is offered a seat again. An entity carrying it has no physics_body; an entity without it is not respawning, so absence is the whole of 'in play' and no member can hold zero on a committed tick.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["ticks_remaining"],

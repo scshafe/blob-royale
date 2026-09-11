@@ -72,6 +72,12 @@ public:
   [[nodiscard]] const simulation::WorldSnapshot& snapshot() const& noexcept { return *snapshot_; }
   [[nodiscard]] const simulation::WorldSnapshot& snapshot() const&& = delete;
 
+  // The same retained immutable terrain the session welcome exposes, not a controller-owned copy.
+  [[nodiscard]] const simulation::TerrainDefinition& terrain() const& noexcept {
+    return snapshot_->terrain();
+  }
+  [[nodiscard]] const simulation::TerrainDefinition& terrain() const&& = delete;
+
   // The retained handle, for a controller that carries the world to another thread and decides
   // later. Sharing the handle is what keeps that world alive and unchanged for it.
   [[nodiscard]] const std::shared_ptr<const simulation::WorldSnapshot>&

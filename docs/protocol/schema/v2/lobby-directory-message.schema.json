@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/lobby-directory-message.schema.json",
   "title": "Blob Royale protocol v2 lobby directory response",
   "description": "The body of a successful GET /api/v2/lobbies: the v2 envelope around lobby-directory-data. An HTTP document rather than a WebSocket frame, so its meta carries no message_sequence and no sent_at_utc; the per-room tick_sequence is its freshness. Added in 2.4.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["data", "error", "meta"],

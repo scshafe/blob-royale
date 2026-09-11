@@ -97,6 +97,7 @@ export function SimulationViewer({
               onPan={panByWorldOffset}
               ownEntityId={connection.ownEntityId}
               snapshot={connection.snapshot?.data ?? null}
+              terrain={connection.session?.terrain ?? null}
             />
             <MatchOverlay
               description={describeMatchOverlay({

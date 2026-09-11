@@ -9,9 +9,9 @@
 namespace blob_royale::protocol {
 
 // The `hill` wire object, and the only publication of the hill: one circle, published where the
-// entity that carries it is, exactly as the zone is (`docs/protocol/v2.md` § "snapshot"). Added in
+// entity that carries it is, exactly as the zone is (`docs/protocol/v3.md` § "snapshot"). Added in
 // 2.5.
-// related: docs/protocol/schema/v2/hill-component.schema.json -- the closed wire shape.
+// related: docs/protocol/schema/v3/hill-component.schema.json -- the closed wire shape.
 template <> struct ComponentWireEncoding<simulation::Hill> {
   static void encode(const simulation::Hill& hill, const ComponentEncodingContext&,
                      ComponentObjectSink& sink) {

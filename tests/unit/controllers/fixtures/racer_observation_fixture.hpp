@@ -3,12 +3,15 @@
 
 #include "../../gameplay/race/race_test_fixture.hpp"
 #include "components/race_progress_component.hpp"
+#include "game_simulation_setup.hpp"
+#include "map_definition.hpp"
 #include "mode_states/race_mode_state.hpp"
 #include "observation.hpp"
 
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <variant>
 
 namespace blob_royale::testing {
 
@@ -54,11 +57,28 @@ racer_observation_world(const simulation::Vector2 position, const std::uint64_t 
 }
 
 // GameSimulation owns the only snapshot constructor. Its initial snapshot copies
-// this authored state without advancing a tick or replacing it through a mode system.
+// this authored state without advancing a tick or replacing it through a mode system. The map
+// publishes the exact fixture road (including half-width 80), not the gameplay helper's width 70.
 [[nodiscard]] inline controllers::Observation
 racer_observation(simulation::GameWorld world, const std::uint64_t controller = 1) {
-  const simulation::GameSimulation game =
-      simulation::GameSimulation::create(gameplay_configuration(), std::move(world));
+  const simulation::SimulationConfig configuration = gameplay_configuration();
+  const simulation::ArenaBounds bounds =
+      simulation::ArenaBounds::create(configuration.world_width(), configuration.world_height());
+  const auto* course = std::get_if<simulation::RaceModeState>(&world.match().mode_state);
+  // The explicit non-race fixture has no road state and authors solid ground. This is test map
+  // authoring; the snapshot itself always retains the actual selected map without a fallback.
+  simulation::TerrainDefinition terrain =
+      course == nullptr ? simulation::TerrainDefinition::solid(bounds)
+                        : simulation::TerrainDefinition::create(
+                              bounds, simulation::TerrainGround::kCorridors,
+                              {simulation::TerrainCorridor::create("road", course->track_half_width,
+                                                                   course->track)},
+                              {});
+  simulation::MapDefinition map = simulation::MapDefinition::create(
+      "racer_observation", std::move(terrain), {}, {}, simulation::MapMetadata::none());
+  const simulation::GameSimulation game = simulation::GameSimulation::create(
+      configuration, std::move(world),
+      simulation::GameSimulationSetup::engine_defaults().with_map(std::move(map)));
   return controllers::Observation::create(
       std::make_shared<const simulation::WorldSnapshot>(game.snapshot()),
       simulation::ControllerId::create(controller));

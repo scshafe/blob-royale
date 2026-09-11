@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/score-component.schema.json",
   "title": "Blob Royale protocol v2 score component",
   "description": "One integer scoreboard cell carried by a player entity or a team entity.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["points"],

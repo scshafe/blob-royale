@@ -8,7 +8,7 @@
 namespace blob_royale::protocol {
 
 // The `lifetime` wire object: a self-expiring entity's remaining committed ticks.
-// related: docs/protocol/schema/v2/lifetime-component.schema.json -- the closed wire shape.
+// related: docs/protocol/schema/v3/lifetime-component.schema.json -- the closed wire shape.
 template <> struct ComponentWireEncoding<simulation::Lifetime> {
   static void encode(const simulation::Lifetime& lifetime, const ComponentEncodingContext&,
                      ComponentObjectSink& sink) {

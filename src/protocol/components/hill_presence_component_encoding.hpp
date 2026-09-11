@@ -10,7 +10,7 @@ namespace blob_royale::protocol {
 // The `hill_presence` wire object. An absent component reads as zero on the wire exactly as it does
 // in the world, so the encoder publishes the entry the store holds and synthesizes none. Added in
 // 2.5.
-// related: docs/protocol/schema/v2/hill-presence-component.schema.json -- the closed wire shape.
+// related: docs/protocol/schema/v3/hill-presence-component.schema.json -- the closed wire shape.
 template <> struct ComponentWireEncoding<simulation::HillPresence> {
   static void encode(const simulation::HillPresence& presence, const ComponentEncodingContext&,
                      ComponentObjectSink& sink) {

@@ -4,13 +4,13 @@ add_library(blob_protocol STATIC
   http_error.cpp
   protocol_encoding_error.cpp
   protocol_json_encoding.cpp
-  protocol_v2_frame_conformance.cpp
-  protocol_v2_json_encoding.cpp
+  protocol_v3_frame_conformance.cpp
+  protocol_v3_json_encoding.cpp
   public_configuration.cpp
   request_id.cpp
   session_welcome.cpp
   utc_timestamp.cpp
-  v2_http_error.cpp
+  v3_http_error.cpp
 )
 
 blob_royale_configure_first_party_target(blob_protocol)

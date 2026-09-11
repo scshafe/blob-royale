@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/common.schema.json",
   "title": "Blob Royale protocol v2 common definitions",
   "description": "Canonical scalar, identifier, vector, kind-name, error, and metadata definitions shared by protocol v2 messages. protocol_version is a const rather than a grammar so an older decoder fails closed on a newer minor instead of silently ignoring an unknown kind or an unread member.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "$defs": {
     "protocol_version": {
       "type": "string",

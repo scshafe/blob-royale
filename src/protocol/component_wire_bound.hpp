@@ -9,7 +9,7 @@
 
 namespace blob_royale::protocol {
 
-// canonical: component_wire_bound -- the scalar bounds the v2 schemas narrow past the simulation's.
+// canonical: component_wire_bound -- the scalar bounds the v3 schemas narrow past the simulation's.
 //
 // `Vector2` already guarantees every physical component is finite and within
 // `kMaximumPhysicalComponentMagnitude`, which is exactly `finite_world_scalar`, so most values need
@@ -21,7 +21,7 @@ namespace blob_royale::protocol {
 // The checks live beside the encoders that publish the values rather than in the snapshot encoder,
 // so a kind's wire bounds are declared with the kind. They **fail closed**: the encoder never
 // clamps a value to fit and never substitutes one, because a substituted radius is a body drawn at
-// a size nothing in the simulation used (`docs/protocol/v2.md` § "Limits";
+// a size nothing in the simulation used (`docs/protocol/v3.md` § "Limits";
 // § "Field dictionary and invariants").
 // related: components/physics_body_component_encoding.hpp -- the first caller.
 // related: components/zone_component_encoding.hpp -- the second.

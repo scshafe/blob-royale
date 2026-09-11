@@ -1,16 +1,16 @@
 export const CONFIGURATION_RESPONSE_MAX_BYTES = 65_536;
 export const CONFIGURATION_ENDPOINT_PATH = '/api/v1/config';
 
-// Protocol v2 rooms. The directory is the one HTTP read v2 offers, and a client polls it only
-// while it is choosing a room; a room's session target carries the one parametric segment v2 has,
-// `[1-9][0-9]{0,2}`, and `/api/v2/lobbies/1/session` names the same room `/api/v2/session` does.
+// Protocol v3 rooms. The directory is the one HTTP read v3 offers, and a client polls it only
+// while it is choosing a room; a room's session target carries the one parametric segment v3 has,
+// `[1-9][0-9]{0,2}`. Room one uses `/api/v3/lobbies/1/session`; there is no root session alias.
 // The route and the subprotocol are one pair: the server refuses a v1 token on a session route, so
 // neither value may be changed without the other.
-export const LOBBY_DIRECTORY_ENDPOINT_PATH = '/api/v2/lobbies';
-export const ROOM_SESSION_ENDPOINT_PATH_PREFIX = '/api/v2/lobbies/';
+export const LOBBY_DIRECTORY_ENDPOINT_PATH = '/api/v3/lobbies';
+export const ROOM_SESSION_ENDPOINT_PATH_PREFIX = '/api/v3/lobbies/';
 export const ROOM_SESSION_ENDPOINT_PATH_SUFFIX = '/session';
 export const LOBBY_ID_PATTERN = /^[1-9][0-9]{0,2}$/;
-export const SESSION_WEBSOCKET_SUBPROTOCOL = 'blob-royale.session.v2';
+export const SESSION_WEBSOCKET_SUBPROTOCOL = 'blob-royale.session.v3';
 export const LOBBY_DIRECTORY_RESPONSE_MAX_BYTES = 65_536;
 export const LOBBY_DIRECTORY_FETCH_TIMEOUT_MILLISECONDS = 10_000;
 // A point-in-time read, refreshed once a second while the directory is on screen and not at all
@@ -44,7 +44,6 @@ export const DEBUG_ENTITY_ROW_LIMIT = 100;
 
 // The course is map geometry beneath entity layers; the terminal gate also has a heavier rim and
 // a Finish label, so color is not its only distinction from an ordinary checkpoint.
-export const RACE_COURSE_FILL = '#dbeafe';
 export const RACE_CHECKPOINT_FILL = 'rgba(255, 255, 255, 0.7)';
 export const RACE_CHECKPOINT_STROKE = '#1d4ed8';
 export const RACE_FINISH_FILL = '#bbf7d0';

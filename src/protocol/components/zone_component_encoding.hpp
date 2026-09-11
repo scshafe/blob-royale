@@ -11,8 +11,8 @@ namespace blob_royale::protocol {
 // The `zone` wire object, and **the only publication of the safe zone**. It is not duplicated into
 // the `match` section: publishing one circle twice would give a client two sources for it and a way
 // to disagree with itself (`docs/architecture/0005-royale-mode.md` § "Match section fields";
-// `docs/protocol/v2.md` § "snapshot").
-// related: docs/protocol/schema/v2/zone-component.schema.json -- the closed wire shape.
+// `docs/protocol/v3.md` § "snapshot").
+// related: docs/protocol/schema/v3/zone-component.schema.json -- the closed wire shape.
 template <> struct ComponentWireEncoding<simulation::Zone> {
   static void encode(const simulation::Zone& zone, const ComponentEncodingContext&,
                      ComponentObjectSink& sink) {

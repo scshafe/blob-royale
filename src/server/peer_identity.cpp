@@ -1,6 +1,6 @@
 #include "peer_identity.hpp"
 
-#include "protocol_v2_constants.hpp"
+#include "protocol_v3_constants.hpp"
 #include "session_welcome.hpp"
 
 #include <boost/asio/ip/address.hpp>
@@ -22,7 +22,7 @@ using HttpRequest = boost::beast::http::request<boost::beast::http::string_body>
 }
 
 // The proxy sends spaces around a name it means; it never sends a space it means. Only ASCII
-// space is trimmed, and only from the ends, exactly as `docs/protocol/v2.md` § "Display names"
+// space is trimmed, and only from the ends, exactly as `docs/protocol/v3.md` § "Display names"
 // rule 1 spells it. Nothing else about the value is altered.
 [[nodiscard]] std::string_view trim_ascii_spaces(std::string_view value) noexcept {
   while (!value.empty() && value.front() == ' ') {
@@ -93,7 +93,7 @@ bool is_canonical_forwarded_client_address(const std::string_view value) noexcep
 PeerIdentityResolution derive_peer_identity(const ServerConfig& server_config,
                                             const std::string_view peer_address,
                                             const HttpRequest& request) {
-  // Step 1 of `docs/protocol/v2.md` § "Principal derivation", and the only place proxy trust is
+  // Step 1 of `docs/protocol/v3.md` § "Principal derivation", and the only place proxy trust is
   // decided. It is computed from the socket alone, before any header is read, so no header can
   // move a connection into the trusted arm.
   if (!server_config.trusts_proxy_address(peer_address)) {

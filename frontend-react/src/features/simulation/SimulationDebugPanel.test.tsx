@@ -11,6 +11,7 @@ import {
 } from './sessionProtocolValidation';
 import { validateSimulationConfigurationResponse } from './simulationProtocolValidation';
 import type { SimulationSessionIdentity } from './useSimulationConnection';
+import { solidTerrain } from './fixtures/terrainFrames';
 
 const configuration = validateSimulationConfigurationResponse(
   structuredClone(configurationResponseExample),
@@ -27,6 +28,7 @@ const session: SimulationSessionIdentity = Object.freeze({
   mode: 'royale',
   npcControllerKinds: ['wanderer', 'chaser'],
   seatCountMaximum: 32,
+  terrain: solidTerrain,
 });
 
 describe('SimulationDebugPanel', () => {
@@ -88,7 +90,7 @@ describe('SimulationDebugPanel', () => {
     ).toBeVisible();
     expect(
       within(metadataTable).getByText(
-        'blob-royale://protocol/v2/snapshot-message',
+        'blob-royale://protocol/v3/snapshot-message',
       ),
     ).toBeVisible();
     expect(
@@ -102,7 +104,7 @@ describe('SimulationDebugPanel', () => {
     expect(within(matchTable).getByText('running')).toBeVisible();
     expect(
       within(matchTable).getByText(
-        'blob-royale://protocol/v2/mode-state/royale',
+        'blob-royale://protocol/v3/mode-state/royale',
       ),
     ).toBeVisible();
 

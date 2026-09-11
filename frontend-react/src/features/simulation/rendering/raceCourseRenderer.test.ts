@@ -5,7 +5,6 @@ import { validateSessionSnapshotMessage } from '../sessionProtocolValidation';
 import {
   RACE_CHECKPOINT_FILL,
   RACE_CHECKPOINT_STROKE,
-  RACE_COURSE_FILL,
   RACE_FINISH_FILL,
   RACE_FINISH_STROKE,
 } from '../simulationConstants';
@@ -65,10 +64,10 @@ function createSurface() {
 }
 
 describe('raceCourseRenderer', () => {
-  it('projects the open corridor and its width through one translated uniform transform', () => {
+  it('projects only race objectives, never the retained road mirror', () => {
     const { strokes, surface } = createSurface();
     modeStateRendererRegistry[
-      'blob-royale://protocol/v2/mode-state/race'
+      'blob-royale://protocol/v3/mode-state/race'
     ].drawModeState(validatedRaceMatch(), {
       projection: createWorldProjection(
         { x: 200, y: 150 },
@@ -78,20 +77,16 @@ describe('raceCourseRenderer', () => {
       surface: surface as unknown as CanvasRenderingContext2D,
     });
 
-    // Golden course: a horizontal segment then a bend, with no last-to-first segment.
-    expect(surface.moveTo.mock.calls).toEqual([[100, 75]]);
-    expect(surface.lineTo.mock.calls).toEqual([
-      [400, 75],
-      [400, 275],
-    ]);
+    expect(surface.moveTo).not.toHaveBeenCalled();
+    expect(surface.lineTo).not.toHaveBeenCalled();
     expect(surface.closePath).not.toHaveBeenCalled();
     expect(surface.scale).not.toHaveBeenCalled();
-    expect(strokes[0]).toEqual({
-      cap: 'round',
-      join: 'round',
-      style: RACE_COURSE_FILL,
-      width: 60,
-    });
+    expect(strokes).toHaveLength(3);
+    expect(surface.arc.mock.calls).toEqual([
+      [200, 75, 10, 0, 2 * Math.PI],
+      [400, 125, 10, 0, 2 * Math.PI],
+      [400, 275, 10, 0, 2 * Math.PI],
+    ]);
     expect(surface.save).toHaveBeenCalledTimes(1);
     expect(surface.restore).toHaveBeenCalledTimes(1);
   });
@@ -99,7 +94,7 @@ describe('raceCourseRenderer', () => {
   it('draws gates in declared order and marks the terminal gate with a label and heavier rim', () => {
     const { fills, strokes, surface } = createSurface();
     modeStateRendererRegistry[
-      'blob-royale://protocol/v2/mode-state/race'
+      'blob-royale://protocol/v3/mode-state/race'
     ].drawModeState(validatedRaceMatch(), {
       projection: createWorldProjection(
         { x: 1, y: 1 },
@@ -124,9 +119,7 @@ describe('raceCourseRenderer', () => {
       RACE_CHECKPOINT_FILL,
       RACE_FINISH_FILL,
     ]);
-    expect(
-      strokes.slice(1).map(({ style, width }) => ({ style, width })),
-    ).toEqual([
+    expect(strokes.map(({ style, width }) => ({ style, width }))).toEqual([
       { style: RACE_CHECKPOINT_STROKE, width: 2 },
       { style: RACE_CHECKPOINT_STROKE, width: 2 },
       { style: RACE_FINISH_STROKE, width: 4 },
@@ -146,7 +139,7 @@ describe('raceCourseRenderer', () => {
       surface: surface as unknown as CanvasRenderingContext2D,
     };
     modeStateRendererRegistry[
-      'blob-royale://protocol/v2/mode-state/race'
+      'blob-royale://protocol/v3/mode-state/race'
     ].drawModeState(match, frame);
     entityRendererRegistry.physics_body.drawEntity(
       {
@@ -178,7 +171,7 @@ describe('raceCourseRenderer', () => {
       ['2', 400, 125],
       ['Finish', 400, 275],
     ]);
-    expect(strokes.slice(1, 4).map(({ width }) => width)).toEqual([2, 2, 4]);
+    expect(strokes.slice(0, 3).map(({ width }) => width)).toEqual([2, 2, 4]);
     expect(surface.font).toBe('bold 12px system-ui');
     expect(surface.scale).not.toHaveBeenCalled();
     expect(match).toEqual(before);

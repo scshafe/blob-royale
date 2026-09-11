@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/match-data.schema.json",
+  "title": "Blob Royale protocol v3 match section",
+  "description": "The generic match lifecycle header, the pre-match seat roster the first transition reads, plus one mode-state block identified by a schema id. Entity-shaped mode state is published only as components and never duplicated here; the royale safe zone is the zone component of the zone entity (ADR 0005). Alive count is not a field: it is the number of published entities carrying both physics_body and controllable.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "mode",
+    "phase",
+    "phase_started_tick",
+    "seats",
+    "start_requested",
+    "outcome",
+    "placements",
+    "mode_state"
+  ],
+  "properties": {
+    "mode": {
+      "$ref": "common.schema.json#/$defs/mode_name"
+    },
+    "phase": {
+      "$ref": "common.schema.json#/$defs/match_phase"
+    },
+    "phase_started_tick": {
+      "$ref": "common.schema.json#/$defs/phase_start_tick"
+    },
+    "seats": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/seat"
+      },
+      "$comment": "The pre-match lobby in index order, which is the order a client renders and the order every tie-break over seats resolves in. It sits with the lifecycle header it gates rather than beside outcome and placements, which describe a match already played. A world that declared no lobby publishes an empty array rather than a null, so a decoder has one code path; an empty roster is never full, so no client can read it as a startable match. Added in 2.3."
+    },
+    "start_requested": {
+      "type": "boolean",
+      "$comment": "Whether somebody has pressed Start for this lobby. It is one-shot and the server clears it on every arrival in lobby, so a finished match cannot restart itself; a client reads it together with seats to explain why Start is or is not going to fire. Added in 2.3."
+    },
+    "outcome": {
+      "$ref": "#/$defs/outcome"
+    },
+    "placements": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "$ref": "#/$defs/placement"
+      }
+    },
+    "mode_state": {
+      "$ref": "#/$defs/mode_state"
+    }
+  },
+  "$defs": {
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "winner_entity_id", "winner_team_id"],
+      "description": "Two named winner members rather than one polymorphic winner, so a reader can never mistake a team id for an entity id. Both are always present; the member that does not apply is null.",
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/outcome_kind"
+        },
+        "winner_entity_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/entity_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "winner_team_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/team_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": ["none", "drawn"]
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "winner_entity_id": {
+                "type": "null"
+              },
+              "winner_team_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "won_by_entity"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "winner_entity_id": {
+                "$ref": "common.schema.json#/$defs/entity_id"
+              },
+              "winner_team_id": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "won_by_team"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "winner_entity_id": {
+                "type": "null"
+              },
+              "winner_team_id": {
+                "$ref": "common.schema.json#/$defs/team_id"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "seat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "controller_id", "npc_kind"],
+      "description": "One seat in the lobby. Every member is always present and the member that does not apply is null, which is the shape outcome uses and for the same reason: a decoder reads one known member set rather than branching on which keys exist.",
+      "properties": {
+        "kind": {
+          "$ref": "common.schema.json#/$defs/seat_kind"
+        },
+        "controller_id": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/controller_id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "npc_kind": {
+          "oneOf": [
+            {
+              "$ref": "common.schema.json#/$defs/controller_kind"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "empty"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "controller_id": {
+                "type": "null"
+              },
+              "npc_kind": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "controller"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "controller_id": {
+                "$ref": "common.schema.json#/$defs/controller_id"
+              },
+              "npc_kind": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "npc"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "properties": {
+              "npc_kind": {
+                "$ref": "common.schema.json#/$defs/controller_kind"
+              }
+            }
+          }
+        }
+      ],
+      "$comment": "An npc seat leaves controller_id nullable on purpose: the seat is a declaration the moment somebody chooses a kind, and the server fills in the controller once it has built that bot. A null there is the joining state, not a missing value, and a client renders it as such."
+    },
+    "placement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_id", "controller_id", "placement", "eliminated_tick"],
+      "description": "One finished rank. controller_id is carried so a client can recognize its own result after its entity_id has been destroyed.",
+      "properties": {
+        "entity_id": {
+          "$ref": "common.schema.json#/$defs/entity_id"
+        },
+        "controller_id": {
+          "$ref": "common.schema.json#/$defs/controller_id"
+        },
+        "placement": {
+          "$ref": "common.schema.json#/$defs/placement_rank"
+        },
+        "eliminated_tick": {
+          "$ref": "common.schema.json#/$defs/tick_sequence"
+        }
+      }
+    },
+    "mode_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_id", "value"],
+      "description": "One shape for every mode. A mode with no non-entity-shaped state publishes the none schema id and an empty value object rather than a null, so a decoder has exactly one code path.",
+      "properties": {
+        "schema_id": {
+          "$ref": "common.schema.json#/$defs/mode_state_schema_id"
+        },
+        "value": {
+          "type": "object"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "schema_id": {
+                "const": "blob-royale://protocol/v3/mode-state/none"
+              }
+            },
+            "required": ["schema_id"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {}
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "schema_id": {
+                "const": "blob-royale://protocol/v3/mode-state/royale"
+              }
+            },
+            "required": ["schema_id"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "$ref": "royale-mode-state.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "schema_id": {
+                "const": "blob-royale://protocol/v3/mode-state/king-of-the-hill"
+              }
+            },
+            "required": ["schema_id"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "$ref": "king-of-the-hill-mode-state.schema.json"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "schema_id": {
+                "const": "blob-royale://protocol/v3/mode-state/race"
+              }
+            },
+            "required": ["schema_id"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "$ref": "race-mode-state.schema.json"
+              }
+            }
+          }
+        }
+      ],
+      "$comment": "@extension-point snapshot_mode_state -- a new mode-state block adds one enum member in common.schema.json#/$defs/mode_state_schema_id, one <mode>-mode-state.schema.json file, and one if/then row here, and is a protocol minor version."
+    }
+  }
+}

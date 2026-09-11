@@ -4,6 +4,7 @@
 #include "command_kind_mask.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "terrain_definition.hpp"
 
 #include <cstdint>
 #include <span>
@@ -24,8 +25,8 @@ namespace blob_royale::protocol {
 // **`entity_id` is the session's first body only.** Elimination and the lobby wipe destroy a body
 // and the server seats the same controller on a new one, so a client that caches this value renders
 // the wrong blob after one match; `controller_id` is the durable self-identifier and the client
-// resolves its body each frame through it (`docs/protocol/v2.md` § "Entities, controllers, and what
-// survives what"; `find_controlled_body` in `protocol_v2_json_encoding.hpp` is the server-side twin
+// resolves its body each frame through it (`docs/protocol/v3.md` § "Entities, controllers, and what
+// survives what"; `find_controlled_body` in `protocol_v3_json_encoding.hpp` is the server-side twin
 // of that resolution).
 //
 // `accepted_command_kinds` is stored as the mask the mode declares. The encoder publishes the
@@ -45,7 +46,7 @@ namespace blob_royale::protocol {
 // it at `kNpcControllerKindLimit`, a protocol constant, precisely so that the bot count and the
 // wire contract are not the same number. A `maxItems` that tracked the registry would put a
 // protocol version behind every new bot, which is the cost this member was added to avoid. related:
-// docs/protocol/schema/v2/welcome-data.schema.json -- the closed wire shape.
+// docs/protocol/schema/v3/welcome-data.schema.json -- the closed wire shape.
 class SessionWelcome final {
 public:
   // Validates the complete accepted grammar of every member.
@@ -54,13 +55,13 @@ public:
   // `lobby_id` is the room the session was admitted into, `1..kLobbyDirectoryLimit`, and
   // `seat_count_maximum` is the most seats that room's map can seat, `1..kLobbySeatCountMaximum`;
   // both are published so a client can name its room and floor its seat-count control without a
-  // second round trip (`docs/protocol/v2.md` § "welcome", 2.4).
+  // second round trip (`docs/protocol/v3.md` § "welcome", 2.4).
   [[nodiscard]] static SessionWelcome
   create(simulation::EntityId entity, simulation::ControllerId controller, std::string display_name,
          std::string mode_name, std::string map_name,
          simulation::CommandKindMask accepted_command_kinds,
          std::vector<std::string> npc_controller_kinds, std::uint64_t lobby_id,
-         std::uint64_t seat_count_maximum);
+         std::uint64_t seat_count_maximum, simulation::TerrainDefinition terrain);
 
   SessionWelcome(const SessionWelcome&) = default;
   SessionWelcome(SessionWelcome&&) noexcept = default;
@@ -89,6 +90,9 @@ public:
   [[nodiscard]] std::span<const std::string> npc_controller_kinds() const&& = delete;
   [[nodiscard]] std::uint64_t lobby_id() const noexcept { return lobby_id_; }
   [[nodiscard]] std::uint64_t seat_count_maximum() const noexcept { return seat_count_maximum_; }
+  // The complete validated authored terrain, retained immutably for the one welcome publication.
+  [[nodiscard]] const simulation::TerrainDefinition& terrain() const& noexcept { return terrain_; }
+  [[nodiscard]] const simulation::TerrainDefinition& terrain() const&& = delete;
 
   friend bool operator==(const SessionWelcome&, const SessionWelcome&) = default;
 
@@ -97,7 +101,7 @@ private:
                  std::string display_name, std::string mode_name, std::string map_name,
                  simulation::CommandKindMask accepted_command_kinds,
                  std::vector<std::string> npc_controller_kinds, std::uint64_t lobby_id,
-                 std::uint64_t seat_count_maximum) noexcept;
+                 std::uint64_t seat_count_maximum, simulation::TerrainDefinition terrain) noexcept;
 
   simulation::EntityId entity_;
   simulation::ControllerId controller_;
@@ -108,12 +112,13 @@ private:
   std::vector<std::string> npc_controller_kinds_;
   std::uint64_t lobby_id_;
   std::uint64_t seat_count_maximum_;
+  simulation::TerrainDefinition terrain_;
 };
 
 // The accepted grammars, exposed because the identity boundary applies the display-name grammar to
 // a `Tailscale-User-Name` value **before** deciding whether to fall back to `player-<entity_id>`,
 // and duplicating the pattern there would be a second answer to one question
-// (`docs/protocol/v2.md` § "Display names").
+// (`docs/protocol/v3.md` § "Display names").
 [[nodiscard]] bool is_accepted_display_name(std::string_view display_name) noexcept;
 // `common.schema.json#/$defs/kind_name`: lower snake case, 1 to 64 characters.
 [[nodiscard]] bool is_accepted_kind_name(std::string_view kind_name) noexcept;

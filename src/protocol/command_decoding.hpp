@@ -18,7 +18,7 @@ namespace blob_royale::protocol {
 // Why one inbound application data message was refused, and therefore which close the session owes.
 //
 // Every value but `kAccepted` is terminal for the connection. The names are the stable close
-// reasons of `docs/protocol/v2.md` § "Close codes", so the session maps a rejection to a close
+// reasons of `docs/protocol/v3.md` § "Close codes", so the session maps a rejection to a close
 // without a second table.
 enum class CommandDecodeRejection : std::uint8_t {
   kAccepted = 0,
@@ -106,7 +106,7 @@ private:
 
 // canonical: command_envelope_decoding -- the only place a client-chosen byte becomes a Command.
 //
-// Runs admission-order steps 1 and 4 through 8 of `docs/protocol/v2.md` § "Admission order" in
+// Runs admission-order steps 1 and 4 through 8 of `docs/protocol/v3.md` § "Admission order" in
 // exactly that order. Steps 2 (transport validity) and 3 (the rate token) belong to the session:
 // UTF-8 and framing are the WebSocket layer's, and the token **must** be charged before this
 // function is called, because charging after parsing is what would let one token buy unbounded
@@ -116,7 +116,7 @@ private:
 // `stamped_controller` is the durable identity the sink issued it; both are supplied by the caller,
 // and they are the only identities a decoded command can ever address. There is no wire field for a
 // client to put someone else's id in, so "ignore the client's entity id" is not a check a refactor
-// can drop -- it is a shape that does not exist (`docs/protocol/v2.md` § "Client command model").
+// can drop -- it is a shape that does not exist (`docs/protocol/v3.md` § "Client command model").
 // The four lobby kinds carry the controller stamp for exactly this reason: a `start_match` that a
 // client could sign with somebody else's identity would let one peer spend another's decision.
 //

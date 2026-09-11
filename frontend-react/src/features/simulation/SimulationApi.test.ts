@@ -14,7 +14,7 @@ import {
 import {
   lobbyDirectoryMessageExample,
   sessionErrorResponseExample,
-} from './fixtures/protocolV2Examples';
+} from './fixtures/protocolV3Examples';
 import {
   firstEntity,
   snapshotDocument,
@@ -27,7 +27,7 @@ import {
 } from './simulationConstants';
 
 class FakeSimulationWebSocket implements SimulationWebSocket {
-  protocol = 'blob-royale.session.v2';
+  protocol = 'blob-royale.session.v3';
   readyState = 0;
   onclose: ((event: CloseEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
@@ -115,7 +115,7 @@ describe('deriveSimulationEndpoints', () => {
   it('derives the exact HTTP and WebSocket paths on one HTTPS authority', () => {
     expect(deriveSimulationEndpoints(secureLocation)).toEqual({
       configurationUrl: 'https://game.example.test:8443/api/v1/config',
-      lobbyDirectoryUrl: 'https://game.example.test:8443/api/v2/lobbies',
+      lobbyDirectoryUrl: 'https://game.example.test:8443/api/v3/lobbies',
       webSocketOrigin: 'wss://game.example.test:8443',
     });
   });
@@ -129,7 +129,7 @@ describe('deriveSimulationEndpoints', () => {
       }),
     ).toEqual({
       configurationUrl: 'http://127.0.0.1:5173/api/v1/config',
-      lobbyDirectoryUrl: 'http://127.0.0.1:5173/api/v2/lobbies',
+      lobbyDirectoryUrl: 'http://127.0.0.1:5173/api/v3/lobbies',
       webSocketOrigin: 'ws://127.0.0.1:5173',
     });
   });
@@ -157,10 +157,10 @@ describe('roomSessionWebSocketUrl', () => {
   it('builds the parametric room target only for ids the grammar admits', () => {
     const endpoints = deriveSimulationEndpoints(secureLocation);
     expect(roomSessionWebSocketUrl(endpoints, 1)).toBe(
-      'wss://game.example.test:8443/api/v2/lobbies/1/session',
+      'wss://game.example.test:8443/api/v3/lobbies/1/session',
     );
     expect(roomSessionWebSocketUrl(endpoints, 999)).toBe(
-      'wss://game.example.test:8443/api/v2/lobbies/999/session',
+      'wss://game.example.test:8443/api/v3/lobbies/999/session',
     );
     for (const lobbyId of [0, -1, 1.5, 1_000, Number.NaN]) {
       expect(() => roomSessionWebSocketUrl(endpoints, lobbyId)).toThrow(
@@ -195,7 +195,7 @@ describe('SimulationApi lobby directory', () => {
     const listings = await api.fetchLobbies(new AbortController().signal);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://game.example.test:8443/api/v2/lobbies',
+      'https://game.example.test:8443/api/v3/lobbies',
       expect.objectContaining({
         cache: 'no-store',
         credentials: 'omit',
@@ -228,7 +228,7 @@ describe('SimulationApi lobby directory', () => {
     });
   });
 
-  it('reports a v2 failure envelope with its registered retryability', async () => {
+  it('reports a v3 failure envelope with its registered retryability', async () => {
     const { api } = createDirectoryApi(
       jsonResponse(
         structuredClone(sessionErrorResponseExample),
@@ -517,9 +517,9 @@ describe('SimulationApi session lifecycle', () => {
       location: secureLocation,
       webSocketFactory: (url, subprotocol) => {
         expect(url).toBe(
-          'wss://game.example.test:8443/api/v2/lobbies/1/session',
+          'wss://game.example.test:8443/api/v3/lobbies/1/session',
         );
-        expect(subprotocol).toBe('blob-royale.session.v2');
+        expect(subprotocol).toBe('blob-royale.session.v3');
         const socket = new FakeSimulationWebSocket();
         sockets.push(socket);
         return socket;
@@ -583,6 +583,28 @@ describe('SimulationApi session lifecycle', () => {
     expect(socket.close).not.toHaveBeenCalled();
   });
 
+  it.each(['width_world_units', 'height_world_units'] as const)(
+    'rejects terrain %s disagreement before publishing welcome',
+    async (field) => {
+      const { api, configuration, sockets } = await createJoinedApi();
+      const callbacks = createCallbacks();
+      api.openSession(configuration, 1, callbacks);
+      const socket = requireSocket(sockets);
+      socket.open();
+      const welcome = welcomeDocument();
+      welcome.data.terrain.bounds[field] += 1;
+      socket.receive(JSON.stringify(welcome));
+      expect(callbacks.onWelcome).not.toHaveBeenCalled();
+      expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+      expect(callbacks.onFailure).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        }),
+      );
+      expect(socket.close).toHaveBeenCalledWith(1002, 'protocol_error');
+    },
+  );
+
   it('refuses a snapshot that arrives before the welcome', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();
@@ -629,13 +651,8 @@ describe('SimulationApi session lifecycle', () => {
     socket.open();
 
     const welcome = welcomeDocument();
-    // One minor ahead of whatever the client supports. This moved 2.1 -> 2.2 when the server
-    // published `lethal_on_contact`, 2.2 -> 2.3 when the royale mode-state block gained
-    // `elimination_grace_ticks`, 2.3 -> 2.4 when the lobby commands and the match seat roster
-    // landed, 2.4 -> 2.5 when the lobby directory and the welcome's room landed, and 2.5 -> 2.6
-    // when `respawn_timer` opened 2.5, because a test named "a newer protocol minor" that names the
-    // current one stops testing anything.
-    welcome.meta.protocol_version = '2.6';
+    // One minor ahead of the active 3.0 contract, before ordinary schema validation.
+    welcome.meta.protocol_version = '3.1';
     socket.receive(JSON.stringify(welcome));
 
     expect(callbacks.onWelcome).not.toHaveBeenCalled();

@@ -175,7 +175,7 @@ private:
 // canonical: session_token_bucket -- the one session-local token bucket in this server.
 //
 // A session holds two independent ledgers, and both are this shape: a control-frame budget and, on
-// a protocol v2 session, a client command budget. One implementation with the two constants as
+// a protocol v3 session, a client command budget. One implementation with the two constants as
 // construction parameters means "the session's bucket" names exactly one thing, and a change to
 // how a bucket refills cannot apply to one ledger and not the other. It uses `steady_clock`, never
 // goes negative, is created at admission, and is destroyed with the session.
@@ -212,12 +212,12 @@ private:
   SessionTokenBucket bucket_;
 };
 
-// One protocol v2 session's client command limiter: burst 30, refill 20 per second.
+// One protocol v3 session's client command limiter: burst 30, refill 20 per second.
 //
 // **Its position in the admission order is the control, not its size.** One token is charged after
 // the frame-size and transport checks and *before* any JSON parsing, so a peer cannot buy unbounded
 // parser work with one token; an empty bucket closes the connection with `1008
-// command_rate_exceeded` (`docs/protocol/v2.md` § "Admission order" step 3).
+// command_rate_exceeded` (`docs/protocol/v3.md` § "Admission order" step 3).
 class CommandRatePolicy final {
 public:
   using Clock = std::chrono::steady_clock;

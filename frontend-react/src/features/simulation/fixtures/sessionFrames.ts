@@ -2,7 +2,7 @@ import {
   raceModeStateExample,
   sessionSnapshotMessageExample,
   sessionWelcomeMessageExample,
-} from './protocolV2Examples';
+} from './protocolV3Examples';
 
 export type MutableWelcomeDocument = typeof sessionWelcomeMessageExample;
 export type MutableSnapshotDocument = typeof sessionSnapshotMessageExample;
@@ -47,7 +47,7 @@ export function firstEntity(document: MutableSnapshotDocument) {
  * hill, entity 7 the session's own blob holding it (120 of the 400 ticks toward a point), entity 8 a
  * bot leading the board, and entity 10 a bot knocked out and waiting 300 ticks for a seat. The
  * running phase started 2,000 ticks ago against a 96,000-tick limit. It is validated by every test
- * that reads it, so the 2.5 schemas accept it or the tests do not start.
+ * that reads it, so the 3.0 schemas accept it or the tests do not start.
  */
 export function hillSnapshotDocument(messageSequence = 2) {
   const golden = snapshotDocument(messageSequence);
@@ -134,7 +134,7 @@ export function hillSnapshotDocument(messageSequence = 2) {
         },
         placements: [],
         mode_state: {
-          schema_id: 'blob-royale://protocol/v2/mode-state/king-of-the-hill',
+          schema_id: 'blob-royale://protocol/v3/mode-state/king-of-the-hill',
           value: {
             points_to_win: 30,
             point_interval_ticks: 400,
@@ -183,7 +183,7 @@ export function raceSnapshotDocument(messageSequence = 2) {
           winner_team_id: null as number | null,
         },
         mode_state: {
-          schema_id: 'blob-royale://protocol/v2/mode-state/race',
+          schema_id: 'blob-royale://protocol/v3/mode-state/race',
           value: {
             ...structuredClone(raceModeStateExample),
             standings: [] as typeof raceModeStateExample.standings,

@@ -10,8 +10,10 @@
 #include "entity_id.hpp"
 #include "fixed_delta.hpp"
 #include "game_simulation.hpp"
+#include "game_simulation_setup.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
+#include "map_definition.hpp"
 #include "match_phase.hpp"
 #include "match_snapshot.hpp"
 #include "mode_match_state_registry.hpp"
@@ -30,12 +32,21 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace simulation = blob_royale::simulation;
 
 namespace {
+
+template <typename Value>
+concept RvalueTerrainReadable = requires(Value&& value) { std::move(value).terrain(); };
+
+static_assert(std::is_same_v<decltype(std::declval<const simulation::WorldSnapshot&>().terrain()),
+                             const simulation::TerrainDefinition&>);
+static_assert(!RvalueTerrainReadable<simulation::WorldSnapshot>);
+static_assert(!RvalueTerrainReadable<const simulation::WorldSnapshot>);
 
 struct PlayerFixture final {
   simulation::EntityId::Value entity_id;
@@ -49,6 +60,23 @@ struct PlayerFixture final {
 
 constexpr PlayerFixture kLowerIdPlayer{2, 20.0, 21.0, 2.5, -3.5, 0.25, -0.5};
 constexpr PlayerFixture kHigherIdPlayer{9, 90.0, 91.0, -4.5, 5.5, -0.75, 1.0};
+constexpr double kSnapshotHoleRadius = 20.0;
+
+// A non-rectangular authored map proves publication retains terrain rather than recreating the
+// configuration's rectangular bounds. The hole is disjoint from the corridor's centreline.
+[[nodiscard]] simulation::MapDefinition
+snapshot_terrain_map(const double hole_radius = kSnapshotHoleRadius) {
+  return simulation::MapDefinition::create(
+      "snapshot_terrain",
+      simulation::TerrainDefinition::create(
+          simulation::ArenaBounds::create(500.0, 500.0), simulation::TerrainGround::kCorridors,
+          {simulation::TerrainCorridor::create("road", 80.0,
+                                               {simulation::Vector2::create(100.0, 250.0),
+                                                simulation::Vector2::create(400.0, 250.0)})},
+          {simulation::TerrainHole::create("pit", simulation::Vector2::create(200.0, 290.0),
+                                           hole_radius)}),
+      {}, {}, simulation::MapMetadata::none());
+}
 
 [[nodiscard]] simulation::SimulationConfig snapshot_configuration(const double width = 500.0,
                                                                   const double height = 500.0,
@@ -167,6 +195,62 @@ TEST_CASE("WorldSnapshot remains unchanged after the owning simulation commits a
         simulation::Vector2::create(kLowerIdPlayer.velocity_x, kLowerIdPlayer.velocity_y));
   CHECK(newer_snapshot.tick_sequence().value() == 1);
   CHECK(newer_snapshot.players()[0].position() != older_snapshot.players()[0].position());
+}
+
+TEST_CASE("WorldSnapshot shares the actual map terrain across ticks and simulation moves",
+          "[unit][simulation][snapshot][terrain]") {
+  simulation::GameSimulation game = simulation::GameSimulation::create(
+      snapshot_configuration(), simulation::GameWorld::create({}),
+      simulation::GameSimulationSetup::engine_defaults().with_map(snapshot_terrain_map()));
+  const simulation::TerrainDefinition* const terrain = &game.map().terrain();
+  const simulation::WorldSnapshot initial = game.snapshot();
+
+  simulation::GameSimulation moved_game = std::move(game);
+  moved_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  const simulation::WorldSnapshot next = moved_game.snapshot();
+
+  CHECK(&initial.terrain() == terrain);
+  CHECK(&next.terrain() == terrain);
+  CHECK(&moved_game.map().terrain() == terrain);
+  CHECK(initial.tick_sequence() == simulation::TickSequence::zero());
+  CHECK(next.tick_sequence() == simulation::TickSequence::create(1));
+}
+
+TEST_CASE("WorldSnapshot retains authored terrain after the simulation is destroyed",
+          "[unit][simulation][snapshot][terrain]") {
+  const simulation::TerrainDefinition* original_terrain = nullptr;
+  const simulation::WorldSnapshot retained = [&original_terrain] {
+    const simulation::GameSimulation game = simulation::GameSimulation::create(
+        snapshot_configuration(), simulation::GameWorld::create({}),
+        simulation::GameSimulationSetup::engine_defaults().with_map(snapshot_terrain_map()));
+    original_terrain = &game.map().terrain();
+    return game.snapshot();
+  }();
+
+  CHECK(&retained.terrain() == original_terrain);
+  const simulation::MapDefinition expected = snapshot_terrain_map();
+  CHECK(retained.terrain() == expected.terrain());
+  CHECK(retained.terrain().ground() == simulation::TerrainGround::kCorridors);
+  REQUIRE(retained.terrain().holes().size() == 1);
+  CHECK(retained.terrain().holes().front().radius() == kSnapshotHoleRadius);
+}
+
+TEST_CASE("WorldSnapshot equality compares authored terrain rather than shared owner identity",
+          "[unit][simulation][snapshot][terrain]") {
+  const auto snapshot_of = [](simulation::MapDefinition map) {
+    return simulation::GameSimulation::create(
+               snapshot_configuration(), simulation::GameWorld::create({}),
+               simulation::GameSimulationSetup::engine_defaults().with_map(std::move(map)))
+        .snapshot();
+  };
+  const simulation::WorldSnapshot first = snapshot_of(snapshot_terrain_map());
+  const simulation::WorldSnapshot equal = snapshot_of(snapshot_terrain_map());
+  const simulation::WorldSnapshot changed =
+      snapshot_of(snapshot_terrain_map(kSnapshotHoleRadius + 1.0));
+
+  CHECK(&first.terrain() != &equal.terrain());
+  CHECK(first == equal);
+  CHECK(first != changed);
 }
 
 TEST_CASE("PlayerSnapshot retains signed-zero canonicality for copied motion vectors",

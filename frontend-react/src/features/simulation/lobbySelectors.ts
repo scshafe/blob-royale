@@ -7,7 +7,7 @@ import type {
 /**
  * A seat is filled when somebody is actually in it: a person, or the bot the server has created
  * for a declared NPC seat. A declaration nobody has built a bot for is occupied but not filled,
- * which is the server's own distinction (`docs/protocol/v2.md` § "The lobby commands"): Start
+ * which is the server's own distinction (`docs/protocol/v3.md` § "The lobby commands"): Start
  * waits for the bot, and a resize must not drop the declaration.
  */
 export function isSeatFilled(seat: SessionSeat): boolean {

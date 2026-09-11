@@ -4,12 +4,17 @@
 #include "server_test_fixture.hpp"
 #include "simulation_runtime.hpp"
 
+#include <boost/beast/core/string.hpp>
 #include <boost/beast/http/field.hpp>
 #include <boost/beast/http/status.hpp>
 #include <boost/beast/http/verb.hpp>
+#include <boost/json/object.hpp>
+#include <boost/json/parse.hpp>
+#include <boost/json/value.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <string>
@@ -27,9 +32,8 @@ namespace {
 
 class RouterFixture final {
 public:
-  RouterFixture()
-      : config(fixture::loopback_server_config()),
-        publication(fixture::game_simulation().snapshot()),
+  explicit RouterFixture(server::ServerConfig server_config = fixture::loopback_server_config())
+      : config(std::move(server_config)), publication(fixture::game_simulation().snapshot()),
         lobbies(fixture::single_lobby(publication, match_session.context())),
         router(config, lobbies, traffic_policy, request_id_generator) {}
 
@@ -67,8 +71,8 @@ route_response(RouterFixture& fixture_state, const server::GameApiHttpRequest& r
 }
 
 [[nodiscard]] server::GameApiHttpRequest session_websocket_request() {
-  server::GameApiHttpRequest request = upgrade_request("/api/v2/session");
-  request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+  server::GameApiHttpRequest request = upgrade_request("/api/v3/lobbies/1/session");
+  request.set(http::field::sec_websocket_protocol, "blob-royale.session.v3");
   request.set(http::field::origin, "https://game.example.test");
   return request;
 }
@@ -147,6 +151,45 @@ proxy_route_response(ProxyRouterFixture& proxy, const server::GameApiHttpRequest
       proxy.router.route(request, kTrustedProxyAddress, server::PeerTrafficPolicy::Clock::now());
   REQUIRE(result.disposition() == server::GameApiRouteDisposition::kHttpResponse);
   return result.take_response();
+}
+
+constexpr std::array<std::string_view, 4> kRetiredSessionTargets{
+    "/api/v2/session", "/api/v2/lobbies", "/api/v2/lobbies/1/session",
+    "/api/v2/lobbies/999/session"};
+
+void check_v3_error(const server::GameApiHttpResponse& response, const http::status status,
+                    const std::string_view code) {
+  CHECK(response.result() == status);
+  const boost::json::value document = boost::json::parse(response.body());
+  REQUIRE(document.is_object());
+  const boost::json::object& envelope = document.as_object();
+  CHECK(envelope.at("data").is_null());
+  const boost::json::object& meta = envelope.at("meta").as_object();
+  CHECK(meta.at("protocol_version").as_string() == "3.0");
+  CHECK(meta.at("schema_id").as_string() == "blob-royale://protocol/v3/error-response");
+  const boost::json::string& encoded_code = envelope.at("error").as_object().at("code").as_string();
+  CHECK(std::string_view{encoded_code.data(), encoded_code.size()} == code);
+}
+
+void check_retired_response(const server::GameApiHttpResponse& response,
+                            const std::string_view target) {
+  check_v3_error(response, http::status::upgrade_required,
+                 "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED");
+  CHECK(boost::beast::iequals(response.at(http::field::upgrade), "websocket"));
+  CHECK(boost::beast::iequals(response.at(http::field::connection),
+                              response.keep_alive() ? "Upgrade" : "close, Upgrade"));
+  const boost::json::value document = boost::json::parse(response.body());
+  const boost::json::object& error = document.as_object().at("error").as_object();
+  CHECK_FALSE(error.at("retryable").as_bool());
+  const boost::json::object& details = error.at("details").as_object();
+  REQUIRE(details.size() == 1);
+  CHECK(details.at("required_protocol_version").as_string() == "3.0");
+  const boost::json::string& message = error.at("message").as_string();
+  const std::string_view guidance{message.data(), message.size()};
+  CHECK(guidance.find("/api/v3/lobbies/<lobby_id>/session") != std::string_view::npos);
+  CHECK(guidance.find("blob-royale.session.v3") != std::string_view::npos);
+  CHECK_FALSE(fixture::response_contains(response, target));
+  CHECK(response.body().size() < 1'024);
 }
 
 } // namespace
@@ -345,7 +388,7 @@ TEST_CASE("GameApiRouter requires the exact snapshot subprotocol",
           "[unit][server][router][websocket]") {
   RouterFixture state;
   server::GameApiHttpRequest request = websocket_request();
-  request.set(http::field::sec_websocket_protocol, "blob-royale.snapshot.v2");
+  request.set(http::field::sec_websocket_protocol, "blob-royale.snapshot.v3");
   const server::GameApiHttpResponse response = route_response(state, request);
   CHECK(response.result() == http::status::bad_request);
   CHECK(fixture::response_contains(response, "PROTOCOL.SUBPROTOCOL_REQUIRED"));
@@ -406,33 +449,33 @@ TEST_CASE("GameApiRouter transfers and releases a successful WebSocket admission
   simulation_runtime.stop();
 }
 
-TEST_CASE("GameApiRouter returns 426 in the v2 envelope for an ordinary session request",
-          "[unit][server][router][v2]") {
+TEST_CASE("GameApiRouter returns 426 in the v3 envelope for an ordinary session request",
+          "[unit][server][router][v3]") {
   RouterFixture state;
   const server::GameApiHttpResponse response =
-      route_response(state, fixture::request(http::verb::get, "/api/v2/session"));
+      route_response(state, fixture::request(http::verb::get, "/api/v3/lobbies/1/session"));
   CHECK(response.result() == http::status::upgrade_required);
   CHECK(response.at(http::field::upgrade) == "websocket");
   CHECK(fixture::response_contains(response, "PROTOCOL.UPGRADE_REQUIRED"));
-  // A `/api/v2/` target's failure must name v2, so the envelope is selected by the target's
+  // A `/api/v3/` target's failure must name v3, so the envelope is selected by the target's
   // version prefix and not by the route that answered it.
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.5\""));
-  CHECK(fixture::response_contains(response, "blob-royale://protocol/v2/error-response"));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"3.0\""));
+  CHECK(fixture::response_contains(response, "blob-royale://protocol/v3/error-response"));
 }
 
-TEST_CASE("GameApiRouter answers an unrouted v2 target in the v2 envelope",
-          "[unit][server][router][v2]") {
+TEST_CASE("GameApiRouter answers an unrouted v3 target in the v3 envelope",
+          "[unit][server][router][v3]") {
   RouterFixture state;
   const server::GameApiHttpResponse response =
-      route_response(state, fixture::request(http::verb::get, "/api/v2/nonsense"));
+      route_response(state, fixture::request(http::verb::get, "/api/v3/nonsense"));
   CHECK(response.result() == http::status::not_found);
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"2.5\""));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"3.0\""));
 }
 
-TEST_CASE("GameApiRouter answers an unrouted v3 target in the v1 envelope",
-          "[unit][server][router][v2]") {
+TEST_CASE("GameApiRouter keeps non-session-prefix unknown targets in the v1 envelope",
+          "[unit][server][router][v3]") {
   RouterFixture state;
-  for (const std::string_view target : {"/api/v3/session", "/nonsense", "/api/v2"}) {
+  for (const std::string_view target : {"/nonsense", "/api/v3", "/api/v2"}) {
     const server::GameApiHttpResponse response =
         route_response(state, fixture::request(http::verb::get, target));
     INFO("target " << target);
@@ -441,8 +484,180 @@ TEST_CASE("GameApiRouter answers an unrouted v3 target in the v1 envelope",
   }
 }
 
-TEST_CASE("GameApiRouter rejects the v1 subprotocol offered on the v2 session route",
-          "[unit][server][router][v2][websocket][trust-boundary]") {
+TEST_CASE("GameApiRouter retires exact v2 routes before methods handshakes and allocation",
+          "[unit][server][router][v3][retirement][trust-boundary]") {
+  enum class Handshake { kPlain, kMalformed, kOldToken, kCurrentToken, kMixedTokens };
+  for (const std::string_view target : kRetiredSessionTargets) {
+    for (const http::verb method : {http::verb::get, http::verb::post}) {
+      for (const Handshake handshake :
+           {Handshake::kPlain, Handshake::kMalformed, Handshake::kOldToken,
+            Handshake::kCurrentToken, Handshake::kMixedTokens}) {
+        INFO("target " << target << " method " << http::to_string(method) << " handshake "
+                       << static_cast<int>(handshake));
+        RouterFixture state;
+        server::GameApiHttpRequest request = handshake == Handshake::kPlain
+                                                 ? fixture::request(method, target)
+                                                 : upgrade_request(target);
+        request.method(method);
+        if (handshake == Handshake::kMalformed) {
+          request.set(http::field::sec_websocket_key, "invalid-key");
+          request.set(http::field::sec_websocket_version, "12");
+        } else if (handshake == Handshake::kOldToken) {
+          request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+        } else if (handshake == Handshake::kCurrentToken) {
+          request.set(http::field::sec_websocket_protocol, "blob-royale.session.v3");
+        } else if (handshake == Handshake::kMixedTokens) {
+          request.set(http::field::sec_websocket_protocol,
+                      "blob-royale.session.v2, blob-royale.session.v3");
+        }
+        const auto next_controller = state.match_session.command_sink().next_controller_id();
+        const auto directory_size = state.match_session.controller_directory().size();
+        const auto room_count = state.lobbies.size();
+        const auto sessions = state.lobbies.room(1).session_count();
+        const auto websockets = state.traffic_policy.active_websocket_count();
+        check_retired_response(route_response(state, request), target);
+        CHECK(state.match_session.command_sink().next_controller_id() == next_controller);
+        CHECK(state.match_session.controller_directory().size() == directory_size);
+        CHECK(state.lobbies.size() == room_count);
+        CHECK(state.lobbies.room(1).session_count() == sessions);
+        CHECK(state.traffic_policy.active_websocket_count() == websockets);
+        // Probe the complete original burst at the same instant: an early retirement must not
+        // spend even one upgrade token, including when the old request looks like an upgrade.
+        const auto now = server::PeerTrafficPolicy::Clock::time_point{};
+        for (std::size_t token = 0;
+             token <
+             static_cast<std::size_t>(server::ServerLimits::kWebSocketUpgradeBucketCapacity);
+             ++token) {
+          CHECK(state.traffic_policy.consume_websocket_upgrade("127.0.0.1", now).allowed);
+        }
+        CHECK_FALSE(state.traffic_policy.consume_websocket_upgrade("127.0.0.1", now).allowed);
+      }
+    }
+  }
+}
+
+TEST_CASE("GameApiRouter gives malformed retired routes and the new room-one alias no retirement",
+          "[unit][server][router][v3][retirement]") {
+  for (const std::string_view target :
+       {"/api/v2/lobbies/0/session", "/api/v2/lobbies/01/session", "/api/v2/lobbies/1000/session",
+        "/api/v2/lobbies/%31/session", "/api/v2/lobbies/1/session?x=1",
+        "/api/v2/lobbies/1/session/", "/api/v2/lobbies//session", "/api/v2/session/",
+        "/api/v2/session?x=1", "/api/v2/lobbies?x=1", "/api/v2/lobbies/", "/api/v3/session"}) {
+    INFO("target " << target);
+    RouterFixture state;
+    const server::GameApiHttpResponse response = route_response(state, upgrade_request(target));
+    const std::string_view expected =
+        target.starts_with("/api/v2/lobbies/") ? "LOBBY.NOT_FOUND" : "PROTOCOL.ROUTE_NOT_FOUND";
+    check_v3_error(response, http::status::not_found, expected);
+    CHECK_FALSE(fixture::response_contains(response, "SESSION_VERSION_UPGRADE_REQUIRED"));
+    CHECK(state.traffic_policy.active_websocket_count() == 0);
+  }
+}
+
+TEST_CASE("GameApiRouter preserves global security errors in the current session envelope",
+          "[unit][server][router][v3][retirement][trust-boundary]") {
+  enum class Failure { kHost, kOrigin, kFraming, kBody, kRequestId };
+  for (const std::string_view target :
+       {"/api/v2/session", "/api/v2/lobbies/01/session", "/api/v3/lobbies/1/session"}) {
+    for (const Failure failure : {Failure::kHost, Failure::kOrigin, Failure::kFraming,
+                                  Failure::kBody, Failure::kRequestId}) {
+      INFO("target " << target << " failure " << static_cast<int>(failure));
+      RouterFixture state;
+      server::GameApiHttpRequest request = upgrade_request(target);
+      http::status expected_status = http::status::bad_request;
+      std::string_view expected_code = "PROTOCOL.INVALID_REQUEST";
+      switch (failure) {
+      case Failure::kHost:
+        request.set(http::field::host, "untrusted.example.test");
+        break;
+      case Failure::kOrigin:
+        request.set(http::field::origin, "https://untrusted.example.test");
+        expected_status = http::status::forbidden;
+        expected_code = "PROTOCOL.ORIGIN_REJECTED";
+        break;
+      case Failure::kFraming:
+        request.set(http::field::content_length, "0");
+        request.set(http::field::transfer_encoding, "chunked");
+        break;
+      case Failure::kBody:
+        request.set(http::field::content_length, "1");
+        expected_status = http::status::payload_too_large;
+        expected_code = "PROTOCOL.PAYLOAD_TOO_LARGE";
+        break;
+      case Failure::kRequestId:
+        request.set("X-Request-ID", "invalid request id");
+        expected_code = "PROTOCOL.INVALID_REQUEST_ID";
+        break;
+      }
+      const auto response = route_response(state, request);
+      check_v3_error(response, expected_status, expected_code);
+      CHECK_FALSE(fixture::response_contains(response, "SESSION_VERSION_UPGRADE_REQUIRED"));
+      CHECK_FALSE(fixture::response_contains(response, "untrusted.example.test"));
+      CHECK(state.traffic_policy.active_websocket_count() == 0);
+    }
+  }
+}
+
+TEST_CASE("GameApiRouter keeps forwarded identity validation ahead of v2 retirement",
+          "[unit][server][router][v3][retirement][trust-boundary]") {
+  for (const std::string_view target : {"/api/v2/session", "/api/v3/lobbies/1/session"}) {
+    RouterFixture state(fixture::loopback_server_config(
+        {"127.0.0.1", "localhost", "[::1]"}, {"https://game.example.test"}, {"127.0.0.1"}));
+    server::GameApiHttpRequest request = upgrade_request(target);
+    const auto absent = route_response(state, request);
+    check_v3_error(absent, http::status::bad_request, "PROTOCOL.INVALID_FORWARDED_CLIENT");
+    request.set("X-Forwarded-For", "100.101.102.103, 100.101.102.104");
+    const auto invalid = route_response(state, request);
+    check_v3_error(invalid, http::status::bad_request, "PROTOCOL.INVALID_FORWARDED_CLIENT");
+    CHECK_FALSE(fixture::response_contains(invalid, "100.101.102.103"));
+  }
+  RouterFixture state(fixture::loopback_server_config(
+      {"127.0.0.1", "localhost", "[::1]"}, {"https://game.example.test"}, {"127.0.0.1"}));
+  server::GameApiHttpRequest request = upgrade_request("/api/v2/session");
+  request.set("X-Forwarded-For", "100.101.102.103");
+  // Required-Origin enforcement belongs to active upgrades, after retirement. No Origin here is
+  // different from a supplied rejected Origin, which the global gate already rejects above.
+  check_retired_response(route_response(state, request), "/api/v2/session");
+}
+
+TEST_CASE("GameApiRouter charges retired requests to HTTP budget before version guidance",
+          "[unit][server][router][v3][retirement][rate]") {
+  for (const std::string_view target : {"/api/v2/session", "/api/v3/lobbies/1/session"}) {
+    RouterFixture state;
+    for (std::size_t request = 0;
+         request < static_cast<std::size_t>(server::ServerLimits::kHttpRequestBucketCapacity);
+         ++request) {
+      const auto response =
+          route_response(state, fixture::request(http::verb::get, "/api/v2/session"));
+      CHECK(response.result() == http::status::upgrade_required);
+    }
+    check_v3_error(route_response(state, fixture::request(http::verb::get, target)),
+                   http::status::too_many_requests, "PROTOCOL.RATE_LIMITED");
+  }
+}
+
+TEST_CASE("GameApiRouter rejects only-old session tokens and selects v3 from mixed tokens",
+          "[unit][server][router][v3][retirement][websocket]") {
+  ReadyRouterFixture state;
+  server::GameApiHttpRequest request = session_websocket_request();
+  request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+  auto refused = state.router.route(request, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
+  REQUIRE(refused.disposition() == server::GameApiRouteDisposition::kHttpResponse);
+  check_v3_error(refused.take_response(), http::status::bad_request,
+                 "PROTOCOL.SUBPROTOCOL_REQUIRED");
+  for (const std::string_view tokens : {"blob-royale.session.v2, blob-royale.session.v3",
+                                        "blob-royale.session.v3, blob-royale.session.v2"}) {
+    request.set(http::field::sec_websocket_protocol, tokens);
+    const auto admitted =
+        state.router.route(request, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
+    REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
+    CHECK(admitted.upgrade_route() == server::GameApiUpgradeRoute::kSessionV3);
+    CHECK(admitted.lobby_id() == 1);
+  }
+}
+
+TEST_CASE("GameApiRouter rejects the v1 subprotocol offered on the v3 session route",
+          "[unit][server][router][v3][websocket][trust-boundary]") {
   RouterFixture state;
   server::GameApiHttpRequest request = session_websocket_request();
   request.set(http::field::sec_websocket_protocol, "blob-royale.snapshot.v1");
@@ -454,11 +669,11 @@ TEST_CASE("GameApiRouter rejects the v1 subprotocol offered on the v2 session ro
   CHECK(fixture::response_contains(response, "session_subprotocol_required"));
 }
 
-TEST_CASE("GameApiRouter rejects the v2 subprotocol offered on the v1 snapshots route",
-          "[unit][server][router][v2][websocket][trust-boundary]") {
+TEST_CASE("GameApiRouter rejects the v3 subprotocol offered on the v1 snapshots route",
+          "[unit][server][router][v3][websocket][trust-boundary]") {
   RouterFixture state;
   server::GameApiHttpRequest request = websocket_request();
-  request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+  request.set(http::field::sec_websocket_protocol, "blob-royale.session.v3");
   const server::GameApiHttpResponse response = route_response(state, request);
   CHECK(response.result() == http::status::bad_request);
   CHECK(fixture::response_contains(response, "PROTOCOL.SUBPROTOCOL_REQUIRED"));
@@ -466,15 +681,15 @@ TEST_CASE("GameApiRouter rejects the v2 subprotocol offered on the v1 snapshots 
 }
 
 TEST_CASE("GameApiRouter selects only the requested route's token from an offer list naming both",
-          "[unit][server][router][v2][websocket]") {
+          "[unit][server][router][v3][websocket]") {
   ReadyRouterFixture ready;
   for (const auto& [target, expected_route] :
        std::vector<std::pair<std::string_view, server::GameApiUpgradeRoute>>{
            {"/api/v1/snapshots", server::GameApiUpgradeRoute::kSnapshotsV1},
-           {"/api/v2/session", server::GameApiUpgradeRoute::kSessionV2}}) {
+           {"/api/v3/lobbies/1/session", server::GameApiUpgradeRoute::kSessionV3}}) {
     server::GameApiHttpRequest request = upgrade_request(target);
     request.set(http::field::sec_websocket_protocol,
-                "blob-royale.snapshot.v1, blob-royale.session.v2");
+                "blob-royale.snapshot.v1, blob-royale.session.v3");
     server::GameApiRouteResult result =
         ready.router.route(request, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
     INFO("target " << target);
@@ -483,13 +698,13 @@ TEST_CASE("GameApiRouter selects only the requested route's token from an offer 
   }
 }
 
-TEST_CASE("GameApiRouter admits a v2 session upgrade under v1's host, origin, and rate policy",
-          "[unit][server][router][v2][websocket]") {
+TEST_CASE("GameApiRouter admits a v3 session upgrade under v1's host, origin, and rate policy",
+          "[unit][server][router][v3][websocket]") {
   ReadyRouterFixture ready;
   server::GameApiRouteResult admitted = ready.router.route(session_websocket_request(), "127.0.0.1",
                                                            server::PeerTrafficPolicy::Clock::now());
   REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
-  CHECK(admitted.upgrade_route() == server::GameApiUpgradeRoute::kSessionV2);
+  CHECK(admitted.upgrade_route() == server::GameApiUpgradeRoute::kSessionV3);
   CHECK(admitted.peer_identity().is_direct_peer());
 
   server::GameApiHttpRequest wrong_host = session_websocket_request();
@@ -507,22 +722,22 @@ TEST_CASE("GameApiRouter admits a v2 session upgrade under v1's host, origin, an
   CHECK(origin_rejected.take_response().result() == http::status::forbidden);
 }
 
-TEST_CASE("GameApiRouter rejects methods other than GET on the v2 session route",
-          "[unit][server][router][v2]") {
+TEST_CASE("GameApiRouter rejects methods other than GET on the v3 session route",
+          "[unit][server][router][v3]") {
   RouterFixture state;
   for (const http::verb method : {http::verb::head, http::verb::post, http::verb::options}) {
     const server::GameApiHttpResponse response =
-        route_response(state, fixture::request(method, "/api/v2/session"));
+        route_response(state, fixture::request(method, "/api/v3/lobbies/1/session"));
     CHECK(response.result() == http::status::method_not_allowed);
     CHECK(response.at(http::field::allow) == "GET");
   }
 }
 
-TEST_CASE("GameApiRouter gives the v2 session route no query or trailing-slash aliases",
-          "[unit][server][router][v2]") {
+TEST_CASE("GameApiRouter gives the v3 session route no query or trailing-slash aliases",
+          "[unit][server][router][v3]") {
   RouterFixture state;
   for (const std::string_view target :
-       {"/api/v2/session/", "/api/v2/session?x=1", "/api/v2//session"}) {
+       {"/api/v3/lobbies/1/session/", "/api/v3/lobbies/1/session?x=1", "/api/v3//session"}) {
     const server::GameApiHttpResponse response =
         route_response(state, fixture::request(http::verb::get, target));
     INFO("target " << target);
@@ -531,7 +746,7 @@ TEST_CASE("GameApiRouter gives the v2 session route no query or trailing-slash a
 }
 
 TEST_CASE("GameApiRouter refuses a proxy-forwarded connection without a canonical forwarded client",
-          "[unit][server][router][v2][trust-boundary]") {
+          "[unit][server][router][v3][trust-boundary]") {
   ProxyRouterFixture proxy;
   server::GameApiHttpRequest absent = session_websocket_request();
   const server::GameApiHttpResponse absent_response = proxy_route_response(proxy, absent);
@@ -557,12 +772,12 @@ TEST_CASE("GameApiRouter refuses a proxy-forwarded connection without a canonica
 }
 
 TEST_CASE("GameApiRouter reports a forwarded-client refusal on a v1 target in the v1 envelope",
-          "[unit][server][router][v2][trust-boundary]") {
+          "[unit][server][router][v3][trust-boundary]") {
   ProxyRouterFixture proxy;
   const server::GameApiHttpResponse response =
       proxy_route_response(proxy, fixture::request(http::verb::get, "/api/v1/config"));
   CHECK(response.result() == http::status::bad_request);
-  // v2 may not widen the closed code registry a v1 client must accept, so a v1 target names
+  // v3 may not widen the closed code registry a v1 client must accept, so a v1 target names
   // PROTOCOL.INVALID_REQUEST and carries the same closed reason as its detail.
   CHECK(fixture::response_contains(response, "\"protocol_version\":\"1.0\""));
   CHECK(fixture::response_contains(response, "PROTOCOL.INVALID_REQUEST"));
@@ -592,7 +807,7 @@ TEST_CASE(
 
 TEST_CASE(
     "GameApiRouter never grants the direct-peer Origin relaxation to a trusted loopback proxy",
-    "[unit][server][router][v2][trust-boundary]") {
+    "[unit][server][router][v3][trust-boundary]") {
   // The deployed proxy is loopback. Loopback-first classification would put exactly the deployed
   // configuration into the direct arm, where an absent Origin is allowed.
   ProxyRouterFixture proxy;
@@ -614,7 +829,7 @@ TEST_CASE(
 }
 
 TEST_CASE("GameApiRouter accounts a proxy-forwarded upgrade to the forwarded client address",
-          "[unit][server][router][v2][rate][trust-boundary]") {
+          "[unit][server][router][v3][rate][trust-boundary]") {
   ProxyRouterFixture proxy;
   const auto now = server::PeerTrafficPolicy::Clock::now();
   server::GameApiHttpRequest first = session_websocket_request();
@@ -668,10 +883,10 @@ public:
     second_runtime.stop();
   }
 
-  // A complete, well-formed v2 session upgrade offered to `target`, from the direct loopback peer.
+  // A complete, well-formed v3 session upgrade offered to `target`, from the direct loopback peer.
   [[nodiscard]] server::GameApiRouteResult upgrade(const std::string_view target) {
     server::GameApiHttpRequest request = upgrade_request(target);
-    request.set(http::field::sec_websocket_protocol, "blob-royale.session.v2");
+    request.set(http::field::sec_websocket_protocol, "blob-royale.session.v3");
     request.set(http::field::origin, "https://game.example.test");
     return router.route(request, "127.0.0.1", server::PeerTrafficPolicy::Clock::now());
   }
@@ -708,7 +923,7 @@ private:
   }
 };
 
-constexpr std::string_view kV2ErrorSchemaId = "blob-royale://protocol/v2/error-response";
+constexpr std::string_view kV3ErrorSchemaId = "blob-royale://protocol/v3/error-response";
 
 [[nodiscard]] server::GameApiHttpResponse response_of(server::GameApiRouteResult result) {
   REQUIRE(result.disposition() == server::GameApiRouteDisposition::kHttpResponse);
@@ -718,11 +933,11 @@ constexpr std::string_view kV2ErrorSchemaId = "blob-royale://protocol/v2/error-r
 } // namespace
 
 TEST_CASE("GameApiRouter lists every room in the directory with its census and health",
-          "[unit][server][router][v2][lobbies]") {
+          "[unit][server][router][v3][lobbies]") {
   TwoRoomRouterFixture state{false};
   state.lobbies.room(1).count_session_in();
   const server::GameApiHttpResponse response =
-      response_of(state.router.route(fixture::request(http::verb::get, "/api/v2/lobbies"),
+      response_of(state.router.route(fixture::request(http::verb::get, "/api/v3/lobbies"),
                                      "127.0.0.1", server::PeerTrafficPolicy::Clock::now()));
   state.lobbies.room(1).count_session_out();
 
@@ -732,7 +947,7 @@ TEST_CASE("GameApiRouter lists every room in the directory with its census and h
   CHECK(fixture::response_contains(response, R"("error":null)"));
   CHECK(fixture::response_contains(
       response,
-      R"("meta":{"protocol_version":"2.5","schema_id":"blob-royale://protocol/v2/lobby-directory","request_id":"server-test-request-1"})"));
+      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/lobby-directory","request_id":"server-test-request-1"})"));
   // Room 1 is serving, past tick zero, with the one session counted in. Room 2 never started, so it
   // lists its initial world -- the two seats it was configured with, nobody in them -- at tick zero
   // and unhealthy, which is exactly what a join to it would be told with `503`.
@@ -750,65 +965,66 @@ TEST_CASE("GameApiRouter lists every room in the directory with its census and h
       R"({"lobby_id":2,"mode":"idle","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":0,"seat_count":2,"seat_count_maximum":32,"filled_seat_count":0,"npc_seat_count":0,"session_count":0,"healthy":false}]})"));
 }
 
-TEST_CASE("GameApiRouter answers the directory only to GET, in the v2 envelope",
-          "[unit][server][router][v2][lobbies]") {
+TEST_CASE("GameApiRouter answers the directory only to GET, in the v3 envelope",
+          "[unit][server][router][v3][lobbies]") {
   TwoRoomRouterFixture state{false};
   const server::GameApiHttpResponse response =
-      response_of(state.router.route(fixture::request(http::verb::post, "/api/v2/lobbies"),
+      response_of(state.router.route(fixture::request(http::verb::post, "/api/v3/lobbies"),
                                      "127.0.0.1", server::PeerTrafficPolicy::Clock::now()));
   CHECK(response.result() == http::status::method_not_allowed);
   CHECK(response.at(http::field::allow) == "GET");
   CHECK(fixture::response_contains(response, "PROTOCOL.METHOD_NOT_ALLOWED"));
-  CHECK(fixture::response_contains(response, kV2ErrorSchemaId));
+  CHECK(fixture::response_contains(response, kV3ErrorSchemaId));
 }
 
 TEST_CASE("GameApiRouter matches the room target by grammar and answers everything else "
           "404 LOBBY.NOT_FOUND",
-          "[unit][server][router][v2][lobbies]") {
+          "[unit][server][router][v3][lobbies]") {
   TwoRoomRouterFixture state{true};
   // Each offered as a complete upgrade, so the 404 provably precedes every handshake rule and the
   // upgrade bucket: the classic wrong matcher -- a leading zero, a fourth digit, a trailing slash,
   // percent-encoding, a query, an empty segment, a neighbour that is not exact -- and the two
   // well-formed ids the two-room directory does not hold.
   for (const std::string_view target :
-       {"/api/v2/lobbies/0/session", "/api/v2/lobbies/01/session", "/api/v2/lobbies/1000/session",
-        "/api/v2/lobbies/1/session/", "/api/v2/lobbies/%31/session",
-        "/api/v2/lobbies/1/session?x=1", "/api/v2/lobbies//session", "/api/v2/lobbies/",
-        "/api/v2/lobbies/1", "/api/v2/lobbies/1/sessions", "/api/v2/lobbies/ 1/session",
-        "/api/v2/lobbies/3/session", "/api/v2/lobbies/999/session"}) {
+       {"/api/v3/lobbies/0/session", "/api/v3/lobbies/01/session", "/api/v3/lobbies/1000/session",
+        "/api/v3/lobbies/1/session/", "/api/v3/lobbies/%31/session",
+        "/api/v3/lobbies/1/session?x=1", "/api/v3/lobbies//session", "/api/v3/lobbies/",
+        "/api/v3/lobbies/1", "/api/v3/lobbies/1/sessions", "/api/v3/lobbies/ 1/session",
+        "/api/v3/lobbies/3/session", "/api/v3/lobbies/999/session"}) {
     INFO(target);
     const server::GameApiHttpResponse response = state.refused(target);
     CHECK(response.result() == http::status::not_found);
     CHECK(fixture::response_contains(response, R"("code":"LOBBY.NOT_FOUND")"));
     CHECK(fixture::response_contains(response, R"("retryable":false)"));
     CHECK(fixture::response_contains(response, R"("details":{})"));
-    CHECK(fixture::response_contains(response, kV2ErrorSchemaId));
+    CHECK(fixture::response_contains(response, kV3ErrorSchemaId));
   }
-  // Outside the prefix nothing is a lobby: an unrouted v2 target keeps its plain 404.
-  const server::GameApiHttpResponse unrouted = state.refused("/api/v2/lobbiesx");
+  // Outside the prefix nothing is a lobby: an unrouted v3 target keeps its plain 404.
+  const server::GameApiHttpResponse unrouted = state.refused("/api/v3/lobbiesx");
   CHECK(unrouted.result() == http::status::not_found);
   CHECK(fixture::response_contains(unrouted, "PROTOCOL.ROUTE_NOT_FOUND"));
   // And a room target that exists is a session target like room 1's: an ordinary GET is `426`.
   const server::GameApiHttpResponse ordinary =
-      response_of(state.router.route(fixture::request(http::verb::get, "/api/v2/lobbies/2/session"),
+      response_of(state.router.route(fixture::request(http::verb::get, "/api/v3/lobbies/2/session"),
                                      "127.0.0.1", server::PeerTrafficPolicy::Clock::now()));
   CHECK(ordinary.result() == http::status::upgrade_required);
   CHECK(fixture::response_contains(ordinary, "PROTOCOL.UPGRADE_REQUIRED"));
 }
 
-TEST_CASE("GameApiRouter admits a room target into the named room and /api/v2/session into room 1",
-          "[unit][server][router][v2][lobbies]") {
+TEST_CASE("GameApiRouter admits a room target into the named room and /api/v3/lobbies/1/session "
+          "into room 1",
+          "[unit][server][router][v3][lobbies]") {
   TwoRoomRouterFixture state{true};
   {
-    server::GameApiRouteResult result = state.upgrade("/api/v2/lobbies/2/session");
+    server::GameApiRouteResult result = state.upgrade("/api/v3/lobbies/2/session");
     REQUIRE(result.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
-    CHECK(result.upgrade_route() == server::GameApiUpgradeRoute::kSessionV2);
+    CHECK(result.upgrade_route() == server::GameApiUpgradeRoute::kSessionV3);
     CHECK(result.lobby_id() == 2);
   }
   {
-    server::GameApiRouteResult result = state.upgrade("/api/v2/session");
+    server::GameApiRouteResult result = state.upgrade("/api/v3/lobbies/1/session");
     REQUIRE(result.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
-    CHECK(result.upgrade_route() == server::GameApiUpgradeRoute::kSessionV2);
+    CHECK(result.upgrade_route() == server::GameApiUpgradeRoute::kSessionV3);
     CHECK(result.lobby_id() == 1);
   }
   {
@@ -823,44 +1039,44 @@ TEST_CASE("GameApiRouter admits a room target into the named room and /api/v2/se
 }
 
 TEST_CASE("GameApiRouter refuses a room that is not serving with 503 LOBBY.UNAVAILABLE naming it",
-          "[unit][server][router][v2][lobbies]") {
+          "[unit][server][router][v3][lobbies]") {
   TwoRoomRouterFixture state{false};
-  const server::GameApiHttpResponse refused = state.refused("/api/v2/lobbies/2/session");
+  const server::GameApiHttpResponse refused = state.refused("/api/v3/lobbies/2/session");
   CHECK(refused.result() == http::status::service_unavailable);
   CHECK(refused.at(http::field::retry_after) == "1");
   CHECK(fixture::response_contains(refused, R"("code":"LOBBY.UNAVAILABLE")"));
   CHECK(fixture::response_contains(refused, R"("retryable":true)"));
   CHECK(fixture::response_contains(refused, R"("details":{"lobby_id":2})"));
-  CHECK(fixture::response_contains(refused, kV2ErrorSchemaId));
+  CHECK(fixture::response_contains(refused, kV3ErrorSchemaId));
   // A failed or unready room refuses only its own joins.
-  server::GameApiRouteResult admitted = state.upgrade("/api/v2/session");
+  server::GameApiRouteResult admitted = state.upgrade("/api/v3/lobbies/1/session");
   REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
   CHECK(admitted.lobby_id() == 1);
 }
 
 TEST_CASE("GameApiRouter refuses a full room with 409 LOBBY.FULL and admits it again when a "
           "session leaves",
-          "[unit][server][router][v2][lobbies]") {
+          "[unit][server][router][v3][lobbies]") {
   TwoRoomRouterFixture state{true};
   state.lobbies.room(1).count_session_in();
   state.lobbies.room(1).count_session_in();
 
-  const server::GameApiHttpResponse refused = state.refused("/api/v2/session");
+  const server::GameApiHttpResponse refused = state.refused("/api/v3/lobbies/1/session");
   CHECK(refused.result() == http::status::conflict);
   CHECK(refused.find(http::field::retry_after) == refused.end());
   CHECK(fixture::response_contains(refused, R"("code":"LOBBY.FULL")"));
   CHECK(fixture::response_contains(refused, R"("retryable":true)"));
   CHECK(fixture::response_contains(refused, R"("details":{"lobby_id":1})"));
-  CHECK(fixture::response_contains(refused, kV2ErrorSchemaId));
+  CHECK(fixture::response_contains(refused, kV3ErrorSchemaId));
   {
     // The other room has its two seats free.
-    server::GameApiRouteResult admitted = state.upgrade("/api/v2/lobbies/2/session");
+    server::GameApiRouteResult admitted = state.upgrade("/api/v3/lobbies/2/session");
     REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
     CHECK(admitted.lobby_id() == 2);
   }
   state.lobbies.room(1).count_session_out();
   {
-    server::GameApiRouteResult admitted = state.upgrade("/api/v2/session");
+    server::GameApiRouteResult admitted = state.upgrade("/api/v3/lobbies/1/session");
     REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
     CHECK(admitted.lobby_id() == 1);
   }
@@ -868,7 +1084,7 @@ TEST_CASE("GameApiRouter refuses a full room with 409 LOBBY.FULL and admits it a
 }
 
 TEST_CASE("GameApiRouter never calls a room with no lobby full",
-          "[unit][server][router][v2][lobbies]") {
+          "[unit][server][router][v3][lobbies]") {
   // `sandbox` publishes an empty roster: there is no seat for anybody to be refused from, so the
   // seat rule does not apply and only the connection caps bound the room.
   ReadyRouterFixture state;
@@ -880,6 +1096,31 @@ TEST_CASE("GameApiRouter never calls a room with no lobby full",
   REQUIRE(admitted.disposition() == server::GameApiRouteDisposition::kWebSocketUpgrade);
   CHECK(admitted.lobby_id() == 1);
   state.lobbies.room(1).count_session_out();
+  state.lobbies.room(1).count_session_out();
+  state.lobbies.room(1).count_session_out();
+}
+
+TEST_CASE("GameApiRouter retirement does not reveal full unavailable or absent rooms",
+          "[unit][server][router][v3][retirement][lobbies]") {
+  TwoRoomRouterFixture state{false};
+  state.lobbies.room(1).count_session_in();
+  state.lobbies.room(1).count_session_in();
+  const auto first_next = state.first_runtime.command_sink().next_controller_id();
+  const auto second_next = state.second_runtime.command_sink().next_controller_id();
+  for (const std::string_view target :
+       {"/api/v2/lobbies/1/session", "/api/v2/lobbies/2/session", "/api/v2/lobbies/999/session"}) {
+    check_retired_response(state.refused(target), target);
+  }
+  CHECK(state.lobbies.room(1).session_count() == 2);
+  CHECK(state.lobbies.room(2).session_count() == 0);
+  CHECK(state.first_runtime.controller_directory().size() == 0);
+  CHECK(state.second_runtime.controller_directory().size() == 0);
+  CHECK(state.first_runtime.command_sink().next_controller_id() == first_next);
+  CHECK(state.second_runtime.command_sink().next_controller_id() == second_next);
+  CHECK(state.traffic_policy.active_websocket_count() == 0);
+  check_v3_error(state.refused("/api/v3/lobbies/1/session"), http::status::conflict, "LOBBY.FULL");
+  check_v3_error(state.refused("/api/v3/lobbies/2/session"), http::status::service_unavailable,
+                 "LOBBY.UNAVAILABLE");
   state.lobbies.room(1).count_session_out();
   state.lobbies.room(1).count_session_out();
 }

@@ -53,7 +53,7 @@ namespace {
 using namespace std::chrono_literals;
 
 constexpr std::string_view kPeerAddress = "127.0.0.1";
-constexpr std::string_view kSessionSubprotocol = "blob-royale.session.v2";
+constexpr std::string_view kSessionSubprotocol = "blob-royale.session.v3";
 constexpr auto kCompletionDeadline = 1s;
 
 class SessionHarness final {
@@ -94,7 +94,8 @@ public:
   }
 
   [[nodiscard]] server::GameApiHttpRequest request(const std::string_view request_id) const {
-    server::GameApiHttpRequest result{boost::beast::http::verb::get, "/api/v2/session", 11};
+    server::GameApiHttpRequest result{boost::beast::http::verb::get, "/api/v3/lobbies/1/session",
+                                      11};
     result.set(boost::beast::http::field::host,
                std::string{"127.0.0.1:"}.append(std::to_string(acceptor_.local_endpoint().port())));
     result.set(boost::beast::http::field::connection, "Upgrade");
@@ -149,7 +150,8 @@ public:
           request.set(boost::beast::http::field::sec_websocket_protocol, kSessionSubprotocol);
           request.set("X-Request-ID", request_id);
         }));
-    websocket_.handshake(std::string{"127.0.0.1:"}.append(std::to_string(port)), "/api/v2/session");
+    websocket_.handshake(std::string{"127.0.0.1:"}.append(std::to_string(port)),
+                         "/api/v3/lobbies/1/session");
   }
 
   [[nodiscard]] boost::beast::websocket::stream<Tcp::socket>& stream() noexcept {
@@ -201,7 +203,7 @@ void drain(boost::asio::io_context& io_context) {
 } // namespace
 
 TEST_CASE("SessionWebSocketSession reports handshake failure and retires nothing it never opened",
-          "[unit][server][v2][session][failure]") {
+          "[unit][server][v3][session][failure]") {
   constexpr std::string_view kRequestId = "unit.session.handshake-failure";
   SessionHarness harness;
   const std::shared_ptr<server::SessionWebSocketSession> session =
@@ -227,7 +229,7 @@ TEST_CASE("SessionWebSocketSession reports handshake failure and retires nothing
 }
 
 TEST_CASE("SessionWebSocketSession opens exactly one controller and retires it exactly once",
-          "[unit][server][v2][session][ownership]") {
+          "[unit][server][v3][session][ownership]") {
   constexpr std::string_view kRequestId = "unit.session.close-once";
   SessionHarness harness;
   const std::shared_ptr<server::SessionWebSocketSession> session =
@@ -281,7 +283,7 @@ TEST_CASE("SessionWebSocketSession opens exactly one controller and retires it e
 }
 
 TEST_CASE("SessionWebSocketSession publishes the fallback display name for a direct peer",
-          "[unit][server][v2][session][identity]") {
+          "[unit][server][v3][session][identity]") {
   constexpr std::string_view kRequestId = "unit.session.fallback-name";
   SessionHarness harness;
   const std::shared_ptr<server::SessionWebSocketSession> session =
@@ -307,7 +309,7 @@ TEST_CASE("SessionWebSocketSession publishes the fallback display name for a dir
 }
 
 TEST_CASE("SessionWebSocketSession publishes an accepted proxy display name byte for byte",
-          "[unit][server][v2][session][identity]") {
+          "[unit][server][v3][session][identity]") {
   constexpr std::string_view kRequestId = "unit.session.proxy-name";
   SessionHarness harness;
   const std::shared_ptr<server::SessionWebSocketSession> session = harness.make_session(
@@ -332,7 +334,7 @@ TEST_CASE("SessionWebSocketSession publishes an accepted proxy display name byte
 }
 
 TEST_CASE("CommandRatePolicy admits a burst of thirty and refills at twenty per second",
-          "[unit][server][v2][rate]") {
+          "[unit][server][v3][rate]") {
   const auto opened_at = server::CommandRatePolicy::Clock::time_point{};
   server::CommandRatePolicy policy{opened_at};
 
@@ -358,7 +360,7 @@ TEST_CASE("CommandRatePolicy admits a burst of thirty and refills at twenty per 
 }
 
 TEST_CASE("The command budget and the control budget are separate ledgers",
-          "[unit][server][v2][rate]") {
+          "[unit][server][v3][rate]") {
   const auto opened_at = server::CommandRatePolicy::Clock::time_point{};
   server::CommandRatePolicy commands{opened_at};
   server::ControlFrameRatePolicy control{opened_at};
@@ -379,7 +381,7 @@ TEST_CASE("The command budget and the control budget are separate ledgers",
 }
 
 TEST_CASE("SessionWebSocketSession logs every lobby command it submits, with the sink's answer",
-          "[unit][server][v2][session][lobby]") {
+          "[unit][server][v3][session][lobby]") {
   constexpr std::string_view kRequestId = "unit.session.lobby-command-log";
   SessionHarness harness;
   const std::shared_ptr<server::SessionWebSocketSession> session =
@@ -460,7 +462,8 @@ public:
   }
 
   [[nodiscard]] server::GameApiHttpRequest request(const std::string_view request_id) const {
-    server::GameApiHttpRequest result{boost::beast::http::verb::get, "/api/v2/session", 11};
+    server::GameApiHttpRequest result{boost::beast::http::verb::get, "/api/v3/lobbies/1/session",
+                                      11};
     result.set(boost::beast::http::field::host,
                std::string{"127.0.0.1:"}.append(std::to_string(acceptor_.local_endpoint().port())));
     result.set(boost::beast::http::field::connection, "Upgrade");
@@ -549,7 +552,7 @@ void run_until_within(boost::asio::io_context& io_context,
 } // namespace
 
 TEST_CASE("SessionWebSocketSession asks for a seat it does not hold and leaves it on close",
-          "[unit][server][v2][session][lobby][join]") {
+          "[unit][server][v3][session][lobby][join]") {
   // The seat is taken the way the body is: the first presentation slot observes a lobby in which
   // this controller sits nowhere and submits a server-issued join naming no seat, and the tick
   // gives it the lowest empty one. Nothing on the wire chose it.
@@ -614,7 +617,7 @@ TEST_CASE("SessionWebSocketSession asks for a seat it does not hold and leaves i
 
 TEST_CASE(
     "SessionWebSocketSession leaves nothing behind when it closes while its spawn is in flight",
-    "[unit][server][v2][session][ownership][leave]") {
+    "[unit][server][v3][session][ownership][leave]") {
   // Review finding 1, inverted. The socket closes between the presentation slot that submitted the
   // spawn and the slot that would have observed the body; the leave the sink enqueues at close is
   // what destroys the entity the queued spawn goes on to create.
@@ -659,7 +662,7 @@ TEST_CASE(
 
 TEST_CASE("SessionWebSocketSession closes lobby_full when the roster it observes has no seat its "
           "join could take",
-          "[unit][server][v2][session][lobby][join]") {
+          "[unit][server][v3][session][lobby][join]") {
   // The last-seat race, lost: by the time this session's first presentation slot looks, the one
   // seat belongs to somebody else and the match has not started, so there is no empty seat and no
   // declared bot to displace. The rule is the tick's own (`first_joinable_seat`), the answer is

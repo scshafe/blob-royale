@@ -1,0 +1,504 @@
+{
+  "cases": [
+    {
+      "name": "solid_closed_envelope",
+      "terrain": {
+        "bounds": {
+          "width_world_units": 100,
+          "height_world_units": 100
+        },
+        "ground": "solid",
+        "corridors": [],
+        "holes": []
+      },
+      "probes": [
+        {
+          "point": {
+            "x": 0,
+            "y": 0
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 100,
+            "y": 100
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": -1,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 101,
+            "y": 50
+          },
+          "supported": false
+        }
+      ]
+    },
+    {
+      "name": "solid_open_hole",
+      "terrain": {
+        "bounds": {
+          "width_world_units": 100,
+          "height_world_units": 100
+        },
+        "ground": "solid",
+        "corridors": [],
+        "holes": [
+          {
+            "name": "pit",
+            "center": {
+              "x": 50,
+              "y": 50
+            },
+            "radius": 10
+          }
+        ]
+      },
+      "probes": [
+        {
+          "point": {
+            "x": 50,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 40,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 60,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 60
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 41,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 0,
+            "y": 0
+          },
+          "supported": true
+        }
+      ]
+    },
+    {
+      "name": "solid_overlapping_hole_union",
+      "terrain": {
+        "bounds": {
+          "width_world_units": 100,
+          "height_world_units": 100
+        },
+        "ground": "solid",
+        "corridors": [],
+        "holes": [
+          {
+            "name": "west_pit",
+            "center": {
+              "x": 45,
+              "y": 50
+            },
+            "radius": 15
+          },
+          {
+            "name": "east_pit",
+            "center": {
+              "x": 55,
+              "y": 50
+            },
+            "radius": 15
+          }
+        ]
+      },
+      "probes": [
+        {
+          "point": {
+            "x": 50,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 40,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 60,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 30,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 70,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 70
+          },
+          "supported": true
+        }
+      ]
+    },
+    {
+      "name": "corridor_union_round_caps",
+      "terrain": {
+        "bounds": {
+          "width_world_units": 100,
+          "height_world_units": 100
+        },
+        "ground": "corridors",
+        "corridors": [
+          {
+            "name": "east_west",
+            "half_width": 10,
+            "points": [
+              {
+                "x": 10,
+                "y": 50
+              },
+              {
+                "x": 90,
+                "y": 50
+              }
+            ]
+          },
+          {
+            "name": "north_south",
+            "half_width": 10,
+            "points": [
+              {
+                "x": 50,
+                "y": 10
+              },
+              {
+                "x": 50,
+                "y": 90
+              }
+            ]
+          }
+        ],
+        "holes": []
+      },
+      "probes": [
+        {
+          "point": {
+            "x": 50,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 40,
+            "y": 40
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 35,
+            "y": 35
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 0,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 100,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 0
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 100
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 10,
+            "y": 10
+          },
+          "supported": false
+        }
+      ]
+    },
+    {
+      "name": "corridor_union_minus_overlapping_holes",
+      "terrain": {
+        "bounds": {
+          "width_world_units": 100,
+          "height_world_units": 100
+        },
+        "ground": "corridors",
+        "corridors": [
+          {
+            "name": "east_west",
+            "half_width": 10,
+            "points": [
+              {
+                "x": 10,
+                "y": 50
+              },
+              {
+                "x": 90,
+                "y": 50
+              }
+            ]
+          },
+          {
+            "name": "north_south",
+            "half_width": 10,
+            "points": [
+              {
+                "x": 50,
+                "y": 10
+              },
+              {
+                "x": 50,
+                "y": 90
+              }
+            ]
+          }
+        ],
+        "holes": [
+          {
+            "name": "west_pit",
+            "center": {
+              "x": 45,
+              "y": 50
+            },
+            "radius": 8
+          },
+          {
+            "name": "east_pit",
+            "center": {
+              "x": 55,
+              "y": 50
+            },
+            "radius": 8
+          }
+        ]
+      },
+      "probes": [
+        {
+          "point": {
+            "x": 50,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 45,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 55,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 37,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 63,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 65
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 65,
+            "y": 50
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 30,
+            "y": 30
+          },
+          "supported": false
+        }
+      ]
+    },
+    {
+      "name": "bent_corridor_clipped_envelope",
+      "terrain": {
+        "bounds": {
+          "width_world_units": 100,
+          "height_world_units": 100
+        },
+        "ground": "corridors",
+        "corridors": [
+          {
+            "name": "edge_road",
+            "half_width": 9.999999999,
+            "points": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 100,
+                "y": 0
+              },
+              {
+                "x": 100,
+                "y": 100
+              }
+            ]
+          }
+        ],
+        "holes": [
+          {
+            "name": "edge_pit",
+            "center": {
+              "x": 100,
+              "y": 50
+            },
+            "radius": 15.000000001
+          }
+        ]
+      },
+      "probes": [
+        {
+          "point": {
+            "x": 0,
+            "y": 0
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 10
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 50,
+            "y": 11
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 90,
+            "y": 30
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 100,
+            "y": 50
+          },
+          "supported": false
+        },
+        {
+          "point": {
+            "x": 100,
+            "y": 65
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 100,
+            "y": 100
+          },
+          "supported": true
+        },
+        {
+          "point": {
+            "x": 110,
+            "y": 30
+          },
+          "supported": false
+        }
+      ]
+    }
+  ]
+}

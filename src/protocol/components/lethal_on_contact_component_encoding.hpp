@@ -19,7 +19,7 @@ namespace blob_royale::protocol {
 // Writing nothing is therefore complete rather than unfinished, which is what the empty body says
 // and what `additionalProperties: false` with no `required` pins on the wire. The sink is unnamed
 // here for the same reason the value is: this encoder consults neither.
-// related: docs/protocol/schema/v2/lethal-on-contact-component.schema.json -- the closed wire
+// related: docs/protocol/schema/v3/lethal-on-contact-component.schema.json -- the closed wire
 // shape.
 template <> struct ComponentWireEncoding<simulation::LethalOnContact> {
   static void encode(const simulation::LethalOnContact&, const ComponentEncodingContext&,

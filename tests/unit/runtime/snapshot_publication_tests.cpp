@@ -60,3 +60,23 @@ TEST_CASE("SnapshotPublication exposes a non-null retained immutable initial sna
   CHECK(first_read->players().front().position() ==
         simulation::Vector2::create(kPublishedPositionX, kPublishedPositionY));
 }
+
+TEST_CASE("SnapshotPublication readers retain terrain after publication ownership ends",
+          "[unit][runtime][publication][terrain]") {
+  const simulation::TerrainDefinition* original_terrain = nullptr;
+  const std::shared_ptr<const simulation::WorldSnapshot> retained = [&original_terrain] {
+    const simulation::WorldSnapshot snapshot = initial_snapshot_fixture();
+    original_terrain = &snapshot.terrain();
+    const runtime::SnapshotPublication publication(snapshot);
+    const auto first = publication.latest();
+    const auto second = publication.latest();
+    CHECK(&first->terrain() == original_terrain);
+    CHECK(&second->terrain() == original_terrain);
+    return first;
+  }();
+
+  CHECK(&retained->terrain() == original_terrain);
+  CHECK(retained->terrain().bounds() ==
+        simulation::ArenaBounds::create(kPublishedWorldWidth, kPublishedWorldHeight));
+  CHECK(retained->terrain().ground() == simulation::TerrainGround::kSolid);
+}

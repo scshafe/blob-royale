@@ -10,7 +10,7 @@ import type {
 import type { SimulationApiFactory } from './useSimulationConnection';
 import { useSimulationConnection } from './useSimulationConnection';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
-import { lobbyDirectoryMessageExample } from './fixtures/protocolV2Examples';
+import { lobbyDirectoryMessageExample } from './fixtures/protocolV3Examples';
 import { snapshotDocument, welcomeDocument } from './fixtures/sessionFrames';
 import { RECONNECT_BACKOFF_MILLISECONDS } from './simulationConstants';
 import type {
@@ -235,8 +235,10 @@ describe('useSimulationConnection', () => {
       mode: 'royale',
       npcControllerKinds: ['wanderer', 'chaser'],
       seatCountMaximum: 32,
+      terrain: createValidatedWelcome().data.terrain,
     });
     expect(result.current.ownEntityId).toBeNull();
+    const terrain = result.current.session?.terrain;
 
     act(() => {
       apis[0]?.callbacks?.onSnapshot(createValidatedSnapshot());
@@ -245,6 +247,11 @@ describe('useSimulationConnection', () => {
     expect(result.current.ownEntityId).toBe(7);
     expect(result.current.match?.phase).toBe('running');
     expect(result.current.entities).toHaveLength(4);
+    expect(result.current.session?.terrain).toEqual(
+      createValidatedWelcome().data.terrain,
+    );
+    expect(result.current.session?.terrain).toBe(terrain);
+    expect(Object.isFrozen(result.current.session?.terrain)).toBe(true);
   });
 
   it('stores complete validated snapshots through the reducer', async () => {

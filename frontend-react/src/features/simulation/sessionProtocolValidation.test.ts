@@ -7,7 +7,7 @@ import {
   sessionCommandEnvelopeExample,
   sessionErrorResponseExample,
   sessionWelcomeMessageExample,
-} from './fixtures/protocolV2Examples';
+} from './fixtures/protocolV3Examples';
 import {
   firstEntity,
   MAXIMUM_PUBLISHED_WORLD_SCALAR,
@@ -45,7 +45,7 @@ function raceSnapshotDocument(state = structuredClone(raceModeStateExample)) {
         mode: 'race',
         placements: [],
         mode_state: {
-          schema_id: 'blob-royale://protocol/v2/mode-state/race',
+          schema_id: 'blob-royale://protocol/v3/mode-state/race',
           value: state,
         },
       },
@@ -75,6 +75,16 @@ describe('validateSessionWelcomeMessage', () => {
     expect(() =>
       validateSessionWelcomeMessage(welcomeDocument(), welcomeSequence),
     ).toThrow(/exactly one welcome/);
+  });
+
+  it('refuses the retired session major before welcome publication', () => {
+    const document = welcomeDocument();
+    document.meta.protocol_version = '2.5';
+    expect(() => validateSessionWelcomeMessage(document, null)).toThrow(
+      expect.objectContaining({
+        code: 'SIMULATION.SESSION_VERSION_UNSUPPORTED',
+      }),
+    );
   });
 
   it('fails closed on an unknown advertised command kind', () => {
@@ -327,7 +337,7 @@ describe('validateSessionSnapshotMessage', () => {
     silenceProtocolWarnings();
     const document = snapshotDocument();
     document.data.match.mode_state.schema_id =
-      'blob-royale://protocol/v2/mode-state/capture';
+      'blob-royale://protocol/v3/mode-state/capture';
 
     expect(() =>
       validateSessionSnapshotMessage(document, welcomeSequence),
@@ -340,9 +350,8 @@ describe('validateSessionSnapshotMessage', () => {
 
   it('fails closed on a protocol minor it cannot decode, before shape validation', () => {
     const document = snapshotDocument();
-    // One minor ahead of the supported set; moved 2.1 -> 2.2 when 2.1 became current, 2.2 -> 2.3
-    // when 2.2 did, 2.3 -> 2.4 when 2.3 did, 2.4 -> 2.5 when 2.4 did, and 2.5 -> 2.6 when 2.5 did.
-    document.meta.protocol_version = '2.6';
+    // One minor ahead of the active 3.0 contract.
+    document.meta.protocol_version = '3.1';
     Reflect.deleteProperty(document.data, 'match');
 
     expect(() =>
@@ -351,7 +360,7 @@ describe('validateSessionSnapshotMessage', () => {
       expect.objectContaining<Partial<SimulationApiError>>({
         code: 'SIMULATION.SESSION_VERSION_UNSUPPORTED',
         context: {
-          protocol_version: '2.6',
+          protocol_version: '3.1',
           supported_protocol_version: SUPPORTED_PROTOCOL_VERSION,
         },
       }),
@@ -382,7 +391,7 @@ describe('validateSessionCommand', () => {
     ).not.toThrow();
   });
 
-  it('fails closed on a command kind protocol v2 does not register', () => {
+  it('fails closed on a command kind protocol v3 does not register', () => {
     silenceProtocolWarnings();
     const command: SessionCommand = {
       kind: 'set_thrust',
@@ -457,7 +466,7 @@ describe('validateLobbyDirectoryMessage', () => {
   it('fails closed on a newer protocol minor before shape validation', () => {
     const document = structuredClone(lobbyDirectoryMessageExample);
     // One minor ahead of the supported set, moved with every minor as the session case above is.
-    document.meta.protocol_version = '2.6';
+    document.meta.protocol_version = '3.1';
 
     expect(() => validateLobbyDirectoryMessage(document, requestId)).toThrow(
       expect.objectContaining({
@@ -495,7 +504,7 @@ describe('validateSessionHttpErrorResponse', () => {
     };
   }
 
-  it('accepts the golden v2 failure envelope and a lobby refusal at their registered statuses', () => {
+  it('accepts the golden v3 failure envelope and a lobby refusal at their registered statuses', () => {
     const forwarded = validateSessionHttpErrorResponse(
       structuredClone(sessionErrorResponseExample),
       400,
@@ -531,6 +540,37 @@ describe('validateSessionHttpErrorResponse', () => {
         code: 'SIMULATION.HTTP_ERROR_RESPONSE_INVALID',
       }) as SimulationApiError,
     );
+  });
+
+  it('accepts only the fixed nonretryable v3 upgrade-required contract at 426', () => {
+    const document = {
+      ...structuredClone(sessionErrorResponseExample),
+      error: {
+        code: 'PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED',
+        details: { required_protocol_version: '3.0' },
+        message: 'This session requires protocol 3.0.',
+        retryable: false,
+      },
+    };
+    expect(
+      validateSessionHttpErrorResponse(
+        structuredClone(document),
+        426,
+        requestId,
+      ).error.retryable,
+    ).toBe(false);
+    expect(() =>
+      validateSessionHttpErrorResponse(document, 400, requestId),
+    ).toThrow();
+    document.error.retryable = true;
+    expect(() =>
+      validateSessionHttpErrorResponse(document, 426, requestId),
+    ).toThrow();
+    document.error.retryable = false;
+    document.error.details.required_protocol_version = '3.1';
+    expect(() =>
+      validateSessionHttpErrorResponse(document, 426, requestId),
+    ).toThrow();
   });
 
   it('rejects an envelope whose X-Request-ID does not echo', () => {

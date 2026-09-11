@@ -1,10 +1,10 @@
 # Blob Royale web client
 
-This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v2 session socket, processes the complete published world and renders its known visual components, and turns a keyboard into `set_thrust` commands. Processing the complete world does not require showing the whole map at once. Its public artifact is the production bundle in `dist/`.
+This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v3 session socket, processes the complete published world and renders its known visual components, and turns a keyboard into `set_thrust` commands. Processing the complete world does not require showing the whole map at once. Its public artifact is the production bundle in `dist/`.
 
-`SimulationApi` is the canonical browser transport. It derives the exact `/api/v1/config` and `/api/v2/session` endpoints from the page authority, opens the session socket with the `blob-royale.session.v2` subprotocol, validates every inbound frame against the accepted Draft 2020-12 schemas with Ajv, and exposes `sendCommand`, which is a no-op that reports `false` unless the session is open, welcomed, and the kind is one the welcome advertised.
+`SimulationApi` is the canonical browser transport. It derives `/api/v1/config`, `/api/v3/lobbies`, and canonical `/api/v3/lobbies/<lobby_id>/session` endpoints from the page authority, opens the session socket with the `blob-royale.session.v3` subprotocol, validates every inbound frame against the accepted Draft 2020-12 schemas with Ajv, and exposes `sendCommand`, which is a no-op that reports `false` unless the session is open, welcomed, and the kind is one the welcome advertised.
 
-Decoding fails closed, as protocol v2 § "Versioning and fail-closed decoding" requires. The client reads `meta.protocol_version` before interpreting anything else and closes `1003 client_version_unsupported` on a major it does not share or a minor above its own. A component kind, mode-state schema id, or command kind the accepted schema set does not name is logged by name once and closes `1003 client_kind_unsupported`. Nothing unknown is ignored. Intentional offscreen clipping of validated, known geometry is different from silently omitting an unknown kind.
+Decoding fails closed, as protocol v3 § "Versioning and fail-closed decoding" requires. The client reads `meta.protocol_version` before interpreting anything else and closes `1003 client_version_unsupported` on a major it does not share or a minor above its own. A component kind, mode-state schema id, or command kind the accepted schema set does not name is logged by name once and closes `1003 client_kind_unsupported`. Nothing unknown is ignored. Intentional offscreen clipping of validated, known geometry is different from silently omitting an unknown kind.
 
 `useSimulationConnection` owns reducer state, StrictMode-safe cleanup, and the finite 1/2/4/8/16/16-second reconnect budget. A reconnect is a new join by contract — new request id, new controller id, new entity id, nothing resumed. It exposes the welcome identity (controller id, first entity id, display name, mode, map, accepted commands), the match section, the published entities, and the own entity resolved from the current frame by controller id. **An open socket carrying no frames is not a stalled connection.** The spawn policy defers a joiner while a match runs and the welcome cannot exist before the session owns a body, so that state is reported as `awaiting_match` and rendered as "waiting for the next match".
 
@@ -40,7 +40,14 @@ these controls; deployment and human large-map playtesting remain separate work.
 
 ## Generated protocol boundary
 
-The accepted files under `../docs/protocol/schema/v1` and `../docs/protocol/schema/v2` are the only wire truth. `npm run generate:protocol` deterministically generates checked-in deep-readonly TypeScript types and bundled Ajv schema objects for both versions. `npm run generate:protocol:check` writes nothing and fails when generated artifacts drift from those canonical schemas; `npm run validate:protocol-examples` validates every golden example offline. Never hand-edit files under `src/features/simulation/generated`. The generated v2 types are deliberately looser than the schemas where the generator cannot express a conditional shape, so wire documents are narrowed by Ajv validation and never by a cast.
+The accepted files under `../docs/protocol/schema/v1` and `../docs/protocol/schema/v3` are the only wire truth. `npm run generate:protocol` deterministically generates checked-in deep-readonly TypeScript types and bundled Ajv schema objects for both versions. `npm run generate:protocol:check` writes nothing and fails when generated artifacts drift from those canonical schemas; `npm run validate:protocol-examples` validates every golden example offline. Never hand-edit files under `src/features/simulation/generated`. The generated v3 types are deliberately looser than the schemas where the generator cannot express a conditional shape, so wire documents are narrowed by Ajv validation and never by a cast.
+
+Active session transport uses only `/api/v3/lobbies` and `/api/v3/lobbies/<id>/session` with
+`blob-royale.session.v3`; there is no root session alias. Configuration stays on v1. Example
+validation explicitly requires v1 `Accepted`, v2 `Historical`, and v3 `Accepted`, retaining every
+historical example without generating an active v2 client boundary. Welcome terrain is required,
+semantically validated before callbacks, retained between snapshots, and rendered below mode
+objectives and entities with the same camera projection.
 
 ## Toolchain
 

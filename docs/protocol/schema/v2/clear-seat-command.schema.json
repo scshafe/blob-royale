@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/clear-seat-command.schema.json",
   "title": "Blob Royale protocol v2 clear_seat command payload",
   "description": "Empty one seat that holds a declared NPC. The payload names no sender: the server stamps the sending session's controller id, so a controller id is not merely ignored here, it is a closed-schema violation that closes the connection.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["seat_index"],

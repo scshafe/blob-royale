@@ -7,9 +7,9 @@
 #include "protocol_constants.hpp"
 #include "protocol_encoding_error.hpp"
 #include "protocol_json_encoding.hpp"
-#include "protocol_v2_json_encoding.hpp"
+#include "protocol_v3_json_encoding.hpp"
 #include "server_limits.hpp"
-#include "v2_http_error.hpp"
+#include "v3_http_error.hpp"
 
 #include "match_snapshot.hpp"
 #include "seat_roster.hpp"
@@ -45,17 +45,20 @@ inline constexpr std::string_view kConfigTarget = "/api/v1/config";
 inline constexpr std::string_view kLivenessTarget = "/api/v1/health/live";
 inline constexpr std::string_view kReadinessTarget = "/api/v1/health/ready";
 inline constexpr std::string_view kSnapshotsTarget = "/api/v1/snapshots";
-inline constexpr std::string_view kSessionTarget = "/api/v2/session";
-inline constexpr std::string_view kLobbyDirectoryTarget = "/api/v2/lobbies";
-// The two exact halves of the one parametric target, `/api/v2/lobbies/<lobby_id>/session`.
-inline constexpr std::string_view kLobbyRoomTargetPrefix = "/api/v2/lobbies/";
+inline constexpr std::string_view kLobbyDirectoryTarget = "/api/v3/lobbies";
+inline constexpr std::string_view kRetiredSessionTarget = "/api/v2/session";
+inline constexpr std::string_view kRetiredLobbyDirectoryTarget = "/api/v2/lobbies";
+inline constexpr std::string_view kRetiredLobbyRoomTargetPrefix = "/api/v2/lobbies/";
+// The two exact halves of the one parametric target, `/api/v3/lobbies/<lobby_id>/session`.
+inline constexpr std::string_view kLobbyRoomTargetPrefix = "/api/v3/lobbies/";
 inline constexpr std::string_view kLobbyRoomTargetSuffix = "/session";
 inline constexpr std::size_t kLobbyIdSegmentMaximumDigits = 3;
 inline constexpr std::string_view kRequestIdHeader = "X-Request-ID";
-// The version prefix that selects the v2 error envelope. It is a prefix test on the parsed target
-// and not a route lookup, so an unrouted `/api/v2/anything` still fails in the version it named.
-inline constexpr std::string_view kProtocolV2TargetPrefix = "/api/v2/";
-// The room every v1 route and `/api/v2/session` serve (`docs/protocol/v2.md` § "Public surface").
+// Parsed current and retired session prefixes select the one current envelope even when their
+// target is malformed or an earlier global security check fails. Route retirement is separate.
+inline constexpr std::string_view kProtocolV3TargetPrefix = "/api/v3/";
+inline constexpr std::string_view kRetiredProtocolTargetPrefix = "/api/v2/";
+// The room every retained v1 route serves.
 inline constexpr std::uint64_t kRoomOne = 1;
 
 // What one parsed target names. Route selection is by exact target and never by offered
@@ -67,8 +70,9 @@ enum class TargetKind : std::uint8_t {
   kReadiness,
   kLobbyDirectory,
   kSnapshotsV1Upgrade,
-  kSessionV2Upgrade,
-  // `/api/v2/lobbies/<something>` where the something is not a room: outside the grammar, or a
+  kSessionV3Upgrade,
+  kRetiredSessionVersion,
+  // `/api/v3/lobbies/<something>` where the something is not a room: outside the grammar, or a
   // well-formed id the directory does not hold. One answer for both, `404 LOBBY.NOT_FOUND`.
   kLobbyNotFound,
   kUnknown,
@@ -80,7 +84,7 @@ struct ResolvedTarget final {
   std::uint64_t lobby_id;
 };
 
-// `<lobby_id>` from the bytes after `/api/v2/lobbies/`, when those bytes are exactly
+// `<lobby_id>` from the bytes after `/api/v3/lobbies/`, when those bytes are exactly
 // `[1-9][0-9]{0,2}` followed by `/session` and nothing else. A leading zero, a fourth digit, a
 // trailing slash, a percent-encoded digit, a query string, and an empty segment all fail here.
 [[nodiscard]] std::optional<std::uint64_t>
@@ -120,8 +124,16 @@ parse_lobby_room_target(const std::string_view after_prefix) noexcept {
   if (target == kSnapshotsTarget) {
     return {TargetKind::kSnapshotsV1Upgrade, kRoomOne};
   }
-  if (target == kSessionTarget) {
-    return {TargetKind::kSessionV2Upgrade, kRoomOne};
+  // Retirement is classified by exact grammar before looking up any room. A valid old id must
+  // not probe whether that room exists or reach handshake/admission resource consumption.
+  if (target == kRetiredSessionTarget || target == kRetiredLobbyDirectoryTarget) {
+    return {TargetKind::kRetiredSessionVersion, 0};
+  }
+  if (target.starts_with(kRetiredLobbyRoomTargetPrefix)) {
+    const std::optional<std::uint64_t> lobby_id =
+        parse_lobby_room_target(target.substr(kRetiredLobbyRoomTargetPrefix.size()));
+    return {lobby_id.has_value() ? TargetKind::kRetiredSessionVersion : TargetKind::kLobbyNotFound,
+            0};
   }
   if (target == kLobbyDirectoryTarget) {
     return {TargetKind::kLobbyDirectory, kRoomOne};
@@ -130,7 +142,7 @@ parse_lobby_room_target(const std::string_view after_prefix) noexcept {
     const std::optional<std::uint64_t> lobby_id =
         parse_lobby_room_target(target.substr(kLobbyRoomTargetPrefix.size()));
     if (lobby_id.has_value() && lobbies.find(*lobby_id) != nullptr) {
-      return {TargetKind::kSessionV2Upgrade, *lobby_id};
+      return {TargetKind::kSessionV3Upgrade, *lobby_id};
     }
     return {TargetKind::kLobbyNotFound, 0};
   }
@@ -147,7 +159,7 @@ parse_lobby_room_target(const std::string_view after_prefix) noexcept {
 
 // `409 LOBBY.FULL`'s condition: the sessions admitted to the room already number its seats. A
 // world with no lobby publishes an empty roster and is never full this way, because it has no
-// seats for anybody to be refused from (`docs/protocol/v2.md` § "The lobby directory").
+// seats for anybody to be refused from (`docs/protocol/v3.md` § "The lobby directory").
 [[nodiscard]] bool room_is_full(const LobbyEntry& room) noexcept {
   const std::size_t seat_count = room.snapshot_publication().latest()->match().seats().seat_count();
   return seat_count != 0 && room.session_count() >= seat_count;
@@ -181,8 +193,9 @@ parse_lobby_room_target(const std::string_view after_prefix) noexcept {
                                 .healthy = room_is_serving(room)};
 }
 
-[[nodiscard]] bool target_selects_v2_envelope(const std::string_view target) noexcept {
-  return target.starts_with(kProtocolV2TargetPrefix);
+[[nodiscard]] bool target_selects_v3_envelope(const std::string_view target) noexcept {
+  return target.starts_with(kProtocolV3TargetPrefix) ||
+         target.starts_with(kRetiredProtocolTargetPrefix);
 }
 
 [[nodiscard]] std::string_view target_of(const GameApiHttpRequest& request) noexcept {
@@ -197,14 +210,14 @@ subprotocol_required_reason(const GameApiUpgradeRoute route) noexcept {
   switch (route) {
   case GameApiUpgradeRoute::kSnapshotsV1:
     return "snapshot_subprotocol_required";
-  case GameApiUpgradeRoute::kSessionV2:
+  case GameApiUpgradeRoute::kSessionV3:
     return "session_subprotocol_required";
   }
   return "subprotocol_required";
 }
 
 // The v1 `reason` detail that carries a forwarded-client rejection on a v1 target. It is derived
-// from the same closed enum the v2 detail uses, so the two versions cannot describe one refusal
+// from the same closed enum the v3 detail uses, so the two versions cannot describe one refusal
 // differently and neither can carry an attacker-supplied byte.
 [[nodiscard]] std::string
 forwarded_client_reason_detail(const protocol::ForwardedClientReason reason) {
@@ -509,7 +522,7 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
   // Identity before any route runs. The classification is computed from the socket alone, so no
   // header can move a connection into the trusted arm, and the derived principal -- not the socket
   // address -- is what every request, upgrade, and connection bound below is charged to
-  // (`docs/protocol/v2.md` § "Identity"). A rejected forwarded address has no principal to charge,
+  // (`docs/protocol/v3.md` § "Identity"). A rejected forwarded address has no principal to charge,
   // so its refusal is accounted to the socket peer, which is the only identity still provable.
   const PeerIdentityResolution identity =
       derive_peer_identity(server_config_, peer_address, request);
@@ -602,14 +615,21 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
 
   const std::string_view target = target_of(request);
   const ResolvedTarget resolved = resolve_target(target, lobbies_);
+  if (resolved.kind == TargetKind::kRetiredSessionVersion) {
+    return v3_error_response(request, request_id,
+                             protocol::V3HttpError::session_version_upgrade_required(),
+                             allowed_origin);
+  }
   if (resolved.kind == TargetKind::kUnknown) {
     return error_response(request, request_id,
                           protocol::HttpError::create(protocol::HttpErrorCode::kRouteNotFound,
-                                                      "Route is not part of protocol v1."),
+                                                      target_selects_v3_envelope(target)
+                                                          ? "Route is not part of protocol v3."
+                                                          : "Route is not part of protocol v1."),
                           allowed_origin);
   }
   if (resolved.kind == TargetKind::kLobbyNotFound) {
-    return v2_error_response(request, request_id, protocol::V2HttpError::lobby_not_found(),
+    return v3_error_response(request, request_id, protocol::V3HttpError::lobby_not_found(),
                              allowed_origin);
   }
   if (request.method() != http::verb::get) {
@@ -670,7 +690,7 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
   // The one remaining shape is an upgrade route, and which one is a function of the target alone.
   const GameApiUpgradeRoute upgrade_route = resolved.kind == TargetKind::kSnapshotsV1Upgrade
                                                 ? GameApiUpgradeRoute::kSnapshotsV1
-                                                : GameApiUpgradeRoute::kSessionV2;
+                                                : GameApiUpgradeRoute::kSessionV3;
 
   if (!is_websocket_attempt(request)) {
     return error_response(request, request_id,
@@ -725,7 +745,7 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
 
   // Browser-origin policy, under the classification derived above. The direct-peer relaxation is
   // reached only through `is_direct_peer()`, so a peer configured as a trusted proxy never
-  // inherits it -- which is the whole of v2's precedence rule, and it matters because on the
+  // inherits it -- which is the whole of v3's precedence rule, and it matters because on the
   // accepted deployment the proxy *is* loopback.
   const bool peer_is_loopback = [&] {
     boost::system::error_code error;
@@ -739,7 +759,7 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
                                                       "Origin is required for this peer."));
   }
   // Admission, per room, after every upgrade rule and before any capacity is reserved for the
-  // socket. The v1 stream keeps v1's answer for an unready room 1; a v2 session is refused in the
+  // socket. The v1 stream keeps v1's answer for an unready room 1; a v3 session is refused in the
   // room's own terms, naming the room, so a client can go back to the directory with the number.
   const LobbyEntry& room = lobbies_.room(resolved.lobby_id);
   if (!room_is_serving(room)) {
@@ -752,13 +772,13 @@ GameApiRouteResult GameApiRouter::route(const GameApiHttpRequest& request,
                                                         std::move(parameters)),
                             allowed_origin);
     }
-    return v2_error_response(request, request_id,
-                             protocol::V2HttpError::lobby_unavailable(room.lobby_id()),
+    return v3_error_response(request, request_id,
+                             protocol::V3HttpError::lobby_unavailable(room.lobby_id()),
                              allowed_origin);
   }
-  if (upgrade_route == GameApiUpgradeRoute::kSessionV2 && room_is_full(room)) {
-    return v2_error_response(request, request_id,
-                             protocol::V2HttpError::lobby_full(room.lobby_id()), allowed_origin);
+  if (upgrade_route == GameApiUpgradeRoute::kSessionV3 && room_is_full(room)) {
+    return v3_error_response(request, request_id,
+                             protocol::V3HttpError::lobby_full(room.lobby_id()), allowed_origin);
   }
 
   WebSocketReservationResult reservation =
@@ -776,8 +796,8 @@ GameApiRouter::error_response(const GameApiHttpRequest& request,
                               const std::optional<std::string_view> allowed_origin) const {
   GameApiHttpResponse response{static_cast<http::status>(error.status_code()), 11};
   response.body() =
-      target_selects_v2_envelope(target_of(request))
-          ? protocol::encode_error_response_v2(protocol::V2HttpError::shared(error), request_id)
+      target_selects_v3_envelope(target_of(request))
+          ? protocol::encode_error_response_v3(protocol::V3HttpError::shared(error), request_id)
           : protocol::encode_error_response(error, request_id);
   set_common_response_headers(response, request_id, allowed_origin);
   set_error_specific_headers(response, error);
@@ -790,26 +810,32 @@ GameApiRouteResult
 GameApiRouter::forwarded_client_error_response(const GameApiHttpRequest& request,
                                                const protocol::RequestId& request_id,
                                                const protocol::ForwardedClientReason reason) const {
-  if (!target_selects_v2_envelope(target_of(request))) {
+  if (!target_selects_v3_envelope(target_of(request))) {
     return error_response(request, request_id,
                           invalid_request_error(forwarded_client_reason_detail(reason)));
   }
-  return v2_error_response(request, request_id,
-                           protocol::V2HttpError::invalid_forwarded_client(reason), std::nullopt);
+  return v3_error_response(request, request_id,
+                           protocol::V3HttpError::invalid_forwarded_client(reason), std::nullopt);
 }
 
 GameApiRouteResult
-GameApiRouter::v2_error_response(const GameApiHttpRequest& request,
+GameApiRouter::v3_error_response(const GameApiHttpRequest& request,
                                  const protocol::RequestId& request_id,
-                                 const protocol::V2HttpError& error,
+                                 const protocol::V3HttpError& error,
                                  const std::optional<std::string_view> allowed_origin) const {
   GameApiHttpResponse response{static_cast<http::status>(error.status_code()), 11};
-  response.body() = protocol::encode_error_response_v2(error, request_id);
+  response.body() = protocol::encode_error_response_v3(error, request_id);
   set_common_response_headers(response, request_id, allowed_origin);
   if (error.lobby_error() == protocol::LobbyErrorKind::kUnavailable) {
     response.set(http::field::retry_after, "1");
   }
   response.keep_alive(request.keep_alive());
+  if (error.requires_session_version_upgrade()) {
+    // RFC 9110 sections 7.8/15.5.22 require Upgrade plus its hop-by-hop Connection option on
+    // this 426. The fixed JSON detail selects the application major; no offer is reflected.
+    response.set(http::field::upgrade, "websocket");
+    response.set(http::field::connection, request.keep_alive() ? "Upgrade" : "close, Upgrade");
+  }
   response.prepare_payload();
   return GameApiRouteResult::http_response(std::move(response), request_id);
 }

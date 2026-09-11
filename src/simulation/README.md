@@ -40,7 +40,7 @@ The world's seat count is `kMaximumEntityCount`, and it says entities because it
 wall, a projectile, a pickup, and a zone each take a seat and none of them is a player.
 `kMaximumPlayerCount` remains beside it as the protocol v1 snapshot *player* limit, which
 `src/protocol/protocol_json_encoding.cpp` pins to `kSnapshotPlayerLimit` with a `static_assert` and
-which nothing but a publication reads. Protocol v2 bounds a snapshot's *entities* at 1,024, which is
+which nothing but a publication reads. Protocol v3 bounds a snapshot's *entities* at 1,024, which is
 below both; `src/application/match_startup_validation.hpp` is what refuses a configuration whose
 worst-case published population could cross it, because the kernel's seat count alone would not.
 
@@ -350,9 +350,9 @@ costs none of them, because `CommandWireKind` answering `std::nullopt` is what m
 from the decoder:
 
 ```
-edit src/protocol/protocol_v2_constants.hpp      its wire name in kV2ClientCommandKindNames
+edit src/protocol/protocol_v3_constants.hpp      its wire name in kV3ClientCommandKindNames
 edit src/protocol/command_decoding.cpp           its payload decoder and one arm of decode_payload
-new  docs/protocol/schema/v2/...                 its wire schema, a protocol minor version
+new  docs/protocol/schema/v3/...                 its wire schema, a protocol minor version
 ```
 
 `kCommandKinds`, `CommandKindMask::all()`, and the rank-injectivity check are **derived** from the
@@ -449,3 +449,10 @@ never learns whether a command came from a human session or a bot.
 The canonical gate is `./scripts/verify-linux pr`. Focused tests are registered under the
 `blob_simulation_unit_tests` CTest target. Linux performance measurements use
 `./scripts/run-benchmarks-linux`; benchmark hashes are correctness assertions, not a second engine.
+
+### Immutable terrain publication (2026-09-10)
+
+`GameSimulation` retains a shared immutable map. `WorldSnapshot::terrain()` aliases that map's
+actual terrain member, preserving its lifetime without copying geometry every tick. Snapshot
+value equality compares authored terrain rather than allocation identity. Controllers see the
+same retained value through `Observation`; session v3 sends it once in welcome, not every frame.

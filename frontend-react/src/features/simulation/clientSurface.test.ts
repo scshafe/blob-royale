@@ -23,7 +23,7 @@ async function readSimulationSource(sourceFile: string): Promise<string> {
   return readFile(resolve(simulationSourceRoot, sourceFile), 'utf8');
 }
 
-describe('protocol v2 session client surface', () => {
+describe('protocol v3 session client surface', () => {
   it('has one transport that sends, no lifecycle control, and no interval', async () => {
     const sourcesByFile = new Map(
       await Promise.all(
@@ -37,7 +37,7 @@ describe('protocol v2 session client surface', () => {
     );
     const sourceText = [...sourcesByFile.values()].join('\n');
 
-    // Protocol v2 adds commands and, since 2.4, one HTTP read: there is still no lifecycle route
+    // Protocol v3 adds commands and, since 2.4, one HTTP read: there is still no lifecycle route
     // and no second place that writes to a socket. The directory is read on a timeout chain that
     // is rescheduled after each read completes, never on an interval, so a slow server is asked at
     // most once at a time and only by `useLobbyDirectory`.
@@ -62,21 +62,21 @@ describe('protocol v2 session client surface', () => {
     }
   });
 
-  it('opens the v2 room session route and no longer opens the v1 snapshot socket', async () => {
+  it('opens the v3 room session route and no longer opens the v1 snapshot socket', async () => {
     const constants = await readSimulationSource('simulationConstants.ts');
     const transport = await readSimulationSource('SimulationApi.ts');
 
     expect(constants).toContain(
-      "LOBBY_DIRECTORY_ENDPOINT_PATH = '/api/v2/lobbies'",
+      "LOBBY_DIRECTORY_ENDPOINT_PATH = '/api/v3/lobbies'",
     );
     expect(constants).toContain(
-      "ROOM_SESSION_ENDPOINT_PATH_PREFIX = '/api/v2/lobbies/'",
+      "ROOM_SESSION_ENDPOINT_PATH_PREFIX = '/api/v3/lobbies/'",
     );
     expect(constants).toContain(
       "ROOM_SESSION_ENDPOINT_PATH_SUFFIX = '/session'",
     );
     expect(constants).toContain(
-      "SESSION_WEBSOCKET_SUBPROTOCOL = 'blob-royale.session.v2'",
+      "SESSION_WEBSOCKET_SUBPROTOCOL = 'blob-royale.session.v3'",
     );
     expect(constants).not.toContain('/api/v1/snapshots');
     expect(transport).not.toContain('blob-royale.snapshot.v1');

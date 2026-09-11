@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/welcome-data.schema.json",
   "title": "Blob Royale protocol v2 welcome data",
   "description": "Everything a session learns about itself, sent exactly once immediately after the upgrade and before any snapshot. accepted_command_kinds is an advertisement of what the boundary will accept from this client, not a grant: the server enforces the same set independently and InputBatch::create filters it a second time. npc_controller_kinds is the same kind of advertisement for the one closed vocabulary a client is allowed to name a value from.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": [

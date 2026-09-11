@@ -1,5 +1,26 @@
 import Ajv2020, { type ErrorObject } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
+import { SimulationApiError } from './SimulationApiError';
+
+/** Canonical session numeric policy shared by snapshots and authored welcome geometry. */
+export function assertNoNegativeZero(
+  value: number,
+  fieldName: string,
+  entityId?: number,
+): void {
+  if (Object.is(value, -0)) {
+    throw new SimulationApiError(
+      'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      `Session ${fieldName} contains forbidden negative zero.`,
+      {
+        context:
+          entityId === undefined
+            ? { field_name: fieldName }
+            : { entity_id: entityId, field_name: fieldName },
+      },
+    );
+  }
+}
 
 /**
  * Builds the one Ajv configuration every protocol version decodes with: strict Draft 2020-12, no

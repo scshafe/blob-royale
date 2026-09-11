@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { LobbyDirectoryView } from './LobbyDirectoryView';
 import { SimulationApiError } from './SimulationApiError';
-import { lobbyDirectoryMessageExample } from './fixtures/protocolV2Examples';
+import { lobbyDirectoryMessageExample } from './fixtures/protocolV3Examples';
 import { validateLobbyDirectoryMessage } from './sessionProtocolValidation';
 import type { SessionLobbyListing } from './simulationProtocolTypes';
 import {

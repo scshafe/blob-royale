@@ -772,7 +772,11 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
               std::make_unique<const MatchLifecycleSystem>(std::move(objective))});
 
   SpatialGrid initial_grid = SpatialGrid::create(configuration, map.bounds(), initial_world);
-  return GameSimulation(configuration, std::move(map), std::move(initial_world),
+  // Allocate only after validation, outside the non-throwing constructor. Each snapshot retains
+  // an aliasing handle to this immutable map's terrain instead of allocating a terrain wrapper.
+  std::shared_ptr<const MapDefinition> retained_map =
+      std::make_shared<const MapDefinition>(std::move(map));
+  return GameSimulation(configuration, std::move(retained_map), std::move(initial_world),
                         std::move(initial_grid), std::move(system_pipeline),
                         std::move(contact_rules), SpawnSystem(std::move(spawn_policy)),
                         std::move(mode_name), accepted_command_kinds, TickSequence::zero());
@@ -791,7 +795,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   GameWorld next_world = world_;
   next_world.open_tick(input_batch.entity_id_reservation());
   // The map's spawn-marker count is the lobby's ceiling at run time, as it is at startup.
-  apply_input_batch(next_world, input_batch, map_.spawn_points().size());
+  apply_input_batch(next_world, input_batch, map().spawn_points().size());
 
   // The batch's own index: the bodies the despawns of this batch left, at this tick's
   // start-of-tick positions. It is derived before seating because the SpawnSystem's policy socket
@@ -803,7 +807,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   }
   const SpatialGrid& batch_grid = reindexed_batch_grid ? *reindexed_batch_grid : grid_;
   const TickContext seating_context =
-      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map_, batch_grid);
+      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map(), batch_grid);
 
   // Still phase 0: the engine's SpawnSystem offers every entity awaiting a body to the mode's
   // SpawnPolicy and performs the seatings it chose. A seated entity is indexed at its marker, so
@@ -826,7 +830,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   const SpatialGrid& intake_grid = reindexed_intake_grid ? *reindexed_intake_grid : batch_grid;
 
   const TickContext intake_context =
-      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map_, intake_grid);
+      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map(), intake_grid);
 
   // A kPreKernel system may create an entity carrying a body -- a projectile or a zone -- so the
   // index phase 2 queries has to be re-derived when the stage changed one. The snapshot is taken
@@ -845,7 +849,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   }
   const SpatialGrid& pair_grid = reindexed_pair_grid ? *reindexed_pair_grid : intake_grid;
   const TickContext kernel_context =
-      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map_, pair_grid);
+      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map(), pair_grid);
 
   // Phases 1 through 6, unchanged in content and in number.
   std::vector<BodyEntry> next_bodies =
@@ -853,7 +857,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   const std::span<const CandidatePair> candidate_pairs = pair_grid.candidate_pairs();
   resolve_contacts(next_world, next_bodies, candidate_pairs, contact_rules_, kernel_context);
   const std::vector<std::optional<WallMotionResult>> wall_motions =
-      resolve_walls(next_bodies, map_.bounds(), configuration_, fixed_delta);
+      resolve_walls(next_bodies, map().bounds(), configuration_, fixed_delta);
   integrate_bodies_into(next_world, std::move(next_bodies), wall_motions);
   SpatialGrid next_grid = pair_grid.rebuilt(next_world);
 
@@ -867,7 +871,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
     committed_indexed_bodies = indexed_bodies_of(next_world);
   }
   const TickContext committed_context =
-      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map_, next_grid);
+      TickContext::create(next_tick_sequence, fixed_delta, configuration_, map(), next_grid);
   apply_stage(system_pipeline_, SystemStage::kPostKernel, next_world, committed_context);
   apply_stage(system_pipeline_, SystemStage::kLifecycle, next_world, committed_context);
 
@@ -889,7 +893,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   // publication, no committed grid holds a non-live EntityId, and no snapshot observes a
   // half-applied removal. ADR 0003 owes this reordering an amendment.
   const bool roster_removed = apply_despawn_events(next_world);
-  require_committed_bodies_in_bounds(next_world, map_, configuration_);
+  require_committed_bodies_in_bounds(next_world, map(), configuration_);
   if (roster_removed ||
       (late_stage_declared && !still_indexes(committed_indexed_bodies, next_world))) {
     next_grid = next_grid.rebuilt(next_world);
@@ -915,10 +919,11 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
 }
 
 WorldSnapshot GameSimulation::snapshot() const {
-  return WorldSnapshot::from_world(tick_sequence_, world_, mode_name_);
+  return WorldSnapshot::from_world(tick_sequence_, world_, mode_name_, map_);
 }
 
-GameSimulation::GameSimulation(SimulationConfig configuration, MapDefinition map, GameWorld world,
+GameSimulation::GameSimulation(SimulationConfig configuration,
+                               std::shared_ptr<const MapDefinition> map, GameWorld world,
                                SpatialGrid grid, SystemPipeline system_pipeline,
                                ContactRuleTable contact_rules, SpawnSystem spawn_system,
                                std::string mode_name, const CommandKindMask accepted_command_kinds,

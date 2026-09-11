@@ -12,10 +12,10 @@
 namespace blob_royale::server {
 
 // canonical: server_limits -- the complete fixed resource policy for both served protocol
-// versions. Every bound below is protocol v1's and unchanged; the v2 rows are additions, because
-// v2 relaxes none of them (`docs/protocol/v2.md` § "Limits").
+// versions. Every bound below is protocol v1's and unchanged; the v3 rows are additions, because
+// v3 relaxes none of them (`docs/protocol/v3.md` § "Limits").
 // These values are deliberately not runtime-tunable: changing one changes the accepted
-// transport contract and must be reviewed together with docs/protocol/v1.md and v2.md.
+// transport contract and must be reviewed together with docs/protocol/v1.md and v3.md.
 struct ServerLimits final {
   static constexpr std::size_t kRequestTargetMaximumByteCount = 2'048;
   static constexpr std::size_t kHeaderSectionMaximumByteCount = 16'384;
@@ -38,7 +38,7 @@ struct ServerLimits final {
   static constexpr std::size_t kControlFrameBurstMaximumCount = 5;
   static constexpr double kControlFrameRefillPerSecond = 1.0;
 
-  // Protocol v2's per-session client command budget (`docs/protocol/v2.md` § "Limits"). It is per
+  // Protocol v3's per-session client command budget (`docs/protocol/v3.md` § "Limits"). It is per
   // session rather than per principal, so one tab cannot starve another tab of the same player,
   // and it is a separate ledger from the control-frame budget above, so a peer cannot spend one on
   // the other. A token is charged before any JSON parsing, which is what bounds inbound parser
@@ -46,7 +46,7 @@ struct ServerLimits final {
   static constexpr double kSessionCommandBucketCapacity = 30.0;
   static constexpr double kSessionCommandRefillPerSecond = 20.0;
 
-  // Committed ticks a v2 session waits before repeating a spawn request that has gone unanswered.
+  // Committed ticks a v3 session waits before repeating a spawn request that has gone unanswered.
   //
   // **The same rule an in-process bot follows, derived from the same tick rate rather than shared
   // as a constant.** `controllers::kSpawnRequestRetryTicks` states the reasoning in full: asking

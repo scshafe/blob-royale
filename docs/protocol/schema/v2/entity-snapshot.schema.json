@@ -3,7 +3,7 @@
   "$id": "https://schemas.blob-royale.invalid/protocol/v2/entity-snapshot.schema.json",
   "title": "Blob Royale protocol v2 entity snapshot",
   "description": "One entity of one committed tick: its stable id and the closed map of the components it carries, keyed by component kind. An entity is its component set and nothing else (ADR 0004). This file is the registration point for a component kind on the wire.",
-  "x-status": "Accepted",
+  "x-status": "Historical",
   "type": "object",
   "additionalProperties": false,
   "required": ["entity_id", "components"],

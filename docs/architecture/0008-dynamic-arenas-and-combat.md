@@ -742,3 +742,99 @@ domain, however. If `start + displacement` lies beyond the representable `Vector
 envelope, those helpers visibly reject even when an earlier trigger could have ended travel.
 This is an explicit prototype numeric-admissibility limitation to settle before live adoption,
 not a hidden discrete fallback or permission to clip the query.
+
+## Owner clarification during Step 5 review, 2026-09-10
+
+This section records the owner's subsequent requirements and takes precedence over conflicting
+first-version proposals above. It does not retroactively change the scope or results of the
+completed Step 4 prototype. The plan adds a supplemental unwired Step 4a proof; Step 5 remains
+unticked, and no Phase C implementation is authorized by this clarification alone.
+
+### Per-object effect eligibility
+
+~~All contact, guard, and lethal consequences use the prototype's global closing-only admission~~
+is not the desired gameplay contract. An individual object can require incoming impact or allow
+any geometric touch, including an exact graze or stationary initial contact/overlap. Archetype
+defaults may be useful authoring, but they must not prevent different effective policies on
+individual objects. The exact canonical authoring/committed-value projection must be documented
+in Step 4a's supplemental review and land with its authoritative behavior and wire schema at
+Step 16; no field or registry arm is added in this documentation amendment.
+
+Effect eligibility and physical response are independent. A tangent touch may deliver an
+object's effect without inventing a bounce impulse. The proposed implementation extends the
+existing pair path with a certified touch observation and optional closing-impact certificate;
+only the latter admits the established impulse equations. One symmetric pair composition owns
+the resulting body changes and effects. Shared roots, exact time order, collision filters,
+anchored epochs, retained certificates, and immediate termination remain authoritative.
+
+The bounded architecture review preferred that extension over moving-body any-touch callbacks
+through `MotionTrigger`: the latter is currently unary and would need a second implementation of
+pair dependencies, contact priority, and two-body responses. Step 4a must prove the extension
+before the Step 5 human decision; all live admission/signature changes remain named in Step 16.
+Its proposed repeat policy consumes observations at both post-response motion revisions, even
+when no motion changed; only an external trajectory change can re-enable that pair within the
+quantum. This is not yet a once-per-encounter promise. Different cross-tick/encounter delivery,
+independent sensor filters, or center-entry effects on blocking body hazards require explicit
+follow-up design rather than accidental semantics.
+
+Cliffs/darkness use the player's center, not the first overlap of the player's outline with the
+void. Keep the canonical terrain support-loss query and one ground definition; do not create
+cliff collider entities or duplicate darkness geometry. The center criterion is confirmed.
+The existing supported-rim equality convention is retained pending any explicit boundary-rule
+change; the owner's example does not supply a replacement numerical tolerance rule.
+
+### Perfect shield; later behavior deferred
+
+During a very short opening immediately after activation, a qualifying incoming opponent's
+current velocity and acceleration are set to zero and the opponent is stunned. "Negate momentum"
+means cancel it, not reverse it through a special reflection rule. Preserve pair non-closing
+composition, incoming-motion eligibility, and symmetry. A mere any-touch effect observation is
+not automatically a perfect parry. Stun blocks self-propulsion; later external collisions can
+still move the dynamic body, as in the existing proposed stun lifecycle.
+
+~~Treat ordinary post-opening protection and quarter-strength knockback as settled~~ — the owner
+has left behavior after the perfect opening undecided. The existing pure ordinary-shield tests
+and advisory benchmark remain historical prototype evidence, not approval of that behavior.
+Neither continued ordinary shielding nor an immediately inactive shield may be silently chosen.
+Resolve the complete lifecycle before Step 18. The owner confirmed a short opening, not new
+exact duration/cooldown/stun values; existing numerical proposals remain tuning candidates.
+
+### Mouse direction with authoritative fixed strength
+
+The mouse should choose movement direction, with requested acceleration magnitude fixed by the
+authoritative movement setting, independent of pointer distance or pointer speed. It does not
+set velocity or make the blob arrive instantly at the cursor. Existing speed-ceiling, drag,
+momentum, and movement-lock semantics continue to apply. Future fast/slow zones or time periods
+may vary effective movement parameters at the same shared server locomotion owner; they are not
+new features or reserved schema in this amendment.
+
+Step 11a reuses `useThrustInput`, the existing `set_thrust` path, and the current canvas projection
+to produce zero/unit mouse direction. Other producers' accepted subunit analog-command
+arithmetic is not globally rewritten. A stationary cursor still needs a new direction when the
+blob or camera moves. Pointer release clears intent and permits ordinary coasting; it must not
+delete velocity. Keyboard access, UI/typing isolation, cancellation, ownership, and fresh
+activation after stun apply to the same input owner.
+
+The owner subsequently selected **right-button hold on the arena for mouse thrust**, preserving
+primary/left-drag manual camera panning (2026-09-10). Releasing the right button clears mouse
+thrust intent; it does not cancel existing momentum. Context-menu suppression is scoped to the
+arena steering gesture, not unrelated room controls or the whole page. Exact-center behavior
+and keyboard/source priority remain proposed implementation defaults to review, not hidden
+proportional acceleration. Ability aim later reuses this same direction owner. This confirms
+the activation binding, not implementation completion or Step 5 acceptance.
+
+This input clarification is distinct from the prototype's numerical-admissibility limitations.
+It neither broadens accepted geometric input ranges nor approves silent precision/work fallback.
+
+### Capacity and performance deferred
+
+The owner does not expect 256 simultaneous physical bodies and has deferred selecting supported
+capacity and optimizing performance. Native evidence is no longer a prerequisite for the
+present Step 5 design decision; it remains required before performance/release certification.
+Existing hard bounds remain provisional engineering guards, not a product capacity target or a
+native performance claim. The new per-object behavior still requires proof and human review.
+
+Simpler geometry and reduced clock rate or resolution are possible later tradeoffs. No such
+change is made now. In particular, the 400 Hz clock, deterministic representation, and accepted
+fixture values remain intact; changing those is a deliberate contract/fixture migration, not an
+automatic runtime degradation. Step 24 retains the native verification requirement.

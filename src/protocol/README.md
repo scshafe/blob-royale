@@ -5,7 +5,7 @@ only production location that may translate validated simulation values into JSO
 and the only one that may turn a client-chosen byte into a `simulation::Command`.
 
 Its public interface consists of the validated `RequestId`, `PublicConfiguration`,
-`HttpError`, `V3HttpError`, and `SessionWelcome` values, the `ControllerDirectoryView`
+`HttpError`, `V3HttpError`, `SessionWelcome`, and `MovementTuningWireResult` values, the `ControllerDirectoryView`
 port, and the concrete functions in `protocol_json_encoding.hpp` (v1),
 `protocol_v3_json_encoding.hpp` (v3), `command_decoding.hpp` (the inbound direction),
 and `protocol_v3_frame_conformance.hpp` (the invariants JSON Schema cannot express).
@@ -41,3 +41,10 @@ The encoder reads the authored value retained by the map/snapshot, never a per-m
 or a fallback rectangle. Historical v2 schemas/examples remain validated but have no active
 encoder/decoder. Both parsed session-version URL prefixes use the current v3 error envelope;
 only recognized retired routes receive the fixed application-major upgrade error. V1 stays closed.
+
+V3 snapshots publish shared movement current/defaults/limits/revision/effective tick and require
+an explicitly supplied nullable session result outside `match`. The result value enforces its
+closed statuses and nullable fields without depending on runtime types; the server owns the
+adapter. The encoder and frame oracle enforce snapshot coverage, while the client additionally
+checks exact pending-request correlation. `set_movement_tuning` decoding uses the same closed
+command path and the mode's published accepted mask.

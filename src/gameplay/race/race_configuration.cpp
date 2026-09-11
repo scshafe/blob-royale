@@ -2,7 +2,6 @@
 
 #include "gameplay_validation_error.hpp"
 #include "shared/duration_ticks.hpp"
-#include "shared/thrust_steering_system.hpp"
 #include "simulation_limits.hpp"
 #include "snake_case_identity.hpp"
 
@@ -33,7 +32,6 @@ void require_finite_and_positive(const double value, const std::string_view key)
 } // namespace
 
 RaceConfiguration RaceConfiguration::create(const Section& section) {
-  require_valid_thrust_maximum(section.thrust_max_world_units_per_second_squared);
   if (!simulation::is_wire_kind_name(section.road)) {
     throw GameplayValidationError(GameplayValidationCode::kRaceRoadNameInvalid, context_of("road"),
                                   "road must be a snake_case terrain corridor identity within "
@@ -59,35 +57,29 @@ RaceConfiguration RaceConfiguration::create(const Section& section) {
       duration_ticks(section.countdown_seconds, context_of("countdown_seconds"));
   const std::uint64_t restart_delay_ticks =
       duration_ticks(section.restart_delay_seconds, context_of("restart_delay_seconds"));
-  return RaceConfiguration(section.thrust_max_world_units_per_second_squared, section.road,
-                           section.checkpoint_radius_world_units, respawn_delay_ticks,
+  return RaceConfiguration(section.road, section.checkpoint_radius_world_units, respawn_delay_ticks,
                            finish_window_ticks, time_limit_ticks, countdown_ticks,
                            restart_delay_ticks);
 }
 
 RaceConfiguration::Section RaceConfiguration::default_section() {
-  return Section{kDefaultThrustMaximumWorldUnitsPerSecondSquared,
-                 std::string{kDefaultRoad},
-                 kDefaultCheckpointRadiusWorldUnits,
-                 kDefaultRespawnDelaySeconds,
-                 kDefaultFinishWindowSeconds,
-                 kDefaultTimeLimitSeconds,
-                 kDefaultCountdownSeconds,
+  return Section{std::string{kDefaultRoad},   kDefaultCheckpointRadiusWorldUnits,
+                 kDefaultRespawnDelaySeconds, kDefaultFinishWindowSeconds,
+                 kDefaultTimeLimitSeconds,    kDefaultCountdownSeconds,
                  kDefaultRestartDelaySeconds};
 }
 
 RaceConfiguration RaceConfiguration::defaults() { return create(default_section()); }
 
-RaceConfiguration::RaceConfiguration(const double thrust_maximum, std::string road,
-                                     const double checkpoint_radius,
+RaceConfiguration::RaceConfiguration(std::string road, const double checkpoint_radius,
                                      const std::uint64_t respawn_delay_ticks,
                                      const std::uint64_t finish_window_ticks,
                                      const std::uint64_t time_limit_ticks,
                                      const std::uint64_t countdown_ticks,
                                      const std::uint64_t restart_delay_ticks)
-    : thrust_maximum_(thrust_maximum), road_(std::move(road)),
-      checkpoint_radius_(checkpoint_radius), respawn_delay_ticks_(respawn_delay_ticks),
-      finish_window_ticks_(finish_window_ticks), time_limit_ticks_(time_limit_ticks),
-      countdown_ticks_(countdown_ticks), restart_delay_ticks_(restart_delay_ticks) {}
+    : road_(std::move(road)), checkpoint_radius_(checkpoint_radius),
+      respawn_delay_ticks_(respawn_delay_ticks), finish_window_ticks_(finish_window_ticks),
+      time_limit_ticks_(time_limit_ticks), countdown_ticks_(countdown_ticks),
+      restart_delay_ticks_(restart_delay_ticks) {}
 
 } // namespace blob_royale::gameplay

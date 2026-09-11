@@ -17,10 +17,11 @@ simulation boundary.
 ```
 src/gameplay/
   game_mode_registry.hpp/.cpp   the closed map from one mode name to its factory
-  game_mode_configuration.hpp   every configured mode's `[<mode>]` section and the hazard table
+  game_mode_configuration.hpp   mode sections, hazard table, and shared authored movement tuning
   gameplay_validation_error.hpp the one exception vocabulary of this library
   shared/                       mechanics and values more than one mode or section uses
-    thrust_steering_system.*    a validated thrust direction becomes stored acceleration
+    thrust_steering_system.*    held intent and current match tuning become stored acceleration
+    locomotion.*               canonical normalization, scaling, and finite-step propulsion cap
     duration_ticks.*            the one conversion from an authored duration to tick counts
     hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
     hazard_spawn_system.*       seats a crossing body per archetype whose interval is due
@@ -73,7 +74,8 @@ src/gameplay/
 `src/gameplay/<mode>/`, which is right for a mechanic one mode owns. `thrust_steering` is declared by
 `sandbox` and, from plan Step 21, by `royale`, and filing it under either would make the other reach
 into its neighbour. The rule is: one mode declares it, it lives in that mode's directory; two modes
-declare it, it moves to `shared/` and takes its scale as a constructor argument.
+declare it, it moves to `shared/`. Immutable mechanic configuration may be captured by systems;
+live movement tuning is match-owned, so shared steering is scalar-free and reads it each tick.
 
 `duration_ticks` is the rule applied to a value rather than a system. It was written inside
 `royale/royale_configuration.cpp` with a note saying it would move here the day something else
@@ -256,7 +258,7 @@ function of elapsed running ticks -- and every tick a player's centre is inside 
 the next point; a contested hill scores nobody unless `contested_hill_scores` says otherwise, and
 the first to `points_to_win`, or the leader when the clock runs out, wins
 (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill"). It accepts
-royale's nine command kinds; uses the engine's built-in contact rows beneath `lethal_hazard`;
+royale's ten command kinds; uses the engine's built-in contact rows beneath `lethal_hazard`;
 declares `thrust_steering` at `kPreKernel`, `hill_movement` then `hill_scoring` at `kPostKernel`,
 and `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `hill_rules_publisher` at
 `kLifecycle`; seats joiners at the next free point in every phase, because the field is open; and
@@ -296,7 +298,7 @@ as gates, with the last gate as the finish. `checkpoint_progress` takes at most 
 `track_bounds` then emits an elimination for an off-road centre. The lifecycle systems run in this
 order: `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn`, `course_publisher`; the engine evaluates the objective afterwards. The mode uses
-shared steering and lethal-hazard contact, and accepts the same nine command kinds as royale.
+shared steering and lethal-hazard contact, and accepts the same ten command kinds as royale.
 
 `RaceMode::validate_map` builds and validates one `RaceCourse` before `systems()` reads it. The
 registry factory has configuration but no map, so the existing map-bearing declaration is the
@@ -338,8 +340,10 @@ or numbered kernel phase.
 
 ## Steering
 
-`steered_acceleration` is the one place a thrust direction becomes an acceleration, and **the
-magnitude clamp happens exactly once, there**. `ThrustCommand` carries the submitted direction
+`shared/locomotion` owns normalization, scaling, and the finite-step normal propulsion cap.
+`steered_acceleration` delegates normalization and scaling while retaining its wider standalone
+scalar domain. The magnitude clamp happens exactly once per new command, and the normalized
+intent is retained privately on `Controllable`. `ThrustCommand` carries the submitted direction
 verbatim and `InputBatch::create` only range-checks each component against `[-1, 1]`, because
 clamping at construction and again in the system would scale twice and is not bit-identical to
 scaling once. The written operation order is the contract of
@@ -354,6 +358,34 @@ acceleration = ((x * s) * thrust_max, (y * s) * thrust_max)
 
 `sqrt(x * x + y * y)` is written out rather than delegated to `std::hypot`, which computes a
 different binary64 value for the same inputs.
+
+The shared required `[movement]` pair replaces per-mode thrust authoring, including Sandbox's old
+scalar. `simulation::MovementTuning` validates acceleration in `[0, 10000]` wu/s² and normal top
+speed in `[1, 10000]` wu/s; runtime defaults are `400/600`. `GameModeConfiguration::movement`
+carries startup authoring, and `MatchState::movement` owns current/default values, revision, and
+effective tick. The stateless steering system reads current tuning every tick in every existing
+phase. Competitive modes advertise seated `set_movement_tuning`; Sandbox has no seats and keeps
+that command absent, but its locomotion still reads the shared authored pair.
+
+Absent intent preserves authored acceleration before the first command. Explicit zero is a held
+coast, not absence. Each later tick scales the retained intent without reclamping, so a committed
+tuning change affects held input immediately. `seat_body_at_rest` clears previous-body intent,
+including zero-delay replacements, without discarding newly recorded commands. Publication strips
+private intent with the command list; room tuning remains public and survives round resets.
+
+The propulsion cap constrains the canonical requested Euler endpoint to the computed squared
+speed bound `max(normal_top_speed², current_velocity·current_velocity)`, returning acceleration,
+never rewriting velocity. An already-admissible request is returned verbatim. Otherwise the
+canonical locomotion owner uses its bounded radial/acceleration correction policy and rechecks
+canonical integration plus non-amplification. Only the first computed projected endpoint equal
+to current velocity is accepted as quantized coast; later identity or correction exhaustion fails
+with `GAMEPLAY.LOCOMOTION_PRECISION_LOST`. This policy can reject valid ordinary-scale inputs;
+it is not a totality or exact-real projection guarantee. Canonical physical-domain failures remain
+visible. Integration, drag, and external collision momentum retain their original owners.
+
+The independent frozen arithmetic and real-system sequence proof remains after delegation.
+Legacy gameplay/replay construction explicitly retains its prior acceleration and an unreachable
+normal ceiling of `10000`; the complete accepted horizons, not a replaced oracle, prove inactivity.
 
 ## Determinism obligations
 

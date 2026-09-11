@@ -2,6 +2,7 @@
 
 #include "game_server_error.hpp"
 #include "match_session_context.hpp"
+#include "movement_tuning_result_adapter.hpp"
 #include "server_limits.hpp"
 
 #include "command_decoding.hpp"
@@ -320,6 +321,11 @@ void SessionWebSocketSession::admit_client_command(const std::string_view frame)
   const runtime::CommandSubmissionResult result =
       lobby_->match_session().command_sink().submit(*controller_, *decoded.command());
   log_lobby_command(*decoded.command(), result);
+  if (result == runtime::CommandSubmissionResult::kRejectedTuningRequestIdReused) {
+    request_close(CloseIntent::kTuningRequestIdReused);
+  } else if (result == runtime::CommandSubmissionResult::kRejectedTuningRequestInFlight) {
+    request_close(CloseIntent::kTuningRequestInFlight);
+  }
 }
 
 void SessionWebSocketSession::log_lobby_command(
@@ -338,6 +344,11 @@ void SessionWebSocketSession::log_lobby_command(
                  " npc_kind=" + std::string(value.kind.value());
         } else if constexpr (std::is_same_v<CommandType, simulation::StartMatchCommand>) {
           return std::string{};
+        } else if constexpr (std::is_same_v<CommandType, simulation::SetMovementTuningCommand>) {
+          return " tuning_request_id=" + std::to_string(value.tuning_request_id) +
+                 " expected_revision=" + std::to_string(value.expected_revision) +
+                 " acceleration=" + std::to_string(value.tuning.acceleration()) +
+                 " normal_top_speed=" + std::to_string(value.tuning.normal_top_speed());
         } else {
           return std::nullopt;
         }
@@ -645,11 +656,22 @@ void SessionWebSocketSession::start_snapshot_write(SnapshotDelivery delivery,
                                                    SnapshotEgressLease egress_lease) {
   active_egress_lease_.emplace(std::move(egress_lease));
   try {
+    if (!controller_.has_value()) {
+      throw GameServerError{GameServerErrorCode::kSessionInvariantFailed,
+                            "session.tuning_result.controller",
+                            "a snapshot write requires its admitted session controller"};
+    }
+    active_write_tuning_result_ = lobby_->match_session().tuning_result_delivery().claim(
+        *controller_, delivery.snapshot->tick_sequence());
+    const std::optional<protocol::MovementTuningWireResult> tuning_result =
+        active_write_tuning_result_.has_value()
+            ? std::optional{movement_tuning_wire_result(*active_write_tuning_result_, *controller_)}
+            : std::nullopt;
     // `SnapshotDeliveryState` counts delivered snapshots from one; on a v3 session the welcome
     // already spent message sequence one, so a snapshot's sequence is its delivery number plus the
     // welcome's. The first snapshot is therefore two, which is what the schema pins.
     active_write_payload_ = protocol::encode_snapshot_message_v3(
-        *delivery.snapshot, lobby_->match_session().directory_view(), request_id_,
+        *delivery.snapshot, lobby_->match_session().directory_view(), tuning_result, request_id_,
         delivery.message_sequence + protocol::kWelcomeMessageSequence, current_utc_timestamp(),
         active_egress_lease_->owned_byte_count());
   } catch (const protocol::ProtocolEncodingError& error) {
@@ -846,6 +868,7 @@ void SessionWebSocketSession::request_stop(const SessionStopMode mode) noexcept 
 
 void SessionWebSocketSession::release_active_payload() noexcept {
   std::string{}.swap(active_write_payload_);
+  active_write_tuning_result_.reset();
   active_egress_lease_.reset();
 }
 
@@ -939,6 +962,8 @@ std::uint16_t SessionWebSocketSession::close_code_for(const CloseIntent close_in
   case CloseIntent::kCommandMalformed:
   case CloseIntent::kCommandKindRejected:
   case CloseIntent::kCommandPayloadInvalid:
+  case CloseIntent::kTuningRequestInFlight:
+  case CloseIntent::kTuningRequestIdReused:
     return static_cast<std::uint16_t>(websocket::close_code::policy_error);
   case CloseIntent::kClientMessageTooLarge:
     return static_cast<std::uint16_t>(websocket::close_code::too_big);
@@ -989,6 +1014,12 @@ websocket::close_reason SessionWebSocketSession::close_reason_for(const CloseInt
     break;
   case CloseIntent::kCommandPayloadInvalid:
     result.reason = "command_payload_invalid";
+    break;
+  case CloseIntent::kTuningRequestInFlight:
+    result.reason = "tuning_request_in_flight";
+    break;
+  case CloseIntent::kTuningRequestIdReused:
+    result.reason = "tuning_request_id_reused";
     break;
   case CloseIntent::kInternalFailure:
     result.reason = "internal_failure";

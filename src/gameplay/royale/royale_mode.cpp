@@ -39,9 +39,8 @@ RoyaleMode::create(RoyaleConfiguration configuration, std::vector<HazardArchetyp
 
 simulation::SystemPipeline RoyaleMode::systems() const {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
-  declared.push_back(simulation::SystemPipeline::StagedSystem{
-      simulation::SystemStage::kPreKernel,
-      ThrustSteeringSystem::create(configuration_.thrust_maximum())});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              ThrustSteeringSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, ZoneShrinkSystem::create(configuration_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{

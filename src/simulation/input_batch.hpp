@@ -39,7 +39,7 @@ namespace blob_royale::simulation {
 // without the world -- and it is the part that would otherwise be an allocation an attacker chose.
 //
 // **The canonical order** is the phase-0 application order of § "Canonical tick" -- despawns, then
-// spawns, then every remaining kind in ascending enumerator value -- and, within one kind,
+// spawns, then the explicit command_kind_application_rank -- and, within one kind,
 // ascending by the identity the command addresses. A spawn addresses no entity, because the engine
 // chooses the EntityId, so spawns are ordered by ascending ControllerId and are placed as one
 // contiguous group between the despawns and the remaining kinds, which is where phase 0 applies

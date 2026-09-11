@@ -1,6 +1,10 @@
 add_executable(blob_protocol_unit_tests
   command_decoding_tests.cpp
   http_error_tests.cpp
+  movement_tuning_wire_result_tests.cpp
+  movement_tuning_encoding_tests.cpp
+  movement_tuning_command_tests.cpp
+  movement_tuning_conformance_tests.cpp
   protocol_json_encoding_tests.cpp
   protocol_v3_json_encoding_tests.cpp
   public_configuration_tests.cpp

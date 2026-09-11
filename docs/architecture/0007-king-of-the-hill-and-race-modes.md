@@ -890,3 +890,17 @@ pre-delegation proofs and final two-lane evidence are recorded in the implementa
 This changes publication ownership, not race endpoint sampling, checkpoint chronology, return
 timing, standings, physical motion, or controller caution/heading policy. Those accepted outcomes
 remain unchanged; continuous-motion adoption still requires the separate Step 5 gate.
+
+## Amendment: shared movement authoring, 2026-09-11 (plan Step 10)
+
+The thrust rows in both § "Mode configuration" tables retire into the single required `[movement]`
+section specified by ADR 0005/0008. Hill, race, royale, and sandbox all declare the same stateless
+steering system reading `MatchState::movement`; none retains an active constructor scalar or
+per-mode thrust key. Sandbox's former hard-coded maximum also retires. A mode without seats does
+not gain seated tuning authority merely because it declares locomotion.
+
+Mode-specific configuration, scoring, objectives, return timing, and course geometry keep their
+existing owners. Shared seating clears prior-body steering intent on returns, including zero-delay
+replacement, without erasing commands already recorded for the new body. Match tuning survives
+round reset. Unchanged replay bits under explicit inactive fixture ceilings remain required;
+normal movement limits are not a new clamp on external velocity or approval of the physics gate.

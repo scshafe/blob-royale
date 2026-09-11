@@ -54,8 +54,8 @@ class RespawnSystem final : public simulation::SimulationSystem {
 public:
   static constexpr std::string_view kSystemName = "respawn";
 
-  // Takes the tick count rather than a whole configuration, the way `thrust_steering` takes its
-  // one scale: a system's members should be what it needs. Zero is legal and means the eliminated
+  // Takes the tick count rather than a whole configuration: a system captures only the immutable
+  // configuration it needs. Zero is legal and means the eliminated
   // are offered a seat on the very next tick.
   [[nodiscard]] static std::unique_ptr<const simulation::SimulationSystem>
   create(std::uint64_t respawn_delay_ticks);

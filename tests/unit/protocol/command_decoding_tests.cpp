@@ -8,12 +8,15 @@
 #include "command_registry.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/seat_npc_command.hpp"
+#include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "vector2.hpp"
+#include <boost/json/parse.hpp>
+#include <boost/json/serialize.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -52,7 +55,7 @@ inline constexpr std::uint64_t kStampedControllerId = 3;
   return simulation::CommandKindMask::create(
       {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
        simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-       simulation::CommandKind::kStartMatch});
+       simulation::CommandKind::kStartMatch, simulation::CommandKind::kSetMovementTuning});
 }
 
 [[nodiscard]] protocol::CommandDecodeResult decode(const std::string_view frame) {

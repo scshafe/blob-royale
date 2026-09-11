@@ -92,3 +92,26 @@ TEST_CASE("Every registered factory produces a mode that answers to its register
     CHECK(mode->name() == registration.name);
   }
 }
+
+TEST_CASE("GameModeConfiguration owns shared movement defaults independently of every mode section",
+          "[unit][gameplay][game_mode_registry][movement]") {
+  const auto original = gameplay::GameModeConfiguration::defaults();
+  CHECK(original.movement == simulation::MovementTuning::defaults());
+  auto changed = original;
+  changed.movement = testing::gameplay_movement_tuning();
+  CHECK(changed != original);
+  CHECK(changed.royale == original.royale);
+  CHECK(changed.king_of_the_hill == original.king_of_the_hill);
+  CHECK(changed.race == original.race);
+  CHECK(changed.hazards == original.hazards);
+}
+
+TEST_CASE("Only modes with seats advertise the shared movement tuning command",
+          "[unit][gameplay][game_mode_registry][movement]") {
+  for (const auto& registration : gameplay::GameModeRegistry::registrations()) {
+    CAPTURE(registration.name);
+    const auto mode = registration.factory(gameplay::GameModeConfiguration::defaults());
+    CHECK(mode->accepted_command_kinds().contains(simulation::CommandKind::kSetMovementTuning) ==
+          (registration.name != gameplay::SandboxMode::kModeName));
+  }
+}

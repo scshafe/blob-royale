@@ -71,8 +71,10 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 // interpret -- and it is true of the four lobby kinds for the same reason: they write `MatchState`,
 // which is engine-owned state gating an engine-owned transition. The rule the ADR is stating is
 // that a *mode's* meaning is a mode's system, which is exactly why `thrust` is recorded rather than
-// applied: what a thrust does depends on a `thrust_max` only the mode knows. Nothing about a seat
-// depends on the mode; a mode reads the roster through its objective and never writes one. A
+// applied: normal propulsion is interpreted by the shared gameplay steering system, using the
+// room's movement tuning. The tuning command itself is another engine-owned exception: it updates
+// shared MatchState here and returns commit-only decisions. Nothing about a seat depends on the
+// mode; a mode reads the roster through its objective and never writes one. A
 // `leave` is the engine's own for the reason a despawn is: it removes what a departed controller
 // drove and vacates its seat, and nothing about that depends on the mode either.
 //
@@ -287,7 +289,11 @@ void apply_leave(GameWorld& world, const ControllerId controller) {
 }
 
 void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
-                       const std::size_t seat_ceiling) {
+                       const std::size_t seat_ceiling, const TickSequence decision_tick,
+                       std::vector<MovementTuningDecision>& tuning_decisions) {
+  const std::uint64_t entry_revision = world.match().movement.revision;
+  const SetMovementTuningCommand* winner = nullptr;
+  std::optional<std::size_t> winner_index;
   // Last tick's recorded commands are cleared in place rather than by reconstructing the
   // component, so each entity's vector keeps its capacity across ticks.
   for (Controllable& controllable : world.mutable_store<Controllable>().mutable_values()) {
@@ -315,6 +321,22 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
       const EntityId created = world.create_entity();
       world.mutable_store<Controllable>().insert_or_assign(created,
                                                            Controllable{spawn->controller});
+      continue;
+    }
+    if (const auto* tuning = std::get_if<SetMovementTuningCommand>(&command); tuning != nullptr) {
+      auto status = MovementTuningDecisionStatus::kSuperseded;
+      if (!controller_holds_a_seat(world.match().seats, tuning->controller)) {
+        status = MovementTuningDecisionStatus::kNotSeated;
+      } else if (tuning->expected_revision != entry_revision) {
+        status = MovementTuningDecisionStatus::kStaleRevision;
+      } else if (entry_revision >= kMaximumProtocolSafeInteger) {
+        status = MovementTuningDecisionStatus::kRevisionExhausted;
+      } else {
+        winner = tuning;
+        winner_index = tuning_decisions.size();
+      }
+      tuning_decisions.push_back(MovementTuningDecision{
+          tuning->controller, tuning->tuning_request_id, status, decision_tick, entry_revision});
       continue;
     }
     if (apply_lobby_command(world, command, seat_ceiling)) {
@@ -346,6 +368,19 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
       // disagreement waiting for a fourth kind (engine review finding 6).
       controllable->commands_this_tick.push_back(command);
     }
+  }
+  // Every contender compared against entry_revision. Later joins cannot grant retroactive
+  // authority, and a later Leave cannot undo an already admitted contender. Apply once, before
+  // any pre-kernel system or the lifecycle evaluation of Start sees the working match.
+  if (winner != nullptr) {
+    auto& movement = world.mutable_match().movement;
+    movement.current = winner->tuning;
+    movement.revision = entry_revision + 1;
+    movement.effective_tick = decision_tick;
+    tuning_decisions[*winner_index].status = MovementTuningDecisionStatus::kApplied;
+  }
+  for (auto& decision : tuning_decisions) {
+    decision.revision = world.match().movement.revision;
   }
 }
 
@@ -782,8 +817,15 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
                         std::move(mode_name), accepted_command_kinds, TickSequence::zero());
 }
 
-void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_batch) {
+MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
+                                             const InputBatch& input_batch) {
   const TickSequence next_tick_sequence = tick_sequence_.next();
+  std::vector<MovementTuningDecision> tuning_decisions;
+  const auto tuning_count = std::count_if(
+      input_batch.commands().begin(), input_batch.commands().end(), [](const Command& command) {
+        return std::holds_alternative<SetMovementTuningCommand>(command);
+      });
+  tuning_decisions.reserve(static_cast<std::size_t>(tuning_count));
 
   // Phase 0. Every phase and stage below reads the working world, so a failure anywhere leaves the
   // committed world, grid, and sequence exactly as the previous commit left them.
@@ -795,7 +837,8 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   GameWorld next_world = world_;
   next_world.open_tick(input_batch.entity_id_reservation());
   // The map's spawn-marker count is the lobby's ceiling at run time, as it is at startup.
-  apply_input_batch(next_world, input_batch, map().spawn_points().size());
+  apply_input_batch(next_world, input_batch, map().spawn_points().size(), next_tick_sequence,
+                    tuning_decisions);
 
   // The batch's own index: the bodies the despawns of this batch left, at this tick's
   // start-of-tick positions. It is derived before seating because the SpawnSystem's policy socket
@@ -916,6 +959,7 @@ void GameSimulation::step(const FixedDelta fixed_delta, const InputBatch& input_
   world_ = std::move(next_world);
   grid_ = std::move(next_grid);
   tick_sequence_ = next_tick_sequence;
+  return MovementTuningDecisions(std::move(tuning_decisions));
 }
 
 WorldSnapshot GameSimulation::snapshot() const {

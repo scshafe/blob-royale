@@ -4,6 +4,7 @@ add_library(blob_runtime STATIC
   command_sink_error.cpp
   controller_directory.cpp
   entity_id_allocator.cpp
+  movement_tuning_result_delivery.cpp
   simulation_runtime.cpp
   simulation_runtime_lifecycle_error.cpp
   snapshot_publication.cpp

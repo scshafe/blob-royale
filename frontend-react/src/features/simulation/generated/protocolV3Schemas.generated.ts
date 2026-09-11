@@ -26,7 +26,7 @@ export const protocolV3Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/command-envelope.schema.json',
     title: 'Blob Royale protocol v3 client command envelope',
     description:
-      'Every application data message a client may send. The envelope carries no entity id, no protocol version, no request id, and no client sequence number: identity and version are properties of the connection, and a client-supplied version would be a downgrade lever.',
+      'Every application data message a client may send. The envelope carries no actor identity or protocol version. Only tuning payloads carry a correlation-only tuning_request_id; it grants no authority and never orders simulation commands.',
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
@@ -40,6 +40,23 @@ export const protocolV3Schemas = {
       },
     },
     allOf: [
+      {
+        if: {
+          properties: {
+            kind: {
+              const: 'set_movement_tuning',
+            },
+          },
+          required: ['kind'],
+        },
+        then: {
+          properties: {
+            payload: {
+              $ref: 'set-movement-tuning-command.schema.json',
+            },
+          },
+        },
+      },
       {
         if: {
           properties: {
@@ -305,12 +322,13 @@ export const protocolV3Schemas = {
         enum: [
           'clear_seat',
           'seat_npc',
+          'set_movement_tuning',
           'set_seat_count',
           'set_thrust',
           'start_match',
         ],
         $comment:
-          'The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire. Four of the five operate the pre-match lobby and were added in 2.3; a mode that has no lobby to operate omits them from welcome.accepted_command_kinds rather than accepting a command it cannot honour.',
+          "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller. Availability is the mode's published accepted mask, so Sandbox advertises only set_thrust.",
       },
       lobby_id: {
         type: 'integer',
@@ -846,6 +864,7 @@ export const protocolV3Schemas = {
       'phase_started_tick',
       'seats',
       'start_requested',
+      'movement',
       'outcome',
       'placements',
       'mode_state',
@@ -873,6 +892,9 @@ export const protocolV3Schemas = {
         type: 'boolean',
         $comment:
           'Whether somebody has pressed Start for this lobby. It is one-shot and the server clears it on every arrival in lobby, so a finished match cannot restart itself; a client reads it together with seats to explain why Start is or is not going to fire. Added in 2.3.',
+      },
+      movement: {
+        $ref: 'movement-state.schema.json',
       },
       outcome: {
         $ref: '#/$defs/outcome',
@@ -1194,6 +1216,121 @@ export const protocolV3Schemas = {
       },
     },
   },
+  movementState: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/movement-state.schema.json',
+    title: 'Blob Royale protocol v3 movement state',
+    description:
+      'Authoritative current and room-authored default tuning, intrinsic limits, and the latest committed tuning revision. Defaults survive round resets and change only when the room is recreated.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['current', 'defaults', 'limits', 'revision', 'effective_tick'],
+    properties: {
+      current: {
+        $ref: 'movement-tuning.schema.json',
+      },
+      defaults: {
+        $ref: 'movement-tuning.schema.json',
+      },
+      limits: {
+        type: 'object',
+        additionalProperties: false,
+        required: [
+          'acceleration_world_units_per_second_squared',
+          'normal_top_speed_world_units_per_second',
+        ],
+        properties: {
+          acceleration_world_units_per_second_squared: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['minimum', 'maximum'],
+            properties: {
+              minimum: {
+                const: 0,
+              },
+              maximum: {
+                const: 10000,
+              },
+            },
+          },
+          normal_top_speed_world_units_per_second: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['minimum', 'maximum'],
+            properties: {
+              minimum: {
+                const: 1,
+              },
+              maximum: {
+                const: 10000,
+              },
+            },
+          },
+        },
+      },
+      revision: {
+        $ref: 'common.schema.json#/$defs/safe_integer',
+      },
+      effective_tick: {
+        $ref: 'common.schema.json#/$defs/phase_start_tick',
+      },
+    },
+    allOf: [
+      {
+        if: {
+          properties: {
+            revision: {
+              const: 0,
+            },
+          },
+          required: ['revision'],
+        },
+        then: {
+          properties: {
+            effective_tick: {
+              const: 0,
+            },
+          },
+        },
+        else: {
+          properties: {
+            effective_tick: {
+              $ref: 'common.schema.json#/$defs/tick_sequence',
+            },
+          },
+        },
+      },
+    ],
+    $comment:
+      'effective_tick must not exceed the containing snapshot tick. A revision change alone does not acknowledge any particular client request.',
+  },
+  movementTuning: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/movement-tuning.schema.json',
+    title: 'Blob Royale protocol v3 movement tuning',
+    description:
+      'One absolute room-wide normal-propulsion pair. These parameter bounds do not cap external momentum or certify solver capacity.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'acceleration_world_units_per_second_squared',
+      'normal_top_speed_world_units_per_second',
+    ],
+    properties: {
+      acceleration_world_units_per_second_squared: {
+        type: 'number',
+        minimum: 0,
+        maximum: 10000,
+      },
+      normal_top_speed_world_units_per_second: {
+        type: 'number',
+        minimum: 1,
+        maximum: 10000,
+      },
+    },
+  },
   physicsBodyComponent: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/physics-body-component.schema.json',
@@ -1414,6 +1551,40 @@ export const protocolV3Schemas = {
     $comment:
       "Fills an empty seat and never replaces an occupied one, so two clients seating one seat in one tick resolve by the batch's order and the second press is a no-op rather than an eviction. Replacing an occupant is clear_seat followed by seat_npc, which the server applies in that order within one tick. Added in 2.3.",
   },
+  setMovementTuningCommand: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/set-movement-tuning-command.schema.json',
+    title: 'Blob Royale protocol v3 set movement tuning command',
+    description:
+      'Atomic absolute tuning request. Request IDs strictly increase per connection for correlation only; canonical command order, not IDs, chooses the winner.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'tuning_request_id',
+      'expected_revision',
+      'acceleration_world_units_per_second_squared',
+      'normal_top_speed_world_units_per_second',
+    ],
+    properties: {
+      tuning_request_id: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 9007199254740991,
+      },
+      expected_revision: {
+        $ref: 'common.schema.json#/$defs/safe_integer',
+      },
+      acceleration_world_units_per_second_squared: {
+        $ref: 'movement-tuning.schema.json#/properties/acceleration_world_units_per_second_squared',
+      },
+      normal_top_speed_world_units_per_second: {
+        $ref: 'movement-tuning.schema.json#/properties/normal_top_speed_world_units_per_second',
+      },
+    },
+    $comment:
+      'No room/controller/entity identity is admitted. Reset sends the published defaults through this same command. Invalid shape/ranges retain the existing malformed command close policy.',
+  },
   setSeatCountCommand: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/set-seat-count-command.schema.json',
@@ -1462,7 +1633,13 @@ export const protocolV3Schemas = {
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
-    required: ['tick_sequence', 'random_draw_counts', 'entities', 'match'],
+    required: [
+      'tick_sequence',
+      'random_draw_counts',
+      'entities',
+      'match',
+      'tuning_result',
+    ],
     properties: {
       tick_sequence: {
         $ref: 'common.schema.json#/$defs/tick_sequence',
@@ -1495,6 +1672,16 @@ export const protocolV3Schemas = {
       },
       match: {
         $ref: 'match-data.schema.json',
+      },
+      tuning_result: {
+        oneOf: [
+          {
+            $ref: 'tuning-result.schema.json',
+          },
+          {
+            type: 'null',
+          },
+        ],
       },
     },
   },
@@ -1711,6 +1898,176 @@ export const protocolV3Schemas = {
       },
     },
   },
+  tuningResult: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/tuning-result.schema.json',
+    title: 'Blob Royale protocol v3 tuning result',
+    description:
+      'One session-specific terminal tuning result claimed into an ordinary snapshot. Unknown is client-only and is never a server status.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'tuning_request_id',
+      'status',
+      'decision_tick',
+      'revision',
+      'retry_after_milliseconds',
+    ],
+    properties: {
+      tuning_request_id: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 9007199254740991,
+      },
+      status: {
+        enum: [
+          'applied',
+          'superseded',
+          'stale_revision',
+          'not_seated',
+          'revision_exhausted',
+          'rate_limited',
+          'mailbox_full',
+          'mailbox_evicted',
+        ],
+      },
+      decision_tick: {
+        oneOf: [
+          {
+            $ref: 'common.schema.json#/$defs/tick_sequence',
+          },
+          {
+            type: 'null',
+          },
+        ],
+      },
+      revision: {
+        oneOf: [
+          {
+            $ref: 'common.schema.json#/$defs/safe_integer',
+          },
+          {
+            type: 'null',
+          },
+        ],
+      },
+      retry_after_milliseconds: {
+        oneOf: [
+          {
+            type: 'integer',
+            minimum: 1,
+            maximum: 500,
+          },
+          {
+            type: 'null',
+          },
+        ],
+      },
+    },
+    allOf: [
+      {
+        if: {
+          properties: {
+            status: {
+              enum: [
+                'applied',
+                'superseded',
+                'stale_revision',
+                'not_seated',
+                'revision_exhausted',
+              ],
+            },
+          },
+          required: ['status'],
+        },
+        then: {
+          properties: {
+            decision_tick: {
+              $ref: 'common.schema.json#/$defs/tick_sequence',
+            },
+            revision: {
+              $ref: 'common.schema.json#/$defs/safe_integer',
+            },
+          },
+        },
+        else: {
+          properties: {
+            decision_tick: {
+              type: 'null',
+            },
+            revision: {
+              type: 'null',
+            },
+          },
+        },
+      },
+      {
+        if: {
+          properties: {
+            status: {
+              enum: ['applied', 'superseded'],
+            },
+          },
+          required: ['status'],
+        },
+        then: {
+          properties: {
+            revision: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 9007199254740991,
+            },
+          },
+        },
+      },
+      {
+        if: {
+          properties: {
+            status: {
+              const: 'revision_exhausted',
+            },
+          },
+          required: ['status'],
+        },
+        then: {
+          properties: {
+            revision: {
+              const: 9007199254740991,
+            },
+          },
+        },
+      },
+      {
+        if: {
+          properties: {
+            status: {
+              const: 'rate_limited',
+            },
+          },
+          required: ['status'],
+        },
+        then: {
+          properties: {
+            retry_after_milliseconds: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 500,
+            },
+          },
+        },
+        else: {
+          properties: {
+            retry_after_milliseconds: {
+              type: 'null',
+            },
+          },
+        },
+      },
+    ],
+    $comment:
+      'A committed decision tick and revision must be covered by the containing snapshot. Client admission also requires an exact pending request match; applied revision is pending expected_revision + 1. These contextual checks cannot be replaced by this standalone schema.',
+  },
   welcomeData: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/welcome-data.schema.json',
@@ -1731,8 +2088,12 @@ export const protocolV3Schemas = {
       'lobby_id',
       'seat_count_maximum',
       'terrain',
+      'movement_tuning_minimum_interval_milliseconds',
     ],
     properties: {
+      movement_tuning_minimum_interval_milliseconds: {
+        const: 500,
+      },
       terrain: {
         $ref: 'terrain-data.schema.json',
         $comment:
@@ -1759,13 +2120,13 @@ export const protocolV3Schemas = {
       },
       accepted_command_kinds: {
         type: 'array',
-        maxItems: 5,
+        maxItems: 6,
         uniqueItems: true,
         items: {
           $ref: 'common.schema.json#/$defs/command_kind',
         },
         $comment:
-          "maxItems tracks the size of common.schema.json#/$defs/command_kind, which went from one to five in 2.3. The published set is the intersection of the mode's accepted kinds with the client-sendable vocabulary, so it can never name a server-issued kind such as spawn or despawn, and a mode without a lobby publishes only set_thrust.",
+          "maxItems tracks the six client-sendable kinds in common.schema.json. The published set is the intersection of the mode's accepted kinds with that vocabulary, never a server-issued kind such as spawn or despawn. Sandbox publishes only set_thrust.",
       },
       npc_controller_kinds: {
         type: 'array',

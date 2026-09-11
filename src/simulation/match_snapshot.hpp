@@ -59,6 +59,9 @@ public:
   [[nodiscard]] const SeatRoster& seats() const& noexcept { return state_.seats; }
   [[nodiscard]] const SeatRoster& seats() const&& = delete;
 
+  [[nodiscard]] const MovementTuningState& movement() const& noexcept { return state_.movement; }
+  [[nodiscard]] const MovementTuningState& movement() const&& = delete;
+
   // The mode's own match-state block. `mode_match_state_schema_id_of` names which arm it holds.
   [[nodiscard]] const ModeMatchState& mode_state() const& noexcept { return state_.mode_state; }
   [[nodiscard]] const ModeMatchState& mode_state() const&& = delete;

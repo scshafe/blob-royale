@@ -23,6 +23,7 @@ import type {
   SessionTerrain,
   SessionWelcomeMessage,
   SimulationConfiguration,
+  MovementTuningExchangeState,
 } from './simulationProtocolTypes';
 import { findOwnEntityId } from './sessionSelectors';
 
@@ -58,6 +59,7 @@ export interface SimulationConnectionState {
   readonly entities: readonly SessionEntitySnapshot[];
   readonly error: SimulationApiError | null;
   readonly match: SessionMatchSection | null;
+  readonly movementTuning: MovementTuningExchangeState;
   readonly ownEntityId: number | null;
   readonly reconnectAttempt: number;
   readonly session: SimulationSessionIdentity | null;
@@ -72,6 +74,11 @@ export interface SimulationConnection extends SimulationConnectionState {
 }
 
 type SimulationConnectionAction =
+  | { readonly type: 'movement_tuning_room_changed' }
+  | {
+      readonly type: 'movement_tuning_changed';
+      readonly state: MovementTuningExchangeState;
+    }
   | { readonly type: 'attempt_started' }
   | {
       readonly type: 'configuration_loaded';
@@ -108,6 +115,7 @@ export const initialSimulationConnectionState: SimulationConnectionState =
     entities: NO_ENTITIES,
     error: null,
     match: null,
+    movementTuning: Object.freeze({ status: 'idle' }),
     ownEntityId: null,
     reconnectAttempt: 0,
     session: null,
@@ -121,9 +129,17 @@ export function simulationConnectionReducer(
   action: SimulationConnectionAction,
 ): SimulationConnectionState {
   switch (action.type) {
+    case 'movement_tuning_room_changed':
+      return Object.freeze({
+        ...state,
+        movementTuning: Object.freeze({ status: 'idle' }),
+      });
+    case 'movement_tuning_changed':
+      return Object.freeze({ ...state, movementTuning: action.state });
     case 'attempt_started':
       return Object.freeze({
         ...state,
+        movementTuning: interruptedMovementTuning(state.movementTuning),
         configuration: null,
         entities: NO_ENTITIES,
         error: null,
@@ -180,6 +196,7 @@ export function simulationConnectionReducer(
     case 'retry_scheduled':
       return Object.freeze({
         ...state,
+        movementTuning: interruptedMovementTuning(state.movementTuning),
         configuration: null,
         entities: NO_ENTITIES,
         error: action.error,
@@ -193,6 +210,7 @@ export function simulationConnectionReducer(
     case 'refused':
       return Object.freeze({
         ...state,
+        movementTuning: interruptedMovementTuning(state.movementTuning),
         configuration: null,
         entities: NO_ENTITIES,
         error: action.error,
@@ -203,10 +221,23 @@ export function simulationConnectionReducer(
         status: 'refused',
       });
     case 'failed':
-      return Object.freeze({ ...state, error: action.error, status: 'failed' });
+      return Object.freeze({
+        ...state,
+        movementTuning: interruptedMovementTuning(state.movementTuning),
+        error: action.error,
+        status: 'failed',
+      });
     case 'left':
       return initialSimulationConnectionState;
   }
+}
+
+function interruptedMovementTuning(
+  state: MovementTuningExchangeState,
+): MovementTuningExchangeState {
+  return state.status === 'pending'
+    ? Object.freeze({ status: 'unknown', request: state.request })
+    : state;
 }
 
 function createDefaultSimulationApi(): SimulationApiBoundary {
@@ -286,8 +317,13 @@ export function useSimulationConnection(
     initialSimulationConnectionState,
   );
   const sendingApi = useRef<SimulationApiBoundary | null>(null);
+  const tuningRoom = useRef<number | null>(lobbyId);
 
   useEffect(() => {
+    if (tuningRoom.current !== lobbyId) {
+      tuningRoom.current = lobbyId;
+      dispatch({ type: 'movement_tuning_room_changed' });
+    }
     if (lobbyId === null) {
       dispatch({ type: 'left' });
       return undefined;
@@ -472,6 +508,14 @@ export function useSimulationConnection(
             if (isCurrentAttempt(apiForAttempt, attemptId)) {
               reconnectAttempts = 0;
               dispatch({ snapshot, type: 'snapshot_received' });
+            }
+          },
+          onMovementTuningState: (movementTuning) => {
+            if (isCurrentAttempt(apiForAttempt, attemptId)) {
+              dispatch({
+                type: 'movement_tuning_changed',
+                state: movementTuning,
+              });
             }
           },
           onWelcome: (welcome) => {

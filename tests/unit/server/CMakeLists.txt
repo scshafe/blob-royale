@@ -3,6 +3,7 @@ add_executable(blob_server_unit_tests
   game_server_tests.cpp
   http_header_preflight_tests.cpp
   lobby_directory_tests.cpp
+  movement_tuning_result_adapter_tests.cpp
   peer_identity_tests.cpp
   peer_traffic_policy_tests.cpp
   server_config_tests.cpp

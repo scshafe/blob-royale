@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_GAMEPLAY_GAME_MODE_CONFIGURATION_HPP
 
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
+#include "movement_tuning.hpp"
 #include "race/race_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "shared/hazard_archetype.hpp"
@@ -18,8 +19,9 @@ namespace blob_royale::gameplay {
 // sections; `sandbox` declares none and its factory reads nothing from this value. `hazards` is the
 // first member that belongs to no mode at all: hazards are a mode-agnostic mechanic, so any mode
 // may declare the systems that read the table and a mode that declares none simply never reads it,
-// which is the same relationship `sandbox` already has with `[royale]`. A mode reads only what it
-// declares, which is what keeps a balance change to one game a change to one member.
+// which is the same relationship `sandbox` already has with `[royale]`. `movement` is the shared
+// authored pair used to seed MatchState, not a scalar captured by any mode's steering system.
+// All modes read that current match-owned value through the same stateless steering system.
 //
 // It exists so that `GameModeRegistry::Factory` has one signature. The alternative -- a factory per
 // configured mode, or a registry that returns a name and lets the caller switch -- would put a
@@ -51,6 +53,10 @@ struct GameModeConfiguration final {
   // seeded spawner's choice among kinds is reproducible from the configuration alone.
   std::vector<HazardArchetype> hazards;
 
+  // Required shared `[movement]` pair. Startup seeds both current and reset defaults from this
+  // value; live changes belong exclusively to MatchState::movement and survive round resets.
+  simulation::MovementTuning movement;
+
   // Every configured mode's own declared defaults and no hazards, which is what the no-argument
   // `GameModeRegistry::create(name)` builds. Hazards have no defaults to declare because there is
   // no default kind: a kind exists only because a section declared it.
@@ -58,7 +64,8 @@ struct GameModeConfiguration final {
     return GameModeConfiguration{RoyaleConfiguration::defaults(),
                                  KingOfTheHillConfiguration::defaults(),
                                  RaceConfiguration::defaults(),
-                                 {}};
+                                 {},
+                                 simulation::MovementTuning::defaults()};
   }
 
   friend bool operator==(const GameModeConfiguration&, const GameModeConfiguration&) = default;

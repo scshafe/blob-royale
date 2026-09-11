@@ -1,5 +1,6 @@
 #include "shared/match_reset_system.hpp"
 
+#include "fixtures/thrust_steering_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
 
 #include "components/controllable_component.hpp"
@@ -75,6 +76,10 @@ TEST_CASE("the lobby tick after ended destroys every participant and nothing els
           "[unit][gameplay][shared][reset]") {
   simulation::GameWorld world =
       field_in(simulation::MatchPhase::kLobby, simulation::MatchPhase::kEnded);
+  const simulation::MovementTuningState movement{testing::thrust_steering_fixture::retuned(),
+                                                 testing::gameplay_movement_tuning(), 3,
+                                                 simulation::TickSequence::create(5)};
+  world.mutable_match().movement = movement;
 
   apply(world);
 
@@ -86,6 +91,10 @@ TEST_CASE("the lobby tick after ended destroys every participant and nothing els
   // Seats are engine state and survive: the person keeps theirs and re-spawns onto it.
   CHECK(world.match().seats.seat_count() == 1);
   CHECK(world.match().seats.is_full());
+  // Round reset destroys participants, not room settings or their authored Reset destination.
+  CHECK(world.match().movement.current == movement.current);
+  CHECK(world.match().movement.defaults == movement.defaults);
+  CHECK(world.match().movement == movement);
 }
 
 TEST_CASE("every other pair of phases leaves the field alone", "[unit][gameplay][shared][reset]") {

@@ -2,7 +2,6 @@
 
 #include "gameplay_validation_error.hpp"
 #include "shared/duration_ticks.hpp"
-#include "shared/thrust_steering_system.hpp"
 #include "simulation_limits.hpp"
 
 #include <cmath>
@@ -39,9 +38,6 @@ void require_finite_and_positive(const double value, const std::string_view key)
 } // namespace
 
 KingOfTheHillConfiguration KingOfTheHillConfiguration::create(const Section& section) {
-  // Validated through the steering system's own named rule rather than a second copy of it here,
-  // so a mode cannot declare a thrust maximum the system it builds would refuse.
-  require_valid_thrust_maximum(section.thrust_max_world_units_per_second_squared);
   require_finite_and_positive(section.hill_radius_world_units, "hill_radius_world_units");
   // The hill component and rules block must remain encodable for every accepted configuration.
   if (section.hill_radius_world_units > simulation::kMaximumPhysicalComponentMagnitude) {
@@ -88,25 +84,18 @@ KingOfTheHillConfiguration KingOfTheHillConfiguration::create(const Section& sec
       duration_ticks(section.countdown_seconds, context_of("countdown_seconds"));
   const std::uint64_t restart_delay_ticks =
       duration_ticks(section.restart_delay_seconds, context_of("restart_delay_seconds"));
-  return KingOfTheHillConfiguration(section.thrust_max_world_units_per_second_squared,
-                                    section.hill_radius_world_units, hill_dwell_ticks,
+  return KingOfTheHillConfiguration(section.hill_radius_world_units, hill_dwell_ticks,
                                     hill_travel_ticks, point_interval_ticks, section.points_to_win,
                                     section.contested_hill_scores, time_limit_ticks,
                                     respawn_delay_ticks, countdown_ticks, restart_delay_ticks);
 }
 
 KingOfTheHillConfiguration::Section KingOfTheHillConfiguration::default_section() noexcept {
-  return Section{kDefaultThrustMaximumWorldUnitsPerSecondSquared,
-                 kDefaultHillRadiusWorldUnits,
-                 kDefaultHillDwellSeconds,
-                 kDefaultHillTravelSeconds,
-                 kDefaultPointIntervalSeconds,
-                 kDefaultPointsToWin,
-                 kDefaultContestedHillScores,
-                 kDefaultTimeLimitSeconds,
-                 kDefaultRespawnDelaySeconds,
-                 kDefaultCountdownSeconds,
-                 kDefaultRestartDelaySeconds};
+  return Section{kDefaultHillRadiusWorldUnits, kDefaultHillDwellSeconds,
+                 kDefaultHillTravelSeconds,    kDefaultPointIntervalSeconds,
+                 kDefaultPointsToWin,          kDefaultContestedHillScores,
+                 kDefaultTimeLimitSeconds,     kDefaultRespawnDelaySeconds,
+                 kDefaultCountdownSeconds,     kDefaultRestartDelaySeconds};
 }
 
 KingOfTheHillConfiguration KingOfTheHillConfiguration::defaults() {
@@ -114,16 +103,15 @@ KingOfTheHillConfiguration KingOfTheHillConfiguration::defaults() {
 }
 
 KingOfTheHillConfiguration::KingOfTheHillConfiguration(
-    const double thrust_maximum, const double hill_radius, const std::uint64_t hill_dwell_ticks,
+    const double hill_radius, const std::uint64_t hill_dwell_ticks,
     const std::uint64_t hill_travel_ticks, const std::uint64_t point_interval_ticks,
     const std::uint64_t points_to_win, const bool contested_hill_scores,
     const std::uint64_t time_limit_ticks, const std::uint64_t respawn_delay_ticks,
     const std::uint64_t countdown_ticks, const std::uint64_t restart_delay_ticks) noexcept
-    : thrust_maximum_(thrust_maximum), hill_radius_(hill_radius),
-      hill_dwell_ticks_(hill_dwell_ticks), hill_travel_ticks_(hill_travel_ticks),
-      point_interval_ticks_(point_interval_ticks), points_to_win_(points_to_win),
-      contested_hill_scores_(contested_hill_scores), time_limit_ticks_(time_limit_ticks),
-      respawn_delay_ticks_(respawn_delay_ticks), countdown_ticks_(countdown_ticks),
-      restart_delay_ticks_(restart_delay_ticks) {}
+    : hill_radius_(hill_radius), hill_dwell_ticks_(hill_dwell_ticks),
+      hill_travel_ticks_(hill_travel_ticks), point_interval_ticks_(point_interval_ticks),
+      points_to_win_(points_to_win), contested_hill_scores_(contested_hill_scores),
+      time_limit_ticks_(time_limit_ticks), respawn_delay_ticks_(respawn_delay_ticks),
+      countdown_ticks_(countdown_ticks), restart_delay_ticks_(restart_delay_ticks) {}
 
 } // namespace blob_royale::gameplay

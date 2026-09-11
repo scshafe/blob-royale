@@ -33,6 +33,7 @@ add_library(blob_server STATIC
   http_session.cpp
   lobby_directory.cpp
   match_session_context.cpp
+  movement_tuning_result_adapter.cpp
   peer_identity.cpp
   peer_traffic_policy.cpp
   request_id_generator.cpp

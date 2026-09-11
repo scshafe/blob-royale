@@ -5,7 +5,9 @@
 #include "component_kind_name.hpp"
 #include "component_publication.hpp"
 #include "controller_id.hpp"
+#include "vector2.hpp"
 
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -17,10 +19,9 @@ namespace blob_royale::simulation {
 // are indistinguishable to a tick. This component is the only place the EntityId and ControllerId
 // identity spaces meet.
 //
-// Controllable has exactly two fields and will keep exactly two fields. Persistent *effect* has a
-// home already -- a thrust writes PhysicsBody::acceleration, which persists until the next thrust
-// -- and persistent *ability state* is per-entity durable state, which is what a component is
-// (`docs/architecture/0004-gameplay-architecture.md` § "Entities, components, and stores").
+// Private normalized intent persists between commands so shared locomotion can recompute against
+// room tuning. Absence preserves authored acceleration; an explicit zero is held coast. Ability
+// state still belongs in its own components (ADR 0004, Step 10 amendment).
 struct Controllable final {
   ControllerId controller_id;
   // This tick's recorded commands for this entity: at most one of each kind, **in the tick's one
@@ -40,6 +41,7 @@ struct Controllable final {
   // specialization below is what strips it, so the rule lives with the field rather than in the
   // snapshot builder (engine review finding 4).
   std::vector<Command> commands_this_tick{};
+  std::optional<Vector2> normalized_thrust_intent{};
 
   friend bool operator==(const Controllable&, const Controllable&) = default;
 };
@@ -48,8 +50,8 @@ template <> struct ComponentKindName<Controllable> {
   static constexpr std::string_view value = "controllable";
 };
 
-// A published Controllable is the controller link and nothing else: the recorded commands are
-// tick-local state that leaves with the tick. Discarding rather than copying the vector also
+// A published Controllable is the controller link and nothing else: both recorded commands and
+// persistent normalized intent are private. Discarding rather than copying the vector also
 // removes the per-entity allocation a publication used to pay.
 // related: component_publication.hpp -- why a kind declares this beside its own struct.
 template <> struct ComponentPublication<Controllable> {

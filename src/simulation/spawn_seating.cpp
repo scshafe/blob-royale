@@ -1,6 +1,7 @@
 #include "spawn_seating.hpp"
 
 #include "component_store.hpp"
+#include "components/controllable_component.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
@@ -33,6 +34,12 @@ void seat_body_at_rest(GameWorld& world, const EntityId entity, const Vector2& p
                                   player_radius, PhysicsBody::kDefaultMass,
                                   PhysicsBody::kDefaultCollisionLayer,
                                   PhysicsBody::kDefaultCollisionMask, false));
+  if (auto* controllable = world.mutable_store<Controllable>().mutable_find(entity);
+      controllable != nullptr) {
+    // This is a new body even for a zero-delay return. Keep a freshly recorded command so the
+    // pre-kernel steering system can apply it, but never inherit the previous body's held intent.
+    controllable->normalized_thrust_intent.reset();
+  }
 }
 
 } // namespace blob_royale::simulation

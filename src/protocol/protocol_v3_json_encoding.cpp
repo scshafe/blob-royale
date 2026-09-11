@@ -443,8 +443,81 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
   return encoded;
 }
 
+[[nodiscard]] json::object encode_movement_pair(const simulation::MovementTuning& tuning) {
+  json::object result;
+  result.emplace("acceleration_world_units_per_second_squared",
+                 encode_json_number(tuning.acceleration()));
+  result.emplace("normal_top_speed_world_units_per_second",
+                 encode_json_number(tuning.normal_top_speed()));
+  return result;
+}
+
+[[nodiscard]] json::object encode_movement(const simulation::MovementTuningState& movement,
+                                           const simulation::TickSequence snapshot_tick) {
+  if (movement.revision > kMaximumSafeInteger) {
+    throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMovementTuningStateInvalid,
+                                "snapshot_message.data.match.movement.revision",
+                                "movement revision must be in the inclusive range 0 to 2^53-1"};
+  }
+  const auto effective_tick = movement.effective_tick.value();
+  if (effective_tick > snapshot_tick.value() ||
+      ((movement.revision == 0) != (effective_tick == 0))) {
+    throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMovementTuningStateInvalid,
+                                "snapshot_message.data.match.movement.effective_tick",
+                                "movement effective tick must be covered by the snapshot and zero "
+                                "exactly at revision zero"};
+  }
+  json::object limits;
+  limits.emplace("acceleration_world_units_per_second_squared",
+                 json::object{{"minimum", encode_json_number(kMovementAccelerationMinimum)},
+                              {"maximum", encode_json_number(kMovementAccelerationMaximum)}});
+  limits.emplace("normal_top_speed_world_units_per_second",
+                 json::object{{"minimum", encode_json_number(kMovementNormalTopSpeedMinimum)},
+                              {"maximum", encode_json_number(kMovementNormalTopSpeedMaximum)}});
+  json::object result;
+  result.emplace("current", encode_movement_pair(movement.current));
+  result.emplace("defaults", encode_movement_pair(movement.defaults));
+  result.emplace("limits", std::move(limits));
+  result.emplace("revision", movement.revision);
+  result.emplace("effective_tick", effective_tick);
+  return result;
+}
+
+[[nodiscard]] json::value
+encode_tuning_result(const std::optional<MovementTuningWireResult>& result,
+                     const simulation::WorldSnapshot& snapshot) {
+  if (!result.has_value()) {
+    return nullptr;
+  }
+  if (result->decision_tick().has_value() &&
+      *result->decision_tick() > snapshot.tick_sequence().value()) {
+    throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMovementTuningResultInvalid,
+                                "snapshot_message.data.tuning_result.decision_tick",
+                                "tuning decision tick must be covered by the snapshot"};
+  }
+  if (result->revision().has_value() &&
+      *result->revision() > snapshot.match().movement().revision) {
+    throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMovementTuningResultInvalid,
+                                "snapshot_message.data.tuning_result.revision",
+                                "tuning decision revision must be covered by the snapshot"};
+  }
+  json::object encoded;
+  encoded.emplace("tuning_request_id", result->tuning_request_id());
+  encoded.emplace("status", result->status_name());
+  encoded.emplace("decision_tick", result->decision_tick().has_value()
+                                       ? json::value(*result->decision_tick())
+                                       : json::value(nullptr));
+  encoded.emplace("revision", result->revision().has_value() ? json::value(*result->revision())
+                                                             : json::value(nullptr));
+  encoded.emplace("retry_after_milliseconds", result->retry_after_milliseconds().has_value()
+                                                  ? json::value(*result->retry_after_milliseconds())
+                                                  : json::value(nullptr));
+  return encoded;
+}
+
 [[nodiscard]] json::object encode_match(const simulation::MatchSnapshot& match,
-                                        const simulation::TerrainDefinition& terrain) {
+                                        const simulation::TerrainDefinition& terrain,
+                                        const simulation::TickSequence snapshot_tick) {
   if (!is_accepted_kind_name(match.mode_name())) {
     throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMatchModeNameInvalid,
                                 "snapshot_message.data.match.mode",
@@ -457,7 +530,7 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
   // frame (`docs/protocol/v3.md` § "Field dictionary and invariants").
 
   json::object encoded;
-  encoded.reserve(8);
+  encoded.reserve(9);
   encoded.emplace("mode", match.mode_name());
   encoded.emplace("phase", simulation::match_phase_name(match.phase()));
   encoded.emplace("phase_started_tick", match.phase_started_tick().value());
@@ -465,6 +538,7 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
   // `placements`, which describe a match that has already been played.
   encoded.emplace("seats", encode_seats(match.seats()));
   encoded.emplace("start_requested", match.seats().start_requested());
+  encoded.emplace("movement", encode_movement(match.movement(), snapshot_tick));
   encoded.emplace("outcome", encode_outcome(match.outcome()));
   encoded.emplace("placements", encode_placements(match));
   encoded.emplace("mode_state", encode_mode_state(match, terrain));
@@ -545,7 +619,7 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   }
 
   json::object data;
-  data.reserve(10);
+  data.reserve(11);
   data.emplace("entity_id", welcome.entity().value());
   data.emplace("controller_id", welcome.controller().value());
   data.emplace("display_name", welcome.display_name());
@@ -556,6 +630,8 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   data.emplace("lobby_id", welcome.lobby_id());
   data.emplace("seat_count_maximum", welcome.seat_count_maximum());
   data.emplace("terrain", encode_terrain(welcome.terrain()));
+  data.emplace("movement_tuning_minimum_interval_milliseconds",
+               kMovementTuningMinimumIntervalMilliseconds);
 
   json::object envelope = encode_envelope_with_data(
       json::value(std::move(data)), encode_message_metadata(kWelcomeMessageSchemaId, request_id,
@@ -566,6 +642,7 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
 
 std::string encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot,
                                        const ControllerDirectoryView& directory,
+                                       const std::optional<MovementTuningWireResult>& tuning_result,
                                        const RequestId& request_id,
                                        const std::uint64_t message_sequence,
                                        const std::string_view sent_at_utc,
@@ -597,11 +674,13 @@ std::string encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot
   encode_random_draw_counts(snapshot.random_draw_counts(), random_count_sink);
 
   json::object data;
-  data.reserve(4);
+  data.reserve(5);
   data.emplace("tick_sequence", snapshot.tick_sequence().value());
   data.emplace("random_draw_counts", std::move(random_draw_counts));
   data.emplace("entities", std::move(encoded_entities));
-  data.emplace("match", encode_match(snapshot.match(), snapshot.terrain()));
+  data.emplace("match",
+               encode_match(snapshot.match(), snapshot.terrain(), snapshot.tick_sequence()));
+  data.emplace("tuning_result", encode_tuning_result(tuning_result, snapshot));
 
   json::object envelope = encode_envelope_with_data(
       json::value(std::move(data)), encode_message_metadata(kSnapshotMessageV3SchemaId, request_id,

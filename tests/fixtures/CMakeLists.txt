@@ -13,6 +13,7 @@ add_executable(blob_royale_fixture_tests
 blob_royale_configure_first_party_target(blob_royale_fixture_tests)
 
 target_compile_definitions(blob_royale_fixture_tests PRIVATE
+  BLOB_ROYALE_BENCHMARK_FIXTURE_DIRECTORY="${CMAKE_SOURCE_DIR}/benchmarks/fixtures"
   BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY="${CMAKE_SOURCE_DIR}/deploy/ubuntu-pc"
   BLOB_ROYALE_MAPS_DIRECTORY="${CMAKE_SOURCE_DIR}/maps"
   BLOB_ROYALE_REPLAY_FIXTURE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/replays"

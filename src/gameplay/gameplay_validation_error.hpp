@@ -69,6 +69,7 @@ enum class GameplayValidationCode {
   kRaceCourseUnbound,
   kRaceProgressBeyondCourse,
   kRaceStandingLimitExceeded,
+  kLocomotionPrecisionLost,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -146,6 +147,8 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.RACE_PROGRESS_BEYOND_COURSE";
   case GameplayValidationCode::kRaceStandingLimitExceeded:
     return "GAMEPLAY.RACE_STANDING_LIMIT_EXCEEDED";
+  case GameplayValidationCode::kLocomotionPrecisionLost:
+    return "GAMEPLAY.LOCOMOTION_PRECISION_LOST";
   }
   return "GAMEPLAY.VALIDATION_CODE_INVALID";
 }

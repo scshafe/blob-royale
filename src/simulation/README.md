@@ -66,6 +66,26 @@ SeatNpcCommand | StartMatchCommand`, the `CommandKind` bit enumerators, each kin
 each kind's position in phase 0's application order. A command is a value struct in its own header
 under `commands/`.
 
+Step 10 appends `SetMovementTuningCommand` to that closed vocabulary without changing existing
+bits. Its explicit application rank follows thrust and precedes the existing lobby command order.
+It addresses a controller and carries request ID, expected revision, and one validated
+`MovementTuning` pair. `InputBatch` validates safe integer ranges and preserves existing
+submission-based deduplication; correlation IDs never select command order.
+
+`MatchState::movement` owns current/default tuning, revision, and effective tick. The existing
+phase-0 handler freezes entry revision R, checks seated membership at each command's canonical
+position in every phase, and chooses the last eligible contender against R. A winner updates once
+to R+1/effective N, including an equal-value request. Other outcomes are superseded, stale revision,
+not seated, or revision exhausted; no winner changes no movement state. Later Join cannot grant
+retroactive authority, and later Leave cannot undo an admitted choice. `GameSimulation::step`
+reserves bounded decision storage before commit and releases `MovementTuningDecisions` only after
+the existing nonthrowing world/grid/tick commit. It adds no callback, event bus, or policy socket.
+
+`Controllable::normalized_thrust_intent` preserves normalized input between commands. Absence
+retains authored acceleration until the first input; explicit zero is held coast. Shared gameplay
+locomotion owns its interpretation, and `ComponentPublication<Controllable>` strips both that
+private intent and recorded commands from every snapshot.
+
 **A kind addresses whichever identity it carries.** `SpawnCommand` names only a `ControllerId` — the
 engine draws the new `EntityId` from the tick's reservation and the mode seats it — and the four
 lobby kinds name only the `ControllerId` the boundary stamped them with, because a lobby command acts

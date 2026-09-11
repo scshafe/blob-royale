@@ -67,5 +67,30 @@ This domain depends only on `blob_simulation` and the C++ threads library. `Stru
 deliberately not among them (ADR 0002 § "Ownership and lifecycle"), which is why a dropped command is
 observed as a runtime counter and turned into a log line by the composition root.
 
-Network code must receive only `const SnapshotPublication&` and `CommandSink&`; it must never
-receive `SimulationRuntime&` or `GameSimulation&`.
+Network code receives `const SnapshotPublication&`, `CommandSink&`, read-only controller
+presentation, and the room-bound `MovementTuningResultDelivery&`; it never receives
+`SimulationRuntime&` or `GameSimulation&`.
+
+## Commit-confirmed movement tuning
+
+`CommandMailbox` also owns one exchange per open controller under its existing mutex. Registration,
+admission/insertion, lifecycle eviction/refusal, committed completion, claim, and close are atomic
+in that owner. The directory stores presentation only; its lock is never held with the mailbox
+lock. Open rolls presentation registration back on exchange-registration failure. Close retires
+the exchange and enqueues Leave before closing presentation registration. Late completion for a
+retired controller is discarded.
+
+Request IDs are strictly increasing, protocol-safe integers. Reuse is checked first, a newer ID
+advances high-water, and a nonempty exchange then rejects a second unresolved request. Neither
+violation replaces the original result. An eligible attempt starts the 500 ms deadline even when
+mailbox capacity refuses it; a rate refusal leaves that deadline unchanged and carries a rounded-up
+retry interval of 1..500 ms. Tuning remains non-lifecycle traffic. Full/evicted/rate-limited results
+carry no invented simulation tick or revision.
+
+The worker completes exchanges only with `MovementTuningDecisions` returned after successful
+`GameSimulation::step`. `MovementTuningResultDelivery::claim(controller, covering_tick)` transfers
+a terminal result only when the selected snapshot covers its decision tick. Claim frees the
+runtime slot before server encoding/write; a late write callback releases only its session-owned
+result and cannot clear a newer request. One runtime exchange and one session-owned active result
+may coexist. Interrupted delivery is unknown to the client, never reinserted or replayed. Runtime
+owns the committed/admission variant; a server adapter translates to protocol's independent value.

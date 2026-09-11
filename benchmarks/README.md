@@ -44,12 +44,15 @@ The runner passes `--royale-reference-config benchmarks/fixtures/royale-roster.c
 `--maps-directory maps`. The fixture is derived from
 `a9e0104ca25724ac4660a4fc9031620b8a852d40:deploy/ubuntu-pc/blob-royale.cfg`. The 2026-09-10
 Step 6 strict-schema migration replaces the unused `[race] track_half_width_world_units` key with
-`road=road`; it is no longer a byte-for-byte historical configuration. Measured royale inputs
-retain their historical values, and the provenance comment and JSON identify the derivation.
+`road=road`; the 2026-09-11 Step 10 migration moves acceleration 400 to `[movement]` and authors
+the fixture ceiling 10000. Fresh benchmark worlds seed that pair as current/default movement.
+It is no longer a byte-for-byte historical configuration. Historical workload values remain,
+and the provenance comment and JSON identify both derivations. This migration is not a new
+timing baseline or a claim of native performance certification.
 That commit identifies the **configuration only**; `MapLoader` still loads the named
 `arena-960x640` from the current repository's `maps/`, not a historical map checkout. The
-production `ApplicationConfigLoader` reads the reference `[simulation]`, `[royale]`, and
-`[hazard.*]` sections unchanged. Only the lobby widens from the reference four seats to the
+production `ApplicationConfigLoader` reads the reference `[simulation]`, `[movement]`,
+`[royale]`, and `[hazard.*]` sections. Only the lobby widens from the reference four seats to the
 budgeted eight. JSON records both counts and explicit provenance under `historical_reference`,
 including `represents_current_deployment=false` and the current map source. No live configuration
 is edited, no mode is silently overridden, and a missing/invalid reference remains a hard failure.

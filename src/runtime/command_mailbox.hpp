@@ -4,11 +4,15 @@
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
 #include "command_submission_result.hpp"
+#include "movement_tuning_result.hpp"
 #include "runtime_limits.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <vector>
 
 namespace blob_royale::runtime {
@@ -40,7 +44,7 @@ namespace blob_royale::runtime {
 // per lobby kind no matter how fast it clicks, so lobby traffic cannot flood the mailbox and the
 // eviction path is reached by pressure from elsewhere.
 //
-// The static assertion is the guard that keeps this honest: an eighth command kind cannot be added
+// The static assertion is the guard that keeps this honest: a new command kind cannot be added
 // without an author deciding, here, whether losing it changes the roster.
 // related: command_registry.hpp -- the closed list this classifies.
 [[nodiscard]] constexpr bool
@@ -56,12 +60,13 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   case simulation::CommandKind::kClearSeat:
   case simulation::CommandKind::kSeatNpc:
   case simulation::CommandKind::kStartMatch:
+  case simulation::CommandKind::kSetMovementTuning:
     return false;
   }
   return false;
 }
 
-static_assert(simulation::kCommandKindCount == 9,
+static_assert(simulation::kCommandKindCount == 10,
               "a new CommandKind must declare in is_entity_lifecycle_command whether losing it "
               "changes whether an entity exists");
 
@@ -73,13 +78,16 @@ static_assert(simulation::kCommandKindCount == 9,
 // lifecycle"). A `std::mutex` guards the whole value, so a submission and a drain are each one
 // atomic step and a drained vector can never contain a half-written command.
 //
-// **Superseding, not appending.** When a command of the same kind for the same addressed identity
-// is already pending, `submit` replaces it in place. That is lossless -- `InputBatch::create`
-// keeps the last command of a kind per identity, so the resulting batch is identical either way
+// **Superseding for non-tuning commands.** When a command of the same kind for the same addressed
+// identity is already pending, `submit` replaces it in place. That is lossless --
+// `InputBatch::create` keeps the last command of a kind per identity, so the resulting batch is
+// identical either way
 // (`docs/architecture/0004-gameplay-architecture.md` § "Commands") -- and it turns the capacity
 // bound into a bound on *distinct commanded identities* rather than on submission rate. One client
 // spamming thrusts therefore occupies one slot forever and cannot evict another client's input,
 // which is the property that makes a shared bounded buffer safe to expose to the network.
+// Tuning instead retains one unresolved exchange per open controller: it rejects a second request
+// until the terminal result is claimed, so no queued tuning request is silently superseded.
 //
 // **The overflow policy, in order.** A submission that needs a new slot in a full mailbox:
 //
@@ -108,6 +116,7 @@ static_assert(simulation::kCommandKindCount == 9,
 // related: input_batch.hpp -- the value a drained mailbox becomes.
 class CommandMailbox final {
 public:
+  using Clock = std::chrono::steady_clock;
   // Everything the mailbox has observed since construction, plus its current occupancy. Monotonic
   // counters, so a reader compares two observations rather than resetting anything.
   struct Statistics final {
@@ -131,6 +140,10 @@ public:
     std::uint64_t drained_command_count{0};
     // Commands pending right now.
     std::size_t pending_command_count{0};
+    std::uint64_t rejected_tuning_command_count{0};
+    std::uint64_t rate_limited_tuning_command_count{0};
+    std::size_t open_tuning_exchange_count{0};
+    std::size_t unresolved_tuning_exchange_count{0};
 
     friend bool operator==(const Statistics&, const Statistics&) = default;
   };
@@ -149,6 +162,20 @@ public:
   // Stores one command under the policy above. Callable from any thread and never throws.
   [[nodiscard]] CommandSubmissionResult submit(const simulation::Command& command);
 
+  // Same admission owner with an explicit runtime time point for deterministic deadline checks.
+  // The production submit path supplies Clock::now(); no wall clock reaches simulation.
+  [[nodiscard]] CommandSubmissionResult
+  submit_tuning(const simulation::SetMovementTuningCommand& command, Clock::time_point now);
+
+  // Session lifetime registration is bounded by the existing controller-directory limit. Open
+  // rolls directory registration back if this refuses. Retirement and Leave insertion are atomic.
+  [[nodiscard]] bool register_controller(simulation::ControllerId controller);
+  [[nodiscard]] bool retire_controller(simulation::ControllerId controller);
+
+  // Called only with decisions returned from a successful step. Retired or nonmatching requests
+  // are discarded; a late completion can never overwrite a newer exchange or terminal refusal.
+  void complete_tuning_decisions(std::span<const simulation::MovementTuningDecision> decisions);
+
   // Moves every pending command out in submission order and leaves the mailbox empty. Called by
   // the runtime worker exactly once per tick; nothing else may call it, because a second drainer
   // would give one tick's commands to two ticks.
@@ -163,6 +190,24 @@ public:
   }
 
 private:
+  friend class MovementTuningResultDelivery;
+  [[nodiscard]] std::optional<MovementTuningResult>
+  claim_tuning_result(simulation::ControllerId controller,
+                      simulation::TickSequence covering_snapshot_tick);
+
+  struct TuningExchange final {
+    simulation::ControllerId controller;
+    std::uint64_t request_high_water{0};
+    std::optional<Clock::time_point> next_eligible_at{};
+    // A request ID without a result is pending; a result is terminal but still unresolved until
+    // claimed. Both are reset together on claim. High-water/deadline survive that transfer.
+    std::optional<std::uint64_t> request_id{};
+    std::optional<MovementTuningResult> result{};
+  };
+
+  [[nodiscard]] TuningExchange* find_exchange_locked(simulation::ControllerId controller) noexcept;
+  [[nodiscard]] CommandSubmissionResult submit_locked(const simulation::Command& command);
+  void record_tuning_eviction_locked(const simulation::Command& command);
   // The pending index of a command with this kind and addressed identity, or `pending_.size()`
   // when none is pending. Linear, which is deliberate: occupancy is bounded by
   // kMaximumMailboxCommandCount and a scan needs no second data structure to keep in agreement
@@ -178,6 +223,7 @@ private:
   simulation::CommandKindMask accepted_kinds_;
   // Submission order. Canonical order is `InputBatch::create`'s job, not this buffer's.
   std::vector<simulation::Command> pending_;
+  std::vector<TuningExchange> tuning_exchanges_;
   Statistics statistics_;
 };
 

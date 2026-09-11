@@ -35,7 +35,7 @@ namespace blob_royale::gameplay {
 //                           kPostKernel; placement_recorder, match_reset, lifetime_expiry,
 //                           hazard_spawn then elimination_grace_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
-//   accepted_command_kinds  spawn, despawn, join, leave, thrust, and the four lobby kinds
+//   accepted_command_kinds  spawn, despawn, join, leave, thrust, movement tuning, four lobby kinds
 //   spawn_policy()          RotatingRingSpawnPolicy
 //   objective()             RoyaleObjective
 //   validate_map()          an arena whose `R_full` is strictly greater than the configured
@@ -78,7 +78,7 @@ namespace blob_royale::gameplay {
 // (`royale/elimination_grace_publisher_system.hpp`).
 //
 // The mode holds its validated `[royale]` configuration and hands it to the systems and policies it
-// builds, which is the only way configuration reaches a tick. Every declaration returns an
+// builds. Shared movement tuning instead lives on MatchState. Every declaration returns an
 // independently owned value -- each system and the objective hold a *copy* of the configuration --
 // so nothing a tick holds points back at the mode the engine destroys at construction.
 //
@@ -131,10 +131,10 @@ public:
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-         simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
-         simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-         simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-         simulation::CommandKind::kJoin});
+         simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
+         simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+         simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kJoin});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

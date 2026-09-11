@@ -916,3 +916,18 @@ expectations are unchanged.
 Royale's committed values are unchanged below the normal-speed ceiling, which its fixture
 configurations author explicitly. Nothing changes until that step; the decision and its `Accepted`
 status are unchanged today.
+
+## Amendment: shared movement authoring, 2026-09-11 (plan Step 10)
+
+The thrust row and constructor-scalar rule in § "Mode configuration" and § "Steering" retire.
+One required `[movement]` section authors `acceleration_world_units_per_second_squared` and
+`normal_top_speed_world_units_per_second`, validated by simulation's `MovementTuning`. No per-mode
+thrust key, getter, or fallback remains. `GameModeConfiguration` carries the authored pair beside
+hazards, and application startup seeds the match's current values and reset defaults.
+
+Shared steering takes no scalar and reads that match value. Persistent normalized intent and
+finite-step propulsion constraints follow ADR 0003/0008. Royale's zone/lifecycle parameters and
+kernel drag retain their existing owners. Every accepted fixture keeps its old acceleration and
+authors an unreachable normal-speed ceiling; full replay comparison, not a changed expectation,
+must establish retention. This dated contract accompanies Step 10 implementation and does not
+claim its verification complete.

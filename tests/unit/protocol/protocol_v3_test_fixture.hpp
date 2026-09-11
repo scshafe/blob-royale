@@ -375,6 +375,19 @@ public:
   return snapshot;
 }
 
+// Explicit shared movement state at a committed tick, independent of gameplay mutation policy.
+[[nodiscard]] inline simulation::WorldSnapshot
+tuning_snapshot(simulation::MovementTuningState movement, const std::uint64_t tick_count = 1) {
+  simulation::GameWorld world = simulation::GameWorld::create({});
+  world.mutable_match().movement = std::move(movement);
+  simulation::GameSimulation game = simulation::GameSimulation::create(
+      simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));
+  for (std::uint64_t tick = 0; tick < tick_count; ++tick) {
+    game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  }
+  return game.snapshot();
+}
+
 // An entity carrying only progress proves registry-driven publication does not require a body.
 // The engine owns no race rule, so the supplied gate count survives the committed tick unchanged.
 [[nodiscard]] inline simulation::WorldSnapshot
@@ -423,9 +436,9 @@ hill_mode_snapshot(const double hill_radius, const std::uint64_t points_to_win) 
 [[nodiscard]] inline simulation::TerrainDefinition
 race_terrain(const std::string& road_name = "road", const double half_width = 60.0,
              const bool include_unselected = false, const bool selected_first = true) {
-  const std::vector<simulation::Vector2> points{
-      simulation::Vector2::create(100.0, 100.0), simulation::Vector2::create(700.0, 100.0),
-      simulation::Vector2::create(700.0, 500.0)};
+  const std::vector<simulation::Vector2> points{simulation::Vector2::create(100.0, 100.0),
+                                                simulation::Vector2::create(700.0, 100.0),
+                                                simulation::Vector2::create(700.0, 500.0)};
   std::vector<simulation::TerrainCorridor> corridors;
   if (include_unselected && !selected_first) {
     corridors.push_back(simulation::TerrainCorridor::create("unselected", 10.0, points));
@@ -435,8 +448,8 @@ race_terrain(const std::string& road_name = "road", const double half_width = 60
     corridors.push_back(simulation::TerrainCorridor::create("unselected", 10.0, points));
   }
   return simulation::TerrainDefinition::create(simulation::ArenaBounds::create(960.0, 640.0),
-                                                simulation::TerrainGround::kCorridors,
-                                                std::move(corridors), {});
+                                               simulation::TerrainGround::kCorridors,
+                                               std::move(corridors), {});
 }
 
 // Runs on the engine's idle declarations so no gameplay system can repair a malformed block
@@ -449,9 +462,8 @@ race_mode_snapshot(simulation::RaceModeState state, simulation::TerrainDefinitio
   world.mutable_match().mode_state = std::move(state);
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
       simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world),
-      simulation::GameSimulationSetup::engine_defaults().with_map(
-          simulation::MapDefinition::create("protocol_race", std::move(terrain), {}, {},
-                                             simulation::MapMetadata::none())));
+      simulation::GameSimulationSetup::engine_defaults().with_map(simulation::MapDefinition::create(
+          "protocol_race", std::move(terrain), {}, {}, simulation::MapMetadata::none())));
   game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   return game_simulation.snapshot();
 }
@@ -477,7 +489,7 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
       simulation::CommandKindMask::create(
           {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
            simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-           simulation::CommandKind::kStartMatch}),
+           simulation::CommandKind::kStartMatch, simulation::CommandKind::kSetMovementTuning}),
       golden_npc_controller_kinds(), kGoldenLobbyId, kGoldenSeatCountMaximum, golden_terrain());
 }
 

@@ -6,7 +6,7 @@
   "x-status": "Accepted",
   "type": "object",
   "additionalProperties": false,
-  "required": ["tick_sequence", "random_draw_counts", "entities", "match"],
+  "required": ["tick_sequence", "random_draw_counts", "entities", "match", "tuning_result"],
   "properties": {
     "tick_sequence": {
       "$ref": "common.schema.json#/$defs/tick_sequence"
@@ -32,6 +32,9 @@
     },
     "match": {
       "$ref": "match-data.schema.json"
+    },
+    "tuning_result": {
+      "oneOf": [{ "$ref": "tuning-result.schema.json" }, { "type": "null" }]
     }
   }
 }

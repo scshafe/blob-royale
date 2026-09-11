@@ -24,6 +24,7 @@
 #include "match_phase.hpp"
 #include "match_snapshot.hpp"
 #include "motion_triggers.hpp"
+#include "movement_tuning.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
 #include "protocol_json_encoding.hpp"
@@ -805,6 +806,8 @@ public:
 private:
   [[nodiscard]] static GameSimulation create_simulation(const RoyaleMatch& match) {
     GameWorld world = GameWorld::create(match.configuration, match.map, match.seed);
+    const simulation::MovementTuning movement = match.mode_configuration.movement;
+    world.mutable_match().movement = {.current = movement, .defaults = movement};
     world.mutable_match().seats =
         simulation::SeatRoster::of_size(static_cast<std::size_t>(kRoyaleSeatCount));
     std::unique_ptr<const simulation::GameMode> mode =
@@ -984,7 +987,9 @@ private:
   reference_configuration.emplace("source_commit", kRoyaleReferenceSourceCommit);
   reference_configuration.emplace("source_path", kRoyaleReferenceSourcePath);
   reference_configuration.emplace("source_commit_scope", "configuration_only");
-  reference_configuration.emplace("schema_migration", "2026-09-10_race_width_to_named_road");
+  reference_configuration.emplace(
+      "schema_migration",
+      "2026-09-10_race_width_to_named_road;2026-09-11_shared_movement_400_10000");
   reference_configuration.emplace("measured_royale_inputs_unchanged", true);
   reference_configuration.emplace("map_source", "current_repository_maps");
   reference_configuration.emplace("maps_directory", inputs.maps_directory.string());
@@ -994,6 +999,10 @@ private:
   reference_configuration.emplace("spawn_marker_count", match.map.spawn_points().size());
   reference_configuration.emplace("seed", match.seed);
   reference_configuration.emplace("drag_per_second", match.configuration.drag_per_second());
+  reference_configuration.emplace("acceleration_world_units_per_second_squared",
+                                  match.mode_configuration.movement.acceleration());
+  reference_configuration.emplace("normal_top_speed_world_units_per_second",
+                                  match.mode_configuration.movement.normal_top_speed());
   reference_configuration.emplace("reference_lobby_seat_count", match.reference_lobby_seat_count);
   reference_configuration.emplace("benchmark_lobby_seat_count", kRoyaleSeatCount);
   reference_configuration.emplace("countdown_ticks",

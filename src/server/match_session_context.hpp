@@ -5,6 +5,7 @@
 
 #include "command_sink.hpp"
 #include "controller_directory.hpp"
+#include "movement_tuning_result_delivery.hpp"
 
 #include "command_kind_mask.hpp"
 
@@ -20,10 +21,11 @@ namespace blob_royale::server {
 //
 // **It is a capability bundle, and its size is the whole point.** Protocol v1's server reads only
 // immutable `ServerConfig` and `const SnapshotPublication&`. v3 adds a route that can cause an
-// effect, so it adds exactly three things and no fourth: a write-only `runtime::CommandSink&`
+// effect, so it adds a write-only `runtime::CommandSink&`
 // whose entire interface is `open_session`, `submit`, and `close_session`; a read-only
 // presentation directory to join `controller_kind` and `display_name` at the encoding boundary;
-// and the two match identities a `welcome` announces. It grants no world read, no lifecycle
+// the identities a `welcome` announces; and a narrow consuming tuning-result capability. Claim
+// returns one owned result, not mailbox or world access. It grants no world read, no lifecycle
 // transition, and no reference to `GameSimulation`, `GameWorld`, or `SimulationRuntime`, which is
 // why the absence of a v3 lifecycle route is structural rather than a rule
 // (`docs/protocol/v3.md` § "Boundaries").
@@ -39,8 +41,8 @@ namespace blob_royale::server {
 // **`npc_controller_kinds` is `ControllerRegistry`'s own list**, read once at composition for the
 // same reason and carried here because `blob_server` neither links `blob_controllers` nor should:
 // the server has no business constructing a bot, only publishing which ones exist and refusing a
-// `seat_npc` that names one that does not. It is the *fourth* thing this bundle carries, and it
-// earns its place by being the one value that makes "registering a bot costs no client change" true
+// `seat_npc` that names one that does not. It earns its place by being the one value that makes
+// "registering a bot costs no client change" true
 // -- the `welcome` publishes it and `decode_command_envelope` enforces it, from one source
 // (`src/protocol/session_welcome.hpp`).
 // related: docs/protocol/v3.md -- the boundary this crosses.
@@ -63,6 +65,7 @@ public:
   // in every snapshot. Zero and anything above `kLobbySeatCountMaximum` are refused.
   [[nodiscard]] static MatchSessionContext
   create(std::uint64_t lobby_id, runtime::CommandSink& command_sink,
+         runtime::MovementTuningResultDelivery& tuning_result_delivery,
          const runtime::ControllerDirectory& controller_directory, std::string map_name,
          std::uint64_t seat_count_maximum, simulation::CommandKindMask accepted_command_kinds,
          std::vector<std::string> npc_controller_kinds);
@@ -75,6 +78,9 @@ public:
 
   [[nodiscard]] std::uint64_t lobby_id() const noexcept { return lobby_id_; }
   [[nodiscard]] runtime::CommandSink& command_sink() const noexcept { return *command_sink_; }
+  [[nodiscard]] runtime::MovementTuningResultDelivery& tuning_result_delivery() const noexcept {
+    return *tuning_result_delivery_;
+  }
 
   [[nodiscard]] const protocol::ControllerDirectoryView& directory_view() const& noexcept {
     return directory_view_;
@@ -98,6 +104,7 @@ public:
 
 private:
   MatchSessionContext(std::uint64_t lobby_id, runtime::CommandSink& command_sink,
+                      runtime::MovementTuningResultDelivery& tuning_result_delivery,
                       const runtime::ControllerDirectory& controller_directory,
                       std::string map_name, std::uint64_t seat_count_maximum,
                       simulation::CommandKindMask accepted_command_kinds,
@@ -105,6 +112,7 @@ private:
 
   std::uint64_t lobby_id_;
   runtime::CommandSink* command_sink_;
+  runtime::MovementTuningResultDelivery* tuning_result_delivery_;
   RuntimeControllerDirectoryView directory_view_;
   std::string map_name_;
   std::uint64_t seat_count_maximum_;

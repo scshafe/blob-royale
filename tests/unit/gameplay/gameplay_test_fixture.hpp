@@ -20,6 +20,7 @@
 #include "match_outcome.hpp"
 #include "match_phase.hpp"
 #include "match_snapshot.hpp"
+#include "movement_tuning.hpp"
 #include "physics_body.hpp"
 #include "seat_roster.hpp"
 #include "simulation_config.hpp"
@@ -56,6 +57,12 @@ namespace simulation = blob_royale::simulation;
   return simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 12, 8);
 }
 
+// Explicit legacy-fixture tuning: preserve the old acceleration while keeping the new ceiling
+// outside accepted gameplay horizons. Runtime defaults remain MovementTuning::defaults (400/600).
+[[nodiscard]] inline simulation::MovementTuning gameplay_movement_tuning() {
+  return simulation::MovementTuning::create(400.0, 10'000.0);
+}
+
 // A map with `point_count` spawn markers spaced far enough apart that every one of them is
 // simultaneously seatable at the fixture radius, which is what makes a seating test observe the
 // policy's rotation rather than the engine's occupancy test.
@@ -82,7 +89,8 @@ gameplay_map(const std::size_t point_count, const std::string& name = "gameplay_
 [[nodiscard]] inline simulation::GameSimulation
 gameplay_simulation(std::unique_ptr<const simulation::GameMode> mode, simulation::MapDefinition map,
                     const std::uint64_t seed = 0,
-                    simulation::SeatRoster lobby = simulation::SeatRoster{}) {
+                    simulation::SeatRoster lobby = simulation::SeatRoster{},
+                    const simulation::MovementTuning movement = gameplay_movement_tuning()) {
   const simulation::SimulationConfig configuration = gameplay_configuration();
   simulation::GameWorld world = simulation::GameWorld::create(configuration, map, seed);
   // The lobby is part of the state a match begins in and is seeded onto the initial world, exactly
@@ -91,6 +99,7 @@ gameplay_simulation(std::unique_ptr<const simulation::GameMode> mode, simulation
   // a mode whose `can_start` reads the roster then never leaves `lobby`, and a mode whose
   // `can_start` ignores it -- `sandbox` -- behaves exactly as it always did.
   world.mutable_match().seats = std::move(lobby);
+  world.mutable_match().movement = simulation::MovementTuningState{movement, movement};
   return simulation::GameSimulation::create(
       configuration, std::move(world),
       simulation::GameSimulationSetup::of_mode(std::move(map), std::move(mode)));

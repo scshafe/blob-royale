@@ -12,6 +12,7 @@
     "phase_started_tick",
     "seats",
     "start_requested",
+    "movement",
     "outcome",
     "placements",
     "mode_state"
@@ -38,6 +39,7 @@
       "type": "boolean",
       "$comment": "Whether somebody has pressed Start for this lobby. It is one-shot and the server clears it on every arrival in lobby, so a finished match cannot restart itself; a client reads it together with seats to explain why Start is or is not going to fire. Added in 2.3."
     },
+    "movement": { "$ref": "movement-state.schema.json" },
     "outcome": {
       "$ref": "#/$defs/outcome"
     },

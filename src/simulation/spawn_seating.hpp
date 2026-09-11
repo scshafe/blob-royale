@@ -44,6 +44,9 @@ class GameWorld;
 // it to be positive. The body carries the default mass, restitution, and collision layers of an
 // ordinary blob. A body the entity already carries is replaced; whether that is the right thing to
 // do is the caller's decision, and the engine's seating site never asks it of an entity with one.
+// Clears a controller's prior normalized thrust intent, if present, without changing this tick's
+// recorded commands. Thus even zero-delay replacement requires fresh input, while a command
+// already received for this tick may steer the newly seated body.
 void seat_body_at_rest(GameWorld& world, EntityId entity, const Vector2& position,
                        double player_radius);
 

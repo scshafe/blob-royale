@@ -44,9 +44,8 @@ simulation::SystemPipeline RaceMode::systems() const {
   }
   const RaceCourse& course = *course_;
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
-  declared.push_back(simulation::SystemPipeline::StagedSystem{
-      simulation::SystemStage::kPreKernel,
-      ThrustSteeringSystem::create(configuration_.thrust_maximum())});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              ThrustSteeringSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, CheckpointProgressSystem::create(course)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,

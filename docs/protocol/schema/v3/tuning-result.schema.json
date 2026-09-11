@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/tuning-result.schema.json",
+  "title": "Blob Royale protocol v3 tuning result",
+  "description": "One session-specific terminal tuning result claimed into an ordinary snapshot. Unknown is client-only and is never a server status.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tuning_request_id", "status", "decision_tick", "revision", "retry_after_milliseconds"],
+  "properties": {
+    "tuning_request_id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "status": { "enum": ["applied", "superseded", "stale_revision", "not_seated", "revision_exhausted", "rate_limited", "mailbox_full", "mailbox_evicted"] },
+    "decision_tick": { "oneOf": [{ "$ref": "common.schema.json#/$defs/tick_sequence" }, { "type": "null" }] },
+    "revision": { "oneOf": [{ "$ref": "common.schema.json#/$defs/safe_integer" }, { "type": "null" }] },
+    "retry_after_milliseconds": { "oneOf": [{ "type": "integer", "minimum": 1, "maximum": 500 }, { "type": "null" }] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "enum": ["applied", "superseded", "stale_revision", "not_seated", "revision_exhausted"] } }, "required": ["status"] },
+      "then": { "properties": { "decision_tick": { "$ref": "common.schema.json#/$defs/tick_sequence" }, "revision": { "$ref": "common.schema.json#/$defs/safe_integer" } } },
+      "else": { "properties": { "decision_tick": { "type": "null" }, "revision": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "status": { "enum": ["applied", "superseded"] } }, "required": ["status"] },
+      "then": { "properties": { "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "revision_exhausted" } }, "required": ["status"] },
+      "then": { "properties": { "revision": { "const": 9007199254740991 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "rate_limited" } }, "required": ["status"] },
+      "then": { "properties": { "retry_after_milliseconds": { "type": "integer", "minimum": 1, "maximum": 500 } } },
+      "else": { "properties": { "retry_after_milliseconds": { "type": "null" } } }
+    }
+  ],
+  "$comment": "A committed decision tick and revision must be covered by the containing snapshot. Client admission also requires an exact pending request match; applied revision is pending expected_revision + 1. These contextual checks cannot be replaced by this standalone schema."
+}

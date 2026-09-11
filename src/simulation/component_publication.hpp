@@ -9,9 +9,10 @@ namespace blob_royale::simulation {
 //
 // A snapshot is the value that leaves the simulation: the protocol encodes it and, from Step 23,
 // an in-process bot reads it. Most component kinds publish themselves verbatim, which is what the
-// primary template says, and a kind that carries **tick-local** state specializes this template
-// beside its own struct so the rule lives with the field it is about rather than in the snapshot
-// builder (`docs/architecture/0004-gameplay-architecture.md` § "Snapshots and protocol shape").
+// primary template says, and a kind that carries private or tick-local state specializes this
+// template beside its own struct so the rule lives with the field it is about rather than in the
+// snapshot builder (`docs/architecture/0004-gameplay-architecture.md` § "Snapshots and protocol
+// shape").
 //
 // This is the resolution of engine review finding 4. `Controllable::commands_this_tick` is this
 // tick's recorded input for one entity; publishing it hands every reader of a snapshot every

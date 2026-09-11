@@ -6,6 +6,7 @@
 #include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
+#include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "commands/start_match_command.hpp"
@@ -53,9 +54,9 @@ namespace blob_royale::simulation {
 // related: command_kind_mask.hpp -- the set of kinds a mode accepts.
 // related: input_batch.hpp -- the one validated command value a tick may read.
 // related: kind_registry.hpp -- the derivation that keeps the kind list honest.
-using Command =
-    std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand, ClearSeatCommand,
-                 SeatNpcCommand, StartMatchCommand, LeaveCommand, JoinCommand>;
+using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand,
+                             ClearSeatCommand, SeatNpcCommand, StartMatchCommand, LeaveCommand,
+                             JoinCommand, SetMovementTuningCommand>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -65,9 +66,8 @@ static_assert(std::is_nothrow_move_constructible_v<Command>,
               "every Command alternative must be nothrow-move-constructible");
 
 // One distinct bit per kind, so a set of kinds is one integer (see command_kind_mask.hpp).
-// The four lobby kinds carry bits above `kThrust` in the order phase 0 applies them, so the
-// documented rule "every remaining kind in ascending enumerator value" stays a true description of
-// `command_kind_application_rank` rather than a coincidence it happens to agree with.
+// Existing bits never move. Application order is the separate closed rank function: tuning was
+// appended to the bit vocabulary but applies immediately after thrust, ahead of the lobby kinds.
 enum class CommandKind : std::uint32_t {
   kSpawn = 1u << 0,
   kDespawn = 1u << 1,
@@ -82,6 +82,7 @@ enum class CommandKind : std::uint32_t {
   // Server-issued when a controller wants a seat, applied after the lobby kinds and before a leave
   // (`commands/join_command.hpp`).
   kJoin = 1u << 8,
+  kSetMovementTuning = 1u << 9,
 };
 
 // canonical: command_kind_of_type -- the enumerator of one command value type.
@@ -124,6 +125,10 @@ template <> struct CommandKindOf<LeaveCommand> {
 
 template <> struct CommandKindOf<JoinCommand> {
   static constexpr CommandKind value = CommandKind::kJoin;
+};
+
+template <> struct CommandKindOf<SetMovementTuningCommand> {
+  static constexpr CommandKind value = CommandKind::kSetMovementTuning;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through CommandKindOf.
@@ -192,6 +197,10 @@ template <> struct CommandKindName<JoinCommand> {
   static constexpr std::string_view value = "join";
 };
 
+template <> struct CommandKindName<SetMovementTuningCommand> {
+  static constexpr std::string_view value = "set_movement_tuning";
+};
+
 // The declared wire name of one command kind, for encoders, diagnostics, and fixtures.
 template <typename CommandType>
 inline constexpr std::string_view command_kind_name = CommandKindName<CommandType>::value;
@@ -225,6 +234,8 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
     return command_kind_name<LeaveCommand>;
   case CommandKind::kJoin:
     return command_kind_name<JoinCommand>;
+  case CommandKind::kSetMovementTuning:
+    return command_kind_name<SetMovementTuningCommand>;
   }
   return "command_kind_invalid";
 }
@@ -301,7 +312,8 @@ private:
                       std::is_same_v<CommandType, SeatNpcCommand> ||
                       std::is_same_v<CommandType, StartMatchCommand> ||
                       std::is_same_v<CommandType, LeaveCommand> ||
-                      std::is_same_v<CommandType, JoinCommand>) {
+                      std::is_same_v<CommandType, JoinCommand> ||
+                      std::is_same_v<CommandType, SetMovementTuningCommand>) {
           return AddressedIdentity::of_controller(value.controller);
         } else {
           return AddressedIdentity::of_entity(value.entity);
@@ -310,8 +322,8 @@ private:
       command);
 }
 
-// The position of one kind in phase 0's application order: despawns, then spawns, then every
-// remaining kind in ascending enumerator value
+// The position of one kind in phase 0's application order: despawns, spawns, thrust, tuning,
+// then the established relative order of lobby kinds, Join, and Leave
 // (`docs/architecture/0003-deterministic-simulation-contract.md` § "Canonical tick"). InputBatch
 // canonicalizes to this rank so phase 0 is one forward pass that neither sorts nor regroups.
 //
@@ -325,6 +337,8 @@ command_kind_application_rank(const CommandKind kind) noexcept {
     return 1;
   case CommandKind::kThrust:
     return 2;
+  case CommandKind::kSetMovementTuning:
+    return 3;
   // The four lobby kinds run after every kind that touches an entity, and among themselves in the
   // order one seat's story is told: which seats exist, then who leaves one, then who takes one,
   // then whether to begin. That order is not decoration. `set_seat_count` first means a client may
@@ -335,24 +349,24 @@ command_kind_application_rank(const CommandKind kind) noexcept {
   // costs nothing today, because `can_start` is asked at `kLifecycle` long after this pass, and
   // which stays true the day something asks earlier.
   case CommandKind::kSetSeatCount:
-    return 3;
-  case CommandKind::kClearSeat:
     return 4;
-  case CommandKind::kSeatNpc:
+  case CommandKind::kClearSeat:
     return 5;
-  case CommandKind::kStartMatch:
+  case CommandKind::kSeatNpc:
     return 6;
+  case CommandKind::kStartMatch:
+    return 7;
   // `join` runs after every lobby command, so the seat a join takes is the seat the same tick's
   // resize, clear, or declaration left: a bot joining the seat that declared it sees the
   // declaration, and a person joining sees the lobby as everyone else will publish it.
   case CommandKind::kJoin:
-    return 7;
+    return 8;
   // `leave` runs last of all. A spawn drained into the same batch must have created its entity
   // before the leave destroys it, or a departed session's spawn would survive it; a join alongside
   // is seated and then vacated rather than seated after it left; and a seating or a Start the
   // leaver sent alongside is still the decision it made while present.
   case CommandKind::kLeave:
-    return 8;
+    return 9;
   }
   return static_cast<std::uint32_t>(kCommandKindCount);
 }

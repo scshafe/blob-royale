@@ -168,11 +168,12 @@
       "enum": [
         "clear_seat",
         "seat_npc",
+        "set_movement_tuning",
         "set_seat_count",
         "set_thrust",
         "start_match"
       ],
-      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued on session admission and close and are deliberately absent from the wire. Four of the five operate the pre-match lobby and were added in 2.3; a mode that has no lobby to operate omits them from welcome.accepted_command_kinds rather than accepting a command it cannot honour."
+      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller. Availability is the mode's published accepted mask, so Sandbox advertises only set_thrust."
     },
     "lobby_id": {
       "type": "integer",

@@ -1,11 +1,5 @@
 {
   "data": {
-    "terrain": {
-      "bounds": {"width_world_units": 960, "height_world_units": 640},
-      "ground": "solid",
-      "corridors": [],
-      "holes": []
-    },
     "entity_id": 7,
     "controller_id": 3,
     "display_name": "Cole Shaffer",
@@ -14,13 +8,21 @@
     "accepted_command_kinds": [
       "clear_seat",
       "seat_npc",
+      "set_movement_tuning",
       "set_seat_count",
       "set_thrust",
       "start_match"
     ],
     "npc_controller_kinds": ["wanderer", "chaser"],
     "lobby_id": 1,
-    "seat_count_maximum": 32
+    "seat_count_maximum": 32,
+    "terrain": {
+      "bounds": {"width_world_units": 960, "height_world_units": 640},
+      "ground": "solid",
+      "corridors": [],
+      "holes": []
+    },
+    "movement_tuning_minimum_interval_milliseconds": 500
   },
   "error": null,
   "meta": {

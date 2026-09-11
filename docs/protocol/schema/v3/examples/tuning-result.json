@@ -1,0 +1,7 @@
+{
+  "tuning_request_id": 1,
+  "status": "applied",
+  "decision_tick": 12904,
+  "revision": 1,
+  "retry_after_milliseconds": null
+}

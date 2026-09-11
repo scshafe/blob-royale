@@ -16,9 +16,11 @@
     "npc_controller_kinds",
     "lobby_id",
     "seat_count_maximum",
-    "terrain"
+    "terrain",
+    "movement_tuning_minimum_interval_milliseconds"
   ],
   "properties": {
+    "movement_tuning_minimum_interval_milliseconds": { "const": 500 },
     "terrain": {
       "$ref": "terrain-data.schema.json",
       "$comment": "Required complete immutable authored terrain. Never repeated in snapshot frames."
@@ -42,12 +44,12 @@
     },
     "accepted_command_kinds": {
       "type": "array",
-      "maxItems": 5,
+      "maxItems": 6,
       "uniqueItems": true,
       "items": {
         "$ref": "common.schema.json#/$defs/command_kind"
       },
-      "$comment": "maxItems tracks the size of common.schema.json#/$defs/command_kind, which went from one to five in 2.3. The published set is the intersection of the mode's accepted kinds with the client-sendable vocabulary, so it can never name a server-issued kind such as spawn or despawn, and a mode without a lobby publishes only set_thrust."
+      "$comment": "maxItems tracks the six client-sendable kinds in common.schema.json. The published set is the intersection of the mode's accepted kinds with that vocabulary, never a server-issued kind such as spawn or despawn. Sandbox publishes only set_thrust."
     },
     "npc_controller_kinds": {
       "type": "array",

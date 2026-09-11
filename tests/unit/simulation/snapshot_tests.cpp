@@ -358,6 +358,7 @@ TEST_CASE("WorldSnapshot publishes the controller link and never the recorded co
   simulation::Controllable* controllable =
       world.mutable_store<simulation::Controllable>().mutable_find(simulation::EntityId::create(2));
   REQUIRE(controllable != nullptr);
+  controllable->normalized_thrust_intent = simulation::Vector2::create(0.6, 0.8);
   controllable->commands_this_tick.push_back(simulation::Command{simulation::ThrustCommand{
       simulation::EntityId::create(2), simulation::Vector2::create(1.0, 0.0)}});
   const simulation::WorldSnapshot snapshot = simulation_from_world(std::move(world)).snapshot();
@@ -365,6 +366,8 @@ TEST_CASE("WorldSnapshot publishes the controller link and never the recorded co
   REQUIRE(snapshot.components<simulation::Controllable>().size() == 1);
   CHECK(snapshot.components<simulation::Controllable>()[0].value.controller_id.value() == 2);
   CHECK(snapshot.components<simulation::Controllable>()[0].value.commands_this_tick.empty());
+  CHECK_FALSE(snapshot.components<simulation::Controllable>()[0]
+                  .value.normalized_thrust_intent.has_value());
 }
 
 TEST_CASE("WorldSnapshot carries the match section and every named stream draw count",

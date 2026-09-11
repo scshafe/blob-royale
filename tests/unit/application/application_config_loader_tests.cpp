@@ -5,6 +5,7 @@
 #include "gameplay_validation_error.hpp"
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "match_configuration.hpp"
+#include "movement_tuning.hpp"
 #include "race/race_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "server_config.hpp"
@@ -180,7 +181,9 @@ TEST_CASE("application config loader creates the complete typed run request",
   // no system ever sees a value in seconds (ADR 0005 section "Mode configuration").
   const gameplay::RoyaleConfiguration& royale =
       run_request.application_config().game_mode_configuration().royale;
-  CHECK(royale.thrust_maximum() == 400.0);
+  const auto movement = run_request.application_config().game_mode_configuration().movement;
+  CHECK(movement.acceleration() == 400.0);
+  CHECK(movement.normal_top_speed() == 10000.0);
   CHECK(royale.zone_minimum_radius() == 60.0);
   CHECK(royale.zone_shrink_ticks() == 36'000);
   CHECK(royale.elimination_grace_ticks() == 1'200);
@@ -191,7 +194,6 @@ TEST_CASE("application config loader creates the complete typed run request",
   // once, and read only by the mode that owns it (ADR 0007 section "King of the hill").
   const gameplay::KingOfTheHillConfiguration& hill =
       run_request.application_config().game_mode_configuration().king_of_the_hill;
-  CHECK(hill.thrust_maximum() == 400.0);
   CHECK(hill.hill_radius() == 90.0);
   CHECK(hill.hill_dwell_ticks() == 4'800);
   CHECK(hill.hill_travel_ticks() == 1'600);
@@ -205,7 +207,6 @@ TEST_CASE("application config loader creates the complete typed run request",
 
   const gameplay::RaceConfiguration& race =
       run_request.application_config().game_mode_configuration().race;
-  CHECK(race.thrust_maximum() == 400.0);
   CHECK(race.road() == "road");
   CHECK(race.checkpoint_radius() == 40.0);
   CHECK(race.respawn_delay_ticks() == 800);
@@ -299,6 +300,98 @@ TEST_CASE("application config loader rejects an unknown mode, map name, and bot 
   // A process runs at least one room and no more than the protocol's directory can list.
   reject("count=1", "count=0", ApplicationInputErrorCode::kLobbiesCountOutOfRange);
   reject("count=1", "count=9", ApplicationInputErrorCode::kLobbiesCountOutOfRange);
+}
+
+TEST_CASE("application config loader authors one shared movement pair for every mode",
+          "[unit][application][config][movement]") {
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view mode : {"sandbox", "royale", "king_of_the_hill", "race"}) {
+    CAPTURE(mode);
+    auto configuration = test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                                    "mode=royale", "mode=" + std::string(mode));
+    configuration = test_fixture::replace_once(
+        std::move(configuration), "acceleration_world_units_per_second_squared=400",
+        "acceleration_world_units_per_second_squared=1234.5");
+    configuration = test_fixture::replace_once(std::move(configuration),
+                                               "normal_top_speed_world_units_per_second=10000",
+                                               "normal_top_speed_world_units_per_second=789.25");
+    const auto loaded = load_game_mode_configuration(workspace, configuration);
+    CHECK(loaded.movement == simulation::MovementTuning::create(1234.5, 789.25));
+    CHECK(loaded.royale == gameplay::RoyaleConfiguration::defaults());
+    CHECK(loaded.king_of_the_hill == gameplay::KingOfTheHillConfiguration::defaults());
+    CHECK(loaded.race == gameplay::RaceConfiguration::defaults());
+  }
+}
+
+TEST_CASE("application config loader rejects missing shared movement and every retired thrust key",
+          "[unit][application][config][movement][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  constexpr std::string_view movement_section =
+      "[movement]\nacceleration_world_units_per_second_squared=400\n"
+      "normal_top_speed_world_units_per_second=10000\n\n";
+  for (const std::string_view missing :
+       {movement_section, std::string_view{"acceleration_world_units_per_second_squared=400\n"},
+        std::string_view{"normal_top_speed_world_units_per_second=10000\n"}}) {
+    CAPTURE(missing);
+    require_configuration_load_error(
+        workspace,
+        test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, missing, ""),
+        ApplicationInputErrorCode::kConfigurationKeyMissing);
+  }
+  for (const std::string_view section : {"royale", "king_of_the_hill", "race", "movement"}) {
+    CAPTURE(section);
+    const std::string header = "[" + std::string(section) + "]\n";
+    require_configuration_load_error(
+        workspace,
+        test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, header,
+                                   header + "thrust_max_world_units_per_second_squared=400\n"),
+        ApplicationInputErrorCode::kConfigurationKeyUnknown);
+  }
+}
+
+TEST_CASE("application config loader retains movement value bounds and contextual errors",
+          "[unit][application][config][movement][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  struct Rejection final {
+    std::string_view target;
+    std::string_view replacement;
+    std::string_view context;
+  };
+  constexpr std::array rejections{Rejection{"acceleration_world_units_per_second_squared=400",
+                                            "acceleration_world_units_per_second_squared=-1",
+                                            "movement.acceleration_world_units_per_second_squared"},
+                                  Rejection{"acceleration_world_units_per_second_squared=400",
+                                            "acceleration_world_units_per_second_squared=10001",
+                                            "movement.acceleration_world_units_per_second_squared"},
+                                  Rejection{"normal_top_speed_world_units_per_second=10000",
+                                            "normal_top_speed_world_units_per_second=0",
+                                            "movement.normal_top_speed_world_units_per_second"},
+                                  Rejection{"normal_top_speed_world_units_per_second=10000",
+                                            "normal_top_speed_world_units_per_second=10001",
+                                            "movement.normal_top_speed_world_units_per_second"}};
+  for (const auto& input : rejections) {
+    CAPTURE(input.replacement);
+    try {
+      static_cast<void>(load_game_mode_configuration(
+          workspace, test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                                input.target, input.replacement)));
+      FAIL("invalid authored movement was accepted");
+    } catch (const simulation::SimulationValidationError& error) {
+      CHECK(error.validation_code() ==
+            simulation::SimulationValidationCode::kMovementTuningOutOfRange);
+      CHECK(error.context() == input.context);
+    }
+  }
+  for (const auto& [acceleration, speed] : {std::pair{"0", "1"}, std::pair{"10000", "10000"}}) {
+    auto configuration = test_fixture::replace_once(
+        std::string{test_fixture::kValidConfiguration},
+        "acceleration_world_units_per_second_squared=400",
+        "acceleration_world_units_per_second_squared=" + std::string(acceleration));
+    configuration = test_fixture::replace_once(
+        std::move(configuration), "normal_top_speed_world_units_per_second=10000",
+        "normal_top_speed_world_units_per_second=" + std::string(speed));
+    REQUIRE_NOTHROW(load_game_mode_configuration(workspace, configuration));
+  }
 }
 
 TEST_CASE("application config loader trims comma-delimited server policy entries",

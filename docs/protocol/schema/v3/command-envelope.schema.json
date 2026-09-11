@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.blob-royale.invalid/protocol/v3/command-envelope.schema.json",
   "title": "Blob Royale protocol v3 client command envelope",
-  "description": "Every application data message a client may send. The envelope carries no entity id, no protocol version, no request id, and no client sequence number: identity and version are properties of the connection, and a client-supplied version would be a downgrade lever.",
+  "description": "Every application data message a client may send. The envelope carries no actor identity or protocol version. Only tuning payloads carry a correlation-only tuning_request_id; it grants no authority and never orders simulation commands.",
   "x-status": "Accepted",
   "type": "object",
   "additionalProperties": false,
@@ -16,6 +16,10 @@
     }
   },
   "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "set_movement_tuning" } }, "required": ["kind"] },
+      "then": { "properties": { "payload": { "$ref": "set-movement-tuning-command.schema.json" } } }
+    },
     {
       "if": {
         "properties": {

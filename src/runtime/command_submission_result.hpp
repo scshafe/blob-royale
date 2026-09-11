@@ -20,9 +20,8 @@ namespace blob_royale::runtime {
 // exactly the batch it would have seen had every submission been appended
 // (`docs/architecture/0004-gameplay-architecture.md` § "Commands").
 //
-// Every other value means the command will never reach a tick, and every one of them is counted in
-// `CommandMailbox::Statistics`, so a refusal is observable in aggregate even when the submitting
-// caller ignores the return value.
+// Every other value means the command will never reach a tick. Refusals reaching the mailbox are
+// counted in `CommandMailbox::Statistics`; earlier sink validation is returned to its caller.
 // related: command_mailbox.hpp -- the bounded buffer that produces most of these.
 // related: command_sink.hpp -- the write-only capability that produces the rest.
 enum class CommandSubmissionResult : std::uint8_t {
@@ -36,6 +35,11 @@ enum class CommandSubmissionResult : std::uint8_t {
   kDroppedMailboxFull = 7,
   kRejectedSeatIndexOutOfRange = 8,
   kRejectedSeatCountOutOfRange = 9,
+  kRejectedTuningRequestIdReused = 10,
+  kRejectedTuningRequestInFlight = 11,
+  kRejectedTuningRequestIdOutOfRange = 12,
+  kRejectedTuningRevisionOutOfRange = 13,
+  kRejectedTuningRateLimited = 14,
 };
 
 // Whether the command is now pending for a tick. The two acceptances are the only values for which
@@ -70,6 +74,16 @@ command_submission_result_name(const CommandSubmissionResult result) noexcept {
     return "rejected_seat_index_out_of_range";
   case CommandSubmissionResult::kRejectedSeatCountOutOfRange:
     return "rejected_seat_count_out_of_range";
+  case CommandSubmissionResult::kRejectedTuningRequestIdReused:
+    return "rejected_tuning_request_id_reused";
+  case CommandSubmissionResult::kRejectedTuningRequestInFlight:
+    return "rejected_tuning_request_in_flight";
+  case CommandSubmissionResult::kRejectedTuningRequestIdOutOfRange:
+    return "rejected_tuning_request_id_out_of_range";
+  case CommandSubmissionResult::kRejectedTuningRevisionOutOfRange:
+    return "rejected_tuning_revision_out_of_range";
+  case CommandSubmissionResult::kRejectedTuningRateLimited:
+    return "rejected_tuning_rate_limited";
   }
   return "command_submission_result_invalid";
 }

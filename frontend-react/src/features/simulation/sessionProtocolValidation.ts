@@ -14,6 +14,8 @@ import type {
   SessionLobbyDirectoryMessage,
   SessionSnapshotMessage,
   SessionTerrain,
+  SessionSetMovementTuningCommand,
+  SessionTuningResult,
   SessionWelcomeMessage,
 } from './simulationProtocolTypes';
 import { HTTP_ERROR_REGISTRY } from './simulationProtocolValidation';
@@ -475,7 +477,79 @@ export function validateSessionSnapshotMessage(
 
   assertSnapshotEntityInvariants(document);
   assertRaceTerrainBinding(document, previousSequence.terrain);
+  assertMovementSnapshotInvariants(document);
   return deepFreeze(document);
+}
+
+function assertMovementSnapshotInvariants(
+  snapshot: SessionSnapshotMessage,
+): void {
+  const movement = snapshot.data.match.movement;
+  const result = snapshot.data.tuning_result;
+  if (
+    movement.effective_tick > snapshot.data.tick_sequence ||
+    (result !== null &&
+      result.decision_tick !== null &&
+      result.decision_tick > snapshot.data.tick_sequence) ||
+    (result !== null &&
+      result.revision !== null &&
+      result.revision > movement.revision)
+  ) {
+    throw new SimulationApiError(
+      'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      'Movement state and tuning results must be covered by their snapshot tick and revision.',
+    );
+  }
+}
+
+/** Admission uses the API's pending request; a standalone schema cannot prove correlation. */
+export function validateSessionTuningResult(
+  snapshot: SessionSnapshotMessage,
+  pending: SessionSetMovementTuningCommand['payload'] | null,
+): SessionTuningResult | null {
+  const result = snapshot.data.tuning_result;
+  if (result === null) return null;
+  if (
+    pending === null ||
+    result.tuning_request_id !== pending.tuning_request_id
+  ) {
+    throw new SimulationApiError(
+      'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      "A tuning result must match this connection's pending request exactly.",
+      {
+        context: {
+          tuning_request_id: result.tuning_request_id,
+          pending_tuning_request_id: pending?.tuning_request_id ?? null,
+        },
+      },
+    );
+  }
+  if (result.status === 'applied') {
+    if (
+      pending.expected_revision >= Number.MAX_SAFE_INTEGER ||
+      result.revision !== pending.expected_revision + 1
+    ) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'An applied tuning result must advance the requested revision exactly once.',
+      );
+    }
+    const movement = snapshot.data.match.movement;
+    if (
+      movement.revision === result.revision &&
+      (movement.effective_tick !== result.decision_tick ||
+        movement.current.acceleration_world_units_per_second_squared !==
+          pending.acceleration_world_units_per_second_squared ||
+        movement.current.normal_top_speed_world_units_per_second !==
+          pending.normal_top_speed_world_units_per_second)
+    ) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'The latest applied tuning revision must publish the requested complete pair and effective tick.',
+      );
+    }
+  }
+  return result;
 }
 
 /**

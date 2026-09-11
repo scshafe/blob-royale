@@ -36,7 +36,6 @@ public:
   // the mode's shipped balance until a playtest says otherwise, and they are what
   // `GameModeRegistry::create(mode_name)` -- the defaults-only overload a test or a diagnostic uses
   // -- builds. A configured process reaches this mode through the `[royale]` section instead.
-  static constexpr double kDefaultThrustMaximumWorldUnitsPerSecondSquared = 400.0;
   static constexpr double kDefaultZoneMinimumRadiusWorldUnits = 60.0;
   static constexpr double kDefaultZoneShrinkSeconds = 90.0;
   static constexpr double kDefaultEliminationGraceSeconds = 3.0;
@@ -46,7 +45,6 @@ public:
   // The `[royale]` section as authored, one member per key. Units are in the names because the
   // value alone cannot carry them.
   struct Section final {
-    double thrust_max_world_units_per_second_squared;
     double zone_minimum_radius_world_units;
     double zone_shrink_seconds;
     double elimination_grace_seconds;
@@ -57,9 +55,7 @@ public:
   };
 
   // Validates the authored section and converts its durations. Throws GameplayValidationError
-  // naming the key that failed. The thrust maximum is validated through the steering system's own
-  // named rule rather than a second copy of it here, so a mode cannot declare a thrust maximum the
-  // system it builds would refuse.
+  // naming the key that failed. Shared movement tuning is not a per-mode configuration value.
   [[nodiscard]] static RoyaleConfiguration create(const Section& section);
 
   // The proposed section above, already validated.
@@ -74,8 +70,6 @@ public:
   RoyaleConfiguration& operator=(RoyaleConfiguration&&) noexcept = default;
   ~RoyaleConfiguration() = default;
 
-  // wu/s^2. The scale `thrust_steering` applies to a validated thrust direction.
-  [[nodiscard]] double thrust_maximum() const noexcept { return thrust_maximum_; }
   // wu. `R_min`, the radius the zone holds once it has finished shrinking.
   [[nodiscard]] double zone_minimum_radius() const noexcept { return zone_minimum_radius_; }
   // `T`. Zero means the zone is at `R_min` from the first evaluated tick.
@@ -91,11 +85,10 @@ public:
   friend bool operator==(const RoyaleConfiguration&, const RoyaleConfiguration&) = default;
 
 private:
-  RoyaleConfiguration(double thrust_maximum, double zone_minimum_radius,
-                      std::uint64_t zone_shrink_ticks, std::uint64_t elimination_grace_ticks,
-                      std::uint64_t countdown_ticks, std::uint64_t restart_delay_ticks) noexcept;
+  RoyaleConfiguration(double zone_minimum_radius, std::uint64_t zone_shrink_ticks,
+                      std::uint64_t elimination_grace_ticks, std::uint64_t countdown_ticks,
+                      std::uint64_t restart_delay_ticks) noexcept;
 
-  double thrust_maximum_;
   double zone_minimum_radius_;
   std::uint64_t zone_shrink_ticks_;
   std::uint64_t elimination_grace_ticks_;

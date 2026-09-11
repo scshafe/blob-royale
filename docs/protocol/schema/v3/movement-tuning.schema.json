@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/movement-tuning.schema.json",
+  "title": "Blob Royale protocol v3 movement tuning",
+  "description": "One absolute room-wide normal-propulsion pair. These parameter bounds do not cap external momentum or certify solver capacity.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["acceleration_world_units_per_second_squared", "normal_top_speed_world_units_per_second"],
+  "properties": {
+    "acceleration_world_units_per_second_squared": { "type": "number", "minimum": 0, "maximum": 10000 },
+    "normal_top_speed_world_units_per_second": { "type": "number", "minimum": 1, "maximum": 10000 }
+  }
+}

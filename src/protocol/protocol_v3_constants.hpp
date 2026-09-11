@@ -90,11 +90,16 @@ inline constexpr std::array<std::string_view, 12> kV3ComponentKindNames{
 // session admission and close, and advertising one would name a capability the boundary must refuse
 // (`docs/protocol/v3.md` § "welcome").
 //
-// Four of the five operate the pre-match lobby and were added in 2.3. They are a client's whole
-// authority over a match: which seats exist, who is cleared out of one, which NPC fills one, and
-// whether to begin.
-inline constexpr std::array<std::string_view, 5> kV3ClientCommandKindNames{
-    "clear_seat", "seat_npc", "set_seat_count", "set_thrust", "start_match"};
+// Four kinds operate pre-match lobby setup. Tuning is a separate, seated cooperative mutation of
+// shared movement state; actual availability always comes from the mode's accepted mask.
+inline constexpr std::array<std::string_view, 6> kV3ClientCommandKindNames{
+    "clear_seat", "seat_npc", "set_movement_tuning", "set_seat_count", "set_thrust", "start_match"};
+
+inline constexpr double kMovementAccelerationMinimum = 0.0;
+inline constexpr double kMovementAccelerationMaximum = 10'000.0;
+inline constexpr double kMovementNormalTopSpeedMinimum = 1.0;
+inline constexpr double kMovementNormalTopSpeedMaximum = 10'000.0;
+inline constexpr std::uint64_t kMovementTuningMinimumIntervalMilliseconds = 500;
 
 // canonical: lobby_seat_wire_bounds -- the seat index and seat count a v3 frame may carry.
 //

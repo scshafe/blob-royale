@@ -965,3 +965,75 @@ does not approve live solver adoption. The preceding Step 7a separately resolved
 clipped-corner admission issue recorded in
 `../reviews/2026-09-10-terrain-clipped-corner-admissibility-review.md`; bounded numerical limitations
 and the Step 5 human gate remain.
+
+## Amendment: committed movement-tuning feedback, 2026-09-11 (plan Step 10)
+
+The owner approved request-correlated, server-confirmed applied/rejected results, with an
+interrupted request shown as unknown until current room values are checked. This resolves the
+execution review checkpoint, not the separate Step 5 physics gate. The contract below refines
+§ "Normal movement and web tuning" and the plan's named kernel-seam allowance.
+
+The simulation-owned validated pair has acceleration in **0..10,000 wu/s²** and normal top speed
+in **1..10,000 wu/s**. Initial authored defaults remain **400/600**. These finite parameter bounds
+are engineering defaults, not a native capacity certificate or a claim that all external speeds
+are capped. Fixture acceleration stays unchanged and its explicit ceiling is 10,000, with
+bit-identical replay gates required. One required `[movement]` section uses full unit-bearing
+keys; `GameModeConfiguration` carries it into match startup. Match state owns current/default
+pairs, revision, and effective tick. Defaults reset only on room recreation; Apply/Reset changes
+current values through the same command. No INI rewrite or process-global live setting is added.
+
+Optional normalized intent distinguishes no submitted input from explicit coast. Preserve the
+old written arithmetic in the unconstrained branch, including subunit analog semantics. A
+finite-step constraint projects requested Euler velocity into radius `max(normal speed, current
+speed)` and returns acceleration, never velocity. Canonical integration must confirm the speed
+and non-amplification postconditions; bounded rounding failure remains visible. Body seating and
+publication own intent cleanup/privacy. Phase 1 still integrates and drags once. The existing
+phase admission stays intact; future movement modifiers and the Step 14 lock share this owner.
+
+The numerical contract uses computed binary64 squared norms. Canonical requested integration
+retains existing domain errors. Return original acceleration verbatim on the uncapped branch.
+Accept identity of the first computed radial projection as zero, explicitly allowing a tiny turn
+to be lost by rounding; this is not a pure-outward geometric certificate. Otherwise try the
+initial radial factor plus eight corrections toward zero, always from the original endpoint;
+each radial attempt has its initial non-amplifying acceleration scale plus eight corrections.
+Recheck both postconditions through the canonical integration operation order. A later zero
+acceleration or endpoint equal to current velocity fails immediately rather than continuing into
+artificial braking. Exhaustion is `GAMEPLAY.LOCOMOTION_PRECISION_LOST`. This bounded witness policy
+does not certify exact-real inequalities or guarantee finding every representable solution.
+
+The command adds both scalars, `expected_revision`, and a correlation-only `tuning_request_id`.
+For tick N, freeze entry revision R. The existing phase-0 visitor checks current seated membership
+at canonical position in lobby/countdown/running/ended. The last eligible contender against R
+wins; matching-R losers are `superseded`, mismatches `stale_revision`, unseated senders `not_seated`,
+and exhaustion `revision_exhausted`. One winner commits once to R+1/effective N, including equal
+values; no winner leaves state unchanged. Tuning ranks after thrust and before Start while old
+relative ranks remain. Bounded decisions are allocated before commit and returned only after it.
+
+One mailbox-owned exchange per open controller uses the existing mailbox lock for admission,
+eviction, commit completion, claim, and close. Boundary outcomes are `rate_limited`, `mailbox_full`,
+and `mailbox_evicted`; they carry no fabricated decision tick or revision. Tuning is non-lifecycle
+traffic. Initial interval is **500 ms**; the global pre-parse limiter and malformed-frame behavior
+remain. IDs strictly increase per controller, with gaps allowed; they are never contender order.
+A second unresolved request closes 1008 `tuning_request_in_flight`, and reused IDs close 1008
+`tuning_request_id_reused`, instead of allocating a queue or overwriting a result.
+
+Session v3 adds required `match.movement` (current/default pairs, limits, revision, effective tick),
+the welcome minimum interval, and nullable `data.tuning_result` outside match. A result carries
+request ID, status, nullable decision tick/revision, and retry-after milliseconds only for a rate
+refusal. Claim a terminal result only into a covering snapshot, after egress admission and before
+encoding/write. Claim reopens the runtime slot; the write callback releases only its session-owned
+record. Thus a legitimate next request after receiving A is safe even before A's server callback,
+and that callback cannot erase B. Failure discards the claimed local result and never reinserts
+it over a newer exchange. Unobserved completion is unknown, never automatic retry or inferred
+success from the current shared revision. Reconnect has a new controller and no acknowledgment
+recovery. Protocol owns a validated wire value; a server adapter avoids a protocol→runtime dependency.
+
+The browser keeps one `sendCommand` path, reserves pending state before sending, and resolves it
+only on a matching validated result before accepting the frame. UI controls remain Step 11.
+Security review retains existing room-bound capabilities and cooperative seated authority, not
+new roles. Alternatives considered were inferring success from shared revision (cannot establish
+whose command committed) and a generic receipt/event queue (adds ownership and backpressure not
+needed here). What if two people race? Canonical revision rules decide once. What if a write
+callback is late? Claim-before-write preserves the next request. What if movement gains modifiers?
+The single intent/locomotion owner can compose them without another authoring surface. The plan
+records implementation and exact verification; this amendment does not claim those gates passed.

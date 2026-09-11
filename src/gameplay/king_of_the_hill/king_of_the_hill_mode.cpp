@@ -41,9 +41,8 @@ KingOfTheHillMode::create(KingOfTheHillConfiguration configuration,
 
 simulation::SystemPipeline KingOfTheHillMode::systems() const {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
-  declared.push_back(simulation::SystemPipeline::StagedSystem{
-      simulation::SystemStage::kPreKernel,
-      ThrustSteeringSystem::create(configuration_.thrust_maximum())});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              ThrustSteeringSystem::create()});
   // The order of the two `kPostKernel` systems is load-bearing: scoring reads the circle this
   // tick's `hill_movement` wrote.
   declared.push_back(simulation::SystemPipeline::StagedSystem{

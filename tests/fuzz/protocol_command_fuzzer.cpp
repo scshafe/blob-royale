@@ -5,6 +5,7 @@
 #include "command_registry.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/seat_npc_command.hpp"
+#include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
@@ -23,8 +24,8 @@
 #include <type_traits>
 #include <variant>
 
-// The v2 command envelope is the first attacker-controlled parse path in this project: every other
-// boundary reads a file an operator wrote, while this one reads bytes a browser chose. The oracle
+// The active v3 command envelope is an attacker-controlled parse path in this project: file
+// boundaries read input an operator wrote, while this one reads bytes a browser chose. The oracle
 // is the decoder's own total contract (`command_decoding.hpp`):
 //
 //   * it never throws, for any byte sequence, because an exception on a hostile frame would make
@@ -36,6 +37,8 @@
 //     lobby commands carry the distinct session-stamped controller, bounded seats, and only an
 //     NPC kind advertised by this session. Server-issued commands remain forbidden even when the
 //     mode accepts them.
+//     Movement tuning carries the stamped controller, safe correlation/revision numbers, and
+//     finite shared movement values inside their intrinsic bounds.
 namespace {
 
 namespace protocol = blob_royale::protocol;
@@ -55,7 +58,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
   // A fixture welcome vocabulary, not a second copy of ControllerRegistry. The decoder's
   // contract is membership in the supplied list, independent of which bots production registers.
   const std::array<std::string, 1> npc_controller_kinds{"fuzz_bot"};
-  // Retain the original thrust-only wire surface, then exercise every current lobby payload.
+  // Retain the original thrust-only wire surface, then exercise every current client payload.
   // Keeping server-issued kinds in both applicable masks proves that mask membership alone can
   // never grant a client permission to send one.
   const std::array<simulation::CommandKindMask, 2> mode_masks{
@@ -125,6 +128,18 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
                   std::abort();
                 }
               }
+            }
+          } else if constexpr (std::is_same_v<CommandType, simulation::SetMovementTuningCommand>) {
+            if (command.controller != stamped_controller || command.tuning_request_id == 0 ||
+                command.tuning_request_id > simulation::kMaximumProtocolSafeInteger ||
+                command.expected_revision > simulation::kMaximumProtocolSafeInteger ||
+                !std::isfinite(command.tuning.acceleration()) ||
+                command.tuning.acceleration() < simulation::kMinimumMovementAcceleration ||
+                command.tuning.acceleration() > simulation::kMaximumMovementAcceleration ||
+                !std::isfinite(command.tuning.normal_top_speed()) ||
+                command.tuning.normal_top_speed() < simulation::kMinimumNormalTopSpeed ||
+                command.tuning.normal_top_speed() > simulation::kMaximumNormalTopSpeed) {
+              std::abort();
             }
           } else {
             // A new variant must explicitly gain an oracle here; it must not silently inherit

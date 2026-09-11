@@ -23,6 +23,7 @@ import type {
   SessionLobbyListing,
   SessionSnapshotMessage,
   SessionWelcomeMessage,
+  MovementTuningExchangeState,
   SimulationConfiguration,
 } from './simulationProtocolTypes';
 import {
@@ -36,6 +37,7 @@ import {
   validateSessionHttpErrorResponse,
   validateSessionSnapshotMessage,
   validateSessionWelcomeMessage,
+  validateSessionTuningResult,
 } from './sessionProtocolValidation';
 
 import { assertTerrainConfiguration } from './terrainValidation';
@@ -92,6 +94,7 @@ export interface SimulationSessionCallbacks {
   readonly onFailure: (error: SimulationApiError) => void;
   readonly onSnapshot: (snapshot: SessionSnapshotMessage) => void;
   readonly onWelcome: (welcome: SessionWelcomeMessage) => void;
+  readonly onMovementTuningState: (state: MovementTuningExchangeState) => void;
 }
 
 export interface SimulationApiBoundary {
@@ -417,6 +420,11 @@ function sessionCloseIntentFor(error: SimulationApiError): SessionCloseIntent {
 
 /** @canonical simulation_api -- owns all browser transport for protocol v3 sessions. */
 export class SimulationApi implements SimulationApiBoundary {
+  private movementTuningState: MovementTuningExchangeState = Object.freeze({
+    status: 'idle',
+  });
+  private tuningRequestHighWater = 0;
+  private sessionCallbacks: SimulationSessionCallbacks | null = null;
   private readonly endpoints: SimulationEndpoints;
   private readonly fetchImplementation: typeof fetch;
   private readonly webSocketFactory: SimulationWebSocketFactory;
@@ -524,6 +532,9 @@ export class SimulationApi implements SimulationApiBoundary {
     }
 
     this.socket = socket;
+    this.sessionCallbacks = callbacks;
+    this.movementTuningState = Object.freeze({ status: 'idle' });
+    this.tuningRequestHighWater = 0;
     this.sequenceState = null;
     this.acceptedCommandKinds = null;
     let opened = false;
@@ -602,6 +613,8 @@ export class SimulationApi implements SimulationApiBoundary {
       this.socket = null;
       this.acceptedCommandKinds = null;
       this.sequenceState = null;
+      this.sessionCallbacks = null;
+      this.markPendingTuningUnknown(callbacks);
       callbacks.onDisconnected(
         Object.freeze({
           code: event.code,
@@ -691,9 +704,44 @@ export class SimulationApi implements SimulationApiBoundary {
       return false;
     }
 
+    if (command.kind === 'set_movement_tuning') {
+      if (
+        this.movementTuningState.status === 'pending' ||
+        command.payload.tuning_request_id <= this.tuningRequestHighWater
+      ) {
+        return false;
+      }
+      this.tuningRequestHighWater = command.payload.tuning_request_id;
+      this.setMovementTuningState(
+        Object.freeze({
+          status: 'pending',
+          request: Object.freeze({ ...command.payload }),
+        }),
+      );
+      if (this.socket !== socket) return false;
+    }
     try {
       socket.send(payload);
-    } catch {
+    } catch (cause) {
+      if (command.kind === 'set_movement_tuning') {
+        const callbacks = this.sessionCallbacks;
+        const error = new SimulationApiError(
+          'SIMULATION.SOCKET_TRANSPORT_FAILED',
+          'Tuning request delivery could not be confirmed.',
+          { cause, retryable: true },
+        );
+        this.releaseSocket(socket, 4000, 'transport_failure');
+        callbacks?.onDisconnected(
+          Object.freeze({
+            code: null,
+            error,
+            opened: true,
+            reason: 'transport_failure',
+            retryable: true,
+            wasClean: false,
+          }),
+        );
+      }
       return false;
     }
     return true;
@@ -759,13 +807,36 @@ export class SimulationApi implements SimulationApiBoundary {
       untrustedDocument,
       this.sequenceState,
     );
+    const pending =
+      this.movementTuningState.status === 'pending'
+        ? this.movementTuningState.request
+        : null;
+    const tuningResult = validateSessionTuningResult(snapshot, pending);
     this.sequenceState = Object.freeze({
       messageSequence: snapshot.meta.message_sequence,
       requestId: snapshot.meta.request_id,
       tickSequence: snapshot.data.tick_sequence,
       terrain: this.sequenceState.terrain,
     });
+    const resolved =
+      tuningResult !== null && pending !== null
+        ? Object.freeze({
+            status: 'resolved' as const,
+            request: pending,
+            result: tuningResult,
+          })
+        : null;
+    if (resolved !== null) this.movementTuningState = resolved;
     callbacks.onSnapshot(snapshot);
+    // Snapshot callbacks may synchronously send and even receive the next request in adapters.
+    // Never publish A's state after such a callback has already advanced this connection to B.
+    if (
+      resolved !== null &&
+      this.movementTuningState === resolved &&
+      this.sessionCallbacks === callbacks
+    ) {
+      callbacks.onMovementTuningState(resolved);
+    }
   }
 
   dispose(): void {
@@ -1023,6 +1094,24 @@ export class SimulationApi implements SimulationApiBoundary {
     socket.onopen = null;
   }
 
+  private setMovementTuningState(state: MovementTuningExchangeState): void {
+    this.movementTuningState = state;
+    this.sessionCallbacks?.onMovementTuningState(state);
+  }
+
+  private markPendingTuningUnknown(
+    callbacks: SimulationSessionCallbacks | null,
+  ): void {
+    if (this.movementTuningState.status === 'pending') {
+      const unknown = Object.freeze({
+        status: 'unknown' as const,
+        request: this.movementTuningState.request,
+      });
+      this.movementTuningState = unknown;
+      callbacks?.onMovementTuningState(unknown);
+    }
+  }
+
   private releaseSocket(
     socket: SimulationWebSocket,
     closeCode: number,
@@ -1032,16 +1121,19 @@ export class SimulationApi implements SimulationApiBoundary {
       return;
     }
     this.clearSocketConnectTimeout();
+    const callbacks = this.sessionCallbacks;
     this.detachSocket(socket);
     this.socket = null;
     this.acceptedCommandKinds = null;
     this.sequenceState = null;
+    this.sessionCallbacks = null;
     if (
       socket.readyState === WEBSOCKET_CONNECTING ||
       socket.readyState === WEBSOCKET_OPEN
     ) {
       socket.close(closeCode, closeReason);
     }
+    this.markPendingTuningUnknown(callbacks);
   }
 
   private clearSocketConnectTimeout(): void {

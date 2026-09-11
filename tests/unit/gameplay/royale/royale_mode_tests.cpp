@@ -60,10 +60,10 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-             simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
-             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-             simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
+             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
 }
 
 TEST_CASE("RoyaleMode declares eight systems in the order its rules depend on",
@@ -194,10 +194,8 @@ TEST_CASE("the grace royale publishes is the grace royale enforces",
 TEST_CASE("a royale mode built from its own configuration hands it to the systems it declares",
           "[unit][gameplay][royale][configuration]") {
   // The mode holds its validated section and hands it to the systems and policies it builds, which
-  // is the only way configuration reaches a tick. Two royale modes with different thrust maxima are
-  // two different games played by the same rules.
+  // is how mode-specific configuration reaches a tick. Shared movement belongs to the match.
   gameplay::RoyaleConfiguration::Section section = gameplay::RoyaleConfiguration::default_section();
-  section.thrust_max_world_units_per_second_squared = 1'000.0;
   section.countdown_seconds = 1.0;
   const gameplay::RoyaleMode mode{gameplay::RoyaleConfiguration::create(section)};
 

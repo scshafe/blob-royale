@@ -55,6 +55,31 @@ TEST_CASE("deployment configuration for cole-ubuntu-pc loads through the applica
   REQUIRE(server_config.trusted_proxy_addresses().size() == 1);
   CHECK(server_config.trusted_proxy_addresses()[0] == "127.0.0.1");
   CHECK(server_config.snapshots_per_second() == 20);
+  const auto movement = std::get<ApplicationConfigLoader::RunRequest>(result)
+                            .application_config()
+                            .game_mode_configuration()
+                            .movement;
+  CHECK(movement.acceleration() == 400.0);
+  CHECK(movement.normal_top_speed() == 600.0);
+}
+
+TEST_CASE("historical royale benchmark configuration admits shared movement authoring",
+          "[fixtures][benchmark][movement]") {
+  const std::filesystem::path directory{BLOB_ROYALE_BENCHMARK_FIXTURE_DIRECTORY};
+  const std::string configuration_path = (directory / "royale-roster.cfg").string();
+  const std::array<const char*, 3> arguments = {"blob-royale", "--config",
+                                                configuration_path.c_str()};
+  const auto result =
+      ApplicationConfigLoader::load(static_cast<int>(arguments.size()), arguments.data());
+  REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
+  const auto& config = std::get<ApplicationConfigLoader::RunRequest>(result).application_config();
+  CHECK(config.game_mode_configuration().movement.acceleration() == 400.0);
+  CHECK(config.game_mode_configuration().movement.normal_top_speed() == 10000.0);
+  CHECK(config.simulation_config().drag_per_second() == 2.0);
+  CHECK(config.match_configuration().mode_name() == "royale");
+  CHECK(config.match_configuration().seed() == 1);
+  CHECK(config.lobbies_configuration().count() == 4);
+  CHECK(config.game_mode_configuration().hazards.size() == 2);
 }
 
 TEST_CASE("the deployment runs four hill rooms and seeds no scenario", "[fixtures][deployment]") {

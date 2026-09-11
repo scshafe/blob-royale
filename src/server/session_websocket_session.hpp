@@ -1,6 +1,8 @@
 #ifndef BLOB_ROYALE_SERVER_SESSION_WEBSOCKET_SESSION_HPP
 #define BLOB_ROYALE_SERVER_SESSION_WEBSOCKET_SESSION_HPP
 
+#include "movement_tuning_result.hpp"
+
 #include "game_api_router.hpp"
 #include "lobby_directory.hpp"
 #include "peer_identity.hpp"
@@ -130,6 +132,8 @@ private:
     // take and none of the seats is its own. Sent before any welcome, because a welcome names a
     // body and a session with no seat never gets one.
     kLobbyFull,
+    kTuningRequestInFlight,
+    kTuningRequestIdReused,
   };
 
   void accepted(const boost::system::error_code& error);
@@ -213,6 +217,9 @@ private:
   std::uint64_t presentation_remainder_carry_{0};
 
   std::string active_write_payload_;
+  // Claim transfers ownership before encoding. Completion discards only this write's value;
+  // it never acknowledges the runtime slot, which may already contain the next request.
+  std::optional<runtime::MovementTuningResult> active_write_tuning_result_;
   std::optional<SnapshotEgressLease> active_egress_lease_;
   std::optional<CloseIntent> requested_close_intent_;
   std::optional<std::uint16_t> observed_peer_close_code_;

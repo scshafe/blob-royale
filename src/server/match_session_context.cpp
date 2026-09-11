@@ -10,20 +10,22 @@
 
 namespace blob_royale::server {
 
-MatchSessionContext::MatchSessionContext(const std::uint64_t lobby_id,
-                                         runtime::CommandSink& command_sink,
-                                         const runtime::ControllerDirectory& controller_directory,
-                                         std::string map_name,
-                                         const std::uint64_t seat_count_maximum,
-                                         const simulation::CommandKindMask accepted_command_kinds,
-                                         std::vector<std::string> npc_controller_kinds) noexcept
-    : lobby_id_(lobby_id), command_sink_(&command_sink), directory_view_(controller_directory),
+MatchSessionContext::MatchSessionContext(
+    const std::uint64_t lobby_id, runtime::CommandSink& command_sink,
+    runtime::MovementTuningResultDelivery& tuning_result_delivery,
+    const runtime::ControllerDirectory& controller_directory, std::string map_name,
+    const std::uint64_t seat_count_maximum,
+    const simulation::CommandKindMask accepted_command_kinds,
+    std::vector<std::string> npc_controller_kinds) noexcept
+    : lobby_id_(lobby_id), command_sink_(&command_sink),
+      tuning_result_delivery_(&tuning_result_delivery), directory_view_(controller_directory),
       map_name_(std::move(map_name)), seat_count_maximum_(seat_count_maximum),
       accepted_command_kinds_(accepted_command_kinds),
       npc_controller_kinds_(std::move(npc_controller_kinds)) {}
 
 MatchSessionContext
 MatchSessionContext::create(const std::uint64_t lobby_id, runtime::CommandSink& command_sink,
+                            runtime::MovementTuningResultDelivery& tuning_result_delivery,
                             const runtime::ControllerDirectory& controller_directory,
                             std::string map_name, const std::uint64_t seat_count_maximum,
                             const simulation::CommandKindMask accepted_command_kinds,
@@ -63,6 +65,7 @@ MatchSessionContext::create(const std::uint64_t lobby_id, runtime::CommandSink& 
   }
   return {lobby_id,
           command_sink,
+          tuning_result_delivery,
           controller_directory,
           std::move(map_name),
           seat_count_maximum,

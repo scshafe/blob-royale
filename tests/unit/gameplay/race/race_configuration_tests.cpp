@@ -58,7 +58,6 @@ constexpr std::array<Field, 4> kNonnegativeDurations = {{
 TEST_CASE("the proposed [race] section converts to the accepted tick counts",
           "[unit][gameplay][race][configuration]") {
   const gameplay::RaceConfiguration configuration = gameplay::RaceConfiguration::defaults();
-  CHECK(configuration.thrust_maximum() == 400.0);
   CHECK(configuration.road() == "road");
   CHECK(configuration.checkpoint_radius() == 40.0);
   CHECK(configuration.respawn_delay_ticks() == 800);
@@ -161,17 +160,6 @@ TEST_CASE("race zero delays and a zero finish window are accepted",
   CHECK(configuration.restart_delay_ticks() == 0);
 }
 
-TEST_CASE("race thrust reuses the steering system validation rule",
-          "[unit][gameplay][race][configuration][validation]") {
-  Section section = gameplay::RaceConfiguration::default_section();
-  section.thrust_max_world_units_per_second_squared = -1.0;
-  CHECK(rejection_of(section).code == gameplay::GameplayValidationCode::kThrustMaximumOutOfRange);
-  section.thrust_max_world_units_per_second_squared = std::numeric_limits<double>::quiet_NaN();
-  CHECK(rejection_of(section).code == gameplay::GameplayValidationCode::kThrustMaximumNotFinite);
-  section.thrust_max_world_units_per_second_squared = 0.0;
-  CHECK(gameplay::RaceConfiguration::create(section).thrust_maximum() == 0.0);
-}
-
 TEST_CASE("race validation reports the first invalid key in the authored order",
           "[unit][gameplay][race][configuration][validation]") {
   Section section = gameplay::RaceConfiguration::default_section();
@@ -208,14 +196,11 @@ TEST_CASE("race road rejects malformed and overlong identities with its named do
   }
 }
 
-TEST_CASE("race road validation follows thrust and precedes checkpoint radius",
+TEST_CASE("race road validation precedes checkpoint radius",
           "[unit][gameplay][race][configuration][validation]") {
   Section section = gameplay::RaceConfiguration::default_section();
-  section.thrust_max_world_units_per_second_squared = -1.0;
   section.road = "";
   section.checkpoint_radius_world_units = -1.0;
-  CHECK(rejection_of(section).code == gameplay::GameplayValidationCode::kThrustMaximumOutOfRange);
-  section.thrust_max_world_units_per_second_squared = 400.0;
   CHECK(rejection_of(section).code == gameplay::GameplayValidationCode::kRaceRoadNameInvalid);
   section.road = "road";
   CHECK(rejection_of(section).context == "race.checkpoint_radius_world_units");

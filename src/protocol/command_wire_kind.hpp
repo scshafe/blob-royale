@@ -58,7 +58,7 @@ template <> struct CommandWireKind<simulation::JoinCommand> {
 // `set_thrust` says the command *replaces* a steering intent that otherwise persists, which is the
 // property a client must know to release a key correctly (`docs/protocol/v3.md` § "set_thrust").
 template <> struct CommandWireKind<simulation::ThrustCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[3];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[4];
 };
 
 // The four lobby kinds, added in 2.3. **Each one is a decision that a client may operate the
@@ -71,7 +71,7 @@ template <> struct CommandWireKind<simulation::ThrustCommand> {
 // ascending order (`protocol_v3_constants.hpp`), which is why they do not read in the order they
 // are applied.
 template <> struct CommandWireKind<simulation::SetSeatCountCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[2];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[3];
 };
 
 template <> struct CommandWireKind<simulation::ClearSeatCommand> {
@@ -83,7 +83,11 @@ template <> struct CommandWireKind<simulation::SeatNpcCommand> {
 };
 
 template <> struct CommandWireKind<simulation::StartMatchCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[4];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[5];
+};
+
+template <> struct CommandWireKind<simulation::SetMovementTuningCommand> {
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[2];
 };
 
 namespace detail {
@@ -177,6 +181,10 @@ static_assert(kLobbySeatCountMaximum == simulation::kMaximumLobbySeatCount,
               "the published seat-count bound and the engine's lobby bound must be one number");
 static_assert(kLobbySeatIndexMaximum + 1 == simulation::kMaximumLobbySeatCount,
               "a seat index is zero-based, so its published maximum is one below the seat count");
+static_assert(kMovementAccelerationMinimum == simulation::kMinimumMovementAcceleration);
+static_assert(kMovementAccelerationMaximum == simulation::kMaximumMovementAcceleration);
+static_assert(kMovementNormalTopSpeedMinimum == simulation::kMinimumNormalTopSpeed);
+static_assert(kMovementNormalTopSpeedMaximum == simulation::kMaximumNormalTopSpeed);
 
 } // namespace blob_royale::protocol
 

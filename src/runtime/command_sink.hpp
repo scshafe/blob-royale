@@ -57,6 +57,8 @@ namespace blob_royale::runtime {
 // violate. A close racing a submit from the same session may let one command through -- the tick
 // then ignores it, since a command for a destroyed entity is ignored by contract -- so this is a
 // well-defined benign race and not an ownership hole.
+// Tuning admission rechecks mailbox exchange ownership under the same mutex as retirement; it
+// cannot enter after close even when a presentation-directory read raced that close.
 // related: command_mailbox.hpp -- where an accepted command waits for its tick.
 // related: controller_directory.hpp -- where a session's presentation values live.
 // related: simulation_runtime.hpp -- the owner that hands this out.

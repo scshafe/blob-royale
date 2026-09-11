@@ -19,12 +19,10 @@ namespace blob_royale::gameplay {
 // Step 21, by `royale`, and both of ADR 0004's other stress-test modes declare it too, so filing it
 // under one mode's directory would make the second mode reach into the first.
 // `src/gameplay/shared/` is the directory for a system more than one mode declares; a system one
-// mode declares stays in that mode's directory. Nothing here is mode-specific: the scale is a
-// constructor argument, so two modes that disagree about thrust strength declare the same system
-// twice with different numbers.
+// mode declares stays in that mode's directory. Nothing here is mode-specific: every declaring
+// mode reads the same match-owned movement tuning.
 //
-// The system holds one immutable scalar and nothing else, which is the whole of what
-// `simulation_system.hpp` permits: every value it changes is world-owned, so a tick's result stays
+// The system is stateless: every value it reads or changes is world-owned, so a tick's result stays
 // a function of the committed world and the tick's InputBatch alone.
 //
 // It runs at `kPreKernel` because that stage reads this tick's recorded commands and start-of-tick
@@ -34,9 +32,10 @@ namespace blob_royale::gameplay {
 // related: steered_acceleration -- the arithmetic, named and testable on its own.
 // related: sandbox/sandbox_mode.hpp -- one of the two modes that declare it.
 
-// canonical: thrust_steering_acceleration -- the one place a thrust direction becomes acceleration.
+// Standalone direction-to-acceleration arithmetic, delegated to the canonical locomotion helpers.
+// It retains its original scalar domain; only live tuning goes through MovementTuning and the cap.
 //
-// **The magnitude clamp happens exactly once, here.** `ThrustCommand` carries the submitted
+// **The magnitude clamp happens exactly once.** `ThrustCommand` carries the submitted
 // direction verbatim and `InputBatch::create` only range-checks each component against `[-1, 1]`,
 // because clamping at construction and again in this system would scale twice and is not
 // bit-identical to scaling once (`commands/thrust_command.hpp`).
@@ -60,14 +59,6 @@ namespace blob_royale::gameplay {
 [[nodiscard]] simulation::Vector2 steered_acceleration(const simulation::Vector2& direction,
                                                        double thrust_max);
 
-// canonical: thrust_maximum_validation -- the one rule a declared thrust maximum must satisfy.
-//
-// Finite and greater than or equal to zero (`docs/architecture/0005-royale-mode.md`
-// § "Mode configuration"). It is a free function rather than a step inside the system's factory so
-// a mode can reject a mis-typed balance number where it reads it, without constructing a system it
-// would immediately discard. Throws GameplayValidationError naming which of the two rules failed.
-void require_valid_thrust_maximum(double thrust_max_world_units_per_second_squared);
-
 class ThrustSteeringSystem final : public simulation::SimulationSystem {
 public:
   // The stable name this system is known by in the pipeline, diagnostics, and fixtures. Two modes
@@ -75,28 +66,23 @@ public:
   // collide.
   static constexpr std::string_view kSystemName = "thrust_steering";
 
-  // Builds the system a mode declares, through `require_valid_thrust_maximum`, so a mis-typed
-  // balance number is a startup rejection rather than a world full of non-finite accelerations on
-  // the first thrust.
-  [[nodiscard]] static std::unique_ptr<const simulation::SimulationSystem>
-  create(double thrust_max_world_units_per_second_squared);
+  // Builds the stateless system; validated tuning belongs to MatchState, not a mode or system.
+  [[nodiscard]] static std::unique_ptr<const simulation::SimulationSystem> create();
 
   // Public because the pipeline holds `std::unique_ptr<const SimulationSystem>` and
   // `std::make_unique` needs an accessible constructor, exactly as `MatchLifecycleSystem` does.
-  // **`create` is the validating entry point**; this one takes the number as given.
-  explicit ThrustSteeringSystem(double thrust_max_world_units_per_second_squared) noexcept;
+  ThrustSteeringSystem() = default;
 
   [[nodiscard]] std::string_view name() const noexcept override { return kSystemName; }
 
   // Writes `PhysicsBody::acceleration` for every entity that carries both a Controllable and a
-  // PhysicsBody and whose recorded commands include a thrust, in ascending EntityId order. An
-  // entity with no recorded thrust keeps the acceleration its last thrust stored, which is the
-  // persistence ADR 0003 § "State, units, and fixed time" already specifies; a thrust naming an
-  // entity that owns no body has nothing to write and is skipped.
+  // PhysicsBody, in ascending EntityId order and without a phase gate. A recorded thrust replaces
+  // the private normalized intent; a held intent recomputes acceleration from current tuning and
+  // velocity every tick through locomotion's finite-step cap. Absent intent preserves authored
+  // acceleration, unlike explicit zero. A bodyless entity is skipped. Seating clears old intent.
+  // Canonical integration/Vector2 domain errors and LOCOMOTION_PRECISION_LOST propagate to the
+  // tick's existing transactional boundary; there is no coast fallback.
   void apply(simulation::GameWorld& world, const simulation::TickContext& context) const override;
-
-private:
-  double thrust_max_;
 };
 
 } // namespace blob_royale::gameplay

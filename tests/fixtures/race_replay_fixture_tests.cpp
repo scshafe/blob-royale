@@ -86,7 +86,7 @@ TEST_CASE("the replay format reads the race section and publishes its course fro
   const testing::ReplayFixture fixture = testing::ReplayFixture::named("race-scripted-course");
   CHECK(fixture.mode_name() == "race");
   CHECK(fixture.tick_count() == 130);
-  CHECK(fixture.race().thrust_maximum() == 4000.0);
+  CHECK(fixture.movement().acceleration() == 4000.0);
   CHECK(fixture.race().respawn_delay_ticks() == 8);
   CHECK(fixture.race().finish_window_ticks() == 8);
   CHECK(fixture.race().time_limit_ticks() == 400);

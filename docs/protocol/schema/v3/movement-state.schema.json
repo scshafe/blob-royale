@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/movement-state.schema.json",
+  "title": "Blob Royale protocol v3 movement state",
+  "description": "Authoritative current and room-authored default tuning, intrinsic limits, and the latest committed tuning revision. Defaults survive round resets and change only when the room is recreated.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["current", "defaults", "limits", "revision", "effective_tick"],
+  "properties": {
+    "current": { "$ref": "movement-tuning.schema.json" },
+    "defaults": { "$ref": "movement-tuning.schema.json" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acceleration_world_units_per_second_squared", "normal_top_speed_world_units_per_second"],
+      "properties": {
+        "acceleration_world_units_per_second_squared": {
+          "type": "object", "additionalProperties": false, "required": ["minimum", "maximum"],
+          "properties": { "minimum": { "const": 0 }, "maximum": { "const": 10000 } }
+        },
+        "normal_top_speed_world_units_per_second": {
+          "type": "object", "additionalProperties": false, "required": ["minimum", "maximum"],
+          "properties": { "minimum": { "const": 1 }, "maximum": { "const": 10000 } }
+        }
+      }
+    },
+    "revision": { "$ref": "common.schema.json#/$defs/safe_integer" },
+    "effective_tick": { "$ref": "common.schema.json#/$defs/phase_start_tick" }
+  },
+  "allOf": [{
+    "if": { "properties": { "revision": { "const": 0 } }, "required": ["revision"] },
+    "then": { "properties": { "effective_tick": { "const": 0 } } },
+    "else": { "properties": { "effective_tick": { "$ref": "common.schema.json#/$defs/tick_sequence" } } }
+  }],
+  "$comment": "effective_tick must not exceed the containing snapshot tick. A revision change alone does not acknowledge any particular client request."
+}

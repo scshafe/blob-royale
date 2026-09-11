@@ -66,6 +66,7 @@ SimulationRuntime::SimulationRuntime(simulation::GameSimulation game_simulation)
       command_mailbox_(game_simulation_.accepted_command_kinds()),
       command_sink_(command_mailbox_, controller_directory_, entity_id_allocator_,
                     first_session_controller_id(game_simulation_)),
+      tuning_result_delivery_(command_mailbox_),
       simulation_thread_([this](const std::stop_token stop_token) { run(stop_token); }) {}
 
 SimulationRuntime::~SimulationRuntime() { stop(); }
@@ -230,7 +231,8 @@ void SimulationRuntime::run(const std::stop_token stop_token) noexcept {
         // must create an entity on its first running tick always has an id to draw.
         const simulation::InputBatch input_batch = simulation::InputBatch::create(
             std::move(commands), command_mailbox_.accepted_kinds(), reservation);
-        game_simulation_.step(fixed_delta, input_batch);
+        const auto tuning_decisions = game_simulation_.step(fixed_delta, input_batch);
+        command_mailbox_.complete_tuning_decisions(tuning_decisions.entries());
         completed_snapshot =
             std::make_shared<const simulation::WorldSnapshot>(game_simulation_.snapshot());
       } catch (...) {

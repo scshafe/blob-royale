@@ -16,7 +16,16 @@ directory, under which seed, with which bots. It is the value that resolves `mod
 `gameplay::GameModeRegistry` and each bot kind through `controllers::ControllerRegistry`, so a
 misspelled name is a startup rejection rather than a match that quietly plays the wrong game.
 `gameplay::GameModeConfiguration` carries each configured mode's own `[<mode>]` section, validated
-by the mode that owns it, plus the hazard table every declared `[hazard.<kind>]` section builds.
+by the mode that owns it, plus the hazard table every declared `[hazard.<kind>]` section builds
+and simulation's shared `MovementTuning` value.
+
+One required `[movement]` section declares `acceleration_world_units_per_second_squared`
+(0..10,000) and `normal_top_speed_world_units_per_second` (1..10,000). Both must be finite;
+the three old per-mode thrust keys are rejected, with no alias or fallback. Production defaults
+are 400/600. The composition root seeds each room's current pair and reset defaults before its
+first snapshot, including Sandbox; revision and effective tick start at zero. Live room changes
+never mutate process configuration or write the INI file. Round resets retain the active pair;
+room recreation reseeds from authored values. Sandbox has no seated-tuning authority exception.
 
 `--scenario` is optional. `[match]` and the map it names describe a whole match; a scenario only
 seeds extra entities on top of the map's static content, which is what fixtures need and a live
@@ -59,7 +68,8 @@ would otherwise only fail once a match was being played. `LobbiesConfiguration` 
 `LobbyDirectory` the server reads them through, then `GameServer`, in destruction-safe order. A
 `Room` is the single-match server this process used to be -- its `SimulationRuntime` on its own
 thread, its `ControllerHost`, its `SeatBotReconciler`, and the `MatchSessionContext` its sessions
-run on -- numbered `1..N` and seeded `seed + (lobby_id - 1)`; room 1 plays the world the map and
+run on (including the room-bound tuning-result claim capability) -- numbered `1..N` and seeded
+`seed + (lobby_id - 1)`; room 1 plays the world the map and
 any scenario produced, and every further room plays the map alone, which is why the loader refuses
 a scenario with more than one room. The application is the only file that knows every registry: it
 resolves the mode once per room, hands each simulation the map and the mode, declares the `[match]

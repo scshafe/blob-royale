@@ -6,6 +6,7 @@
 #include "controller_directory.hpp"
 #include "entity_id_allocator.hpp"
 #include "game_simulation.hpp"
+#include "movement_tuning_result_delivery.hpp"
 #include "simulation_runtime_state.hpp"
 #include "snapshot_publication.hpp"
 #include "tick_deadline.hpp"
@@ -113,10 +114,16 @@ public:
   }
   [[nodiscard]] const SnapshotPublication& snapshot_publication() const&& = delete;
 
-  // The write-only command capability. This is the *only* thing a command source receives besides
-  // the publication above; it grants no world read and no lifecycle transition.
+  // The write-only command capability grants no world read and no lifecycle transition.
   [[nodiscard]] CommandSink& command_sink() & noexcept { return command_sink_; }
   CommandSink& command_sink() && = delete;
+
+  // The separate delivery capability transfers only owned terminal tuning results. It grants no
+  // command submission, world mutation, or runtime lifecycle access.
+  [[nodiscard]] MovementTuningResultDelivery& tuning_result_delivery() & noexcept {
+    return tuning_result_delivery_;
+  }
+  MovementTuningResultDelivery& tuning_result_delivery() && = delete;
 
   // Read-only presentation values, joined at the encoding boundary. Writing is `CommandSink`'s
   // `open_session`/`close_session`, so a reader cannot register or retire a controller.
@@ -161,6 +168,7 @@ private:
   CommandMailbox command_mailbox_;
   ControllerDirectory controller_directory_;
   CommandSink command_sink_;
+  MovementTuningResultDelivery tuning_result_delivery_;
 
   // Serializes public lifecycle operations while the state mutex coordinates with the worker.
   std::mutex lifecycle_transition_mutex_;

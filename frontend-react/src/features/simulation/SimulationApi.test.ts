@@ -23,6 +23,11 @@ import {
 } from './fixtures/sessionFrames';
 import { namedRaceTerrain, raceTerrain } from './fixtures/terrainFrames';
 import {
+  tuningCommand,
+  tuningSnapshotDocument,
+  TUNING_RESULT_STATUSES,
+} from './fixtures/tuningFrames';
+import {
   CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS,
   SESSION_FRAME_MAX_BYTES,
   WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS,
@@ -106,6 +111,7 @@ function createCallbacks(): SimulationSessionCallbacks {
     onFailure: vi.fn(),
     onSnapshot: vi.fn(),
     onWelcome: vi.fn(),
+    onMovementTuningState: vi.fn(),
   };
 }
 
@@ -543,6 +549,277 @@ describe('SimulationApi session lifecycle', () => {
     }
     return socket;
   }
+
+  async function openTuningApi() {
+    const setup = await createJoinedApi();
+    const callbacks = createCallbacks();
+    setup.api.openSession(setup.configuration, 1, callbacks);
+    const socket = requireSocket(setup.sockets);
+    socket.open();
+    socket.receive(JSON.stringify(welcomeDocument()));
+    return { ...setup, callbacks, socket };
+  }
+
+  it.each(TUNING_RESULT_STATUSES)(
+    'resolves only the matching %s outcome',
+    async (status) => {
+      const { api, callbacks, socket } = await openTuningApi();
+      expect(api.sendCommand(tuningCommand())).toBe(true);
+      expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith({
+        status: 'pending',
+        request: tuningCommand().payload,
+      });
+      socket.receive(JSON.stringify(tuningSnapshotDocument(status)));
+      expect(
+        vi.mocked(callbacks.onMovementTuningState).mock.lastCall?.[0],
+      ).toMatchObject({
+        status: 'resolved',
+        result: { status, tuning_request_id: 1 },
+      });
+      expect(callbacks.onSnapshot).toHaveBeenCalledTimes(1);
+      expect(callbacks.onFailure).not.toHaveBeenCalled();
+      api.dispose();
+    },
+  );
+
+  it('does not infer success from a shared revision or a successful send', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    expect(api.sendCommand(tuningCommand())).toBe(true);
+    const shared = tuningSnapshotDocument();
+    Reflect.set(shared.data, 'tuning_result', null);
+    socket.receive(JSON.stringify(shared));
+    expect(callbacks.onMovementTuningState).toHaveBeenCalledTimes(1);
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'pending' }),
+    );
+    socket.receive(JSON.stringify(tuningSnapshotDocument('applied', 1, 3)));
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'resolved' }),
+    );
+    api.dispose();
+  });
+
+  it('preserves an older applied result when the covering snapshot has a later shared revision', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    api.sendCommand(tuningCommand());
+    const document = tuningSnapshotDocument();
+    document.data.match.movement.revision = 2;
+    document.data.match.movement.current.acceleration_world_units_per_second_squared = 900;
+    socket.receive(JSON.stringify(document));
+    expect(
+      vi.mocked(callbacks.onMovementTuningState).mock.lastCall?.[0],
+    ).toMatchObject({
+      status: 'resolved',
+      result: { revision: 1 },
+    });
+    expect(callbacks.onSnapshot).toHaveBeenCalledTimes(1);
+    api.dispose();
+  });
+
+  it.each([
+    'foreign',
+    'future_tick',
+    'future_revision',
+    'wrong_applied_revision',
+    'unknown',
+    'extra',
+  ])('fails before snapshot acceptance for a %s result', async (mutation) => {
+    const { api, callbacks, socket } = await openTuningApi();
+    api.sendCommand(tuningCommand());
+    const document = tuningSnapshotDocument();
+    // Mutate a new, untrusted input specimen, never the readonly validated result contract.
+    const result = { ...document.data.tuning_result };
+    if (mutation === 'foreign') result.tuning_request_id = 2;
+    if (mutation === 'future_tick')
+      result.decision_tick = document.data.tick_sequence + 1;
+    if (mutation === 'future_revision') result.revision = 2;
+    if (mutation === 'wrong_applied_revision') {
+      result.revision = 2;
+      document.data.match.movement.revision = 2;
+    }
+    if (mutation === 'unknown') Reflect.set(result, 'status', 'unknown');
+    if (mutation === 'extra') Reflect.set(result, 'controller_id', 3);
+    document.data.tuning_result = result;
+    socket.receive(JSON.stringify(document));
+    expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).toHaveBeenCalledTimes(1);
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'unknown' }),
+    );
+    api.dispose();
+  });
+
+  it('refuses unsolicited and duplicate results instead of resolving a different exchange', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    api.sendCommand(tuningCommand());
+    socket.receive(JSON.stringify(tuningSnapshotDocument()));
+    api.sendCommand(tuningCommand(2, 1));
+    socket.receive(JSON.stringify(tuningSnapshotDocument('applied', 1, 3)));
+    expect(callbacks.onSnapshot).toHaveBeenCalledTimes(1);
+    expect(callbacks.onFailure).toHaveBeenCalledTimes(1);
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith({
+      status: 'unknown',
+      request: tuningCommand(2, 1).payload,
+    });
+    api.dispose();
+    const other = await openTuningApi();
+    other.socket.receive(JSON.stringify(tuningSnapshotDocument()));
+    expect(other.callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(other.callbacks.onFailure).toHaveBeenCalledTimes(1);
+    other.api.dispose();
+  });
+
+  it('locally refuses overlapping or reused IDs without inventing a server rejection', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    expect(api.sendCommand(tuningCommand())).toBe(true);
+    expect(api.sendCommand(tuningCommand(2))).toBe(false);
+    expect(
+      api.sendCommand({ kind: 'set_thrust', payload: { x: 1, y: 0 } }),
+    ).toBe(true);
+    socket.receive(JSON.stringify(tuningSnapshotDocument()));
+    expect(api.sendCommand(tuningCommand())).toBe(false);
+    expect(callbacks.onMovementTuningState).toHaveBeenCalledTimes(2);
+    expect(api.sendCommand(tuningCommand(5, 1))).toBe(true);
+    api.dispose();
+  });
+
+  it('reserves pending before synchronous delivery and frees it before result callbacks send again', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    vi.mocked(callbacks.onMovementTuningState).mockImplementation((state) => {
+      if (state.status === 'resolved' && state.result.tuning_request_id === 1) {
+        expect(api.sendCommand(tuningCommand(2, 1))).toBe(true);
+      }
+    });
+    socket.send.mockImplementationOnce(() => {
+      socket.receive(JSON.stringify(tuningSnapshotDocument()));
+    });
+    expect(api.sendCommand(tuningCommand())).toBe(true);
+    expect(socket.send).toHaveBeenCalledTimes(2);
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith({
+      status: 'pending',
+      request: tuningCommand(2, 1).payload,
+    });
+    const second = tuningSnapshotDocument('applied', 2, 3);
+    second.data.match.movement.revision = 2;
+    second.data.tuning_result = { ...second.data.tuning_result, revision: 2 };
+    socket.receive(JSON.stringify(second));
+    expect(
+      vi.mocked(callbacks.onMovementTuningState).mock.lastCall?.[0],
+    ).toMatchObject({
+      status: 'resolved',
+      result: { tuning_request_id: 2 },
+    });
+    api.dispose();
+  });
+
+  it('marks an uncertain send exception unknown and closes without automatic replay', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    socket.send.mockImplementationOnce(() => {
+      throw new Error('TEST.TRANSPORT_SEND_FAILED');
+    });
+    expect(api.sendCommand(tuningCommand())).toBe(false);
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith({
+      status: 'unknown',
+      request: tuningCommand().payload,
+    });
+    expect(callbacks.onDisconnected).toHaveBeenCalledTimes(1);
+    expect(socket.close).toHaveBeenCalledWith(4000, 'transport_failure');
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    api.dispose();
+  });
+
+  it('makes transport unavailable before an unknown-state callback tries to send again', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    vi.mocked(callbacks.onMovementTuningState).mockImplementation((state) => {
+      if (state.status === 'unknown')
+        expect(api.sendCommand(tuningCommand(2))).toBe(false);
+    });
+    api.sendCommand(tuningCommand());
+    socket.receive(JSON.stringify(tuningSnapshotDocument('applied', 99)));
+    expect(socket.send).toHaveBeenCalledTimes(1);
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith({
+      status: 'unknown',
+      request: tuningCommand().payload,
+    });
+    api.dispose();
+  });
+
+  it('publishes snapshots and latest tuning state in order under nested synchronous results', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    vi.mocked(callbacks.onSnapshot).mockImplementation((snapshot) => {
+      if (snapshot.data.tuning_result?.tuning_request_id === 1)
+        api.sendCommand(tuningCommand(2, 1));
+    });
+    socket.send.mockImplementation((encoded) => {
+      const id = (
+        JSON.parse(encoded) as { payload: { tuning_request_id: number } }
+      ).payload.tuning_request_id;
+      const document = tuningSnapshotDocument('applied', id, id + 1);
+      document.data.match.movement.revision = id;
+      document.data.tuning_result = {
+        ...document.data.tuning_result,
+        revision: id,
+      };
+      socket.receive(JSON.stringify(document));
+    });
+    api.sendCommand(tuningCommand());
+    expect(
+      vi
+        .mocked(callbacks.onSnapshot)
+        .mock.calls.map(([snapshot]) => snapshot.meta.message_sequence),
+    ).toEqual([2, 3]);
+    expect(
+      vi.mocked(callbacks.onMovementTuningState).mock.lastCall?.[0],
+    ).toMatchObject({
+      status: 'resolved',
+      result: { tuning_request_id: 2 },
+    });
+    api.dispose();
+  });
+
+  it('keeps interrupted requests unknown and starts fresh correlation only on a new connection', async () => {
+    const { api, callbacks, socket, configuration, sockets } =
+      await openTuningApi();
+    api.sendCommand(tuningCommand());
+    const staleMessage = socket.onmessage;
+    socket.serverClose(1006, 'lost', false);
+    expect(callbacks.onMovementTuningState).toHaveBeenLastCalledWith({
+      status: 'unknown',
+      request: tuningCommand().payload,
+    });
+    const nextCallbacks = createCallbacks();
+    api.openSession(configuration, 1, nextCallbacks);
+    const nextSocket = sockets[1]!;
+    nextSocket.open();
+    const nextWelcome = welcomeDocument();
+    nextWelcome.data.controller_id = 99;
+    nextSocket.receive(JSON.stringify(nextWelcome));
+    expect(nextSocket.sentMessages).toEqual([]);
+    staleMessage?.(
+      new MessageEvent('message', {
+        data: JSON.stringify(tuningSnapshotDocument()),
+      }),
+    );
+    expect(nextCallbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(api.sendCommand(tuningCommand())).toBe(true);
+    api.dispose();
+  });
+
+  it('does not expose tuning when the welcome mode mask omits it', async () => {
+    const { api, callbacks, socket } = await openTuningApi();
+    api.dispose();
+    const other = await createJoinedApi();
+    other.api.openSession(other.configuration, 1, callbacks);
+    const sandbox = requireSocket(other.sockets);
+    sandbox.open();
+    const welcome = welcomeDocument();
+    welcome.data.accepted_command_kinds = ['set_thrust'];
+    sandbox.receive(JSON.stringify(welcome));
+    expect(other.api.sendCommand(tuningCommand())).toBe(false);
+    expect(sandbox.sentMessages).toEqual([]);
+    expect(socket.sentMessages).toEqual([]);
+    other.api.dispose();
+  });
 
   it('owns one socket and delivers a welcome before validated monotonic snapshots', async () => {
     const { api, configuration, sockets } = await createJoinedApi();

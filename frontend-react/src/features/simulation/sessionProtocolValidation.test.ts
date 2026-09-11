@@ -32,8 +32,14 @@ import {
   validateSessionHttpErrorResponse,
   validateSessionSnapshotMessage,
   validateSessionWelcomeMessage,
+  validateSessionTuningResult,
 } from './sessionProtocolValidation';
 import type { SessionCommand } from './simulationProtocolTypes';
+import {
+  tuningCommand,
+  tuningSnapshotDocument,
+  TUNING_RESULT_STATUSES,
+} from './fixtures/tuningFrames';
 
 const welcomeSequence: SessionSequenceState = Object.freeze({
   messageSequence: 1,
@@ -72,6 +78,181 @@ function silenceProtocolWarnings() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('movement tuning protocol', () => {
+  it.each(TUNING_RESULT_STATUSES)(
+    'accepts the closed %s result shape',
+    (status) => {
+      const snapshot = validateSessionSnapshotMessage(
+        tuningSnapshotDocument(status),
+        welcomeSequence,
+      );
+      expect(snapshot.data.tuning_result?.status).toBe(status);
+      expect(Object.isFrozen(snapshot.data.match.movement.current)).toBe(true);
+    },
+  );
+
+  it.each([
+    [0, 1],
+    [10000, 10000],
+  ])(
+    'admits the exact acceleration/speed bounds %s/%s',
+    (acceleration, speed) => {
+      const command = tuningCommand();
+      expect(() =>
+        validateSessionCommand({
+          ...command,
+          payload: {
+            ...command.payload,
+            acceleration_world_units_per_second_squared: acceleration,
+            normal_top_speed_world_units_per_second: speed,
+          },
+        }),
+      ).not.toThrow();
+    },
+  );
+
+  it.each([-1, 10001, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid acceleration %s',
+    (acceleration) => {
+      const command = tuningCommand();
+      expect(() =>
+        validateSessionCommand({
+          ...command,
+          payload: {
+            ...command.payload,
+            acceleration_world_units_per_second_squared: acceleration,
+          },
+        }),
+      ).toThrow();
+    },
+  );
+
+  it.each([0, -1, 10001, Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects invalid normal speed %s',
+    (speed) => {
+      const command = tuningCommand();
+      expect(() =>
+        validateSessionCommand({
+          ...command,
+          payload: {
+            ...command.payload,
+            normal_top_speed_world_units_per_second: speed,
+          },
+        }),
+      ).toThrow();
+    },
+  );
+
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '1', null])(
+    'rejects malformed request identity %s',
+    (requestId) => {
+      const command = structuredClone(tuningCommand());
+      Reflect.set(command.payload, 'tuning_request_id', requestId);
+      expect(() => validateSessionCommand(command)).toThrow();
+    },
+  );
+
+  it.each(['movement', 'tuning_result'])(
+    'requires the new %s member',
+    (member) => {
+      const document = snapshotDocument();
+      Reflect.deleteProperty(
+        member === 'movement' ? document.data.match : document.data,
+        member,
+      );
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow();
+    },
+  );
+
+  it('requires the exact welcome interval and published intrinsic limits', () => {
+    const welcome = welcomeDocument();
+    Reflect.deleteProperty(
+      welcome.data,
+      'movement_tuning_minimum_interval_milliseconds',
+    );
+    expect(() => validateSessionWelcomeMessage(welcome, null)).toThrow();
+    const document = snapshotDocument();
+    document.data.match.movement.limits.normal_top_speed_world_units_per_second.maximum = 9999;
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow();
+  });
+
+  it.each(['decision_tick', 'revision', 'retry_after_milliseconds'])(
+    'rejects impossible applied %s nullability',
+    (field) => {
+      const document = tuningSnapshotDocument();
+      Reflect.set(
+        document.data.tuning_result,
+        field,
+        field === 'retry_after_milliseconds' ? 1 : null,
+      );
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow();
+    },
+  );
+
+  it.each([null, 0, 501, Number.MAX_SAFE_INTEGER])(
+    'rejects an invalid rate retry interval %s',
+    (retry) => {
+      const document = tuningSnapshotDocument('rate_limited');
+      Reflect.set(
+        document.data.tuning_result,
+        'retry_after_milliseconds',
+        retry,
+      );
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow();
+    },
+  );
+
+  it.each(['status', 'decision_tick', 'revision', 'extra'])(
+    'rejects unknown or uncovered result %s',
+    (field) => {
+      const document = tuningSnapshotDocument();
+      Reflect.set(
+        document.data.tuning_result,
+        field,
+        field === 'status'
+          ? 'unknown'
+          : field === 'revision'
+            ? 2
+            : document.data.tick_sequence + 1,
+      );
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow();
+    },
+  );
+
+  it('requires exact pending correlation and applied revision arithmetic', () => {
+    const snapshot = validateSessionSnapshotMessage(
+      tuningSnapshotDocument(),
+      welcomeSequence,
+    );
+    expect(() => validateSessionTuningResult(snapshot, null)).toThrow();
+    expect(() =>
+      validateSessionTuningResult(snapshot, tuningCommand(2).payload),
+    ).toThrow();
+    expect(() =>
+      validateSessionTuningResult(snapshot, tuningCommand(1, 1).payload),
+    ).toThrow();
+    expect(() =>
+      validateSessionTuningResult(
+        snapshot,
+        tuningCommand(1, Number.MAX_SAFE_INTEGER).payload,
+      ),
+    ).toThrow();
+    expect(
+      validateSessionTuningResult(snapshot, tuningCommand().payload)?.status,
+    ).toBe('applied');
+  });
 });
 
 describe('validateSessionWelcomeMessage', () => {

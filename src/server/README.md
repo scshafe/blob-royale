@@ -4,13 +4,13 @@
 
 `blob_server` owns the one bounded HTTP/1.1 and WebSocket listener for protocol v1 and protocol v3.
 It reads immutable `ServerConfig` and a `LobbyDirectory`: one `LobbyEntry` per room, each a
-`const SnapshotPublication` to read and one write capability, `MatchSessionContext`, whose entire
-interface is `CommandSink::open_session`, `submit`, and `close_session` plus a read-only
+`const SnapshotPublication` to read and a bounded capability bundle, `MatchSessionContext`:
+`CommandSink::open_session`, `submit`, and `close_session`, a consuming tuning-result claim, and a read-only
 presentation directory and the match identities a `welcome` announces. The v1 routes serve room 1; `GET /api/v3/lobbies` lists every room from its latest committed
 snapshot and its admission count, and `GET /api/v3/lobbies/<lobby_id>/session` joins the room it
 names. A session is bound at admission to its room's entry for its life and counts itself in and
 out of it, so the application can tell when a room has been abandoned. It cannot start, pause, stop, step, or otherwise mutate the simulation, and it cannot
-read world state through the write path. `GameServer::run()` is a single foreground event loop. The
+read world state through the write path or the result capability. `GameServer::run()` is a single foreground event loop. The
 application owns process signals and calls the thread-safe, idempotent `GameServer::stop()`, which
 closes acceptance before sessions and enforces a fixed shutdown deadline.
 
@@ -70,6 +70,13 @@ paths return fixed `426 PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED` after global 
 checks but before method/handshake, upgrade-token, or session/controller admission. Recognition
 does not require an existing room. Malformed old paths retain ordinary route errors. There is no
 `/api/v3/session` alias and no general v2 encoder. See `docs/protocol/v3.md` for precise precedence.
+
+Movement tuning uses the existing command path, mode mask, and global preparse limiter. Runtime
+admission additionally bounds each controller to one unresolved exchange and a 500 ms interval;
+reused ids and pipelining policy-close with fixed reasons. After egress admission the session
+claims a covered result before encoding, adapts it to the protocol-owned validated value, and
+retains the owned runtime result beside its active payload. Write completion clears only that
+local value, never a later runtime exchange. No general acknowledgement bus or replay is exposed.
 
 ## Trust and deployment boundary
 

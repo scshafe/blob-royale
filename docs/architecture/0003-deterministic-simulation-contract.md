@@ -579,3 +579,42 @@ persistence of normalized steering intent, from which shared steering recomputes
 tick under a match-owned tuning value; that lands with plan Step 10 and changes no committed value
 below the normal-speed ceiling, which fixture configurations author explicitly. The decision and
 its `Accepted` status are unchanged today.
+
+## Amendment: persistent steering intent, 2026-09-11 (plan Step 10)
+
+This supersedes § "State, units, and fixed time" and the steering paragraph of § "Canonical tick"
+only for declared shared locomotion. `Controllable` retains optional private normalized thrust
+intent. Absence is distinct from explicit zero: an authored body acceleration remains untouched
+until a valid thrust reaches that body. Normalize once with the original written square-root,
+reciprocal, and component multiplication; do not normalize the stored result again. Before old
+readers delegate, independent frozen arithmetic and real-system sequences must pass both lanes.
+
+Each `kPreKernel` steering pass computes requested acceleration from stored intent and the current
+match tuning. Its exact uncapped branch preserves `(component * scale) * acceleration` bits.
+The finite-step cap projects the requested Euler endpoint into the disc whose radius is the
+greater of normal top speed and current speed, then materializes acceleration. Recheck through
+the canonical integration equation so rounding cannot silently violate speed or amplify requested
+propulsion; bounded representability failure remains explicit. This is not a clamp on current
+velocity, does not delete external overspeed, and does not change phase-1 integration or drag.
+A crossing tick is constrained even if it began below the normal ceiling. Existing phase
+admission remains; no Running-only thrust gate is introduced.
+
+These postconditions compare computed binary64 squared norms, not exact-real norms. Compute
+the requested endpoint with the canonical integrator, retaining its existing domain failures.
+An unconstrained endpoint returns the requested acceleration verbatim. Otherwise use the initial
+radial factor `sqrt(max(V², v·v)) / sqrt(w·w)`. If this first computed projection equals `v`
+componentwise, zero is the defined quantized-projection identity, not proof of pure-outward input:
+binary64 rounding can erase a tiny turn. For a nonidentity first projection, try that radial
+factor plus at most eight `nextafter` corrections toward zero, always scaling the original `w`.
+Each radial attempt permits the initial non-amplifying acceleration scale plus at most eight
+corrections. Recheck canonical integrated squared speed and original-request non-amplification.
+Any later zero acceleration or integrated endpoint equal to `v` fails immediately, without
+shrinking through identity into braking. Exhaustion raises `GAMEPLAY.LOCOMOTION_PRECISION_LOST`.
+This is a bounded witness policy, not correctly rounded exact projection or exhaustive search.
+
+Shared body seating clears old-body intent while retaining commands received for this tick;
+snapshot publication strips intent. The same owner will apply the Step 14 movement lock, with no
+status source introduced now. Phase 0's existing controller-addressed handler gains atomic tuning
+and bounded successful-commit decisions as explicitly named by the amended plan/ADR 0002. No new
+kernel policy socket, clock change, live continuous-motion adoption, or fixture recalibration is
+authorized. The plan's full baseline gates remain mandatory.

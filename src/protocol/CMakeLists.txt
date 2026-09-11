@@ -2,6 +2,7 @@ add_library(blob_protocol STATIC
   bounded_json_serialization.cpp
   command_decoding.cpp
   http_error.cpp
+  movement_tuning_wire_result.cpp
   protocol_encoding_error.cpp
   protocol_json_encoding.cpp
   protocol_v3_frame_conformance.cpp

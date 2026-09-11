@@ -65,6 +65,7 @@ struct PublishedLobby final {
   std::uint64_t lobby_id;
   std::string mode;
   std::string phase;
+  std::uint64_t tick_sequence;
   std::uint64_t seat_count;
   std::uint64_t seat_count_maximum;
   std::uint64_t filled_seat_count;
@@ -271,6 +272,87 @@ require_body(const std::map<std::uint64_t, PublishedBody>& bodies, const std::ui
   return member->to_number<std::uint64_t>();
 }
 
+void require_movement(const std::string& frame, const double acceleration,
+                      const double normal_top_speed, const std::uint64_t revision) {
+  constexpr std::string_view kOperation = "session_contracts.movement";
+  const json::value document = json::parse(frame);
+  const json::object& data = required_object(document.as_object(), "data", kOperation);
+  const json::object& match = required_object(data, "match", kOperation);
+  const json::object& movement = required_object(match, "movement", kOperation);
+  const json::object& current = required_object(movement, "current", kOperation);
+  const json::object& defaults = required_object(movement, "defaults", kOperation);
+  constexpr std::string_view kAcceleration = "acceleration_world_units_per_second_squared";
+  constexpr std::string_view kSpeed = "normal_top_speed_world_units_per_second";
+  const auto effective_tick = required_unsigned_member(movement, "effective_tick", kOperation);
+  if (required_number(current, kAcceleration, kOperation) != acceleration ||
+      required_number(current, kSpeed, kOperation) != normal_top_speed ||
+      required_number(defaults, kAcceleration, kOperation) != 400 ||
+      required_number(defaults, kSpeed, kOperation) != 10'000 ||
+      required_unsigned_member(movement, "revision", kOperation) != revision ||
+      (revision == 0) != (effective_tick == 0) ||
+      effective_tick > required_unsigned_member(data, "tick_sequence", kOperation)) {
+    throw_contract_violation(kOperation,
+                             "published movement differs from authored or committed state");
+  }
+  const json::object& limits = required_object(movement, "limits", kOperation);
+  const json::object& acceleration_limits = required_object(limits, kAcceleration, kOperation);
+  const json::object& speed_limits = required_object(limits, kSpeed, kOperation);
+  if (required_number(acceleration_limits, "minimum", kOperation) != 0 ||
+      required_number(acceleration_limits, "maximum", kOperation) != 10'000 ||
+      required_number(speed_limits, "minimum", kOperation) != 1 ||
+      required_number(speed_limits, "maximum", kOperation) != 10'000) {
+    throw_contract_violation(kOperation, "published movement limits differ from the tuning domain");
+  }
+}
+
+void send_tuning(SessionWebSocketClient& client, const std::uint64_t request_id,
+                 const std::uint64_t expected_revision, const double acceleration,
+                 const double normal_top_speed) {
+  const json::object payload{{"tuning_request_id", request_id},
+                             {"expected_revision", expected_revision},
+                             {"acceleration_world_units_per_second_squared", acceleration},
+                             {"normal_top_speed_world_units_per_second", normal_top_speed}};
+  client.send_command(
+      json::serialize(json::object{{"kind", "set_movement_tuning"}, {"payload", payload}}));
+}
+
+[[nodiscard]] std::string await_tuning_result(SessionWebSocketClient& client,
+                                              const std::uint64_t request_id,
+                                              const std::string_view status,
+                                              const std::uint64_t revision) {
+  constexpr std::string_view kOperation = "session_contracts.tuning_result";
+  for (std::uint64_t attempt = 0; attempt < 600; ++attempt) {
+    std::string frame = client.read_snapshot_message();
+    const json::value document = json::parse(frame);
+    const json::object& data = required_object(document.as_object(), "data", kOperation);
+    const json::value* const result = data.if_contains("tuning_result");
+    if (result == nullptr) {
+      throw_contract_violation(kOperation, "snapshot omitted its required nullable tuning result");
+    }
+    if (result->is_null()) {
+      continue;
+    }
+    if (!result->is_object()) {
+      throw_contract_violation(kOperation, "tuning result is neither null nor an object");
+    }
+    const json::object& value = result->as_object();
+    const json::value* const retry = value.if_contains("retry_after_milliseconds");
+    const auto decision_tick = required_unsigned_member(value, "decision_tick", kOperation);
+    if (value.size() != 5 ||
+        required_unsigned_member(value, "tuning_request_id", kOperation) != request_id ||
+        required_string(value, "status", kOperation) != status ||
+        required_unsigned_member(value, "revision", kOperation) != revision || decision_tick == 0 ||
+        decision_tick > required_unsigned_member(data, "tick_sequence", kOperation) ||
+        retry == nullptr || !retry->is_null()) {
+      throw_contract_violation(kOperation,
+                               "result was not the expected covered committed decision");
+    }
+    return frame;
+  }
+  throw IntegrationTestError{IntegrationTestErrorCode::kDeadlineExceeded, std::string{kOperation},
+                             "the submitted tuning request never produced its correlated result"};
+}
+
 // `GET /api/v3/lobbies`, validated to the shape the contract asserts over.
 [[nodiscard]] std::vector<PublishedLobby> read_directory(const LoopbackHttpClient& http_client,
                                                          const std::string_view request_id,
@@ -317,6 +399,7 @@ require_body(const std::map<std::uint64_t, PublishedBody>& bodies, const std::ui
         .lobby_id = required_unsigned_member(listing, "lobby_id", kOperation),
         .mode = required_string(listing, "mode", kOperation),
         .phase = required_string(listing, "phase", kOperation),
+        .tick_sequence = required_unsigned_member(listing, "tick_sequence", kOperation),
         .seat_count = required_unsigned_member(listing, "seat_count", kOperation),
         .seat_count_maximum = required_unsigned_member(listing, "seat_count_maximum", kOperation),
         .filled_seat_count = required_unsigned_member(listing, "filled_seat_count", kOperation),
@@ -524,7 +607,7 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
       await_seated_entity(first, second.entity_id(), "session_contracts.seating");
   const std::map<std::uint64_t, PublishedBody> seated =
       published_bodies(roster_frame, "session_contracts.seating");
-  static_cast<void>(seated_frame);
+  require_movement(seated_frame, 400, 10'000, 0);
 
   // Two sessions and one bot, distinguishable to a client by exactly one string and identical to
   // the simulation in every other way.
@@ -710,8 +793,9 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
     throw_contract_violation("session_contracts.room_target",
                              "the welcome did not name room 2 and the map's six markers");
   }
-  static_cast<void>(await_seated_entity(room_two_first, room_two_first.entity_id(),
-                                        "session_contracts.room_target"));
+  require_movement(await_seated_entity(room_two_first, room_two_first.entity_id(),
+                                       "session_contracts.room_target"),
+                   400, 10'000, 0);
 
   // Anyone in a lobby may resize it. Two seats: the declared bot's and this session's. The next
   // person's join displaces the bot before the match starts, and the one after that is refused at
@@ -768,6 +852,53 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   }
   require_running_server_process(fixture.server_process_id());
 
+  // Correlation is session-specific, while the committed pair belongs only to its room. Each
+  // controller's first request uses id 1; a peer's stale revision cannot replace the winner.
+  send_tuning(first, 1, 0, 450, 9'000);
+  require_movement(await_tuning_result(first, 1, "applied", 1), 450, 9'000, 1);
+  send_tuning(room_two_first, 1, 0, 550, 8'000);
+  require_movement(await_tuning_result(room_two_first, 1, "applied", 1), 550, 8'000, 1);
+  send_tuning(room_two_second, 1, 0, 650, 7'000);
+  require_movement(await_tuning_result(room_two_second, 1, "stale_revision", 1), 550, 8'000, 1);
+
+  // The directory supplies a fresh committed clock in room 1 after room 2 changed. Reading at
+  // least that tick proves isolation without mistaking an old buffered snapshot for evidence.
+  const auto after_tuning =
+      read_directory(http_client, "integration.session.directory.tuning", allowed_origin);
+  if (after_tuning.size() != 2) {
+    throw_contract_violation("session_contracts.movement", "tuning changed the room directory");
+  }
+  bool isolated_at_fresh_tick = false;
+  for (std::uint64_t attempt = 0; attempt < 600; ++attempt) {
+    const std::string isolated = first.read_snapshot_message();
+    require_movement(isolated, 450, 9'000, 1);
+    const json::value isolated_document = json::parse(isolated);
+    const json::object& isolated_data =
+        required_object(isolated_document.as_object(), "data", "session_contracts.movement");
+    if (!isolated_data.at("tuning_result").is_null()) {
+      throw_contract_violation("session_contracts.movement",
+                               "another room's result reached this session");
+    }
+    if (required_unsigned_member(isolated_data, "tick_sequence", "session_contracts.movement") >=
+        after_tuning[0].tick_sequence) {
+      isolated_at_fresh_tick = true;
+      break;
+    }
+  }
+  if (!isolated_at_fresh_tick) {
+    throw_contract_violation("session_contracts.movement",
+                             "room isolation never reached the fresh directory tick");
+  }
+
+  std::string reused_close_reason;
+  const auto reused_close = room_two_second.send_command_and_await_close(
+      R"({"kind":"set_movement_tuning","payload":{"tuning_request_id":1,"expected_revision":1,"acceleration_world_units_per_second_squared":650,"normal_top_speed_world_units_per_second":7000}})",
+      reused_close_reason);
+  if (reused_close != kPolicyErrorCloseCode || reused_close_reason != "tuning_request_id_reused") {
+    throw_contract_violation("session_contracts.tuning_result",
+                             "a reused tuning id did not policy-close its session");
+  }
+
   room_two_second.close_normally();
   room_two_first.close_normally();
   first.close_normally();
@@ -784,7 +915,7 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   success.emplace("disconnect_tick_sequence", disconnect_tick);
   success.emplace("directory_room_count", directory.size());
   success.emplace("room_two_full_status", full.status);
-  success.emplace("validated_session_contracts", 11);
+  success.emplace("validated_session_contracts", 15);
   std::cout << json::serialize(success) << '\n';
   return 0;
 }

@@ -1,24 +1,29 @@
 #include "shared/thrust_steering_system.hpp"
 
+#include "fixtures/thrust_steering_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
 
-#include "gameplay_validation_error.hpp"
+#include "events/elimination_event.hpp"
 #include "input_batch.hpp"
+#include "physics.hpp"
 #include "physics_body.hpp"
+#include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
+#include "shared/respawn_system.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_tolerance.hpp"
+#include "spawn_seating.hpp"
 #include "vector2.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
-#include <limits>
 #include <string_view>
 
 namespace gameplay = blob_royale::gameplay;
 namespace simulation = blob_royale::simulation;
 namespace testing = blob_royale::testing;
+namespace fixture = blob_royale::testing::thrust_steering_fixture;
 
 namespace {
 
@@ -27,8 +32,8 @@ constexpr double kThrustMaximum = 400.0;
 // Two seated entities in a sandbox simulation, so "moves the intended entity and only that one" is
 // a question the world can answer. Entity 1 sits at (100, 320) and entity 2 at (200, 320).
 [[nodiscard]] simulation::GameSimulation seated_pair() {
-  simulation::GameSimulation game = testing::gameplay_simulation(
-      gameplay::SandboxMode::create(kThrustMaximum), testing::gameplay_map(4));
+  simulation::GameSimulation game =
+      testing::gameplay_simulation(gameplay::SandboxMode::create(), testing::gameplay_map(4));
   game.step(testing::kGameplayFixedDelta,
             testing::gameplay_batch(game, {testing::spawn_command(7), testing::spawn_command(8)}));
   return game;
@@ -106,7 +111,7 @@ TEST_CASE("A thrust command accelerates the intended entity and only that one",
   CHECK(untouched.position() == entity_two_position);
 }
 
-TEST_CASE("Stored acceleration persists until the next thrust for that entity",
+TEST_CASE("Held thrust preserves uncapped acceleration until the next thrust for that entity",
           "[unit][gameplay][thrust_steering]") {
   simulation::GameSimulation game = seated_pair();
 
@@ -114,8 +119,8 @@ TEST_CASE("Stored acceleration persists until the next thrust for that entity",
             testing::gameplay_batch(game, {testing::thrust_command(1, 1.0, 0.0)}));
   game.step(testing::kGameplayFixedDelta, simulation::InputBatch::empty());
 
-  // ADR 0003 stores acceleration and never decays it; a tick with no thrust re-integrates the same
-  // acceleration rather than zeroing it.
+  // Unchanged tuning and an inactive ceiling reproduce the stored-acceleration baseline from the
+  // retained normalized intent, rather than zeroing it or normalizing it again.
   CHECK(testing::published_body(game.snapshot(), 1)->acceleration() ==
         simulation::Vector2::create(kThrustMaximum, 0.0));
   CHECK(testing::published_body(game.snapshot(), 1)->velocity().x() ==
@@ -130,8 +135,8 @@ TEST_CASE("Stored acceleration persists until the next thrust for that entity",
 
 TEST_CASE("A thrust naming an entity that owns no body is skipped rather than failing the tick",
           "[unit][gameplay][thrust_steering]") {
-  simulation::GameSimulation game = testing::gameplay_simulation(
-      gameplay::SandboxMode::create(kThrustMaximum), testing::gameplay_map(1));
+  simulation::GameSimulation game =
+      testing::gameplay_simulation(gameplay::SandboxMode::create(), testing::gameplay_map(1));
 
   // Two joiners and one point: entity 2 is created carrying only its controller link and is
   // deferred, so this tick's thrust for it has nothing to write.
@@ -158,24 +163,216 @@ TEST_CASE("A thrust for an entity a mode did not seat cannot address a foreign b
         simulation::Vector2::create(0.0, 0.0));
 }
 
-TEST_CASE("ThrustSteeringSystem rejects a maximum it could not steer with",
-          "[unit][gameplay][thrust_steering][validation]") {
-  try {
-    static_cast<void>(
-        gameplay::ThrustSteeringSystem::create(std::numeric_limits<double>::quiet_NaN()));
-    FAIL("a non-finite thrust maximum was accepted");
-  } catch (const gameplay::GameplayValidationError& error) {
-    CHECK(error.validation_code() == gameplay::GameplayValidationCode::kThrustMaximumNotFinite);
-    CHECK(error.code() == std::string_view{"GAMEPLAY.THRUST_MAXIMUM_NOT_FINITE"});
-  }
+TEST_CASE("ThrustSteeringSystem is scalar-free and preserves its registered name",
+          "[unit][gameplay][thrust_steering]") {
+  CHECK(gameplay::ThrustSteeringSystem::create()->name() == std::string_view{"thrust_steering"});
+}
 
-  try {
-    static_cast<void>(gameplay::ThrustSteeringSystem::create(-0.5));
-    FAIL("a negative thrust maximum was accepted");
-  } catch (const gameplay::GameplayValidationError& error) {
-    CHECK(error.validation_code() == gameplay::GameplayValidationCode::kThrustMaximumOutOfRange);
-    CHECK(error.code() == std::string_view{"GAMEPLAY.THRUST_MAXIMUM_OUT_OF_RANGE"});
-  }
+TEST_CASE("steering retunes held analog intent without reclamping in every existing phase",
+          "[unit][gameplay][thrust_steering][movement]") {
+  const auto system = gameplay::ThrustSteeringSystem::create();
+  const testing::TickHarness harness{simulation::TickSequence::create(7)};
+  for (const auto phase : fixture::kPhases) {
+    CAPTURE(phase);
+    auto world = fixture::world();
+    world.mutable_match().phase = phase;
+    auto* controllable =
+        world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+    REQUIRE(controllable != nullptr);
+    controllable->commands_this_tick.push_back(fixture::analog_command());
+    system->apply(world, harness.context());
+    REQUIRE(controllable->normalized_thrust_intent.has_value());
+    CHECK(*controllable->normalized_thrust_intent == fixture::analog());
+    CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+          simulation::Vector2::create(100.0, -300.0));
 
-  CHECK(gameplay::ThrustSteeringSystem::create(0.0)->name() == std::string_view{"thrust_steering"});
+    controllable->commands_this_tick.clear();
+    world.mutable_match().movement.current = fixture::retuned();
+    system->apply(world, harness.context());
+    CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+          simulation::Vector2::create(200.0, -600.0));
+    CHECK(*controllable->normalized_thrust_intent == fixture::analog());
+
+    world.mutable_match().movement.current =
+        simulation::MovementTuning::create(0.0, fixture::kInactiveCeiling);
+    system->apply(world, harness.context());
+    CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+          fixture::zero());
+    CHECK(*controllable->normalized_thrust_intent == fixture::analog());
+    world.mutable_match().movement.current = fixture::retuned();
+    system->apply(world, harness.context());
+    CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+          simulation::Vector2::create(200.0, -600.0));
+    CHECK(world.match().phase == phase);
+  }
+}
+
+TEST_CASE("a bodyless thrust cannot become held intent for a later seating",
+          "[unit][gameplay][thrust_steering][movement][spawn]") {
+  auto world = fixture::world();
+  const auto system = gameplay::ThrustSteeringSystem::create();
+  const testing::TickHarness harness{simulation::TickSequence::create(7)};
+  world.mutable_store<simulation::PhysicsBody>().erase(fixture::entity());
+  auto* controllable =
+      world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+  REQUIRE(controllable != nullptr);
+  controllable->commands_this_tick.push_back(fixture::analog_command());
+  system->apply(world, harness.context());
+  CHECK_FALSE(controllable->normalized_thrust_intent.has_value());
+  CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity()) == nullptr);
+  // This input belonged to the bodyless tick, not to the later body's first tick.
+  controllable->commands_this_tick.clear();
+  simulation::seat_body_at_rest(
+      world, fixture::entity(),
+      simulation::Vector2::create(fixture::kReplacementX, fixture::kReplacementY), 10.0);
+  system->apply(world, harness.context());
+  CHECK_FALSE(controllable->normalized_thrust_intent.has_value());
+  CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+        fixture::zero());
+}
+
+TEST_CASE("steering distinguishes absent authored acceleration from an explicit held coast",
+          "[unit][gameplay][thrust_steering][movement]") {
+  auto world = fixture::world();
+  const auto system = gameplay::ThrustSteeringSystem::create();
+  const testing::TickHarness harness{simulation::TickSequence::create(7)};
+  auto* controllable =
+      world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+  REQUIRE(controllable != nullptr);
+  world.mutable_match().movement.current = fixture::retuned();
+  system->apply(world, harness.context());
+  CHECK_FALSE(controllable->normalized_thrust_intent.has_value());
+  CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+        fixture::authored_acceleration());
+  controllable->commands_this_tick.push_back(testing::thrust_command(fixture::kEntity, 0.0, 0.0));
+  system->apply(world, harness.context());
+  REQUIRE(controllable->normalized_thrust_intent.has_value());
+  CHECK(*controllable->normalized_thrust_intent == fixture::zero());
+  controllable->commands_this_tick.clear();
+  world.mutable_match().movement.current = testing::gameplay_movement_tuning();
+  system->apply(world, harness.context());
+  CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+        fixture::zero());
+  CHECK(controllable->normalized_thrust_intent.has_value());
+}
+
+TEST_CASE("steering retains held intent when the cap projects the requested step to coast",
+          "[unit][gameplay][thrust_steering][movement]") {
+  auto world = fixture::world();
+  const auto system = gameplay::ThrustSteeringSystem::create();
+  const testing::TickHarness harness{simulation::TickSequence::create(7)};
+  const auto axis = simulation::Vector2::create(1.0, 0.0);
+  world.mutable_match().movement.current = simulation::MovementTuning::create(kThrustMaximum, 1.0);
+  auto& bodies = world.mutable_store<simulation::PhysicsBody>();
+  bodies.insert_or_assign(fixture::entity(), bodies.find(fixture::entity())->with_velocity(axis));
+  auto* controllable =
+      world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+  REQUIRE(controllable != nullptr);
+  controllable->commands_this_tick.push_back(testing::thrust_command(fixture::kEntity, 1.0, 0.0));
+  system->apply(world, harness.context());
+  CHECK(bodies.find(fixture::entity())->acceleration() == fixture::zero());
+  CHECK(controllable->normalized_thrust_intent == axis);
+  CHECK(bodies.find(fixture::entity())->velocity() == axis);
+  controllable->commands_this_tick.clear();
+  bodies.insert_or_assign(fixture::entity(),
+                          bodies.find(fixture::entity())->with_velocity(fixture::zero()));
+  system->apply(world, harness.context());
+  CHECK(bodies.find(fixture::entity())->acceleration() ==
+        simulation::Vector2::create(kThrustMaximum, 0.0));
+  CHECK(controllable->normalized_thrust_intent == axis);
+}
+
+TEST_CASE("steering a lowered ceiling constrains propulsion without clamping external velocity",
+          "[unit][gameplay][thrust_steering][movement]") {
+  auto world = fixture::world();
+  const auto system = gameplay::ThrustSteeringSystem::create();
+  const testing::TickHarness harness{simulation::TickSequence::create(7)};
+  const auto velocity = simulation::Vector2::create(fixture::kExternalSpeed, 0.0);
+  world.mutable_match().movement.current =
+      simulation::MovementTuning::create(kThrustMaximum, fixture::kLoweredCeiling);
+  auto& bodies = world.mutable_store<simulation::PhysicsBody>();
+  bodies.insert_or_assign(fixture::entity(),
+                          bodies.find(fixture::entity())->with_velocity(velocity));
+  world.mutable_store<simulation::Controllable>()
+      .mutable_find(fixture::entity())
+      ->normalized_thrust_intent = simulation::Vector2::create(0.0, 1.0);
+  system->apply(world, harness.context());
+  const auto& body = *bodies.find(fixture::entity());
+  CHECK(body.velocity() == velocity);
+  CHECK(body.acceleration().y() > 0.0);
+  CHECK(body.acceleration().dot(body.acceleration()) <= kThrustMaximum * kThrustMaximum);
+  const auto endpoint = simulation::integrate_accelerated_velocity(velocity, body.acceleration(),
+                                                                   testing::kGameplayFixedDelta);
+  CHECK(endpoint.dot(endpoint) <= velocity.dot(velocity));
+  CHECK(endpoint.dot(endpoint) > fixture::kLoweredCeiling * fixture::kLoweredCeiling);
+}
+
+TEST_CASE("seating clears previous-body intent but preserves this tick's fresh command",
+          "[unit][gameplay][thrust_steering][movement][spawn]") {
+  const auto system = gameplay::ThrustSteeringSystem::create();
+  const testing::TickHarness harness{simulation::TickSequence::create(7)};
+  for (const bool zero_delay_respawn : {false, true}) {
+    for (const bool fresh_command : {false, true}) {
+      CAPTURE(zero_delay_respawn, fresh_command);
+      auto world = fixture::world();
+      auto* controllable =
+          world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+      REQUIRE(controllable != nullptr);
+      controllable->normalized_thrust_intent = simulation::Vector2::create(1.0, 0.0);
+      if (fresh_command) {
+        controllable->commands_this_tick.push_back(fixture::analog_command());
+      }
+      const auto commands = controllable->commands_this_tick;
+      if (zero_delay_respawn) {
+        world.emit(simulation::EliminationEvent{fixture::entity()});
+        gameplay::RespawnSystem::create(0)->apply(world, harness.context());
+        REQUIRE(world.store<simulation::PhysicsBody>().find(fixture::entity()) == nullptr);
+      }
+      simulation::seat_body_at_rest(
+          world, fixture::entity(),
+          simulation::Vector2::create(fixture::kReplacementX, fixture::kReplacementY), 10.0);
+      CHECK_FALSE(controllable->normalized_thrust_intent.has_value());
+      CHECK(controllable->commands_this_tick == commands);
+      const auto& seated = *world.store<simulation::PhysicsBody>().find(fixture::entity());
+      CHECK(seated.velocity() == fixture::zero());
+      CHECK(seated.acceleration() == fixture::zero());
+      system->apply(world, harness.context());
+      const auto expected =
+          fresh_command ? simulation::Vector2::create(100.0, -300.0) : fixture::zero();
+      CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+            expected);
+      CHECK(controllable->normalized_thrust_intent.has_value() == fresh_command);
+    }
+  }
+}
+
+TEST_CASE(
+    "a committed tuning command recomputes held thrust on its effective tick only in its room",
+    "[unit][gameplay][thrust_steering][movement]") {
+  auto first = testing::gameplay_simulation(gameplay::RoyaleMode::create(),
+                                            testing::gameplay_map(1), 0, fixture::seated_lobby());
+  auto second = testing::gameplay_simulation(gameplay::RoyaleMode::create(),
+                                             testing::gameplay_map(1), 0, fixture::seated_lobby());
+  for (auto* game : {&first, &second}) {
+    game->step(testing::kGameplayFixedDelta,
+               testing::gameplay_batch(*game, {testing::spawn_command(fixture::kController),
+                                               fixture::analog_command()}));
+  }
+  first.step(testing::kGameplayFixedDelta,
+             testing::gameplay_batch(first, {fixture::retuning_command()}));
+  second.step(testing::kGameplayFixedDelta, simulation::InputBatch::empty());
+  const auto changed = first.snapshot();
+  const auto unchanged = second.snapshot();
+  const auto changed_body = testing::published_body(changed, fixture::kEntity);
+  const auto unchanged_body = testing::published_body(unchanged, fixture::kEntity);
+  REQUIRE(changed_body.has_value());
+  REQUIRE(unchanged_body.has_value());
+  CHECK(changed.match().movement().current == fixture::retuned());
+  CHECK(changed.match().movement().defaults == testing::gameplay_movement_tuning());
+  CHECK(changed.match().movement().revision == 1);
+  CHECK(changed.match().movement().effective_tick == first.tick_sequence());
+  CHECK(changed_body->acceleration() == simulation::Vector2::create(200.0, -600.0));
+  CHECK(unchanged.match().movement().current == testing::gameplay_movement_tuning());
+  CHECK(unchanged.match().movement().revision == 0);
+  CHECK(unchanged_body->acceleration() == simulation::Vector2::create(100.0, -300.0));
 }

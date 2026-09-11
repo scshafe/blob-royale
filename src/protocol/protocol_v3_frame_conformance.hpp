@@ -11,8 +11,9 @@ namespace blob_royale::protocol {
 // Each value names one **normative invariant JSON Schema cannot express**
 // (`docs/protocol/v3.md` § "Field dictionary and invariants"): the envelope's data/error
 // exclusivity, ascending and distinct entity ids, an entity with no components, a component kind or
-// mode-state schema id outside the closed vocabularies, welcome terrain semantics, and the
-// frame's own encoded size. Required member/type checks guard these semantic readers; JSON Schema
+// mode-state schema id outside the closed vocabularies, welcome terrain semantics, movement/result
+// coverage by the containing snapshot, and the frame's own encoded size. Required member/type
+// checks guard these semantic readers; JSON Schema
 // remains the complete closed-shape validator.
 enum class V3FrameConformance : std::uint8_t {
   kConforms = 0,
@@ -44,6 +45,9 @@ enum class V3FrameConformance : std::uint8_t {
   // Welcome terrain is missing or violates authored counts, names, scalar/segment geometry,
   // ground compatibility, closed-envelope containment, or canonical numeric publication.
   kWelcomeTerrainInvalid = 12,
+  // Movement effective tick or a committed tuning decision's tick/revision is not covered by its
+  // containing snapshot, or a required input to those semantic comparisons is absent/invalid.
+  kMovementTuningCoverageInvalid = 13,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -75,6 +79,8 @@ v3_frame_conformance_name(const V3FrameConformance conformance) noexcept {
     return "frame_too_large";
   case V3FrameConformance::kWelcomeTerrainInvalid:
     return "welcome_terrain_invalid";
+  case V3FrameConformance::kMovementTuningCoverageInvalid:
+    return "movement_tuning_coverage_invalid";
   }
   return "v3_frame_conformance_invalid";
 }
@@ -95,6 +101,9 @@ v3_frame_conformance_name(const V3FrameConformance conformance) noexcept {
 // checks that cross-document invariant after schema and terrain validation. Race road membership
 // and checkpoint radius versus its selected corridor width also require retained terrain context:
 // the encoder checks its snapshot terrain and the client checks its admitted welcome terrain.
+// Movement coverage is single-frame: effective/decision ticks cannot exceed the containing tick,
+// and a decision revision cannot exceed current movement revision. Pending request correlation is
+// client/session state and is intentionally not inferred by this stateless oracle.
 // related: protocol_v3_json_encoding.hpp -- the encoders whose output this validates.
 // related: docs/protocol/schema/v3 -- the schemas that own everything this does not check.
 [[nodiscard]] V3FrameConformance check_v3_server_frame(std::string_view encoded_frame);

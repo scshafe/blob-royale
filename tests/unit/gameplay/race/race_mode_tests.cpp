@@ -49,7 +49,7 @@ system_names_at(const simulation::SystemPipeline& pipeline, const simulation::Sy
 
 } // namespace
 
-TEST_CASE("RaceMode declares the fourth game with the shared contact rows and nine commands",
+TEST_CASE("RaceMode declares the fourth game with the shared contact rows and ten commands",
           "[unit][gameplay][race][mode]") {
   const gameplay::RaceMode mode{testing::race_test_configuration()};
   CHECK(mode.name() == std::string_view{"race"});
@@ -63,10 +63,10 @@ TEST_CASE("RaceMode declares the fourth game with the shared contact rows and ni
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-             simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
-             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-             simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
+             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
   CHECK(gameplay::GameModeRegistry::contains("race"));

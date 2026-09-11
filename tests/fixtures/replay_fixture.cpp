@@ -467,9 +467,13 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
   // initialization of a `Section` sequences its initializers left to right, unlike a function
   // call's arguments, so each one is already ordered.
   gameplay::GameModeConfiguration mode_configuration = gameplay::GameModeConfiguration::defaults();
+  const double acceleration =
+      match.number("movement", "acceleration_world_units_per_second_squared");
+  const double normal_top_speed =
+      match.number("movement", "normal_top_speed_world_units_per_second");
+  mode_configuration.movement = simulation::MovementTuning::create(acceleration, normal_top_speed);
   if (mode_name == gameplay::RoyaleMode::kModeName) {
     const gameplay::RoyaleConfiguration::Section royale_section{
-        match.number("royale", "thrust_max_world_units_per_second_squared"),
         match.number("royale", "zone_minimum_radius_world_units"),
         match.number("royale", "zone_shrink_seconds"),
         match.number("royale", "elimination_grace_seconds"),
@@ -478,7 +482,6 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
     mode_configuration.royale = gameplay::RoyaleConfiguration::create(royale_section);
   } else if (mode_name == gameplay::KingOfTheHillMode::kModeName) {
     const gameplay::KingOfTheHillConfiguration::Section hill_section{
-        match.number("king_of_the_hill", "thrust_max_world_units_per_second_squared"),
         match.number("king_of_the_hill", "hill_radius_world_units"),
         match.number("king_of_the_hill", "hill_dwell_seconds"),
         match.number("king_of_the_hill", "hill_travel_seconds"),
@@ -493,7 +496,6 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
         gameplay::KingOfTheHillConfiguration::create(hill_section);
   } else if (mode_name == gameplay::RaceMode::kModeName) {
     const gameplay::RaceConfiguration::Section race_section{
-        match.number("race", "thrust_max_world_units_per_second_squared"),
         match.value("race", "road"),
         match.number("race", "checkpoint_radius_world_units"),
         match.number("race", "respawn_delay_seconds"),
@@ -587,6 +589,8 @@ std::vector<simulation::WorldSnapshot> ReplayFixture::run() const {
       gameplay::GameModeRegistry::create(mode_name_, mode_configuration_);
   simulation::MapDefinition map = map_;
   simulation::GameWorld world = simulation::GameWorld::create(configuration_, map, seed_);
+  world.mutable_match().movement = {.current = mode_configuration_.movement,
+                                    .defaults = mode_configuration_.movement};
   // The lobby is part of the state a match begins in, so it is seeded onto the initial world here
   // exactly as `BlobRoyaleApplication::create` seeds it in production. **Every seat starts empty
   // and no start is requested**, so no recorded replay leaves `lobby` on its own: a replay that

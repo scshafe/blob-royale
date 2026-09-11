@@ -29,11 +29,8 @@ namespace blob_royale::gameplay {
 // own two contact rows. Sandbox contributes no component kind, no contact rule, no
 // world event, no mode-state block, and no `kPostKernel` or `kLifecycle` system at all.
 //
-// The one balance number it owns is the thrust maximum, held here and handed to the system it
-// builds, which is the only way configuration reaches a tick: a system's members are immutable
-// configuration and `TickContext` is mode-agnostic
-// (`docs/architecture/0004-gameplay-architecture.md` § "The tick: one fixed kernel, three named
-// stages"). Every declaration returns an independently owned value, so nothing a tick holds points
+// Steering reads the shared match-owned movement tuning; this mode owns no balance scalar.
+// Every declaration returns an independently owned value, so nothing a tick holds points
 // back at the mode the engine destroys at construction.
 //
 // Adding a game:
@@ -50,19 +47,14 @@ class SandboxMode final : public simulation::GameMode {
 public:
   static constexpr std::string_view kModeName = "sandbox";
 
-  // The proposed balance value of `docs/architecture/0005-royale-mode.md` § "Mode configuration",
-  // shared so free play and royale accelerate identically until a playtest says otherwise.
-  static constexpr double kDefaultThrustMaximumWorldUnitsPerSecondSquared = 400.0;
-
   // The registry's factory shape. Sandbox declares no `[<mode>]` configuration section, so it reads
-  // nothing from the value and uses its declared default; a `[sandbox]` section would be one member
+  // nothing from the value; shared movement is seeded on the world by the caller, just as for
+  // every other mode. A `[sandbox]` section would be one member
   // on `GameModeConfiguration` and one read here (`game_mode_configuration.hpp`).
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
   create(const GameModeConfiguration& configuration);
 
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode> create();
-  [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
-  create(double thrust_maximum_world_units_per_second_squared);
 
   [[nodiscard]] std::string_view name() const noexcept override { return kModeName; }
 
@@ -72,12 +64,13 @@ public:
     return simulation::ContactRuleTable::built_in();
   }
 
-  // The three kinds free play has any use for. **The four lobby kinds are deliberately absent**:
+  // The four kinds free play has any use for. Lobby/tuning kinds are deliberately absent:
   // `FreePlayObjective::can_start` is false forever, so a sandbox world has no match to seat anyone
   // into and never leaves `lobby`. Accepting `start_match` here would advertise a button in every
   // client's `welcome` that could not do anything, which is worse than not offering it -- and the
   // seat roster a sandbox world still carries stays what it has always been: inert
-  // (`src/simulation/seat_roster.hpp`).
+  // (`src/simulation/seat_roster.hpp`). Movement tuning requires seated authority, so sandbox
+  // does not advertise it or invent an unseated exception; authored tuning still drives steering.
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
@@ -97,12 +90,8 @@ public:
   void validate_map(const simulation::MapDefinition& map) const override;
 
   // Public because `create` hands the mode over as a `std::unique_ptr<const GameMode>` and
-  // `std::make_unique` needs an accessible constructor. **`create` is the validating entry point**;
-  // this one takes the number as given.
-  explicit SandboxMode(double thrust_maximum_world_units_per_second_squared) noexcept;
-
-private:
-  double thrust_maximum_;
+  // `std::make_unique` needs an accessible constructor. The declaration has no mutable state.
+  SandboxMode() = default;
 };
 
 } // namespace blob_royale::gameplay

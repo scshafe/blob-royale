@@ -1404,3 +1404,29 @@ its count type. The wire schema is closed and clients validate the complete coun
 Independent frozen legacy-generator and actual hazard-birth proofs accompany the cutover;
 unchanged accepted replay outcomes and full gate evidence are recorded in the plan. This dated
 contract does not itself claim those gates completed or approve the separate physics gate.
+
+## Amendment: shared movement state and tuning commands, 2026-09-11 (plan Step 10)
+
+This supersedes the two-fields-forever statement in § "Commands" and its acceleration-persistence
+argument. `Controllable` gains optional normalized private intent beside recorded commands; both
+are stripped by the canonical publication owner. Ability state still belongs in components.
+Absence preserves authored acceleration until first input; zero is a persistent coast command.
+
+`MovementTuning` is a validated simulation value, because `MatchState`, commands, snapshots,
+runtime, and protocol must not depend on gameplay. `MatchState::movement` owns current values,
+authored defaults, revision, and effective tick. Shared gameplay locomotion consumes it; no mode
+stores an independent active scalar. Defaults are a distinct immutable reset target, not a mirror
+authoring surface. The composition root seeds them from the one required `[movement]` section.
+
+`set_movement_tuning` joins the closed command registry and is controller-addressed, like existing
+lobby mutations. Its rank is after thrust and before Start, preserving all old relative ranks.
+The existing closed phase-0 handler checks seated membership at the canonical command position;
+same-tick joins do not retroactively grant authority and later leaves do not undo an admitted act.
+Freeze entry revision R at tick N, choose the last eligible canonical contender against R, and
+commit the pair once to R+1/effective N. Matching-R losers are superseded, mismatches stale, and
+revision exhaustion refuses without wrap. Request IDs correlate results but never choose winners.
+
+The existing `step` entry point returns bounded tuning decisions only after successful commit,
+as specified in ADR 0002. This is not a new policy hook or generic world event. Seated players may
+update in all four accepted phases; bots do not use tuning tactically. ADR 0008 owns delivery,
+resource, and failure semantics; the plan owns proof and completion evidence.

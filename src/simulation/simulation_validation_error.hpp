@@ -111,11 +111,19 @@ enum class SimulationValidationCode {
   kSpatialGridCellCoordinateOutOfBounds,
   kRaceRoadNameInvalid,
   kRandomStreamKindInvalid,
+  kMovementTuningNotFinite,
+  kMovementTuningOutOfRange,
+  kInputBatchTuningRequestIdOutOfRange,
+  kInputBatchTuningRevisionOutOfRange,
 };
 
 [[nodiscard]] constexpr std::string_view
 simulation_validation_code_name(const SimulationValidationCode code) noexcept {
   switch (code) {
+  case SimulationValidationCode::kInputBatchTuningRequestIdOutOfRange:
+    return "SIMULATION.INPUT_BATCH_TUNING_REQUEST_ID_OUT_OF_RANGE";
+  case SimulationValidationCode::kInputBatchTuningRevisionOutOfRange:
+    return "SIMULATION.INPUT_BATCH_TUNING_REVISION_OUT_OF_RANGE";
   case SimulationValidationCode::kPhysicalScalarNotFinite:
     return "SIMULATION.PHYSICAL_SCALAR_NOT_FINITE";
   case SimulationValidationCode::kPhysicalScalarOutOfRange:
@@ -300,6 +308,10 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.RACE_ROAD_NAME_INVALID";
   case SimulationValidationCode::kRandomStreamKindInvalid:
     return "SIMULATION.RANDOM_STREAM_KIND_INVALID";
+  case SimulationValidationCode::kMovementTuningNotFinite:
+    return "SIMULATION.MOVEMENT_TUNING_NOT_FINITE";
+  case SimulationValidationCode::kMovementTuningOutOfRange:
+    return "SIMULATION.MOVEMENT_TUNING_OUT_OF_RANGE";
   }
   return "SIMULATION.VALIDATION_CODE_INVALID";
 }

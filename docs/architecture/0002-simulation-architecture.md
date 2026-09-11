@@ -317,3 +317,32 @@ simulation destruction and compare authored terrain values rather than pointer i
 The runtime still atomically publishes one immutable snapshot and the server still has no
 mutable simulation capability. Session v3 serializes terrain only in welcome, never per frame.
 No kernel phase, motion equation, or command authority changes in this step.
+
+## Amendment: commit-confirmed movement tuning, 2026-09-11 (plan Step 10)
+
+This refines § "Ownership and lifecycle" for the owner's accepted tuning feedback. The existing
+closed controller-addressed phase-0 handler applies room tuning, and `GameSimulation::step`
+returns bounded tuning decisions only after successful world/grid/tick commit. Decisions are
+allocated before commit, so a throw cannot publish an application acknowledgment. This is a narrow
+result contract, not a callback, policy socket, world-event bus, or second mutation entry point.
+
+The runtime's mailbox owns one tuning exchange slot per open controller under its existing mutex.
+Admission plus insertion, priority eviction plus terminal refusal, committed completion, result
+claim, and controller retirement are atomic in that owner. Tuning remains non-lifecycle traffic.
+The controller presentation directory does not store command receipts. Directory and mailbox locks
+are not held together; open failure rolls back presentation registration and close retires the
+exchange/enqueues Leave before releasing presentation ownership. Late decisions for retired
+controllers are discarded as interrupted, not presented as failure or rollback.
+
+A room-bound result-delivery capability lets a session claim a terminal tuning result when its
+selected snapshot covers the decision tick. After egress admission, claim transfers the result
+into the session's active-write record and reopens the runtime slot before encoding/write. The
+callback releases only its local record, never a newer runtime request. This bounds retention to
+one unresolved runtime exchange plus one session-owned result in flight, without a new scheduler.
+Claim is ownership transfer, not proof of peer receipt. Interrupted delivery is unknown and never
+automatically replayed on reconnect. The server still receives no mutable simulation capability.
+
+Protocol uses its own validated wire-result value and a server adapter; protocol does not depend
+on runtime. Existing global admission/rate policy remains. ADR 0008 specifies the closed outcomes,
+correlation-only request IDs, and tuning-specific 500 ms interval. The plan owns implementation
+and verification evidence; this amendment does not claim completion.

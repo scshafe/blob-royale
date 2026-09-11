@@ -1,10 +1,12 @@
 #include "command_decoding.hpp"
 
 #include "command_wire_kind.hpp"
+#include "protocol_constants.hpp"
 #include "protocol_v3_constants.hpp"
 
 #include "commands/clear_seat_command.hpp"
 #include "commands/seat_npc_command.hpp"
+#include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
@@ -218,6 +220,36 @@ decode_seat_npc(const json::object& payload, const simulation::ControllerId cont
   return CommandDecodeResult::accepted(simulation::StartMatchCommand{controller});
 }
 
+[[nodiscard]] CommandDecodeResult
+decode_set_movement_tuning(const json::object& payload, const simulation::ControllerId controller) {
+  if (payload.size() != 4) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const json::value* const encoded_id = payload.if_contains("tuning_request_id");
+  const json::value* const encoded_revision = payload.if_contains("expected_revision");
+  const json::value* const encoded_acceleration =
+      payload.if_contains("acceleration_world_units_per_second_squared");
+  const json::value* const encoded_speed =
+      payload.if_contains("normal_top_speed_world_units_per_second");
+  if (encoded_id == nullptr || encoded_revision == nullptr || encoded_acceleration == nullptr ||
+      encoded_speed == nullptr) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const auto request_id = bounded_unsigned_of(*encoded_id, 1, kMaximumSafeInteger);
+  const auto revision = bounded_unsigned_of(*encoded_revision, 0, kMaximumSafeInteger);
+  const auto acceleration = finite_number_of(*encoded_acceleration);
+  const auto speed = finite_number_of(*encoded_speed);
+  if (!request_id.has_value() || !revision.has_value() || !acceleration.has_value() ||
+      !speed.has_value() || *acceleration < kMovementAccelerationMinimum ||
+      *acceleration > kMovementAccelerationMaximum || *speed < kMovementNormalTopSpeedMinimum ||
+      *speed > kMovementNormalTopSpeedMaximum) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  return CommandDecodeResult::accepted(simulation::SetMovementTuningCommand{
+      controller, *request_id, *revision,
+      simulation::MovementTuning::create(*acceleration, *speed)});
+}
+
 // Admission-order step 7, dispatched on the kind step 6 accepted. Total over the closed command
 // vocabulary: the two server-issued kinds are unreachable here because `client_command_wire_name`
 // gives them no wire name at all, and answering `kKindRejected` rather than asserting keeps this
@@ -238,6 +270,8 @@ decode_payload(const simulation::CommandKind kind, const json::object& payload,
     return decode_seat_npc(payload, stamped_controller, npc_controller_kinds);
   case simulation::CommandKind::kStartMatch:
     return decode_start_match(payload, stamped_controller);
+  case simulation::CommandKind::kSetMovementTuning:
+    return decode_set_movement_tuning(payload, stamped_controller);
   case simulation::CommandKind::kSpawn:
   case simulation::CommandKind::kDespawn:
   case simulation::CommandKind::kLeave:

@@ -57,10 +57,10 @@ public:
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-         simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
-         simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-         simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-         simulation::CommandKind::kJoin});
+         simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
+         simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+         simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kJoin});
   }
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {
     return std::make_unique<const GridSpawnPolicy>();

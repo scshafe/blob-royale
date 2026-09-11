@@ -1,6 +1,8 @@
 #ifndef BLOB_ROYALE_PROTOCOL_PROTOCOL_V3_JSON_ENCODING_HPP
 #define BLOB_ROYALE_PROTOCOL_PROTOCOL_V3_JSON_ENCODING_HPP
 
+#include "movement_tuning_wire_result.hpp"
+
 #include "controller_directory_view.hpp"
 #include "lobby_listing.hpp"
 #include "protocol_constants.hpp"
@@ -55,17 +57,21 @@ encode_welcome_message(const SessionWelcome& welcome, const RequestId& request_i
 // `directory` supplies the two presentation values the wire `controllable` object carries and the
 // controller each placement names; see `controller_directory_view.hpp` for why it is a port rather
 // than the runtime's own directory.
+// `tuning_result` is explicitly supplied per session, never read from shared MatchState. A result
+// must be covered by this snapshot's tick and movement revision; no delivery or replay state is
+// owned here.
 //
 // It fails closed and never truncates. Throws ProtocolEncodingError for a message sequence below
 // the first snapshot's `2`, an invalid timestamp, the uncommitted tick zero, a phase start tick the
 // wire cannot carry, more than 1,024 entities or placements, entity ids that are not ascending and
 // distinct, a placement whose controller the directory cannot name, or a complete frame above the
-// byte limit, or a named random draw count above 2^53-1 (with stream-specific context).
-[[nodiscard]] std::string
-encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot,
-                           const ControllerDirectoryView& directory, const RequestId& request_id,
-                           std::uint64_t message_sequence, std::string_view sent_at_utc,
-                           std::size_t output_byte_limit = kSnapshotFrameV3MaximumByteCount);
+// byte limit, a named random draw count above 2^53-1 (with stream-specific context), invalid
+// movement revision/effective-tick state, or an uncovered tuning result.
+[[nodiscard]] std::string encode_snapshot_message_v3(
+    const simulation::WorldSnapshot& snapshot, const ControllerDirectoryView& directory,
+    const std::optional<MovementTuningWireResult>& tuning_result, const RequestId& request_id,
+    std::uint64_t message_sequence, std::string_view sent_at_utc,
+    std::size_t output_byte_limit = kSnapshotFrameV3MaximumByteCount);
 
 // Encodes one complete schema-valid v3 HTTP error envelope. The V3HttpError owns status/code
 // parity; this function owns only the v3 envelope around it.

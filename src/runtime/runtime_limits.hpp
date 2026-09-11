@@ -23,6 +23,10 @@ namespace blob_royale::runtime {
 // never evict another client's input.
 inline constexpr std::size_t kMaximumMailboxCommandCount = 2'048;
 
+// Each eligible tuning attempt starts this deadline, including mailbox-capacity refusal.
+// A rate refusal does not extend it. Published by the room's welcome through its server adapter.
+inline constexpr std::uint64_t kMovementTuningMinimumIntervalMilliseconds = 500;
+
 // A tick's reservation is `spawn_count + kSystemCreatedEntityHeadroom` ids and its width is
 // validated against the world's seat count, so a mailbox that could hold more spawns than the
 // widest legal reservation would turn a full mailbox into a hard tick failure.

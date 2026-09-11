@@ -68,6 +68,7 @@ function createConnection(
     entities: snapshot.data.entities,
     error: null,
     match: snapshot.data.match,
+    movementTuning: Object.freeze({ status: 'idle' }),
     ownEntityId: 7,
     reconnectAttempt: 0,
     sendCommand: vi.fn(() => true),

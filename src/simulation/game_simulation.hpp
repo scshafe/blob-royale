@@ -8,6 +8,7 @@
 #include "game_world.hpp"
 #include "input_batch.hpp"
 #include "map_definition.hpp"
+#include "movement_tuning_decisions.hpp"
 #include "simulation_config.hpp"
 #include "spatial_grid.hpp"
 #include "spawn_system.hpp"
@@ -112,7 +113,9 @@ public:
   // every stage is evaluated against transaction-local values; a failure leaves the previously
   // committed world, grid, and sequence unchanged. A tick with no commands is this same call with
   // `InputBatch::empty()`, not a different code path.
-  void step(FixedDelta fixed_delta, const InputBatch& input_batch);
+  // Returns only this tick's committed tuning decisions; ignoring the owned result is supported.
+  // All decision storage is allocated before the existing non-throwing world/grid/tick commit.
+  MovementTuningDecisions step(FixedDelta fixed_delta, const InputBatch& input_batch);
 
   // Copies one complete committed state and retains the immutable map's terrain. The returned
   // value never aliases the mutable world and remains valid after this simulation is destroyed.

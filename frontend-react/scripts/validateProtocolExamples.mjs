@@ -62,6 +62,11 @@ const protocolVersions = [
     version: 'v3',
     expectedStatus: 'Accepted',
     exampleSchemas: new Map([
+      [
+        'set-movement-tuning-command.json',
+        'set-movement-tuning-command.schema.json',
+      ],
+      ['tuning-result.json', 'tuning-result.schema.json'],
       ['command-envelope.json', 'command-envelope.schema.json'],
       ['error-response.json', 'error-response.schema.json'],
       ['lobby-directory-message.json', 'lobby-directory-message.schema.json'],

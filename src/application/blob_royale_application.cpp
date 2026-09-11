@@ -437,6 +437,11 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
                       : simulation::GameWorld::create(application_config.simulation_config(), map,
                                                       match.seed() + (lobby_id - 1));
 
+    // The composition root seeds both immutable reset defaults and the active pair for every
+    // room/mode. Live commands change only current values; neither rounds nor Apply rewrite INI.
+    const auto movement = application_config.game_mode_configuration().movement;
+    world.mutable_match().movement = {.current = movement, .defaults = movement};
+
     // **The lobby is seeded here, into the world, before the engine ever sees it, and only for a
     // mode that has one.** `MatchState::seats` is engine state -- it is the input to the machine's
     // first transition -- and its initial size is `[match] lobby_seat_count`, so the one place that

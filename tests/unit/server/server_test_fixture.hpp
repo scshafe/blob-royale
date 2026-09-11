@@ -98,8 +98,9 @@ public:
 
   [[nodiscard]] MatchSessionContext context(const std::uint64_t lobby_id = 1) const {
     return MatchSessionContext::create(
-        lobby_id, simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
-        std::string{kFixtureMapName}, kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
+        lobby_id, simulation_runtime_.command_sink(), simulation_runtime_.tuning_result_delivery(),
+        simulation_runtime_.controller_directory(), std::string{kFixtureMapName},
+        kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
         std::vector<std::string>{"wanderer", "chaser"});
   }
 
@@ -130,8 +131,9 @@ private:
 match_session_context_for(runtime::SimulationRuntime& simulation_runtime,
                           const std::uint64_t lobby_id = 1) {
   return MatchSessionContext::create(
-      lobby_id, simulation_runtime.command_sink(), simulation_runtime.controller_directory(),
-      std::string{kFixtureMapName}, kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
+      lobby_id, simulation_runtime.command_sink(), simulation_runtime.tuning_result_delivery(),
+      simulation_runtime.controller_directory(), std::string{kFixtureMapName},
+      kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
       std::vector<std::string>{"wanderer", "chaser"});
 }
 

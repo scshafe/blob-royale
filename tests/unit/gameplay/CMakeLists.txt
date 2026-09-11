@@ -36,6 +36,8 @@ add_executable(blob_gameplay_unit_tests
   shared/hazard_stream_promotion_tests.cpp
   shared/lethal_hazard_contact_rule_tests.cpp
   shared/lifetime_expiry_system_tests.cpp
+  shared/locomotion_promotion_tests.cpp
+  shared/locomotion_tests.cpp
   shared/lobby_start_rule_tests.cpp
   shared/match_reset_system_tests.cpp
   shared/next_free_spawn_point_policy_tests.cpp

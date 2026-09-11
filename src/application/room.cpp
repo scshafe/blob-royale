@@ -22,9 +22,9 @@ Room::Room(const std::uint64_t lobby_id, simulation::GameSimulation game_simulat
       // announces. The server still receives no simulation, no runtime, and no lifecycle
       // transition.
       match_session_(server::MatchSessionContext::create(
-          lobby_id, runtime_.command_sink(), runtime_.controller_directory(),
-          std::string{match_configuration.map_name()}, seat_count_maximum_, accepted_command_kinds,
-          std::move(npc_controller_kinds))) {
+          lobby_id, runtime_.command_sink(), runtime_.tuning_result_delivery(),
+          runtime_.controller_directory(), std::string{match_configuration.map_name()},
+          seat_count_maximum_, accepted_command_kinds, std::move(npc_controller_kinds))) {
   if (accepted_command_kinds.contains(simulation::CommandKind::kStartMatch)) {
     reconciler_.emplace(runtime_.command_sink(), host_, seed_, lobby_id_, logger);
   } else {

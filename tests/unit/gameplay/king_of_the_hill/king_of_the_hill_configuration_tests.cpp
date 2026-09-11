@@ -43,7 +43,6 @@ TEST_CASE("the proposed [king_of_the_hill] section converts to the accepted tick
       gameplay::KingOfTheHillConfiguration::defaults();
 
   // The figures ADR 0007's table states for the proposed values, at 400 ticks per second.
-  CHECK(configuration.thrust_maximum() == 400.0);
   CHECK(configuration.hill_radius() == 90.0);
   CHECK(configuration.hill_dwell_ticks() == 4'800);
   CHECK(configuration.hill_travel_ticks() == 1'600);
@@ -89,11 +88,6 @@ TEST_CASE("every rejected [king_of_the_hill] value names the key it was authored
   Section respawn = defaults();
   respawn.respawn_delay_seconds = -0.5;
   CHECK(rejection_of(respawn).context == "king_of_the_hill.respawn_delay_seconds");
-
-  Section thrust = defaults();
-  thrust.thrust_max_world_units_per_second_squared = -1.0;
-  // Through the steering system's own rule, so the mode cannot accept what the system refuses.
-  CHECK(rejection_of(thrust).code == gameplay::GameplayValidationCode::kThrustMaximumOutOfRange);
 }
 
 TEST_CASE("a tour whose every stop is instantaneous is refused; a hop is not",

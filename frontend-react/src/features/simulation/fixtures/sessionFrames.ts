@@ -128,6 +128,7 @@ export function hillSnapshotDocument(messageSequence = 2) {
           { kind: 'npc', controller_id: 5, npc_kind: 'chaser' },
         ],
         start_requested: true,
+        movement: structuredClone(golden.data.match.movement),
         outcome: {
           kind: 'none',
           winner_entity_id: null,
@@ -143,6 +144,7 @@ export function hillSnapshotDocument(messageSequence = 2) {
           },
         },
       },
+      tuning_result: null,
     },
     error: null,
     meta: golden.meta,
@@ -192,6 +194,7 @@ export function raceSnapshotDocument(messageSequence = 2) {
           },
         },
       },
+      tuning_result: null,
     },
     error: null,
     meta: golden.meta,

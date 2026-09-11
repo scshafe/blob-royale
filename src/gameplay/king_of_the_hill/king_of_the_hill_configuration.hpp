@@ -29,7 +29,6 @@ public:
   // The proposed values of ADR 0007's table. They are the mode's shipped balance until a playtest
   // says otherwise, and they are what `GameModeRegistry::create(mode_name)` -- the defaults-only
   // overload a test or a diagnostic uses -- builds.
-  static constexpr double kDefaultThrustMaximumWorldUnitsPerSecondSquared = 400.0;
   static constexpr double kDefaultHillRadiusWorldUnits = 90.0;
   static constexpr double kDefaultHillDwellSeconds = 12.0;
   static constexpr double kDefaultHillTravelSeconds = 4.0;
@@ -44,7 +43,6 @@ public:
   // The `[king_of_the_hill]` section as authored, one member per key. Units are in the names
   // because the value alone cannot carry them.
   struct Section final {
-    double thrust_max_world_units_per_second_squared;
     double hill_radius_world_units;
     double hill_dwell_seconds;
     double hill_travel_seconds;
@@ -63,8 +61,8 @@ public:
   // naming the key that failed, in the `king_of_the_hill.<key>` form the section is authored in.
   //
   // The rules, checked in the section's own key order so a section with two mistakes always
-  // names the same one: the thrust maximum through the steering system's own rule; the hill
-  // radius finite and strictly positive; dwell, travel, the point interval, the respawn delay,
+  // names the same one: the hill radius finite and strictly positive; dwell, travel, the point
+  // interval, the respawn delay,
   // the countdown, and the restart delay finite and not negative, through `duration_ticks`; dwell
   // plus travel converting to at least one tick, because a tour whose every stop is instantaneous
   // has no position to hold; `points_to_win` at least one; and the time limit finite and strictly
@@ -83,8 +81,6 @@ public:
   KingOfTheHillConfiguration& operator=(KingOfTheHillConfiguration&&) noexcept = default;
   ~KingOfTheHillConfiguration() = default;
 
-  // wu/s^2. The scale `thrust_steering` applies to a validated thrust direction.
-  [[nodiscard]] double thrust_maximum() const noexcept { return thrust_maximum_; }
   // wu. The hill's radius in every phase.
   [[nodiscard]] double hill_radius() const noexcept { return hill_radius_; }
   // `D`: ticks the hill holds at each marker before it glides on.
@@ -108,14 +104,13 @@ public:
                          const KingOfTheHillConfiguration&) = default;
 
 private:
-  KingOfTheHillConfiguration(double thrust_maximum, double hill_radius,
-                             std::uint64_t hill_dwell_ticks, std::uint64_t hill_travel_ticks,
-                             std::uint64_t point_interval_ticks, std::uint64_t points_to_win,
-                             bool contested_hill_scores, std::uint64_t time_limit_ticks,
-                             std::uint64_t respawn_delay_ticks, std::uint64_t countdown_ticks,
+  KingOfTheHillConfiguration(double hill_radius, std::uint64_t hill_dwell_ticks,
+                             std::uint64_t hill_travel_ticks, std::uint64_t point_interval_ticks,
+                             std::uint64_t points_to_win, bool contested_hill_scores,
+                             std::uint64_t time_limit_ticks, std::uint64_t respawn_delay_ticks,
+                             std::uint64_t countdown_ticks,
                              std::uint64_t restart_delay_ticks) noexcept;
 
-  double thrust_maximum_;
   double hill_radius_;
   std::uint64_t hill_dwell_ticks_;
   std::uint64_t hill_travel_ticks_;

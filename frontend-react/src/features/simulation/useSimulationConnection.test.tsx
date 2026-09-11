@@ -13,6 +13,7 @@ import { useSimulationConnection } from './useSimulationConnection';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import { lobbyDirectoryMessageExample } from './fixtures/protocolV3Examples';
 import { snapshotDocument, welcomeDocument } from './fixtures/sessionFrames';
+import { tuningCommand, tuningSnapshotDocument } from './fixtures/tuningFrames';
 import { RECONNECT_BACKOFF_MILLISECONDS } from './simulationConstants';
 import type {
   SessionCommand,
@@ -148,6 +149,72 @@ afterEach(() => {
 });
 
 describe('useSimulationConnection', () => {
+  it.each(['pending', 'resolved'] as const)(
+    'does not carry a room A %s tuning exchange into room B',
+    async (status) => {
+      const apis: FakeSimulationApi[] = [];
+      const apiFactory = createApiFactory(apis);
+      const hook = renderHook(
+        ({ lobbyId }) => useSimulationConnection(lobbyId, apiFactory),
+        { initialProps: { lobbyId: 1 } },
+      );
+      await flushPromises();
+      act(() => {
+        apis[0]?.callbacks?.onWelcome(createValidatedWelcome());
+        apis[0]?.callbacks?.onMovementTuningState(
+          status === 'pending'
+            ? { status, request: tuningCommand().payload }
+            : {
+                status,
+                request: tuningCommand().payload,
+                result: tuningSnapshotDocument().data.tuning_result,
+              },
+        );
+      });
+      expect(hook.result.current.movementTuning.status).toBe(status);
+      const oldCallbacks = apis[0]?.callbacks;
+      hook.rerender({ lobbyId: 2 });
+      await flushPromises();
+      expect(hook.result.current.movementTuning).toEqual({ status: 'idle' });
+      act(() =>
+        oldCallbacks?.onMovementTuningState({
+          status: 'unknown',
+          request: tuningCommand().payload,
+        }),
+      );
+      expect(hook.result.current.movementTuning).toEqual({ status: 'idle' });
+      hook.unmount();
+    },
+  );
+
+  it('preserves interrupted same-room tuning as unknown through a fresh retry without replay', async () => {
+    vi.useFakeTimers();
+    const apis: FakeSimulationApi[] = [];
+    const apiFactory = createApiFactory(apis);
+    const hook = renderHook(() => useSimulationConnection(1, apiFactory));
+    await flushPromises();
+    act(() => {
+      apis[0]?.callbacks?.onWelcome(createValidatedWelcome());
+      apis[0]?.callbacks?.onMovementTuningState({
+        status: 'pending',
+        request: tuningCommand().payload,
+      });
+      apis[0]?.callbacks?.onDisconnected(retryableDisconnection);
+    });
+    expect(hook.result.current.movementTuning).toEqual({
+      status: 'unknown',
+      request: tuningCommand().payload,
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECONNECT_BACKOFF_MILLISECONDS[0]);
+    });
+    await flushPromises();
+    act(() => apis[1]?.callbacks?.onWelcome(createValidatedWelcome()));
+    expect(hook.result.current.movementTuning.status).toBe('unknown');
+    expect(apis[1]?.sendCommand).not.toHaveBeenCalled();
+    hook.unmount();
+  });
+
   it('survives StrictMode cleanup without reusing a disposed API', async () => {
     const apis: FakeSimulationApi[] = [];
     const apiFactory = createApiFactory(apis);
@@ -225,6 +292,7 @@ describe('useSimulationConnection', () => {
       acceptedCommandKinds: [
         'clear_seat',
         'seat_npc',
+        'set_movement_tuning',
         'set_seat_count',
         'set_thrust',
         'start_match',

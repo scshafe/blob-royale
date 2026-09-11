@@ -88,15 +88,15 @@ start_match_command(const simulation::ControllerId::Value controller) {
 
 TEST_CASE("CommandRegistry declares the engine command kinds in a closed ordered variant",
           "[unit][simulation][command_registry]") {
-  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 9);
-  STATIC_REQUIRE(simulation::kCommandKindCount == 9);
+  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 10);
+  STATIC_REQUIRE(simulation::kCommandKindCount == 10);
   STATIC_REQUIRE(
       std::is_same_v<simulation::Command,
                      std::variant<simulation::SpawnCommand, simulation::DespawnCommand,
                                   simulation::ThrustCommand, simulation::SetSeatCountCommand,
                                   simulation::ClearSeatCommand, simulation::SeatNpcCommand,
                                   simulation::StartMatchCommand, simulation::LeaveCommand,
-                                  simulation::JoinCommand>>);
+                                  simulation::JoinCommand, simulation::SetMovementTuningCommand>>);
 }
 
 TEST_CASE("Every command kind occupies its own bit so a set of kinds is one integer",
@@ -108,6 +108,13 @@ TEST_CASE("Every command kind occupies its own bit so a set of kinds is one inte
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kClearSeat) == 16u);
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kSeatNpc) == 32u);
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kStartMatch) == 64u);
+  STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kSetMovementTuning) == 512u);
+  STATIC_REQUIRE(
+      simulation::command_kind_application_rank(simulation::CommandKind::kThrust) <
+      simulation::command_kind_application_rank(simulation::CommandKind::kSetMovementTuning));
+  STATIC_REQUIRE(
+      simulation::command_kind_application_rank(simulation::CommandKind::kSetMovementTuning) <
+      simulation::command_kind_application_rank(simulation::CommandKind::kSetSeatCount));
 }
 
 TEST_CASE("Every registered command kind declares its own wire name",
@@ -126,6 +133,8 @@ TEST_CASE("Every registered command kind declares its own wire name",
                  std::string_view{"seat_npc"});
   STATIC_REQUIRE(simulation::command_kind_name<simulation::StartMatchCommand> ==
                  std::string_view{"start_match"});
+  STATIC_REQUIRE(simulation::command_kind_name<simulation::SetMovementTuningCommand> ==
+                 std::string_view{"set_movement_tuning"});
 
   std::vector<std::string_view> names;
   for (const simulation::CommandKind kind : simulation::kCommandKinds) {
@@ -134,7 +143,7 @@ TEST_CASE("Every registered command kind declares its own wire name",
 
   CHECK(names == std::vector<std::string_view>{"spawn", "despawn", "thrust", "set_seat_count",
                                                "clear_seat", "seat_npc", "start_match", "leave",
-                                               "join"});
+                                               "join", "set_movement_tuning"});
 }
 
 TEST_CASE("command_kind_of maps every command value to its own declared kind",
@@ -342,7 +351,9 @@ TEST_CASE("The command kind list is derived from the variant rather than typed b
          static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSeatNpc) |
          static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kStartMatch) |
          static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kLeave) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kJoin)));
+         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kJoin) |
+         static_cast<simulation::CommandKindMask::Bits>(
+             simulation::CommandKind::kSetMovementTuning)));
 }
 
 TEST_CASE("No two command kinds share a phase 0 application rank",

@@ -79,6 +79,11 @@ namespace gameplay = blob_royale::gameplay;
 // related: race_replay_fixture_tests.cpp -- the race's suite on the same format.
 // related: game_mode_configuration.hpp -- the validated sections this hands the mode registry.
 
+// Shared [movement] is required alongside the selected mode section. Each accepted replay keeps
+// its original acceleration and explicitly authors an unreachable normal ceiling of 10,000 wu/s.
+// The same pair seeds current/default movement in the initial world; old motion expectations
+// remain unchanged and prove that the fixture ceiling stays inactive.
+
 // A rejection from the replay-owned match/command grammar or map-reference boundary. Production
 // MapLoader errors retain ApplicationInputError or SimulationValidationError, and validated mode,
 // command, and configuration factories retain their domain errors; none is caught or relabelled.
@@ -125,6 +130,9 @@ public:
   // never reads.
   [[nodiscard]] const gameplay::GameModeConfiguration& mode_configuration() const noexcept {
     return mode_configuration_;
+  }
+  [[nodiscard]] simulation::MovementTuning movement() const noexcept {
+    return mode_configuration_.movement;
   }
   [[nodiscard]] const gameplay::RoyaleConfiguration& royale() const noexcept {
     return mode_configuration_.royale;

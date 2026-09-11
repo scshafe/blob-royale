@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/set-movement-tuning-command.schema.json",
+  "title": "Blob Royale protocol v3 set movement tuning command",
+  "description": "Atomic absolute tuning request. Request IDs strictly increase per connection for correlation only; canonical command order, not IDs, chooses the winner.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tuning_request_id", "expected_revision", "acceleration_world_units_per_second_squared", "normal_top_speed_world_units_per_second"],
+  "properties": {
+    "tuning_request_id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "expected_revision": { "$ref": "common.schema.json#/$defs/safe_integer" },
+    "acceleration_world_units_per_second_squared": { "$ref": "movement-tuning.schema.json#/properties/acceleration_world_units_per_second_squared" },
+    "normal_top_speed_world_units_per_second": { "$ref": "movement-tuning.schema.json#/properties/normal_top_speed_world_units_per_second" }
+  },
+  "$comment": "No room/controller/entity identity is admitted. Reset sends the published defaults through this same command. Invalid shape/ranges retain the existing malformed command close policy."
+}

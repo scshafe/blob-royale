@@ -4,6 +4,7 @@
 #include "match_outcome.hpp"
 #include "match_phase.hpp"
 #include "mode_match_state_registry.hpp"
+#include "movement_tuning_state.hpp"
 #include "seat_roster.hpp"
 #include "tick_sequence.hpp"
 
@@ -75,6 +76,9 @@ struct MatchState final {
   SeatRoster seats{};
   std::uint64_t spawn_rotation_counter{};
   ModeMatchState mode_state{NoModeState{}};
+  // Shared active tuning survives phase/round changes. The composition root seeds authored
+  // defaults once; phase0 is the only command writer and increments a revision once per winner.
+  MovementTuningState movement{};
 
   friend bool operator==(const MatchState&, const MatchState&) = default;
 };

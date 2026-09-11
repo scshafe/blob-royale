@@ -34,6 +34,7 @@ export type {
 import type {
   BlobRoyaleProtocolV3EntitySnapshot,
   BlobRoyaleProtocolV3MatchSection,
+  BlobRoyaleProtocolV3WorldSnapshotData,
   BlobRoyaleProtocolV3WelcomeData,
 } from './generated/protocolV3Types.generated';
 
@@ -53,6 +54,37 @@ export type SessionCommandKind =
 
 /** Immutable authored geometry, owned by the validated welcome rather than per-tick frames. */
 export type SessionTerrain = BlobRoyaleProtocolV3WelcomeData['terrain'];
+export type SessionMovementTuning =
+  BlobRoyaleProtocolV3MatchSection['movement']['current'];
+export type SessionMovementState = BlobRoyaleProtocolV3MatchSection['movement'];
+export type SessionTuningResult = NonNullable<
+  BlobRoyaleProtocolV3WorldSnapshotData['tuning_result']
+>;
+
+export interface SessionSetMovementTuningCommand {
+  readonly kind: 'set_movement_tuning';
+  readonly payload: SessionMovementTuning & {
+    readonly tuning_request_id: number;
+    readonly expected_revision: number;
+  };
+}
+
+/** Client-only delivery knowledge, separate from shared room state and server result statuses. */
+export type MovementTuningExchangeState =
+  | { readonly status: 'idle' }
+  | {
+      readonly status: 'pending';
+      readonly request: SessionSetMovementTuningCommand['payload'];
+    }
+  | {
+      readonly status: 'resolved';
+      readonly request: SessionSetMovementTuningCommand['payload'];
+      readonly result: SessionTuningResult;
+    }
+  | {
+      readonly status: 'unknown';
+      readonly request: SessionSetMovementTuningCommand['payload'];
+    };
 
 /**
  * The commands a v3 client may send. The generated envelope type is deliberately looser than the
@@ -91,6 +123,7 @@ export interface SessionStartMatchCommand {
 /** @extension-point session_command -- a new client command kind adds one member to this union. */
 export type SessionCommand =
   | SessionSetThrustCommand
+  | SessionSetMovementTuningCommand
   | SessionSetSeatCountCommand
   | SessionSeatNpcCommand
   | SessionClearSeatCommand

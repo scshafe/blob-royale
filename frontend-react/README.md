@@ -8,6 +8,14 @@ Decoding fails closed, as protocol v3 § "Versioning and fail-closed decoding" r
 
 `useSimulationConnection` owns reducer state, StrictMode-safe cleanup, and the finite 1/2/4/8/16/16-second reconnect budget. A reconnect is a new join by contract — new request id, new controller id, new entity id, nothing resumed. It exposes the welcome identity (controller id, first entity id, display name, mode, map, accepted commands), the match section, the published entities, and the own entity resolved from the current frame by controller id. **An open socket carrying no frames is not a stalled connection.** The spawn policy defers a joiner while a match runs and the welcome cannot exist before the session owns a body, so that state is reported as `awaiting_match` and rendered as "waiting for the next match".
 
+Shared movement state publishes the authored defaults, current pair, limits, revision, and effective
+tick. `set_movement_tuning` uses that same `sendCommand` path with caller-supplied strictly increasing
+request ids; the API reserves pending before socket send and validates exact correlated results
+before accepting a snapshot. Its `idle | pending | resolved | unknown` state never infers success
+from a changed room revision, local send success, or a reconnect. Room changes clear old exchange
+state; interrupted same-room retries preserve unknown and never replay a request. Step 10 exposes
+this API and state only; tuning UI controls belong to Step 11.
+
 `useThrustInput` is the only place a keyboard becomes a command. WASD and the arrow keys become one unit direction, sent on change and at most once every 50 ms, never once per frame; releasing the last key sends `{x: 0, y: 0}` because a thrust persists on the server until the next command; and input is ignored entirely while this session owns no body.
 
 Rendering goes through `rendering/entityRendererRegistry.ts`, tagged `@extension-point entity_renderer`. It is keyed by component kind: `physics_body` draws a disc or a static obstacle with the own-body highlight, `controllable` draws the display name under its body, `zone` draws the safe zone from its own component, and every remaining kind is registered as non-visual with a stated reason. Adding a component kind is a new `rendering/<kind>Renderer.ts` plus one registration line — `SimulationCanvas` names no kind — and the registry's `satisfies Record<SessionComponentKind, …>` fails the build if a generated kind has no entry.

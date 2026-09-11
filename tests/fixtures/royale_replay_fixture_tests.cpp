@@ -132,7 +132,7 @@ TEST_CASE("the replay format reads a directory into a runnable match",
   CHECK(fixture.tick_count() == 60);
   CHECK(fixture.configuration().drag_per_second() == 0.0);
   CHECK(fixture.map().spawn_points().size() == 3);
-  CHECK(fixture.royale().thrust_maximum() == 400.0);
+  CHECK(fixture.movement().acceleration() == 400.0);
   CHECK(fixture.lobby_seat_count() == 3);
 
   const Snapshots snapshots = fixture.run();
@@ -181,7 +181,7 @@ TEST_CASE("thrust integration reaches thrust_max times t and persists with no fu
   const testing::ReplayFixture fixture = testing::ReplayFixture::named("royale-thrust-integration");
   const Snapshots snapshots = fixture.run();
   const simulation::EntityId player = fixture.spawned_entity_id(1, 0);
-  const double thrust_max = fixture.royale().thrust_maximum();
+  const double thrust_max = fixture.movement().acceleration();
 
   // The command lands on tick 2, so the acceleration is applied on ticks 2 through 29 and the
   // velocity is the accumulation of `thrust_max * dt` over those ticks. Writing the recurrence out
@@ -214,7 +214,7 @@ TEST_CASE("a diagonal thrust of (1, 1) yields an acceleration of magnitude thrus
   const testing::ReplayFixture fixture = testing::ReplayFixture::named("royale-thrust-integration");
   const Snapshots snapshots = fixture.run();
   const simulation::EntityId player = fixture.spawned_entity_id(1, 0);
-  const double thrust_max = fixture.royale().thrust_maximum();
+  const double thrust_max = fixture.movement().acceleration();
 
   const std::optional<simulation::PhysicsBody> body = body_of(at_tick(snapshots, 30), player);
   REQUIRE(body.has_value());
@@ -252,9 +252,9 @@ TEST_CASE("drag decays velocity by the exact discrete factor and settles at the 
   // The fixed point of `v <- (v + a * dt) * damping` is `thrust_max * damping / drag`, which is
   // 199 wu/s at the proposed values -- a 0.5 % shortfall against the 200 wu/s continuous limit.
   const double discrete_fixed_point =
-      fixture.royale().thrust_maximum() * damping / fixture.configuration().drag_per_second();
+      fixture.movement().acceleration() * damping / fixture.configuration().drag_per_second();
   const double continuous_limit =
-      fixture.royale().thrust_maximum() / fixture.configuration().drag_per_second();
+      fixture.movement().acceleration() / fixture.configuration().drag_per_second();
   CHECK(discrete_fixed_point == 199.0);
   CHECK(continuous_limit == 200.0);
 

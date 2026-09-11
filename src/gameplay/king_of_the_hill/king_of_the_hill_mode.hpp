@@ -34,7 +34,7 @@ namespace blob_royale::gameplay {
 //                           kPostKernel; respawn, match_reset, lifetime_expiry, hazard_spawn then
 //                           hill_rules_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
-//   accepted_command_kinds  royale's nine
+//   accepted_command_kinds  royale's ten, including seated movement tuning
 //   spawn_policy()          NextFreeSpawnPointPolicy: the next free point, in every phase
 //   objective()             HillObjective
 //   validate_map()          at least one `hill` marker and at least one `spawn` marker
@@ -76,10 +76,10 @@ public:
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-         simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
-         simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-         simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-         simulation::CommandKind::kJoin});
+         simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
+         simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+         simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kJoin});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

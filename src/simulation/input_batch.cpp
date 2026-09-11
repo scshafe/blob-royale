@@ -132,6 +132,20 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
     validate_seat_index(*join->seat_index, "input_batch.commands.join.seat_index",
                         command_kind_name<JoinCommand>, submission_index);
   }
+  if (const auto* tuning = std::get_if<SetMovementTuningCommand>(&command); tuning != nullptr) {
+    if (tuning->tuning_request_id == 0 || tuning->tuning_request_id > kMaximumProtocolSafeInteger) {
+      throw SimulationValidationError(
+          SimulationValidationCode::kInputBatchTuningRequestIdOutOfRange,
+          "input_batch.commands.set_movement_tuning.tuning_request_id",
+          "request ID must be in [1, protocol-safe maximum]" + command_position(submission_index));
+    }
+    if (tuning->expected_revision > kMaximumProtocolSafeInteger) {
+      throw SimulationValidationError(SimulationValidationCode::kInputBatchTuningRevisionOutOfRange,
+                                      "input_batch.commands.set_movement_tuning.expected_revision",
+                                      "expected revision must be protocol-safe" +
+                                          command_position(submission_index));
+    }
+  }
   // `start_match` carries no value beyond the sender the boundary stamped it with, so there is
   // nothing here for it to fail: it is validated entirely by being a kind the mode accepts.
 }

@@ -500,8 +500,10 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   // One bot, so the session contracts can assert that a command from one session moves that
   // session's entity and nothing else -- including an entity nobody on the network drives.
   configuration.append(session_workload ? "bots=wanderer:1\n\n" : "bots=\n\n");
+  configuration.append("[movement]\n");
+  configuration.append("acceleration_world_units_per_second_squared=400\n");
+  configuration.append("normal_top_speed_world_units_per_second=10000\n\n");
   configuration.append("[royale]\n");
-  configuration.append("thrust_max_world_units_per_second_squared=400\n");
   configuration.append("zone_minimum_radius_world_units=10\n");
   configuration.append("zone_shrink_seconds=90\n");
   configuration.append("elimination_grace_seconds=3\n");
@@ -509,7 +511,6 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("restart_delay_seconds=8\n");
   // Every mode section is required even when this fixture runs sandbox or royale.
   configuration.append("\n[king_of_the_hill]\n");
-  configuration.append("thrust_max_world_units_per_second_squared=400\n");
   configuration.append("hill_radius_world_units=90\n");
   configuration.append("hill_dwell_seconds=12\n");
   configuration.append("hill_travel_seconds=4\n");
@@ -521,7 +522,6 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("countdown_seconds=5\n");
   configuration.append("restart_delay_seconds=8\n");
   configuration.append("\n[race]\n");
-  configuration.append("thrust_max_world_units_per_second_squared=400\n");
   configuration.append("road=road\n");
   configuration.append("checkpoint_radius_world_units=40\n");
   configuration.append("respawn_delay_seconds=2\n");

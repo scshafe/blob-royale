@@ -47,7 +47,6 @@ TEST_CASE("the proposed [royale] section converts to the accepted tick counts",
   CHECK(configuration.elimination_grace_ticks() == 1'200);
   CHECK(configuration.restart_delay_ticks() == 3'200);
 
-  CHECK(configuration.thrust_maximum() == 400.0);
   CHECK(configuration.zone_minimum_radius() == 60.0);
 }
 
@@ -87,24 +86,6 @@ TEST_CASE("every [royale] value must be finite and not negative",
         gameplay::GameplayValidationCode::kRoyaleScalarOutOfRange);
   // The lobby's seat count is no longer this section's: it is `[match] lobby_seat_count`, bounded
   // by `MatchConfiguration`, because who plays is a match fact rather than a royale balance value.
-}
-
-TEST_CASE("a thrust maximum is validated through the steering system's own rule",
-          "[unit][gameplay][royale][configuration][validation]") {
-  // Not a second copy of the rule here: a mode cannot declare a thrust maximum the system it builds
-  // would refuse, so the code is the steering system's rather than a `GAMEPLAY.ROYALE_*` one.
-  gameplay::RoyaleConfiguration::Section negative_thrust =
-      gameplay::RoyaleConfiguration::default_section();
-  negative_thrust.thrust_max_world_units_per_second_squared = -1.0;
-  CHECK(rejection_code_of(negative_thrust) ==
-        gameplay::GameplayValidationCode::kThrustMaximumOutOfRange);
-
-  gameplay::RoyaleConfiguration::Section infinite_thrust =
-      gameplay::RoyaleConfiguration::default_section();
-  infinite_thrust.thrust_max_world_units_per_second_squared =
-      std::numeric_limits<double>::infinity();
-  CHECK(rejection_code_of(infinite_thrust) ==
-        gameplay::GameplayValidationCode::kThrustMaximumNotFinite);
 }
 
 TEST_CASE("a zero-duration configuration is accepted rather than rejected",

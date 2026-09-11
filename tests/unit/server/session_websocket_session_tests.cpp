@@ -29,6 +29,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -190,6 +192,22 @@ void drain(boost::asio::io_context& io_context) {
   static_cast<void>(io_context.poll());
 }
 
+void write_masked_text(Tcp::socket& socket, const std::string_view envelope) {
+  REQUIRE(envelope.size() <= 1024);
+  std::string frame;
+  frame.push_back(static_cast<char>(0x81));
+  if (envelope.size() < 126) {
+    frame.push_back(static_cast<char>(0x80U | static_cast<unsigned>(envelope.size())));
+  } else {
+    frame.push_back(static_cast<char>(0xFE));
+    frame.push_back(static_cast<char>((envelope.size() >> 8U) & 0xFFU));
+    frame.push_back(static_cast<char>(envelope.size() & 0xFFU));
+  }
+  frame.append(4, '\0');
+  frame.append(envelope);
+  boost::asio::write(socket, boost::asio::buffer(frame));
+}
+
 [[nodiscard]] std::size_t count_events(const SessionHarness& harness,
                                        const std::string_view event) {
   std::size_t count = 0;
@@ -201,6 +219,49 @@ void drain(boost::asio::io_context& io_context) {
 }
 
 } // namespace
+
+TEST_CASE("SessionWebSocketSession policy closes reused and overlapping tuning requests",
+          "[unit][server][v3][movement_tuning][policy_close]") {
+  for (const bool reused : {false, true}) {
+    SessionHarness harness;
+    constexpr std::string_view request_id = "unit.session.tuning-policy";
+    const auto session = harness.make_session(request_id, direct_identity());
+    session->run(harness.request(request_id));
+    run_until(harness.server_io_context(),
+              [&] { return harness.controller_directory().size() == 1; });
+    REQUIRE(harness.controller_directory().size() == 1);
+    const std::string first =
+        R"({"kind":"set_movement_tuning","payload":{"tuning_request_id":1,"expected_revision":0,"acceleration_world_units_per_second_squared":500,"normal_top_speed_world_units_per_second":700}})";
+    std::string next = first;
+    if (!reused)
+      next.replace(next.find("\"tuning_request_id\":1"),
+                   std::string_view{"\"tuning_request_id\":1"}.size(), "\"tuning_request_id\":2");
+    write_masked_text(harness.client_socket(), first);
+    write_masked_text(harness.client_socket(), next);
+    const std::string reason = reused ? "tuning_request_id_reused" : "tuning_request_in_flight";
+    std::string received;
+    run_until(harness.server_io_context(), [&] {
+      const auto available = harness.client_socket().available();
+      if (available != 0) {
+        std::array<char, 4096> bytes{};
+        const auto count = harness.client_socket().read_some(
+            boost::asio::buffer(bytes.data(), std::min(bytes.size(), available)));
+        received.append(bytes.data(), count);
+      }
+      return received.find(reason) != std::string::npos;
+    });
+    const auto reason_offset = received.find(reason);
+    REQUIRE(reason_offset != std::string::npos);
+    REQUIRE(reason_offset >= 2);
+    CHECK(static_cast<unsigned char>(received[reason_offset - 2]) == 0x03);
+    CHECK(static_cast<unsigned char>(received[reason_offset - 1]) == 0xF0);
+    CHECK(harness.controller_directory().size() == 0);
+    harness.client_socket().close();
+    run_until(harness.server_io_context(),
+              [&] { return count_events(harness, "session.closed") == 1; });
+    CHECK(count_events(harness, "session.closed") == 1);
+  }
+}
 
 TEST_CASE("SessionWebSocketSession reports handshake failure and retires nothing it never opened",
           "[unit][server][v3][session][failure]") {
@@ -487,9 +548,10 @@ public:
 private:
   [[nodiscard]] server::MatchSessionContext match_context() {
     return server::MatchSessionContext::create(
-        1, simulation_runtime_.command_sink(), simulation_runtime_.controller_directory(),
-        std::string{fixture::kFixtureMapName}, fixture::kFixtureSeatCountMaximum,
-        simulation::CommandKindMask::all(), std::vector<std::string>{"wanderer"});
+        1, simulation_runtime_.command_sink(), simulation_runtime_.tuning_result_delivery(),
+        simulation_runtime_.controller_directory(), std::string{fixture::kFixtureMapName},
+        fixture::kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
+        std::vector<std::string>{"wanderer"});
   }
 
   [[nodiscard]] static server::ServerConfig server_config(const std::uint16_t port) {

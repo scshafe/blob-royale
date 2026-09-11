@@ -3,7 +3,6 @@
 #include "gameplay_validation_error.hpp"
 #include "seat_roster.hpp"
 #include "shared/duration_ticks.hpp"
-#include "shared/thrust_steering_system.hpp"
 
 #include <cmath>
 #include <cstdint>
@@ -29,9 +28,6 @@ void require_finite_and_not_negative(const double value, const std::string_view 
 } // namespace
 
 RoyaleConfiguration RoyaleConfiguration::create(const Section& section) {
-  // Validated through the steering system's own named rule rather than a second copy of it here, so
-  // a mode cannot declare a thrust maximum the system it builds would refuse.
-  require_valid_thrust_maximum(section.thrust_max_world_units_per_second_squared);
   require_finite_and_not_negative(section.zone_minimum_radius_world_units,
                                   "zone_minimum_radius_world_units");
   // Converted into named locals in the order the section declares them rather than inside the
@@ -51,30 +47,25 @@ RoyaleConfiguration RoyaleConfiguration::create(const Section& section) {
       duration_ticks(section.countdown_seconds, "royale.countdown_seconds");
   const std::uint64_t restart_delay_ticks =
       duration_ticks(section.restart_delay_seconds, "royale.restart_delay_seconds");
-  return RoyaleConfiguration(section.thrust_max_world_units_per_second_squared,
-                             section.zone_minimum_radius_world_units, zone_shrink_ticks,
+  return RoyaleConfiguration(section.zone_minimum_radius_world_units, zone_shrink_ticks,
                              elimination_grace_ticks, countdown_ticks, restart_delay_ticks);
 }
 
 RoyaleConfiguration::Section RoyaleConfiguration::default_section() noexcept {
-  return Section{kDefaultThrustMaximumWorldUnitsPerSecondSquared,
-                 kDefaultZoneMinimumRadiusWorldUnits,
-                 kDefaultZoneShrinkSeconds,
-                 kDefaultEliminationGraceSeconds,
-                 kDefaultCountdownSeconds,
+  return Section{kDefaultZoneMinimumRadiusWorldUnits, kDefaultZoneShrinkSeconds,
+                 kDefaultEliminationGraceSeconds, kDefaultCountdownSeconds,
                  kDefaultRestartDelaySeconds};
 }
 
 RoyaleConfiguration RoyaleConfiguration::defaults() { return create(default_section()); }
 
-RoyaleConfiguration::RoyaleConfiguration(const double thrust_maximum,
-                                         const double zone_minimum_radius,
+RoyaleConfiguration::RoyaleConfiguration(const double zone_minimum_radius,
                                          const std::uint64_t zone_shrink_ticks,
                                          const std::uint64_t elimination_grace_ticks,
                                          const std::uint64_t countdown_ticks,
                                          const std::uint64_t restart_delay_ticks) noexcept
-    : thrust_maximum_(thrust_maximum), zone_minimum_radius_(zone_minimum_radius),
-      zone_shrink_ticks_(zone_shrink_ticks), elimination_grace_ticks_(elimination_grace_ticks),
-      countdown_ticks_(countdown_ticks), restart_delay_ticks_(restart_delay_ticks) {}
+    : zone_minimum_radius_(zone_minimum_radius), zone_shrink_ticks_(zone_shrink_ticks),
+      elimination_grace_ticks_(elimination_grace_ticks), countdown_ticks_(countdown_ticks),
+      restart_delay_ticks_(restart_delay_ticks) {}
 
 } // namespace blob_royale::gameplay

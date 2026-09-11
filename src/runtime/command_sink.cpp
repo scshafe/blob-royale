@@ -29,7 +29,8 @@ stamped_controller_of(const simulation::Command& command) noexcept {
                       std::is_same_v<CommandType, simulation::SeatNpcCommand> ||
                       std::is_same_v<CommandType, simulation::StartMatchCommand> ||
                       std::is_same_v<CommandType, simulation::LeaveCommand> ||
-                      std::is_same_v<CommandType, simulation::JoinCommand>) {
+                      std::is_same_v<CommandType, simulation::JoinCommand> ||
+                      std::is_same_v<CommandType, simulation::SetMovementTuningCommand>) {
           return value.controller;
         } else {
           return std::nullopt;
@@ -64,8 +65,11 @@ simulation::ControllerId CommandSink::open_session(const std::string_view contro
                                " bytes and free of control characters");
   }
 
-  const simulation::ControllerId::Value issued =
-      next_controller_id_.fetch_add(1, std::memory_order_acq_rel);
+  auto issued = next_controller_id_.load(std::memory_order_acquire);
+  while (issued <= simulation::kMaximumControllerId &&
+         !next_controller_id_.compare_exchange_weak(issued, issued + 1, std::memory_order_acq_rel,
+                                                    std::memory_order_acquire)) {
+  }
   if (issued > simulation::kMaximumControllerId) {
     throw CommandSinkError(CommandSinkErrorCode::kControllerIdExhausted,
                            "command_sink.controller_id",
@@ -84,6 +88,18 @@ simulation::ControllerId CommandSink::open_session(const std::string_view contro
         "the controller directory refused ControllerId " + std::to_string(issued) + ": " +
             std::string(controller_registration_result_name(registration)));
   }
+  try {
+    if (!mailbox_->register_controller(controller)) {
+      throw CommandSinkError(CommandSinkErrorCode::kControllerDirectoryFull,
+                             "command_sink.tuning_exchange",
+                             "the bounded tuning exchange refused controller registration");
+    }
+  } catch (...) {
+    // Neither directory operation occurs under the mailbox mutex. Failed registration consumes
+    // the issued ID but leaves neither presentation identity nor exchange ownership behind.
+    static_cast<void>(controller_directory_->close(controller));
+    throw;
+  }
   return controller;
 }
 
@@ -93,10 +109,8 @@ CommandSubmissionResult CommandSink::submit(const simulation::ControllerId contr
     return CommandSubmissionResult::kRejectedSessionNotOpen;
   }
 
-  // Every command that carries an identity must carry *this* session's. A spawn has always been
-  // checked here; the four lobby kinds carry the same stamp for the same reason, so one check
-  // covers all five and a sixth kind that carries a controller cannot be forgotten --
-  // `stamped_controller_of` is total over the variant.
+  // Every controller-addressed command must carry this session's identity. The closed visitor
+  // above includes tuning as well as entity lifecycle, seat membership, and lobby commands.
   if (const std::optional<simulation::ControllerId> stamped = stamped_controller_of(command);
       stamped.has_value() && *stamped != controller) {
     return CommandSubmissionResult::kRejectedForeignController;
@@ -111,20 +125,13 @@ CommandSubmissionResult CommandSink::submit(const simulation::ControllerId contr
 }
 
 ControllerCloseResult CommandSink::close_session(const simulation::ControllerId controller) {
-  // The leave goes into the mailbox **before** the directory entry is retired, through the same
-  // `submit` a session's own commands take, so a second close is refused there as a closed session
-  // and enqueues nothing. The tick then destroys whatever this controller drove -- a body, a
-  // pending entity, or a spawn drained in the same batch -- and vacates its seat, which is what
-  // closes the window a session-side despawn could not: a spawn still queued at close time is
-  // applied and then undone by the leave that follows it in phase 0 order
-  // (`commands/leave_command.hpp`).
-  //
-  // The submission's result is deliberately not returned. It is an acceptance on every path but
-  // two: a mode whose accepted kinds omit `leave`, which `GameSimulation::create` refuses at
-  // startup, and a mailbox full of lifecycle commands, which the mailbox counts and the composition
-  // root reports at error severity as a lost entity-lifecycle command.
-  static_cast<void>(submit(controller, simulation::Command{simulation::LeaveCommand{controller}}));
-  return controller_directory_->close(controller);
+  // Retirement and Leave enqueue share the admission mutex. No tuning can enter after retirement,
+  // and any late committed decision becomes unknown rather than reviving a disconnected slot.
+  if (!mailbox_->retire_controller(controller)) {
+    return ControllerCloseResult::kUnknownControllerId;
+  }
+  static_cast<void>(controller_directory_->close(controller));
+  return ControllerCloseResult::kClosed;
 }
 
 CommandSubmissionResult
@@ -168,6 +175,15 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
           if (value.seat_count < simulation::SeatRoster::kMinimumSeatCount ||
               value.seat_count > simulation::SeatRoster::kMaximumSeatCount) {
             return CommandSubmissionResult::kRejectedSeatCountOutOfRange;
+          }
+          return CommandSubmissionResult::kAccepted;
+        } else if constexpr (std::is_same_v<CommandType, simulation::SetMovementTuningCommand>) {
+          if (value.tuning_request_id == 0 ||
+              value.tuning_request_id > simulation::kMaximumProtocolSafeInteger) {
+            return CommandSubmissionResult::kRejectedTuningRequestIdOutOfRange;
+          }
+          if (value.expected_revision > simulation::kMaximumProtocolSafeInteger) {
+            return CommandSubmissionResult::kRejectedTuningRevisionOutOfRange;
           }
           return CommandSubmissionResult::kAccepted;
         } else {

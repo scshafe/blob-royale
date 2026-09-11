@@ -87,14 +87,14 @@ TEST_CASE("Welcome encoder matches the accepted golden example and canonical byt
   fixture::require_json_matches_v3_golden_example(encoded, "welcome-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]}},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
+      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]},"movement_tuning_minimum_interval_milliseconds":500},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
 }
 
 TEST_CASE("Snapshot v3 encoder matches the accepted golden example",
           "[unit][protocol][v3][encoding][golden]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   fixture::require_json_matches_v3_golden_example(encoded, "snapshot-message.json");
@@ -112,7 +112,7 @@ TEST_CASE("Maximum-cardinality welcome publishes complete terrain and fits the u
   CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
   const boost::json::value document = boost::json::parse(encoded);
   const boost::json::object& data = document.as_object().at("data").as_object();
-  REQUIRE(data.size() == 10);
+  REQUIRE(data.size() == 11);
   REQUIRE(data.at("npc_controller_kinds").as_array().size() == protocol::kNpcControllerKindLimit);
   const boost::json::object& terrain = data.at("terrain").as_object();
   REQUIRE(terrain.size() == 4);
@@ -182,12 +182,12 @@ TEST_CASE("Snapshot v3 encoder emits canonical bytes for the accepted golden wor
           "[unit][protocol][v3][encoding][golden]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(
       encoded ==
-      R"({"data":{"tick_sequence":12904,"random_draw_counts":{"hazards":0,"hill":0},"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
+      R"({"data":{"tick_sequence":12904,"random_draw_counts":{"hazards":0,"hill":0},"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"movement":{"current":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"defaults":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"limits":{"acceleration_world_units_per_second_squared":{"minimum":0,"maximum":10000},"normal_top_speed_world_units_per_second":{"minimum":1,"maximum":10000}},"revision":0,"effective_tick":0},"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}},"tuning_result":null},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
 }
 
 TEST_CASE("Error response v3 encoder matches the accepted golden example and canonical bytes",
@@ -208,25 +208,26 @@ TEST_CASE("Snapshot v3 publishes real per-stream counts without exposing random 
   const auto snapshot = fixture::counted_random_snapshot();
   CHECK(snapshot.random_draw_counts() == simulation::RandomDrawCounts{4, 6});
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      snapshot, fixture::golden_directory(), fixture::session_request_id(),
+      snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   CHECK(encoded.starts_with(
       R"({"data":{"tick_sequence":2,"random_draw_counts":{"hazards":4,"hill":6},"entities":[])"));
   const auto document = boost::json::parse(encoded);
   const auto& data = document.as_object().at("data").as_object();
-  CHECK(data.size() == 4);
+  CHECK(data.size() == 5);
   CHECK(data.at("random_draw_counts") == boost::json::parse(R"({"hazards":4,"hill":6})"));
   CHECK_FALSE(data.contains("random_draw_count"));
   CHECK_FALSE(data.contains("random_seed"));
   CHECK_FALSE(data.contains("random_state"));
   CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
   CHECK(protocol::encode_snapshot_message_v3(
-            snapshot, fixture::golden_directory(), fixture::session_request_id(),
-            fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp, encoded.size()) == encoded);
+            snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+            fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp,
+            encoded.size()) == encoded);
   fixture::require_protocol_error_code(
       [&] {
         return protocol::encode_snapshot_message_v3(
-            snapshot, fixture::golden_directory(), fixture::session_request_id(),
+            snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
             fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp, encoded.size() - 1);
       },
       protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
@@ -251,7 +252,7 @@ TEST_CASE("Snapshot v3 encoder emits every normative object member in canonical 
           "[unit][protocol][v3][encoding]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   require_members_in_order(encoded, {R"("data")",
@@ -300,10 +301,10 @@ TEST_CASE("Snapshot v3 encoder returns identical bytes across repeated encodings
           "[unit][protocol][v3][encoding]") {
   const fixture::StubControllerDirectory directory = fixture::golden_directory();
   const std::string first = protocol::encode_snapshot_message_v3(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   const std::string second = protocol::encode_snapshot_message_v3(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(first == second);
@@ -317,7 +318,7 @@ TEST_CASE("Every encoded v3 frame satisfies the invariants JSON Schema cannot ex
             fixture::golden_welcome(), fixture::session_request_id(),
             fixture::kWelcomeTimestamp)) == protocol::V3FrameConformance::kConforms);
   CHECK(protocol::check_v3_server_frame(protocol::encode_snapshot_message_v3(
-            fixture::golden_snapshot(), directory, fixture::session_request_id(),
+            fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
             fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp)) ==
         protocol::V3FrameConformance::kConforms);
   CHECK(
@@ -681,7 +682,7 @@ TEST_CASE("Race progress is published without a body and matches the accepted co
   REQUIRE(progress.size() == 1);
   CHECK(progress[0].value.next_checkpoint == fixture::kGoldenNextCheckpoint);
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      snapshot, fixture::golden_directory(), fixture::session_request_id(),
+      snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   CHECK(encoded.find(R"("components":{"race_progress":{"next_checkpoint":2}})") !=
         std::string::npos);
@@ -704,12 +705,12 @@ TEST_CASE("Race progress is published without a body and matches the accepted co
 TEST_CASE("Race progress preserves zero and is never synthesized for an entity without it",
           "[unit][protocol][v3][encoding][race_progress]") {
   const std::string starting = protocol::encode_snapshot_message_v3(
-      fixture::race_progress_snapshot(0), fixture::golden_directory(),
+      fixture::race_progress_snapshot(0), fixture::golden_directory(), std::nullopt,
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
   CHECK(starting.find(R"("race_progress":{"next_checkpoint":0})") != std::string::npos);
   const std::string absent = protocol::encode_snapshot_message_v3(
-      fixture::untransitioned_lobby_snapshot(), fixture::golden_directory(),
+      fixture::untransitioned_lobby_snapshot(), fixture::golden_directory(), std::nullopt,
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
   CHECK(absent.find("race_progress") == std::string::npos);
@@ -723,8 +724,8 @@ TEST_CASE("Hill publication preserves the exact configured radius and score ceil
   const std::string encoded = protocol::encode_snapshot_message_v3(
       fixture::hill_mode_snapshot(simulation::kMaximumPhysicalComponentMagnitude,
                                   simulation::kMaximumProtocolSafeInteger),
-      fixture::golden_directory(), fixture::session_request_id(), fixture::kSnapshotMessageSequence,
-      fixture::kSnapshotTimestamp);
+      fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   const boost::json::value document = boost::json::parse(encoded);
   const boost::json::object& data = document.as_object().at("data").as_object();
   const boost::json::object& hill = data.at("entities")
@@ -749,7 +750,7 @@ TEST_CASE("Race mode state publishes its road identity and shared standings in c
   const simulation::WorldSnapshot snapshot =
       fixture::race_mode_snapshot(fixture::golden_race_mode_state(), fixture::race_terrain());
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      snapshot, fixture::golden_directory(), fixture::session_request_id(),
+      snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   const boost::json::value document = boost::json::parse(encoded);
   const boost::json::object& match =
@@ -767,9 +768,10 @@ TEST_CASE("Race mode state publishes its road identity and shared standings in c
   CHECK_FALSE(block.at("value").as_object().contains("track"));
   CHECK_FALSE(block.at("value").as_object().contains("track_half_width"));
   CHECK_FALSE(document.as_object().at("data").as_object().contains("terrain"));
-  CHECK(encoded == protocol::encode_snapshot_message_v3(
-                       snapshot, fixture::golden_directory(), fixture::session_request_id(),
-                       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
+  CHECK(encoded == protocol::encode_snapshot_message_v3(snapshot, fixture::golden_directory(),
+                                                        std::nullopt, fixture::session_request_id(),
+                                                        fixture::kSnapshotMessageSequence,
+                                                        fixture::kSnapshotTimestamp));
   CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
@@ -779,9 +781,9 @@ TEST_CASE("Race publishes an empty standings array and canonicalizes nested vect
   state.standings.clear();
   state.checkpoints[0] = simulation::Vector2::create(-0.0, 100.0);
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::race_mode_snapshot(std::move(state), fixture::race_terrain()), fixture::golden_directory(),
-      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
-      fixture::kSnapshotTimestamp);
+      fixture::race_mode_snapshot(std::move(state), fixture::race_terrain()),
+      fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   CHECK(encoded.find(R"("checkpoints":[{"x":0,"y":100})") != std::string::npos);
   CHECK(encoded.find(R"("standings":[])") != std::string::npos);
   CHECK(encoded.find(R"("placements":[])") != std::string::npos);
@@ -792,11 +794,10 @@ TEST_CASE("Race publication admits a gate at the canonical terrain-width ceiling
   simulation::RaceModeState state = fixture::golden_race_mode_state();
   state.checkpoint_radius = simulation::kMaximumWorldDimension;
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::race_mode_snapshot(std::move(state),
-                                 fixture::race_terrain("road", simulation::kMaximumWorldDimension)),
-      fixture::golden_directory(),
-      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
-      fixture::kSnapshotTimestamp);
+      fixture::race_mode_snapshot(
+          std::move(state), fixture::race_terrain("road", simulation::kMaximumWorldDimension)),
+      fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
   const boost::json::value document = boost::json::parse(encoded);
   const boost::json::object& block = document.as_object()
                                          .at("data")
@@ -821,7 +822,7 @@ TEST_CASE("Race publication resolves the selected road independent of corridor d
     const auto terrain = fixture::race_terrain("race_route", 60.0, true, selected_first);
     const auto snapshot = fixture::race_mode_snapshot(std::move(state), terrain);
     const std::string encoded = protocol::encode_snapshot_message_v3(
-        snapshot, fixture::golden_directory(), fixture::session_request_id(),
+        snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
         fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
     CHECK(encoded.find(R"("road":"race_route","checkpoint_radius":60)") != std::string::npos);
     CHECK(snapshot.terrain() == terrain);
@@ -834,7 +835,7 @@ TEST_CASE("Race publication rejects a road absent from the actual snapshot terra
     const auto snapshot = fixture::race_mode_snapshot(fixture::golden_race_mode_state(), terrain);
     try {
       static_cast<void>(protocol::encode_snapshot_message_v3(
-          snapshot, fixture::golden_directory(), fixture::session_request_id(),
+          snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
           fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
       FAIL("a missing road binding was encoded");
     } catch (const protocol::ProtocolEncodingError& error) {
@@ -848,11 +849,11 @@ TEST_CASE("Race publication checks gate radius against the selected rather than 
           "[unit][protocol][v3][encoding][race][terrain][rejection]") {
   auto state = fixture::golden_race_mode_state();
   state.road = simulation::RaceRoadName::create("unselected");
-  const auto snapshot = fixture::race_mode_snapshot(std::move(state),
-                                                    fixture::race_terrain("race_route", 60.0, true));
+  const auto snapshot = fixture::race_mode_snapshot(
+      std::move(state), fixture::race_terrain("race_route", 60.0, true));
   try {
     static_cast<void>(protocol::encode_snapshot_message_v3(
-        snapshot, fixture::golden_directory(), fixture::session_request_id(),
+        snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
         fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
     FAIL("a gate wider than the selected road was encoded");
   } catch (const protocol::ProtocolEncodingError& error) {
@@ -867,8 +868,12 @@ TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fie
   protocol::ProtocolEncodingErrorCode expected =
       protocol::ProtocolEncodingErrorCode::kComponentValueOutOfRange;
   SECTION("zero gate radius") { state.checkpoint_radius = 0.0; }
-  SECTION("nonfinite gate radius") { state.checkpoint_radius = std::numeric_limits<double>::infinity(); }
-  SECTION("oversized gate radius") { state.checkpoint_radius = protocol::kMaximumFiniteWorldScalar + 1.0; }
+  SECTION("nonfinite gate radius") {
+    state.checkpoint_radius = std::numeric_limits<double>::infinity();
+  }
+  SECTION("oversized gate radius") {
+    state.checkpoint_radius = protocol::kMaximumFiniteWorldScalar + 1.0;
+  }
   SECTION("gate wider than corridor") { state.checkpoint_radius = 61.0; }
   SECTION("no checkpoints") { state.checkpoints.clear(); }
   SECTION("too many checkpoints") {
@@ -891,9 +896,9 @@ TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fie
   fixture::require_protocol_error_code(
       [&state] {
         return protocol::encode_snapshot_message_v3(
-            fixture::race_mode_snapshot(std::move(state), fixture::race_terrain()), fixture::golden_directory(),
-            fixture::session_request_id(), fixture::kSnapshotMessageSequence,
-            fixture::kSnapshotTimestamp);
+            fixture::race_mode_snapshot(std::move(state), fixture::race_terrain()),
+            fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+            fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
       },
       expected);
 }
@@ -904,7 +909,7 @@ TEST_CASE("Snapshot v3 encoder rejects a message sequence below the first snapsh
   fixture::require_protocol_error_code(
       [&directory] {
         return protocol::encode_snapshot_message_v3(fixture::golden_snapshot(), directory,
-                                                    fixture::session_request_id(), 1,
+                                                    std::nullopt, fixture::session_request_id(), 1,
                                                     fixture::kSnapshotTimestamp);
       },
       protocol::ProtocolEncodingErrorCode::kMessageSequenceOutOfRange);
@@ -916,7 +921,7 @@ TEST_CASE("Snapshot v3 encoder rejects a malformed UTC timestamp",
   fixture::require_protocol_error_code(
       [&directory] {
         return protocol::encode_snapshot_message_v3(
-            fixture::golden_snapshot(), directory, fixture::session_request_id(),
+            fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
             fixture::kSnapshotMessageSequence, "2026-09-06 18:04:17Z");
       },
       protocol::ProtocolEncodingErrorCode::kTimestampInvalid);
@@ -928,7 +933,7 @@ TEST_CASE("Snapshot v3 encoder rejects a complete frame above the configured byt
   fixture::require_protocol_error_code(
       [&directory] {
         return protocol::encode_snapshot_message_v3(
-            fixture::golden_snapshot(), directory, fixture::session_request_id(),
+            fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
             fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp, 512);
       },
       protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
@@ -945,8 +950,9 @@ TEST_CASE("Snapshot v3 encoder publishes a phase_started_tick of zero for an unt
           simulation::TickSequence::zero());
 
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::untransitioned_lobby_snapshot(), directory, fixture::session_request_id(),
-      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+      fixture::untransitioned_lobby_snapshot(), directory, std::nullopt,
+      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
 
   CHECK(encoded.find(R"("phase":"lobby","phase_started_tick":0)") != std::string::npos);
   CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
@@ -964,7 +970,7 @@ TEST_CASE("Snapshot v3 encoder publishes a placement controller the directory ha
           .has_value());
 
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(encoded.find(R"("entity_id":5,"controller_id":6,"placement":3)") != std::string::npos);
@@ -996,7 +1002,7 @@ TEST_CASE("Snapshot v3 encoder publishes the documented fallback for a closed co
   directory.forget_controller(fixture::kPlayerControllerId);
 
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::golden_snapshot(), directory, fixture::session_request_id(),
+      fixture::golden_snapshot(), directory, std::nullopt, fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(encoded.find(R"("controller_kind":"unknown","display_name":"player-7")") !=
@@ -1066,7 +1072,7 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
   // the array in the order its schema enumerates.
   CHECK(
       advertised_all.find(
-          R"("accepted_command_kinds":["clear_seat","seat_npc","set_seat_count","set_thrust","start_match"])") !=
+          R"("accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","start_match"])") !=
       std::string::npos);
   CHECK(advertised_all.find("spawn") == std::string::npos);
   CHECK(advertised_all.find("despawn") == std::string::npos);

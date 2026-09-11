@@ -5,6 +5,7 @@
 #include "game_mode_configuration.hpp"
 #include "lobbies_configuration.hpp"
 #include "match_configuration.hpp"
+#include "movement_tuning.hpp"
 #include "royale/royale_configuration.hpp"
 #include "shared/hazard_archetype.hpp"
 
@@ -44,13 +45,13 @@ enum class ConfigField : std::size_t {
   kMatchSeed,
   kMatchLobbySeatCount,
   kMatchBots,
-  kRoyaleThrustMaximum,
+  kMovementAcceleration,
+  kMovementNormalTopSpeed,
   kRoyaleZoneMinimumRadius,
   kRoyaleZoneShrinkSeconds,
   kRoyaleEliminationGraceSeconds,
   kRoyaleCountdownSeconds,
   kRoyaleRestartDelaySeconds,
-  kKingOfTheHillThrustMaximum,
   kKingOfTheHillHillRadius,
   kKingOfTheHillHillDwellSeconds,
   kKingOfTheHillHillTravelSeconds,
@@ -61,7 +62,6 @@ enum class ConfigField : std::size_t {
   kKingOfTheHillRespawnDelaySeconds,
   kKingOfTheHillCountdownSeconds,
   kKingOfTheHillRestartDelaySeconds,
-  kRaceThrustMaximum,
   kRaceRoad,
   kRaceCheckpointRadius,
   kRaceRespawnDelaySeconds,
@@ -84,9 +84,9 @@ struct ConfigFieldSpec final {
   ConfigValueSyntax value_syntax = ConfigValueSyntax::kSingleValue;
 };
 
-constexpr std::array<std::string_view, 10> kConfigSections = {
-    "server", "presentation", "simulation",       "world", "spatial_grid",
-    "match",  "royale",       "king_of_the_hill", "race",  "lobbies"};
+constexpr std::array<std::string_view, 11> kConfigSections = {
+    "server",   "presentation", "simulation",       "world", "spatial_grid", "match",
+    "movement", "royale",       "king_of_the_hill", "race",  "lobbies"};
 
 // **`[royale]`, `[king_of_the_hill]`, and `[race]` are required whatever `[match] mode` names.** A
 // mode's balance section is part of this deployment's accepted schema rather than of the game it
@@ -94,6 +94,7 @@ constexpr std::array<std::string_view, 10> kConfigSections = {
 // for a section that was never written. The values are read only by the mode that owns them
 // (`src/gameplay/game_mode_configuration.hpp`). `[lobbies]` is required for the same reason: `1`
 // is the single-match server, and a deployment that wants more rooms changes one number.
+// Required `[movement]` belongs to no mode: one pair seeds every room, including Sandbox.
 constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCount)>
     kConfigFieldSpecs = {
         {{"server", "bind_address"},
@@ -115,13 +116,13 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"match", "seed"},
          {"match", "lobby_seat_count"},
          {"match", "bots", ConfigValueSyntax::kCommaDelimitedList},
-         {"royale", "thrust_max_world_units_per_second_squared"},
+         {"movement", "acceleration_world_units_per_second_squared"},
+         {"movement", "normal_top_speed_world_units_per_second"},
          {"royale", "zone_minimum_radius_world_units"},
          {"royale", "zone_shrink_seconds"},
          {"royale", "elimination_grace_seconds"},
          {"royale", "countdown_seconds"},
          {"royale", "restart_delay_seconds"},
-         {"king_of_the_hill", "thrust_max_world_units_per_second_squared"},
          {"king_of_the_hill", "hill_radius_world_units"},
          {"king_of_the_hill", "hill_dwell_seconds"},
          {"king_of_the_hill", "hill_travel_seconds"},
@@ -132,7 +133,6 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"king_of_the_hill", "respawn_delay_seconds"},
          {"king_of_the_hill", "countdown_seconds"},
          {"king_of_the_hill", "restart_delay_seconds"},
-         {"race", "thrust_max_world_units_per_second_squared"},
          {"race", "road"},
          {"race", "checkpoint_radius_world_units"},
          {"race", "respawn_delay_seconds"},
@@ -767,6 +767,15 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       parse_unsigned_config_value(document, ConfigField::kMatchLobbySeatCount),
       MatchConfiguration::parse_bot_roster(document.value(ConfigField::kMatchBots)));
 
+  // Shared movement is intrinsically validated in simulation, before the mode-owned sections.
+  // Named locals preserve parse order; argument evaluation order must not choose the first error.
+  const double movement_acceleration =
+      parse_double_config_value(document, ConfigField::kMovementAcceleration);
+  const double movement_normal_top_speed =
+      parse_double_config_value(document, ConfigField::kMovementNormalTopSpeed);
+  const simulation::MovementTuning movement =
+      simulation::MovementTuning::create(movement_acceleration, movement_normal_top_speed);
+
   // Validated by the mode that owns the section, so the application never re-derives a balance
   // rule: each section is authored in seconds and world units and comes back in tick counts. The
   // hazard table is validated the same way by the mechanic that owns it, and the four are written
@@ -775,8 +784,6 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
   // the standard does not fix.
   gameplay::GameModeConfiguration game_mode_configuration{
       gameplay::RoyaleConfiguration::create(gameplay::RoyaleConfiguration::Section{
-          .thrust_max_world_units_per_second_squared =
-              parse_double_config_value(document, ConfigField::kRoyaleThrustMaximum),
           .zone_minimum_radius_world_units =
               parse_double_config_value(document, ConfigField::kRoyaleZoneMinimumRadius),
           .zone_shrink_seconds =
@@ -788,8 +795,6 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
           .restart_delay_seconds =
               parse_double_config_value(document, ConfigField::kRoyaleRestartDelaySeconds)}),
       gameplay::KingOfTheHillConfiguration::create(gameplay::KingOfTheHillConfiguration::Section{
-          .thrust_max_world_units_per_second_squared =
-              parse_double_config_value(document, ConfigField::kKingOfTheHillThrustMaximum),
           .hill_radius_world_units =
               parse_double_config_value(document, ConfigField::kKingOfTheHillHillRadius),
           .hill_dwell_seconds =
@@ -811,8 +816,6 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
           .restart_delay_seconds =
               parse_double_config_value(document, ConfigField::kKingOfTheHillRestartDelaySeconds)}),
       gameplay::RaceConfiguration::create(gameplay::RaceConfiguration::Section{
-          .thrust_max_world_units_per_second_squared =
-              parse_double_config_value(document, ConfigField::kRaceThrustMaximum),
           .road = std::string{document.value(ConfigField::kRaceRoad)},
           .checkpoint_radius_world_units =
               parse_double_config_value(document, ConfigField::kRaceCheckpointRadius),
@@ -826,7 +829,7 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
               parse_double_config_value(document, ConfigField::kRaceCountdownSeconds),
           .restart_delay_seconds =
               parse_double_config_value(document, ConfigField::kRaceRestartDelaySeconds)}),
-      parse_hazard_archetypes(document)};
+      parse_hazard_archetypes(document), movement};
 
   const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(
       parse_unsigned_config_value(document, ConfigField::kLobbiesCount));

@@ -15,13 +15,18 @@ type DeepReadonly<T> = T extends (...arguments_: readonly unknown[]) => unknown
       : T;
 
 /**
- * Every application data message a client may send. The envelope carries no entity id, no protocol version, no request id, and no client sequence number: identity and version are properties of the connection, and a client-supplied version would be a downgrade lever.
+ * Every application data message a client may send. The envelope carries no actor identity or protocol version. Only tuning payloads carry a correlation-only tuning_request_id; it grants no authority and never orders simulation commands.
  */
 type MutableBlobRoyaleProtocolV3ClientCommandEnvelope = {
   [k: string]: unknown | undefined;
 } & {
   kind:
-    'clear_seat' | 'seat_npc' | 'set_seat_count' | 'set_thrust' | 'start_match';
+    | 'clear_seat'
+    | 'seat_npc'
+    | 'set_movement_tuning'
+    | 'set_seat_count'
+    | 'set_thrust'
+    | 'start_match';
   payload: {};
 };
 type MutableError = {
@@ -65,6 +70,27 @@ type MutableSeat = {
   npc_kind: string | null;
 };
 /**
+ * Authoritative current and room-authored default tuning, intrinsic limits, and the latest committed tuning revision. Defaults survive round resets and change only when the room is recreated.
+ */
+type MutableBlobRoyaleProtocolV3MovementState = {
+  [k: string]: unknown | undefined;
+} & {
+  current: MutableBlobRoyaleProtocolV3MovementTuning;
+  defaults: MutableBlobRoyaleProtocolV3MovementTuning;
+  limits: {
+    acceleration_world_units_per_second_squared: {
+      minimum: 0;
+      maximum: 10000;
+    };
+    normal_top_speed_world_units_per_second: {
+      minimum: 1;
+      maximum: 10000;
+    };
+  };
+  revision: number;
+  effective_tick: number;
+};
+/**
  * Two named winner members rather than one polymorphic winner, so a reader can never mistake a team id for an entity id. Both are always present; the member that does not apply is null.
  *
  * This interface was referenced by `MutableBlobRoyaleProtocolV3MatchSection`'s JSON-Schema
@@ -92,6 +118,26 @@ type MutableModeState = {
     | 'blob-royale://protocol/v3/mode-state/king-of-the-hill'
     | 'blob-royale://protocol/v3/mode-state/race';
   value: {};
+};
+/**
+ * One session-specific terminal tuning result claimed into an ordinary snapshot. Unknown is client-only and is never a server status.
+ */
+type MutableBlobRoyaleProtocolV3TuningResult = {
+  [k: string]: unknown | undefined;
+} & {
+  tuning_request_id: number;
+  status:
+    | 'applied'
+    | 'superseded'
+    | 'stale_revision'
+    | 'not_seated'
+    | 'revision_exhausted'
+    | 'rate_limited'
+    | 'mailbox_full'
+    | 'mailbox_evicted';
+  decision_tick: number | null;
+  revision: number | null;
+  retry_after_milliseconds: number | null;
 };
 /**
  * Complete immutable terrain published once in welcome, in authored order. Support is the bounded positive ground minus the union of open circular holes. Compiled arrangements are not wire data.
@@ -312,6 +358,7 @@ interface MutableBlobRoyaleProtocolV3WorldSnapshotData {
    */
   entities: MutableBlobRoyaleProtocolV3EntitySnapshot[];
   match: MutableBlobRoyaleProtocolV3MatchSection;
+  tuning_result: MutableBlobRoyaleProtocolV3TuningResult | null;
 }
 /**
  * One entity of one committed tick: its stable id and the closed map of the components it carries, keyed by component kind. An entity is its component set and nothing else (ADR 0004). This file is the registration point for a component kind on the wire.
@@ -430,12 +477,20 @@ interface MutableBlobRoyaleProtocolV3MatchSection {
    */
   seats: MutableSeat[];
   start_requested: boolean;
+  movement: MutableBlobRoyaleProtocolV3MovementState;
   outcome: MutableOutcome;
   /**
    * @maxItems 1024
    */
   placements: MutablePlacement[];
   mode_state: MutableModeState;
+}
+/**
+ * One absolute room-wide normal-propulsion pair. These parameter bounds do not cap external momentum or certify solver capacity.
+ */
+interface MutableBlobRoyaleProtocolV3MovementTuning {
+  acceleration_world_units_per_second_squared: number;
+  normal_top_speed_world_units_per_second: number;
 }
 /**
  * One finished rank. controller_id is carried so a client can recognize its own result after its entity_id has been destroyed.
@@ -467,6 +522,7 @@ interface MutableBlobRoyaleProtocolV3WebSocketWelcomeMessage {
  * Everything a session learns about itself, sent exactly once immediately after the upgrade and before any snapshot. accepted_command_kinds is an advertisement of what the boundary will accept from this client, not a grant: the server enforces the same set independently and InputBatch::create filters it a second time. npc_controller_kinds is the same kind of advertisement for the one closed vocabulary a client is allowed to name a value from.
  */
 interface MutableBlobRoyaleProtocolV3WelcomeData {
+  movement_tuning_minimum_interval_milliseconds: 500;
   terrain: MutableBlobRoyaleProtocolV3AuthoredTerrain;
   entity_id: number;
   controller_id: number;
@@ -474,13 +530,14 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
   mode: string;
   map: string;
   /**
-   * @maxItems 5
+   * @maxItems 6
    */
   accepted_command_kinds:
     | []
     | [
         | 'clear_seat'
         | 'seat_npc'
+        | 'set_movement_tuning'
         | 'set_seat_count'
         | 'set_thrust'
         | 'start_match',
@@ -489,6 +546,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -496,29 +554,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'start_match'
-        ),
-      ]
-    | [
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -528,6 +564,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -535,6 +572,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -542,13 +580,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -558,6 +590,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -565,6 +598,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -572,6 +606,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -579,6 +614,17 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -586,6 +632,81 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         (
           | 'clear_seat'
           | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
           | 'start_match'
@@ -641,8 +762,12 @@ export type BlobRoyaleProtocolV3ClientCommandEnvelope =
   DeepReadonly<MutableBlobRoyaleProtocolV3ClientCommandEnvelope>;
 export type Error = DeepReadonly<MutableError>;
 export type Seat = DeepReadonly<MutableSeat>;
+export type BlobRoyaleProtocolV3MovementState =
+  DeepReadonly<MutableBlobRoyaleProtocolV3MovementState>;
 export type Outcome = DeepReadonly<MutableOutcome>;
 export type ModeState = DeepReadonly<MutableModeState>;
+export type BlobRoyaleProtocolV3TuningResult =
+  DeepReadonly<MutableBlobRoyaleProtocolV3TuningResult>;
 export type BlobRoyaleProtocolV3AuthoredTerrain =
   DeepReadonly<MutableBlobRoyaleProtocolV3AuthoredTerrain>;
 export type ProtocolV3SchemaTypes = DeepReadonly<MutableProtocolV3SchemaTypes>;
@@ -687,6 +812,8 @@ export type BlobRoyaleProtocolV3ZoneExposureComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3ZoneExposureComponent>;
 export type BlobRoyaleProtocolV3MatchSection =
   DeepReadonly<MutableBlobRoyaleProtocolV3MatchSection>;
+export type BlobRoyaleProtocolV3MovementTuning =
+  DeepReadonly<MutableBlobRoyaleProtocolV3MovementTuning>;
 export type Placement = DeepReadonly<MutablePlacement>;
 export type BlobRoyaleProtocolV3WebSocketWelcomeMessage =
   DeepReadonly<MutableBlobRoyaleProtocolV3WebSocketWelcomeMessage>;

@@ -27,7 +27,7 @@ namespace testing = blob_royale::testing;
 
 namespace {
 
-// The sandbox simulation every test below drives: a four-point map and the default thrust maximum.
+// The sandbox simulation every test below drives: a four-point map and explicit legacy tuning.
 [[nodiscard]] simulation::GameSimulation
 sandbox_simulation(const std::size_t spawn_point_count = 4) {
   return testing::gameplay_simulation(gameplay::SandboxMode::create(),
@@ -38,8 +38,7 @@ sandbox_simulation(const std::size_t spawn_point_count = 4) {
 
 TEST_CASE("SandboxMode declares free play as seven answers and one system",
           "[unit][gameplay][sandbox]") {
-  const gameplay::SandboxMode mode{
-      gameplay::SandboxMode::kDefaultThrustMaximumWorldUnitsPerSecondSquared};
+  const gameplay::SandboxMode mode{};
 
   CHECK(mode.name() == std::string_view{"sandbox"});
   CHECK(mode.contact_rules() == simulation::ContactRuleTable::built_in());
@@ -164,11 +163,26 @@ TEST_CASE("SandboxMode rejects a map with no spawn marker at construction",
   }
 }
 
-TEST_CASE("SandboxMode rejects a thrust maximum it could not steer with",
-          "[unit][gameplay][sandbox][validation]") {
-  CHECK_THROWS_AS(static_cast<void>(gameplay::SandboxMode::create(-1.0)),
-                  gameplay::GameplayValidationError);
-  CHECK_NOTHROW(static_cast<void>(gameplay::SandboxMode::create(0.0)));
+TEST_CASE("SandboxMode uses shared authored movement without advertising unseated tuning authority",
+          "[unit][gameplay][sandbox][movement]") {
+  for (const double acceleration : {0.0, 800.0}) {
+    CAPTURE(acceleration);
+    auto configuration = gameplay::GameModeConfiguration::defaults();
+    configuration.movement = simulation::MovementTuning::create(acceleration, 10'000.0);
+    auto game =
+        testing::gameplay_simulation(gameplay::SandboxMode::create(configuration),
+                                     testing::gameplay_map(4), 0, {}, configuration.movement);
+    CHECK_FALSE(
+        game.accepted_command_kinds().contains(simulation::CommandKind::kSetMovementTuning));
+    game.step(testing::kGameplayFixedDelta,
+              testing::gameplay_batch(
+                  game, {testing::spawn_command(7), testing::thrust_command(1, 1.0, 0.0)}));
+    const auto snapshot = game.snapshot();
+    CHECK(testing::published_body(snapshot, 1)->acceleration() ==
+          simulation::Vector2::create(acceleration, 0.0));
+    CHECK(snapshot.match().movement().current == configuration.movement);
+    CHECK(snapshot.match().movement().defaults == configuration.movement);
+  }
 }
 
 TEST_CASE("A sandbox simulation with no command reproduces the empty-batch tick",

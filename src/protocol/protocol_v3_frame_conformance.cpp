@@ -262,6 +262,60 @@ template <std::size_t MaximumCount>
   return V3FrameConformance::kConforms;
 }
 
+[[nodiscard]] bool movement_coverage_integer(const json::value* value, std::uint64_t& result) {
+  if (value == nullptr || !value->is_number()) {
+    return false;
+  }
+  const double number = value->to_number<double>();
+  if (!std::isfinite(number) || number < 0.0 ||
+      number > static_cast<double>(simulation::kMaximumProtocolSafeInteger) ||
+      std::trunc(number) != number) {
+    return false;
+  }
+  result = static_cast<std::uint64_t>(number);
+  return true;
+}
+
+// These three coverage relationships cross schema objects. Inspect the emitted document rather
+// than invoking the encoder's value validation. The schemas still own complete shapes, tuning
+// bounds, status/nullability rules, and the initial revision/effective-tick relationship.
+[[nodiscard]] bool movement_coverage_conforms(const json::object& snapshot,
+                                              const json::object& match) {
+  const json::value* const movement = member_of(match, "movement");
+  const json::value* const tuning_result = member_of(snapshot, "tuning_result");
+  std::uint64_t snapshot_tick = 0;
+  std::uint64_t movement_revision = 0;
+  std::uint64_t effective_tick = 0;
+  if (movement == nullptr || !movement->is_object() || tuning_result == nullptr ||
+      !movement_coverage_integer(member_of(snapshot, "tick_sequence"), snapshot_tick) ||
+      !movement_coverage_integer(member_of(movement->get_object(), "revision"),
+                                 movement_revision) ||
+      !movement_coverage_integer(member_of(movement->get_object(), "effective_tick"),
+                                 effective_tick) ||
+      effective_tick > snapshot_tick) {
+    return false;
+  }
+  if (tuning_result->is_null()) {
+    return true;
+  }
+  if (!tuning_result->is_object()) {
+    return false;
+  }
+  const json::value* const decision_tick = member_of(tuning_result->get_object(), "decision_tick");
+  const json::value* const revision = member_of(tuning_result->get_object(), "revision");
+  if (decision_tick == nullptr || revision == nullptr) {
+    return false;
+  }
+  if (decision_tick->is_null() || revision->is_null()) {
+    return decision_tick->is_null() && revision->is_null();
+  }
+  std::uint64_t committed_tick = 0;
+  std::uint64_t committed_revision = 0;
+  return movement_coverage_integer(decision_tick, committed_tick) &&
+         movement_coverage_integer(revision, committed_revision) &&
+         committed_tick <= snapshot_tick && committed_revision <= movement_revision;
+}
+
 [[nodiscard]] V3FrameConformance check_snapshot_data(const json::value& data) {
   if (!data.is_object()) {
     return V3FrameConformance::kEnvelopeMembersInvalid;
@@ -292,7 +346,9 @@ template <std::size_t MaximumCount>
   if (!is_v3_mode_state_schema_id(view_of(mode_state_schema_id->get_string()))) {
     return V3FrameConformance::kModeStateSchemaIdUnregistered;
   }
-  return V3FrameConformance::kConforms;
+  return movement_coverage_conforms(snapshot, match->get_object())
+             ? V3FrameConformance::kConforms
+             : V3FrameConformance::kMovementTuningCoverageInvalid;
 }
 
 } // namespace

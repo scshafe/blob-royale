@@ -712,10 +712,10 @@ TEST_CASE("Hill publication preserves the exact configured radius and score ceil
   CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
-TEST_CASE("Race mode state publishes its course and shared standings in canonical order",
+TEST_CASE("Race mode state publishes its road identity and shared standings in canonical order",
           "[unit][protocol][v3][encoding][race][golden]") {
   const simulation::WorldSnapshot snapshot =
-      fixture::race_mode_snapshot(fixture::golden_race_mode_state());
+      fixture::race_mode_snapshot(fixture::golden_race_mode_state(), fixture::race_terrain());
   const std::string encoded = protocol::encode_snapshot_message_v3(
       snapshot, fixture::golden_directory(), fixture::session_request_id(),
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
@@ -730,8 +730,11 @@ TEST_CASE("Race mode state publishes its course and shared standings in canonica
   CHECK(simulation::mode_match_state_schema_id_of(snapshot.match().mode_state()) == "race");
   CHECK(
       encoded.find(
-          R"("track_half_width":60,"checkpoint_radius":20,"track":[{"x":100,"y":100},{"x":700,"y":100},{"x":700,"y":500}],"checkpoints":[{"x":300,"y":100},{"x":700,"y":200},{"x":700,"y":500}],"time_limit_ticks":96000,"finish_window_ticks":2000,"standings":[{"entity_id":7,"controller_id":3,"placement":1,"finished_tick":1},{"entity_id":8,"controller_id":4,"placement":1,"finished_tick":1}])") !=
+          R"("road":"road","checkpoint_radius":20,"checkpoints":[{"x":300,"y":100},{"x":700,"y":200},{"x":700,"y":500}],"time_limit_ticks":96000,"finish_window_ticks":2000,"standings":[{"entity_id":7,"controller_id":3,"placement":1,"finished_tick":1},{"entity_id":8,"controller_id":4,"placement":1,"finished_tick":1}])") !=
       std::string::npos);
+  CHECK_FALSE(block.at("value").as_object().contains("track"));
+  CHECK_FALSE(block.at("value").as_object().contains("track_half_width"));
+  CHECK_FALSE(document.as_object().at("data").as_object().contains("terrain"));
   CHECK(encoded == protocol::encode_snapshot_message_v3(
                        snapshot, fixture::golden_directory(), fixture::session_request_id(),
                        fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
@@ -742,25 +745,24 @@ TEST_CASE("Race publishes an empty standings array and canonicalizes nested vect
           "[unit][protocol][v3][encoding][race]") {
   simulation::RaceModeState state = fixture::golden_race_mode_state();
   state.standings.clear();
-  state.track[0] = simulation::Vector2::create(-0.0, 100.0);
+  state.checkpoints[0] = simulation::Vector2::create(-0.0, 100.0);
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
+      fixture::race_mode_snapshot(std::move(state), fixture::race_terrain()), fixture::golden_directory(),
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
-  CHECK(encoded.find(R"("track":[{"x":0,"y":100})") != std::string::npos);
+  CHECK(encoded.find(R"("checkpoints":[{"x":0,"y":100})") != std::string::npos);
   CHECK(encoded.find(R"("standings":[])") != std::string::npos);
   CHECK(encoded.find(R"("placements":[])") != std::string::npos);
 }
 
-TEST_CASE("Race publication preserves both exact configured dimension ceilings",
+TEST_CASE("Race publication admits a gate at the canonical terrain-width ceiling",
           "[unit][protocol][v3][encoding][race][boundary]") {
-  STATIC_REQUIRE(simulation::kMaximumPhysicalComponentMagnitude ==
-                 protocol::kMaximumFiniteWorldScalar);
   simulation::RaceModeState state = fixture::golden_race_mode_state();
-  state.track_half_width = simulation::kMaximumPhysicalComponentMagnitude;
-  state.checkpoint_radius = simulation::kMaximumPhysicalComponentMagnitude;
+  state.checkpoint_radius = simulation::kMaximumWorldDimension;
   const std::string encoded = protocol::encode_snapshot_message_v3(
-      fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
+      fixture::race_mode_snapshot(std::move(state),
+                                 fixture::race_terrain("road", simulation::kMaximumWorldDimension)),
+      fixture::golden_directory(),
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
   const boost::json::value document = boost::json::parse(encoded);
@@ -773,11 +775,58 @@ TEST_CASE("Race publication preserves both exact configured dimension ceilings",
                                          .as_object()
                                          .at("value")
                                          .as_object();
-  CHECK(block.at("track_half_width").as_int64() ==
-        static_cast<std::int64_t>(simulation::kMaximumPhysicalComponentMagnitude));
   CHECK(block.at("checkpoint_radius").as_int64() ==
-        static_cast<std::int64_t>(simulation::kMaximumPhysicalComponentMagnitude));
+        static_cast<std::int64_t>(simulation::kMaximumWorldDimension));
   CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
+}
+
+TEST_CASE("Race publication resolves the selected road independent of corridor declaration order",
+          "[unit][protocol][v3][encoding][race][terrain]") {
+  for (const bool selected_first : {false, true}) {
+    simulation::RaceModeState state = fixture::golden_race_mode_state();
+    state.road = simulation::RaceRoadName::create("race_route");
+    state.checkpoint_radius = 60.0;
+    const auto terrain = fixture::race_terrain("race_route", 60.0, true, selected_first);
+    const auto snapshot = fixture::race_mode_snapshot(std::move(state), terrain);
+    const std::string encoded = protocol::encode_snapshot_message_v3(
+        snapshot, fixture::golden_directory(), fixture::session_request_id(),
+        fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+    CHECK(encoded.find(R"("road":"race_route","checkpoint_radius":60)") != std::string::npos);
+    CHECK(snapshot.terrain() == terrain);
+  }
+}
+
+TEST_CASE("Race publication rejects a road absent from the actual snapshot terrain",
+          "[unit][protocol][v3][encoding][race][terrain][rejection]") {
+  for (const auto& terrain : {fixture::golden_terrain(), fixture::race_terrain("another_route")}) {
+    const auto snapshot = fixture::race_mode_snapshot(fixture::golden_race_mode_state(), terrain);
+    try {
+      static_cast<void>(protocol::encode_snapshot_message_v3(
+          snapshot, fixture::golden_directory(), fixture::session_request_id(),
+          fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
+      FAIL("a missing road binding was encoded");
+    } catch (const protocol::ProtocolEncodingError& error) {
+      CHECK(error.error_code() == protocol::ProtocolEncodingErrorCode::kComponentValueOutOfRange);
+      CHECK(error.context() == "snapshot_message.data.match.mode_state.value.road");
+    }
+  }
+}
+
+TEST_CASE("Race publication checks gate radius against the selected rather than another road",
+          "[unit][protocol][v3][encoding][race][terrain][rejection]") {
+  auto state = fixture::golden_race_mode_state();
+  state.road = simulation::RaceRoadName::create("unselected");
+  const auto snapshot = fixture::race_mode_snapshot(std::move(state),
+                                                    fixture::race_terrain("race_route", 60.0, true));
+  try {
+    static_cast<void>(protocol::encode_snapshot_message_v3(
+        snapshot, fixture::golden_directory(), fixture::session_request_id(),
+        fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp));
+    FAIL("a gate wider than the selected road was encoded");
+  } catch (const protocol::ProtocolEncodingError& error) {
+    CHECK(error.error_code() == protocol::ProtocolEncodingErrorCode::kComponentValueOutOfRange);
+    CHECK(error.context() == "snapshot_message.data.match.mode_state.value.checkpoint_radius");
+  }
 }
 
 TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fields",
@@ -785,19 +834,10 @@ TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fie
   simulation::RaceModeState state = fixture::golden_race_mode_state();
   protocol::ProtocolEncodingErrorCode expected =
       protocol::ProtocolEncodingErrorCode::kComponentValueOutOfRange;
-  SECTION("zero corridor") { state.track_half_width = 0.0; }
-  SECTION("nonfinite corridor") {
-    state.track_half_width = std::numeric_limits<double>::infinity();
-  }
-  SECTION("oversized corridor") {
-    state.track_half_width = protocol::kMaximumFiniteWorldScalar + 1.0;
-  }
   SECTION("zero gate radius") { state.checkpoint_radius = 0.0; }
-  SECTION("gate wider than corridor") { state.checkpoint_radius = state.track_half_width + 1.0; }
-  SECTION("one track point") { state.track.erase(state.track.begin() + 1, state.track.end()); }
-  SECTION("too many track points") {
-    state.track.resize(protocol::kRaceCoursePointLimit + 1, state.track.front());
-  }
+  SECTION("nonfinite gate radius") { state.checkpoint_radius = std::numeric_limits<double>::infinity(); }
+  SECTION("oversized gate radius") { state.checkpoint_radius = protocol::kMaximumFiniteWorldScalar + 1.0; }
+  SECTION("gate wider than corridor") { state.checkpoint_radius = 61.0; }
   SECTION("no checkpoints") { state.checkpoints.clear(); }
   SECTION("too many checkpoints") {
     state.checkpoints.resize(protocol::kRaceCoursePointLimit + 1, state.checkpoints.front());
@@ -819,7 +859,7 @@ TEST_CASE("Race mode state rejects out-of-schema scalars and nested standing fie
   fixture::require_protocol_error_code(
       [&state] {
         return protocol::encode_snapshot_message_v3(
-            fixture::race_mode_snapshot(std::move(state)), fixture::golden_directory(),
+            fixture::race_mode_snapshot(std::move(state), fixture::race_terrain()), fixture::golden_directory(),
             fixture::session_request_id(), fixture::kSnapshotMessageSequence,
             fixture::kSnapshotTimestamp);
       },

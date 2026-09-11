@@ -92,7 +92,9 @@ v3_frame_conformance_name(const V3FrameConformance conformance) noexcept {
 // the encoder held, so an encoder defect cannot hide behind the check that is supposed to catch it.
 // Terrain checks are bounded authored-data inspection, not terrain compilation. Agreement with
 // external v1 configuration bounds is intentionally outside this single-frame oracle; the client
-// checks that cross-document invariant after schema and terrain validation.
+// checks that cross-document invariant after schema and terrain validation. Race road membership
+// and checkpoint radius versus its selected corridor width also require retained terrain context:
+// the encoder checks its snapshot terrain and the client checks its admitted welcome terrain.
 // related: protocol_v3_json_encoding.hpp -- the encoders whose output this validates.
 // related: docs/protocol/schema/v3 -- the schemas that own everything this does not check.
 [[nodiscard]] V3FrameConformance check_v3_server_frame(std::string_view encoded_frame);

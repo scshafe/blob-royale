@@ -139,8 +139,11 @@ and a scripted controller is meaningless without the recorded log no configurati
 a row for it would make `bots=scripted_replay:1` produce a bot that silently decides nothing.
 Fixtures construct it directly.
 
-`RacerController` reads the course from the snapshot's race block and its next gate from
-`race_progress`. It waits before progress exists, seeks the next gate while centred, and turns
+`RacerController` resolves the race block's selected `road` identity against `Observation::terrain()`;
+gates stay in the race block and its next gate comes from `race_progress`. It never selects the
+first corridor or assumes a fixed name. Missing bindings fail visibly. The canonical simulation
+centreline projection supplies the nearest target; controllers own no private geometry loop.
+It waits before progress exists, seeks the next gate while centred, and turns
 toward the nearest centreline point strictly beyond its personality's `caution_fraction` of the
 half-width (default `0.75`, finite in `(0, 1]`). Exact nearest-segment ties keep authored order.
 It waits while bodyless, leaving checkpoint return to the mode, and releases thrust after finishing.

@@ -1,3 +1,4 @@
+import { raceTerrain } from '../fixtures/terrainFrames';
 import { describe, expect, it, vi } from 'vitest';
 
 import { raceSnapshotDocument } from '../fixtures/sessionFrames';
@@ -19,6 +20,7 @@ function validatedRaceMatch(): SessionMatchSection {
     messageSequence: 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    terrain: raceTerrain,
   }).data.match;
 }
 

@@ -33,7 +33,7 @@ void StandingsRecorderSystem::apply(simulation::GameWorld& world,
   if (world.match().phase != simulation::MatchPhase::kRunning) {
     return;
   }
-  simulation::RaceModeState& block = race_mode_state_in(world);
+  simulation::RaceModeState& block = race_mode_state_in(world, course_);
   if (world.match().previous_phase == simulation::MatchPhase::kCountdown) {
     block.standings.clear();
   }

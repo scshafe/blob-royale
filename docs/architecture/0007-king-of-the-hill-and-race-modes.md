@@ -869,3 +869,24 @@ diagnostic Debug benchmark retained all eight correctness records and delivery c
 no release/native performance claim follows. The initial migration's misplaced CSV comments
 were relocated into `map.cfg` before the complete reruns; production CSV parsing was not widened.
 The plan records the complete commands, review, input audit, and correction history.
+
+## Amendment: retire race geometry mirrors, 2026-09-10 (plan Step 8)
+
+The race block no longer publishes `track` or `track_half_width`. It publishes required selected
+`road` identity, checked against the immutable terrain retained by snapshots and delivered once
+in session-v3 welcome. Checkpoints, gate radius, clocks, and standings remain race-owned.
+`RaceCourse::road_name()` views its already-bound corridor; it stores no second name or geometry.
+The racer resolves that exact name, obtains width and points from observation terrain, and uses
+the canonical simulation centreline projection rather than a private geometry loop.
+
+Projection preserves the written dx/dy, dot/divide, clamp, projected coordinate, and square-root
+order with strict `<` replacement, retaining the first authored segment on exact ties. A single
+raw projection core serves the existing distance-only query and the new typed point/distance
+query. The distance query remains no-throw over its original standalone-corridor domain, without
+new projected-point validation; the typed query can reject a projected point outside the vector
+value's bounds. Valid map corridors retain the existing racer command bits. Independent
+pre-delegation proofs and final two-lane evidence are recorded in the implementation plan.
+
+This changes publication ownership, not race endpoint sampling, checkpoint chronology, return
+timing, standings, physical motion, or controller caution/heading policy. Those accepted outcomes
+remain unchanged; continuous-motion adoption still requires the separate Step 5 gate.

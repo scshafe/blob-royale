@@ -124,6 +124,7 @@ export function cameraSnapshot(
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      terrain: cameraSessionIdentity().terrain,
     },
   ).data;
 }

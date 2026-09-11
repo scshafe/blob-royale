@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace gameplay = blob_royale::gameplay;
@@ -65,6 +66,13 @@ field(const std::initializer_list<std::optional<std::uint64_t>> progress) {
                                   simulation::TickSequence::create(tick)};
 }
 
+void record_standings(simulation::GameWorld& world,
+                      std::vector<simulation::RaceStanding> standings) {
+  const auto course = gameplay::RaceCourse::create(testing::race_test_map(),
+                                                   testing::race_test_configuration());
+  gameplay::race_mode_state_in(world, course).standings = std::move(standings);
+}
+
 [[nodiscard]] simulation::MatchOutcome outcome_at(const simulation::GameWorld& world,
                                                   const std::uint64_t tick,
                                                   const std::uint64_t window = kFinishWindow) {
@@ -91,7 +99,7 @@ TEST_CASE("a solo race is a time trial until a finish or the clock and an empty 
   simulation::GameWorld world = field({std::nullopt});
   CHECK(outcome_at(world, 199) == simulation::MatchOutcome::undecided());
   CHECK(outcome_at(world, 200) == simulation::MatchOutcome::won_by_entity(entity(1)));
-  gameplay::race_mode_state_in(world).standings = {standing(1, 1)};
+  record_standings(world, {standing(1, 1)});
   CHECK(outcome_at(world, kFirstFinish) == simulation::MatchOutcome::won_by_entity(entity(1)));
   world.destroy_entity(entity(1));
   CHECK(outcome_at(world, kFirstFinish) == simulation::MatchOutcome::drawn());
@@ -119,7 +127,7 @@ TEST_CASE("a respawning participant can lead the race at the clock",
 TEST_CASE("a recorded finish makes the finish window take precedence over the total race clock",
           "[unit][gameplay][race][objective]") {
   simulation::GameWorld world = field({2, 1});
-  gameplay::race_mode_state_in(world).standings = {standing(1, 1)};
+  record_standings(world, {standing(1, 1)});
   CHECK(outcome_at(world, 200) == simulation::MatchOutcome::undecided());
   CHECK(outcome_at(world, 209) == simulation::MatchOutcome::undecided());
   CHECK(outcome_at(world, 210) == simulation::MatchOutcome::won_by_entity(entity(1)));
@@ -129,16 +137,16 @@ TEST_CASE("a recorded finish makes the finish window take precedence over the to
 TEST_CASE("race completion decides early when every participant is recorded",
           "[unit][gameplay][race][objective]") {
   simulation::GameWorld world = field({2, 2});
-  gameplay::race_mode_state_in(world).standings = {standing(1, 1), standing(2, 2, 191)};
+  record_standings(world, {standing(1, 1), standing(2, 2, 191)});
   CHECK(outcome_at(world, 191) == simulation::MatchOutcome::won_by_entity(entity(1)));
-  gameplay::race_mode_state_in(world).standings = {standing(1, 1), standing(2, 1)};
+  record_standings(world, {standing(1, 1), standing(2, 1)});
   CHECK(outcome_at(world, kFirstFinish) == simulation::MatchOutcome::drawn());
 }
 
 TEST_CASE("shared first finishers draw when the window closes with another racer unfinished",
           "[unit][gameplay][race][objective]") {
   simulation::GameWorld world = field({2, 2, 0});
-  gameplay::race_mode_state_in(world).standings = {standing(1, 1), standing(2, 1)};
+  record_standings(world, {standing(1, 1), standing(2, 1)});
   CHECK(outcome_at(world, 209) == simulation::MatchOutcome::undecided());
   CHECK(outcome_at(world, 210) == simulation::MatchOutcome::drawn());
 }
@@ -146,7 +154,7 @@ TEST_CASE("shared first finishers draw when the window closes with another racer
 TEST_CASE("a disconnected first finisher retains the recorded win while participants remain",
           "[unit][gameplay][race][objective]") {
   simulation::GameWorld world = field({2, 0});
-  gameplay::race_mode_state_in(world).standings = {standing(1, 1)};
+  record_standings(world, {standing(1, 1)});
   world.destroy_entity(entity(1));
   CHECK(outcome_at(world, 209) == simulation::MatchOutcome::undecided());
   CHECK(outcome_at(world, 210) == simulation::MatchOutcome::won_by_entity(entity(1)));
@@ -156,6 +164,6 @@ TEST_CASE("race elapsed tick subtraction saturates before the recorded start or 
           "[unit][gameplay][race][objective]") {
   simulation::GameWorld world = field({1, 0});
   CHECK(outcome_at(world, kRunningStart - 1) == simulation::MatchOutcome::undecided());
-  gameplay::race_mode_state_in(world).standings = {standing(1, 1)};
+  record_standings(world, {standing(1, 1)});
   CHECK(outcome_at(world, kFirstFinish - 1) == simulation::MatchOutcome::undecided());
 }

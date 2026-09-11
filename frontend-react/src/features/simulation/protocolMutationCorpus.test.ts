@@ -1,3 +1,4 @@
+import { solidTerrain } from './fixtures/terrainFrames';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -320,6 +321,7 @@ const welcomeSequence: SessionSequenceState = Object.freeze({
   messageSequence: 1,
   requestId: '018f47a4-9c21-7f10-8a55-4b7d1e0c33a2',
   tickSequence: null,
+  terrain: solidTerrain,
 });
 
 afterEach(() => {

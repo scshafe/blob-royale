@@ -40,6 +40,10 @@ public:
   RaceCourse& operator=(RaceCourse&&) noexcept = default;
   ~RaceCourse() = default;
 
+  // Exact authored identity of the bound corridor; no duplicate name or geometry storage.
+  [[nodiscard]] std::string_view road_name() const& noexcept { return bound_road().name(); }
+  [[nodiscard]] std::string_view road_name() const&& = delete;
+
   // At least two nodes, with a nonzero segment between every consecutive pair.
   [[nodiscard]] std::span<const simulation::Vector2> track() const& noexcept {
     return bound_road().points();

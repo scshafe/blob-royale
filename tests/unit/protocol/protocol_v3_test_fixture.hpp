@@ -373,10 +373,8 @@ hill_mode_snapshot(const double hill_radius, const std::uint64_t points_to_win) 
 // The accepted race block: one bend, three gates, and two simultaneous first-place finishes.
 [[nodiscard]] inline simulation::RaceModeState golden_race_mode_state() {
   return simulation::RaceModeState{
-      60.0,
+      simulation::RaceRoadName::create("road"),
       20.0,
-      {simulation::Vector2::create(100.0, 100.0), simulation::Vector2::create(700.0, 100.0),
-       simulation::Vector2::create(700.0, 500.0)},
       {simulation::Vector2::create(300.0, 100.0), simulation::Vector2::create(700.0, 200.0),
        simulation::Vector2::create(700.0, 500.0)},
       96'000,
@@ -389,15 +387,39 @@ hill_mode_snapshot(const double hill_radius, const std::uint64_t points_to_win) 
                                 simulation::TickSequence::create(1)}}};
 }
 
+// Actual authored terrain for the golden race block, not a geometry mirror in match state.
+[[nodiscard]] inline simulation::TerrainDefinition
+race_terrain(const std::string& road_name = "road", const double half_width = 60.0,
+             const bool include_unselected = false, const bool selected_first = true) {
+  const std::vector<simulation::Vector2> points{
+      simulation::Vector2::create(100.0, 100.0), simulation::Vector2::create(700.0, 100.0),
+      simulation::Vector2::create(700.0, 500.0)};
+  std::vector<simulation::TerrainCorridor> corridors;
+  if (include_unselected && !selected_first) {
+    corridors.push_back(simulation::TerrainCorridor::create("unselected", 10.0, points));
+  }
+  corridors.push_back(simulation::TerrainCorridor::create(road_name, half_width, points));
+  if (include_unselected && selected_first) {
+    corridors.push_back(simulation::TerrainCorridor::create("unselected", 10.0, points));
+  }
+  return simulation::TerrainDefinition::create(simulation::ArenaBounds::create(960.0, 640.0),
+                                                simulation::TerrainGround::kCorridors,
+                                                std::move(corridors), {});
+}
+
 // Runs on the engine's idle declarations so no gameplay system can repair a malformed block
 // before an encoder rejection test observes it. The wire arm itself is mode-registry-driven.
-[[nodiscard]] inline simulation::WorldSnapshot race_mode_snapshot(simulation::RaceModeState state) {
+[[nodiscard]] inline simulation::WorldSnapshot
+race_mode_snapshot(simulation::RaceModeState state, simulation::TerrainDefinition terrain) {
   simulation::GameWorld world = simulation::GameWorld::create({});
   world.mutable_store<simulation::RaceProgress>().insert_or_assign(
       simulation::EntityId::create(kPlayerEntityId), simulation::RaceProgress{3});
   world.mutable_match().mode_state = std::move(state);
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
-      simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));
+      simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world),
+      simulation::GameSimulationSetup::engine_defaults().with_map(
+          simulation::MapDefinition::create("protocol_race", std::move(terrain), {}, {},
+                                             simulation::MapMetadata::none())));
   game_simulation.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   return game_simulation.snapshot();
 }

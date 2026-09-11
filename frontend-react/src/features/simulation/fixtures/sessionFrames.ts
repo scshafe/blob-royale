@@ -213,13 +213,14 @@ export function maximumHillSnapshotDocument() {
   return document;
 }
 
-/** A race frame at both inclusive dimension publication ceilings; the gate fits the corridor. */
+/** The canonical terrain factory's width ceiling, tighter than generic physical scalar bounds. */
+export const MAXIMUM_TERRAIN_WORLD_SCALAR = 1_000_000_000;
+
+/** A race gate at the inclusive canonical corridor-width ceiling; terrain supplies its width. */
 export function maximumRaceSnapshotDocument() {
   const document = raceSnapshotDocument();
-  document.data.match.mode_state.value.track_half_width =
-    MAXIMUM_PUBLISHED_WORLD_SCALAR;
   document.data.match.mode_state.value.checkpoint_radius =
-    MAXIMUM_PUBLISHED_WORLD_SCALAR;
+    MAXIMUM_TERRAIN_WORLD_SCALAR;
   return document;
 }
 

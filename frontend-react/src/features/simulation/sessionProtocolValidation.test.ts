@@ -1,3 +1,9 @@
+import {
+  maximumRaceTerrain,
+  namedRaceTerrain,
+  raceTerrain,
+  solidTerrain,
+} from './fixtures/terrainFrames';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationApiError } from './SimulationApiError';
@@ -11,6 +17,7 @@ import {
 import {
   firstEntity,
   MAXIMUM_PUBLISHED_WORLD_SCALAR,
+  MAXIMUM_TERRAIN_WORLD_SCALAR,
   maximumHillSnapshotDocument,
   maximumRaceSnapshotDocument,
   playerEntity,
@@ -32,6 +39,12 @@ const welcomeSequence: SessionSequenceState = Object.freeze({
   messageSequence: 1,
   requestId: sessionWelcomeMessageExample.meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
+});
+
+const raceSequence: SessionSequenceState = Object.freeze({
+  ...welcomeSequence,
+  terrain: raceTerrain,
 });
 
 function raceSnapshotDocument(state = structuredClone(raceModeStateExample)) {
@@ -104,6 +117,57 @@ describe('validateSessionWelcomeMessage', () => {
 });
 
 describe('validateSessionSnapshotMessage', () => {
+  it.each([false, true])(
+    'resolves an alternate road by exact name regardless of declaration order: selected first %s',
+    (selectedFirst) => {
+      const document = raceSnapshotDocument();
+      document.data.match.mode_state.value.road = 'alternate_road';
+      const snapshot = validateSessionSnapshotMessage(document, {
+        ...raceSequence,
+        terrain: namedRaceTerrain('alternate_road', selectedFirst),
+      });
+      expect(snapshot.data.match.mode_state.value).toMatchObject({
+        road: 'alternate_road',
+        checkpoint_radius: 20,
+      });
+      expect(snapshot.data.match.mode_state.value).not.toHaveProperty('track');
+      expect(snapshot.data.match.mode_state.value).not.toHaveProperty(
+        'track_half_width',
+      );
+    },
+  );
+
+  it.each([solidTerrain, namedRaceTerrain('alternate_road')])(
+    'refuses a road absent from the retained welcome terrain',
+    (terrain) => {
+      expect(() =>
+        validateSessionSnapshotMessage(raceSnapshotDocument(), {
+          ...raceSequence,
+          terrain,
+        }),
+      ).toThrow(/does not name a corridor/);
+    },
+  );
+
+  it('retains the exact selected corridor gate-width boundary', () => {
+    const document = raceSnapshotDocument();
+    document.data.match.mode_state.value.road = 'alternate_road';
+    document.data.match.mode_state.value.checkpoint_radius = 60;
+    const sequence = {
+      ...raceSequence,
+      terrain: namedRaceTerrain('alternate_road'),
+    };
+    expect(() =>
+      validateSessionSnapshotMessage(structuredClone(document), sequence),
+    ).not.toThrow();
+    document.data.match.mode_state.value.checkpoint_radius = 61;
+    expect(() => validateSessionSnapshotMessage(document, sequence)).toThrow(
+      /selected terrain corridor half-width/,
+    );
+    expect(sequence.messageSequence).toBe(1);
+    expect(sequence.tickSequence).toBeNull();
+  });
+
   it('accepts a hill frame at the inclusive radius and safe winning-score ceilings', () => {
     const document = maximumHillSnapshotDocument();
     const snapshot = validateSessionSnapshotMessage(document, welcomeSequence);
@@ -117,14 +181,14 @@ describe('validateSessionSnapshotMessage', () => {
     });
   });
 
-  it('accepts a race frame at both inclusive course-dimension ceilings', () => {
+  it('accepts a race gate at the inclusive canonical terrain-width ceiling', () => {
     const snapshot = validateSessionSnapshotMessage(
       maximumRaceSnapshotDocument(),
-      welcomeSequence,
+      { ...raceSequence, terrain: maximumRaceTerrain },
     );
     expect(snapshot.data.match.mode_state.value).toMatchObject({
-      track_half_width: MAXIMUM_PUBLISHED_WORLD_SCALAR,
-      checkpoint_radius: MAXIMUM_PUBLISHED_WORLD_SCALAR,
+      road: 'road',
+      checkpoint_radius: MAXIMUM_TERRAIN_WORLD_SCALAR,
     });
   });
 
@@ -134,7 +198,7 @@ describe('validateSessionSnapshotMessage', () => {
       state.standings = standings;
       const snapshot = validateSessionSnapshotMessage(
         raceSnapshotDocument(state),
-        welcomeSequence,
+        raceSequence,
       );
       expect(snapshot.data.match.mode_state.value).toEqual(state);
       expect(Object.isFrozen(snapshot.data.match.mode_state.value)).toBe(true);
@@ -143,9 +207,8 @@ describe('validateSessionSnapshotMessage', () => {
   });
 
   it.each([
-    'track_half_width',
+    'road',
     'checkpoint_radius',
-    'track',
     'checkpoints',
     'time_limit_ticks',
     'finish_window_ticks',
@@ -154,12 +217,18 @@ describe('validateSessionSnapshotMessage', () => {
     const document = raceSnapshotDocument();
     Reflect.deleteProperty(document.data.match.mode_state.value, member);
     expect(() =>
-      validateSessionSnapshotMessage(document, welcomeSequence),
+      validateSessionSnapshotMessage(document, raceSequence),
     ).toThrow(SimulationApiError);
   });
 
   it.each([
-    ['track_half_width', 0],
+    ['road', ''],
+    ['road', 'UpperCase'],
+    ['road', 'a'.repeat(65)],
+    ['road', 'contains\u0000nul'],
+    ['road', 'café'],
+    ['road', 1],
+    ['track_half_width', 60],
     ['checkpoint_radius', -1],
     ['track', [{ x: 1, y: 2 }]],
     ['checkpoints', []],
@@ -178,7 +247,7 @@ describe('validateSessionSnapshotMessage', () => {
     const document = raceSnapshotDocument();
     Reflect.set(document.data.match.mode_state.value, String(member), value);
     expect(() =>
-      validateSessionSnapshotMessage(document, welcomeSequence),
+      validateSessionSnapshotMessage(document, raceSequence),
     ).toThrow(SimulationApiError);
   });
 
@@ -196,7 +265,7 @@ describe('validateSessionSnapshotMessage', () => {
     if (standing === undefined) throw new Error('TEST.RACE_STANDING_MISSING');
     Reflect.set(standing, String(member), value);
     expect(() =>
-      validateSessionSnapshotMessage(document, welcomeSequence),
+      validateSessionSnapshotMessage(document, raceSequence),
     ).toThrow(SimulationApiError);
   });
 
@@ -288,6 +357,7 @@ describe('validateSessionSnapshotMessage', () => {
         messageSequence: 2,
         requestId: document.meta.request_id,
         tickSequence: document.data.tick_sequence,
+        terrain: solidTerrain,
       }),
     ).toThrow(/strictly increase/);
   });
@@ -300,6 +370,7 @@ describe('validateSessionSnapshotMessage', () => {
         messageSequence: 2,
         requestId: document.meta.request_id,
         tickSequence: document.data.tick_sequence - 1,
+        terrain: solidTerrain,
       }),
     ).toThrow(/increment exactly once/);
   });
@@ -312,6 +383,7 @@ describe('validateSessionSnapshotMessage', () => {
         messageSequence: 1,
         requestId: 'different-request-id',
         tickSequence: null,
+        terrain: solidTerrain,
       }),
     ).toThrow(/request_id changed/);
   });

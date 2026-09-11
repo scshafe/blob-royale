@@ -62,7 +62,7 @@ inline constexpr std::uint64_t kFirstSnapshotMessageSequence = 2;
 // (`docs/protocol/v3.md` § "Limits").
 inline constexpr std::size_t kSnapshotEntityLimit = 1'024;
 inline constexpr std::size_t kMatchPlacementLimit = 1'024;
-// Each published race polyline/gate array is bounded by the map's marker ceiling. The combined
+// The published race gate array is bounded by the map's marker ceiling. The combined
 // authored marker count is validated by MapDefinition; a schema bounds each array independently.
 inline constexpr std::size_t kRaceCoursePointLimit = 4'096;
 inline constexpr std::size_t kSnapshotFrameV3MaximumByteCount = 2'097'152;

@@ -3,6 +3,7 @@
 
 #include "game_world.hpp"
 #include "mode_states/race_mode_state.hpp"
+#include "race/race_course.hpp"
 
 #include <span>
 #include <variant>
@@ -25,12 +26,16 @@ race_standings_of(const simulation::GameWorld& world) noexcept {
   return {};
 }
 
-[[nodiscard]] inline simulation::RaceModeState& race_mode_state_in(simulation::GameWorld& world) {
+// The course has already validated exact terrain membership. Initializing here preserves the
+// recorder-before-publisher lifecycle order without an empty or inferred road-name sentinel.
+[[nodiscard]] inline simulation::RaceModeState& race_mode_state_in(simulation::GameWorld& world,
+                                                                  const RaceCourse& course) {
   simulation::ModeMatchState& mode_state = world.mutable_match().mode_state;
   if (auto* held = std::get_if<simulation::RaceModeState>(&mode_state); held != nullptr) {
     return *held;
   }
-  return mode_state.emplace<simulation::RaceModeState>();
+  return mode_state.emplace<simulation::RaceModeState>(
+      simulation::RaceModeState{.road = simulation::RaceRoadName::create(course.road_name())});
 }
 
 } // namespace blob_royale::gameplay

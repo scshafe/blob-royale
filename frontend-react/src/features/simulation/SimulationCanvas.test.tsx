@@ -44,6 +44,7 @@ const goldenSnapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
 }).data;
 
 function SimulationCanvas(
@@ -243,6 +244,7 @@ describe('SimulationCanvas', () => {
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      terrain: raceTerrain,
     }).data;
     const view = render(
       <SimulationCanvas

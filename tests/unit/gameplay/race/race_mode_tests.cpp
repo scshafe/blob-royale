@@ -6,6 +6,7 @@
 #include "components/respawn_timer_component.hpp"
 #include "game_mode_registry.hpp"
 #include "gameplay_validation_error.hpp"
+#include "mode_states/no_mode_state.hpp"
 #include "mode_states/race_mode_state.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -150,11 +151,15 @@ TEST_CASE("a race publishes its course on the first lobby tick and finishes one 
                                                         simulation::Vector2::create(120.0, 320.0)});
   testing::SteppedGame lobby{
       testing::gameplay_simulation(gameplay::RaceMode::create(configuration), map)};
+  const auto initial_lobby = lobby.game().snapshot();
+  CHECK(initial_lobby.tick_sequence() == simulation::TickSequence::zero());
+  CHECK(std::holds_alternative<simulation::NoModeState>(initial_lobby.match().mode_state()));
   const simulation::WorldSnapshot first = lobby.step();
   CHECK(first.match().phase() == simulation::MatchPhase::kLobby);
   CHECK(block_of(first).checkpoints.size() == 2);
   CHECK(block_of(first).time_limit_ticks == configuration.time_limit_ticks());
   CHECK(block_of(first).finish_window_ticks == configuration.finish_window_ticks());
+  CHECK(block_of(first).road.value() == configuration.road());
 
   testing::SteppedGame race{testing::gameplay_simulation(gameplay::RaceMode::create(configuration),
                                                          map, 0, testing::started_lobby(1))};
@@ -190,7 +195,16 @@ TEST_CASE("a same-tick race finish is recorded before an off-road elimination re
       testing::gameplay_configuration(), std::move(world),
       simulation::GameSimulationSetup::of_mode(
           map, gameplay::RaceMode::create(testing::race_test_configuration())))};
+  const auto initial = driver.game().snapshot();
+  CHECK(initial.tick_sequence() == simulation::TickSequence::zero());
+  CHECK(initial.match().phase() == simulation::MatchPhase::kRunning);
+  CHECK(std::holds_alternative<simulation::NoModeState>(initial.match().mode_state()));
   const simulation::WorldSnapshot snapshot = driver.step();
+  CHECK(snapshot.tick_sequence() == simulation::TickSequence::create(1));
+  CHECK(block_of(snapshot).road.value() == "road");
+  CHECK(snapshot.terrain().find_corridor(block_of(snapshot).road.value()) != nullptr);
+  CHECK(block_of(snapshot).checkpoints ==
+        std::vector<simulation::Vector2>{simulation::Vector2::create(300.0, 390.0)});
   REQUIRE(block_of(snapshot).standings.size() == 1);
   CHECK(block_of(snapshot).standings.front().entity == simulation::EntityId::create(1));
   CHECK(block_of(snapshot).standings.front().finished_tick == simulation::TickSequence::create(1));

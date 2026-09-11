@@ -55,6 +55,7 @@ describe('SimulationDebugPanel', () => {
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      terrain: solidTerrain,
     });
 
     render(

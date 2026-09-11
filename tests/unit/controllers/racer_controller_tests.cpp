@@ -61,7 +61,7 @@ TEST_CASE("RacerController requests a body only when its entity is absent",
   simulation::GameWorld world =
       testing::racer_observation_world(simulation::Vector2::create(200.0, 320.0));
   world.destroy_entity(simulation::EntityId::create(1));
-  const controllers::Observation observation = testing::racer_observation(std::move(world));
+  const controllers::Observation observation = testing::straight_racer_observation(std::move(world));
   const std::unique_ptr<controllers::Controller> bot = racer();
 
   const std::vector<simulation::Command> commands = bot->decide(observation);
@@ -84,7 +84,7 @@ TEST_CASE("RacerController waits through respawn without requesting a duplicate 
   SECTION("the timer expired but the checkpoint is still occupied") {}
   const std::unique_ptr<controllers::Controller> bot = racer();
 
-  CHECK(bot->decide(testing::racer_observation(std::move(world))).empty());
+  CHECK(bot->decide(testing::straight_racer_observation(std::move(world))).empty());
   CHECK(bot->entity() == simulation::EntityId::create(1));
   CHECK_FALSE(bot->last_spawn_request_tick().has_value());
 }
@@ -96,7 +96,7 @@ TEST_CASE("RacerController waits in the lobby before RaceProgress exists",
   world.mutable_match().phase = simulation::MatchPhase::kLobby;
   world.mutable_store<simulation::RaceProgress>().erase(simulation::EntityId::create(1));
 
-  CHECK(racer()->decide(testing::racer_observation(std::move(world))).empty());
+  CHECK(racer()->decide(testing::straight_racer_observation(std::move(world))).empty());
 }
 
 TEST_CASE("RacerController decides nothing when the snapshot publishes another mode",
@@ -105,12 +105,12 @@ TEST_CASE("RacerController decides nothing when the snapshot publishes another m
       testing::racer_observation_world(simulation::Vector2::create(200.0, 320.0));
   world.mutable_match().mode_state = simulation::NoModeState{};
 
-  CHECK(racer()->decide(testing::racer_observation(std::move(world))).empty());
+  CHECK(racer()->decide(testing::straight_racer_observation(std::move(world))).empty());
 }
 
 TEST_CASE("RacerController drives toward its next gate while centred",
           "[unit][controllers][racer]") {
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(200.0, 320.0)));
 
   check_direction(sole_thrust(racer()->decide(observation)), 1.0, 0.0);
@@ -119,7 +119,7 @@ TEST_CASE("RacerController drives toward its next gate while centred",
 TEST_CASE("RacerController follows progress instead of returning to a nearer earlier gate",
           "[unit][controllers][racer]") {
   // Gate zero is 100 wu behind, gate one is 200 wu ahead: nearest-gate selection points left.
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(400.0, 320.0), 1));
 
   check_direction(sole_thrust(racer()->decide(observation)), 1.0, 0.0);
@@ -134,7 +134,7 @@ TEST_CASE("RacerController reads its own body and progress after another racer i
                                                                    simulation::RaceProgress{2});
   world.mutable_store<simulation::RaceProgress>().insert_or_assign(simulation::EntityId::create(2),
                                                                    simulation::RaceProgress{0});
-  const controllers::Observation observation = testing::racer_observation(std::move(world), 2);
+  const controllers::Observation observation = testing::straight_racer_observation(std::move(world), 2);
   const std::unique_ptr<controllers::Controller> bot =
       controllers::RacerController::create(simulation::ControllerId::create(2), 0);
 
@@ -146,7 +146,7 @@ TEST_CASE("RacerController reads its own body and progress after another racer i
 TEST_CASE("RacerController seeks the gate at the inclusive caution boundary",
           "[unit][controllers][racer]") {
   // Half-width 80 * default caution 0.75 = 60. The gate offset is (100,-60).
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(200.0, 380.0)));
 
   check_direction(sole_thrust(racer()->decide(observation)), 5.0 / std::sqrt(34.0),
@@ -155,7 +155,7 @@ TEST_CASE("RacerController seeks the gate at the inclusive caution boundary",
 
 TEST_CASE("RacerController turns toward the centreline strictly past its caution fraction",
           "[unit][controllers][racer]") {
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(200.0, 381.0)));
 
   check_direction(sole_thrust(racer()->decide(observation)), 0.0, -1.0);
@@ -163,7 +163,7 @@ TEST_CASE("RacerController turns toward the centreline strictly past its caution
 
 TEST_CASE("RacerController personality changes the recovery threshold",
           "[unit][controllers][racer]") {
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(200.0, 361.0)));
   const std::unique_ptr<controllers::Controller> bot =
       racer(0, controllers::RacerController::Personality{.caution_fraction = 0.5});
@@ -174,7 +174,8 @@ TEST_CASE("RacerController personality changes the recovery threshold",
 TEST_CASE("RacerController recovers to the nearest leg of a bend", "[unit][controllers][racer]") {
   const controllers::Observation observation =
       testing::racer_observation(testing::racer_observation_world(
-          simulation::Vector2::create(550.0, 440.0), 1, testing::bent_racer_course()));
+          simulation::Vector2::create(550.0, 440.0), 1, testing::bent_racer_course()),
+          testing::bent_racer_terrain());
   const std::unique_ptr<controllers::Controller> bot =
       racer(0, controllers::RacerController::Personality{.caution_fraction = 0.5});
 
@@ -185,7 +186,8 @@ TEST_CASE("RacerController chooses the first declared segment at an equal-distan
           "[unit][controllers][racer]") {
   const controllers::Observation observation =
       testing::racer_observation(testing::racer_observation_world(
-          simulation::Vector2::create(450.0, 370.0), 1, testing::bent_racer_course()));
+          simulation::Vector2::create(450.0, 370.0), 1, testing::bent_racer_course()),
+          testing::bent_racer_terrain());
   const std::unique_ptr<controllers::Controller> bot =
       racer(0, controllers::RacerController::Personality{.caution_fraction = 0.5});
 
@@ -195,22 +197,56 @@ TEST_CASE("RacerController chooses the first declared segment at an equal-distan
 TEST_CASE("RacerController clamps recovery targets at both centreline endpoints",
           "[unit][controllers][racer]") {
   SECTION("before the first node") {
-    const controllers::Observation observation = testing::racer_observation(
+    const controllers::Observation observation = testing::straight_racer_observation(
         testing::racer_observation_world(simulation::Vector2::create(60.0, 370.0)));
     check_direction(sole_thrust(racer()->decide(observation)), 4.0 / std::sqrt(41.0),
                     -5.0 / std::sqrt(41.0));
   }
   SECTION("past the final node") {
-    const controllers::Observation observation = testing::racer_observation(
+    const controllers::Observation observation = testing::straight_racer_observation(
         testing::racer_observation_world(simulation::Vector2::create(840.0, 370.0), 1));
     check_direction(sole_thrust(racer()->decide(observation)), -4.0 / std::sqrt(41.0),
                     -5.0 / std::sqrt(41.0));
   }
 }
 
+TEST_CASE("RacerController resolves the selected named corridor independently of declaration order",
+          "[unit][controllers][racer][terrain]") {
+  for (const bool selected_first : {false, true}) {
+    DYNAMIC_SECTION("selected_first=" << selected_first) {
+      const auto observation = testing::racer_observation(
+          testing::racer_observation_world(simulation::Vector2::create(200.0, 370.0), 0,
+                                           testing::alternate_racer_course()),
+          testing::alternate_racer_terrain(selected_first));
+      check_direction(sole_thrust(racer()->decide(observation)), 2.0 / std::sqrt(5.0),
+                        -1.0 / std::sqrt(5.0));
+    }
+  }
+}
+
+TEST_CASE("RacerController rejects missing road bindings without selecting another corridor",
+          "[unit][controllers][racer][terrain]") {
+  const auto world = testing::racer_observation_world(simulation::Vector2::create(200.0, 370.0),
+                                                      0, testing::alternate_racer_course());
+  auto terrain = testing::straight_racer_terrain();
+  SECTION("a different road exists") {}
+  SECTION("solid ground has no corridors") {
+    terrain = simulation::TerrainDefinition::solid(terrain.bounds());
+  }
+  const auto observation = testing::racer_observation(world, std::move(terrain));
+  try {
+    static_cast<void>(racer()->decide(observation));
+    FAIL("a missing explicit binding must not produce a plausible steering command");
+  } catch (const controllers::ControllersValidationError& error) {
+    CHECK(error.validation_code() == controllers::ControllersValidationCode::kRacerCourseInvalid);
+    CHECK(error.code() == "CONTROLLERS.RACER_COURSE_INVALID");
+    CHECK(error.context() == "racer_controller.observation.road");
+  }
+}
+
 TEST_CASE("RacerController writes zero thrust at the next gate centre",
           "[unit][controllers][racer]") {
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(300.0, 320.0)));
 
   check_direction(sole_thrust(racer()->decide(observation)), 0.0, 0.0);
@@ -218,7 +254,7 @@ TEST_CASE("RacerController writes zero thrust at the next gate centre",
 
 TEST_CASE("RacerController writes zero thrust after finishing even near the road edge",
           "[unit][controllers][racer]") {
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(600.0, 381.0), 2));
 
   check_direction(sole_thrust(racer()->decide(observation)), 0.0, 0.0);
@@ -226,7 +262,7 @@ TEST_CASE("RacerController writes zero thrust after finishing even near the road
 
 TEST_CASE("RacerController retains its seed and repeats deterministic recovery without jitter",
           "[unit][controllers][racer]") {
-  const controllers::Observation observation = testing::racer_observation(
+  const controllers::Observation observation = testing::straight_racer_observation(
       testing::racer_observation_world(simulation::Vector2::create(200.0, 381.0)));
   const std::unique_ptr<controllers::Controller> first = racer(7);
   const std::unique_ptr<controllers::Controller> same_seed = racer(7);

@@ -36,7 +36,25 @@ struct TerrainPointWitness final {
   friend bool operator==(const TerrainPointWitness&, const TerrainPointWitness&) = default;
 };
 
-// canonical: corridor_distance_to_centreline -- exact promotion of RaceCourse's written arithmetic.
+// Nearest point on the authored centreline, not on the Boolean terrain boundary. Equal computed
+// distances retain the first declared segment. This result owns its point, never a corridor view.
+struct CorridorCentrelineProjection final {
+  Vector2 point;
+  double distance;
+  friend bool operator==(const CorridorCentrelineProjection&,
+                         const CorridorCentrelineProjection&) = default;
+};
+
+// canonical: corridor_centreline_projection -- the racer's written projection/clamp/sqrt order.
+// TerrainCorridor guarantees nonzero finite segment squared lengths. No support tolerance,
+// envelope clipping, hole subtraction, or boundary-witness correction participates. On standalone
+// signed/extreme corridors, the raw projected coordinate may round beyond Vector2's scalar bound;
+// materializing this point then throws the existing Vector2 validation error. The distance-only
+// query has no such point-materialization failure and retains its noexcept contract.
+[[nodiscard]] CorridorCentrelineProjection
+corridor_project_to_centreline(const TerrainCorridor& corridor, const Vector2& point);
+
+// Distance-only view of the same canonical projection, without materializing its point.
 // The validated corridor has at least two distinct consecutive points; returns finite distance.
 [[nodiscard]] double corridor_distance_to_centreline(const TerrainCorridor& corridor,
                                                      const Vector2& point) noexcept;

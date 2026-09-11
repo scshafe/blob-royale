@@ -18,7 +18,7 @@ export interface RaceCourseRenderInput {
 /**
  * @canonical race_course_rendering -- draws the validated race objectives below every entity.
  *
- * Welcome terrain owns all ground geometry; the retained track/width wire mirror is not rendered.
+ * Welcome terrain owns all ground geometry; the race block carries only its selected road name.
  * Gate centers and radii share the canonical world projection with bodies and terrain. Gate labels
  * and rims stay readable in logical pixels. The finish remains distinguishable without color.
  */

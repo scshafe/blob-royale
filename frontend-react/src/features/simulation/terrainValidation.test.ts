@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import goldens from '../../../../tests/fixtures/terrain/geometry-goldens.json';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
-import { validatedTerrain } from './fixtures/terrainFrames';
+import { solidTerrain, validatedTerrain } from './fixtures/terrainFrames';
 import { snapshotDocument, welcomeDocument } from './fixtures/sessionFrames';
 import {
   validateSessionSnapshotMessage,
@@ -354,6 +354,7 @@ describe('welcome terrain admission', () => {
         messageSequence: 1,
         requestId: snapshot.meta.request_id,
         tickSequence: null,
+        terrain: solidTerrain,
       }),
     ).toThrow();
   });

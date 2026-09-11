@@ -213,6 +213,8 @@ TEST_CASE("race course retains its terrain after a temporary map and copies are 
   }();
   CHECK(copied_then_moved == course);
   CHECK(copied_then_moved.track().data() == course.track().data());
+  CHECK(copied_then_moved.road_name().data() == course.road_name().data());
+  CHECK(copied_then_moved.road_name() == "road");
   CHECK(std::vector<simulation::Vector2>(course.track().begin(), course.track().end()) ==
         kBentTrack);
   CHECK(copied_then_moved.distance_to_centreline(point(280.0, 150.0)) == 20.0);
@@ -237,6 +239,8 @@ TEST_CASE("race course selects its configured corridor among multiple authored r
   const auto course =
       gameplay::RaceCourse::create(map, gameplay::RaceConfiguration::create(section));
   REQUIRE(map.terrain().find_corridor("race_route") != nullptr);
+  CHECK(course.road_name() == "race_route");
+  CHECK(course.road_name().data() == map.terrain().find_corridor("race_route")->name().data());
   CHECK(course.track().data() == map.terrain().find_corridor("race_route")->points().data());
   CHECK(course.track_half_width() == 60.0);
   CHECK(course.distance_to_centreline(kCheckpoints[0]) == 0.0);

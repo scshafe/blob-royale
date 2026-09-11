@@ -601,6 +601,7 @@ export class SimulationApi implements SimulationApiBoundary {
       this.detachSocket(socket);
       this.socket = null;
       this.acceptedCommandKinds = null;
+      this.sequenceState = null;
       callbacks.onDisconnected(
         Object.freeze({
           code: event.code,
@@ -747,6 +748,7 @@ export class SimulationApi implements SimulationApiBoundary {
         messageSequence: welcome.meta.message_sequence,
         requestId: welcome.meta.request_id,
         tickSequence: null,
+        terrain: welcome.data.terrain,
       });
       this.acceptedCommandKinds = new Set(welcome.data.accepted_command_kinds);
       callbacks.onWelcome(welcome);
@@ -761,6 +763,7 @@ export class SimulationApi implements SimulationApiBoundary {
       messageSequence: snapshot.meta.message_sequence,
       requestId: snapshot.meta.request_id,
       tickSequence: snapshot.data.tick_sequence,
+      terrain: this.sequenceState.terrain,
     });
     callbacks.onSnapshot(snapshot);
   }
@@ -1032,6 +1035,7 @@ export class SimulationApi implements SimulationApiBoundary {
     this.detachSocket(socket);
     this.socket = null;
     this.acceptedCommandKinds = null;
+    this.sequenceState = null;
     if (
       socket.readyState === WEBSOCKET_CONNECTING ||
       socket.readyState === WEBSOCKET_OPEN

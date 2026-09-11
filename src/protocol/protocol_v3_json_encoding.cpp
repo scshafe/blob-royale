@@ -355,10 +355,11 @@ void validate_publishable_tick(const simulation::TickSequence tick,
   return encoded;
 }
 
-[[nodiscard]] json::object encode_mode_state(const simulation::MatchSnapshot& match) {
+[[nodiscard]] json::object encode_mode_state(const simulation::MatchSnapshot& match,
+                                             const simulation::TerrainDefinition& terrain) {
   json::object value;
   JsonComponentObjectSink sink{value};
-  encode_mode_state_value(match.mode_state(), sink);
+  encode_mode_state_value(match.mode_state(), terrain, sink);
 
   json::object encoded;
   encoded.reserve(2);
@@ -441,7 +442,8 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
   return encoded;
 }
 
-[[nodiscard]] json::object encode_match(const simulation::MatchSnapshot& match) {
+[[nodiscard]] json::object encode_match(const simulation::MatchSnapshot& match,
+                                        const simulation::TerrainDefinition& terrain) {
   if (!is_accepted_kind_name(match.mode_name())) {
     throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMatchModeNameInvalid,
                                 "snapshot_message.data.match.mode",
@@ -464,7 +466,7 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
   encoded.emplace("start_requested", match.seats().start_requested());
   encoded.emplace("outcome", encode_outcome(match.outcome()));
   encoded.emplace("placements", encode_placements(match));
-  encoded.emplace("mode_state", encode_mode_state(match));
+  encoded.emplace("mode_state", encode_mode_state(match, terrain));
   return encoded;
 }
 
@@ -592,7 +594,7 @@ std::string encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot
   data.reserve(3);
   data.emplace("tick_sequence", snapshot.tick_sequence().value());
   data.emplace("entities", std::move(encoded_entities));
-  data.emplace("match", encode_match(snapshot.match()));
+  data.emplace("match", encode_match(snapshot.match(), snapshot.terrain()));
 
   json::object envelope = encode_envelope_with_data(
       json::value(std::move(data)), encode_message_metadata(kSnapshotMessageV3SchemaId, request_id,

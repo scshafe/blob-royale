@@ -1,3 +1,4 @@
+import { solidTerrain } from './fixtures/terrainFrames';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -14,6 +15,7 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
 }).data;
 
 const PERSON: SessionSeat = Object.freeze({

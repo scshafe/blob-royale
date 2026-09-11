@@ -1,6 +1,7 @@
 add_subdirectory(observability)
 
 add_executable(blob_simulation_unit_tests
+  simulation/bounded_name_promotion_tests.cpp
   simulation/command_kind_mask_tests.cpp
   simulation/command_registry_tests.cpp
   simulation/component_join_tests.cpp
@@ -17,6 +18,7 @@ add_executable(blob_simulation_unit_tests
   simulation/lobby_command_tests.cpp
   simulation/map_definition_tests.cpp
   simulation/match_lifecycle_tests.cpp
+  simulation/mode_states/race_mode_state_tests.cpp
   simulation/motion_event_order_tests.cpp
   simulation/physics_tests.cpp
   simulation/seat_roster_tests.cpp
@@ -27,6 +29,7 @@ add_executable(blob_simulation_unit_tests
   simulation/spawn_system_tests.cpp
   simulation/swept_geometry_tests.cpp
   simulation/terrain_definition_tests.cpp
+  simulation/terrain_projection_promotion_tests.cpp
   simulation/terrain_queries_tests.cpp
   simulation/system_pipeline_tests.cpp
   simulation/tick_context_tests.cpp

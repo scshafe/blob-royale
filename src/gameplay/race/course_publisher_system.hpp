@@ -14,9 +14,9 @@ namespace blob_royale::gameplay {
 // @extension-point simulation_system
 //
 // Last among the mode's kLifecycle systems, in every phase. Owns the declared block members and
-// preserves standings. Every committed race tick therefore publishes complete course geometry,
-// even after match_reset removes all participants. Rules read their constructor values, not this
-// published mirror.
+// preserves standings. Every committed race tick therefore publishes the exact road identity,
+// gates, and clocks, even after match_reset removes all participants. Terrain alone owns road
+// geometry; rules read their constructor values rather than this declared state.
 // related: race_mode_state.hpp -- installs the block without replacing another writer's members.
 class CoursePublisherSystem final : public simulation::SimulationSystem {
 public:

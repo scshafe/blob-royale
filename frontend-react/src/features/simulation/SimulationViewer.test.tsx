@@ -16,7 +16,7 @@ import type {
 } from './useSimulationConnection';
 import type { SessionEntitySnapshot } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
-import { solidTerrain } from './fixtures/terrainFrames';
+import { raceTerrain, solidTerrain } from './fixtures/terrainFrames';
 import {
   hillSnapshotDocument,
   raceScenarioDocument,
@@ -35,12 +35,14 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
 });
 
 const hillSnapshot = validateSessionSnapshotMessage(hillSnapshotDocument(), {
   messageSequence: 1,
   requestId: hillSnapshotDocument().meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
 });
 
 const session: SimulationSessionIdentity = Object.freeze({
@@ -85,6 +87,7 @@ function createRaceConnection(
     messageSequence: 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    terrain: raceTerrain,
   });
   return createConnection({
     entities: frame.data.entities,
@@ -94,7 +97,7 @@ function createRaceConnection(
         (entity) =>
           entity.components.controllable?.controller_id === controllerId,
       )?.entity_id ?? null,
-    session: { ...session, controllerId, mode: 'race' },
+    session: { ...session, controllerId, mode: 'race', terrain: raceTerrain },
     snapshot: frame,
   });
 }

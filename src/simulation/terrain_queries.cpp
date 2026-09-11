@@ -4,6 +4,7 @@
 #include "simulation_validation_error.hpp"
 #include "swept_geometry.hpp"
 #include "terrain_boundary.hpp"
+#include "terrain_projection_detail.hpp"
 
 #include <algorithm>
 #include <array>
@@ -16,6 +17,42 @@
 #include <vector>
 
 namespace blob_royale::simulation {
+namespace detail {
+
+// Keep raw coordinates until the point-valued API requests Vector2 materialization. The existing
+// distance-only reader does not validate projected coordinates and shares this proven loop
+// without acquiring a new exception/termination path on standalone corridors.
+[[nodiscard]] RawCorridorProjection project_corridor_raw(const TerrainCorridor& corridor,
+                                                         const Vector2& point) noexcept {
+  const auto track = corridor.points();
+  RawCorridorProjection nearest{track.front().x(), track.front().y(),
+                                std::numeric_limits<double>::infinity()};
+  for (std::size_t index = 1; index < track.size(); ++index) {
+    const simulation::Vector2& a = track[index - 1];
+    const simulation::Vector2& b = track[index];
+    const double dx = b.x() - a.x();
+    const double dy = b.y() - a.y();
+    const double wx = point.x() - a.x();
+    const double wy = point.y() - a.y();
+    double t = (wx * dx + wy * dy) / (dx * dx + dy * dy);
+    if (t < 0.0) {
+      t = 0.0;
+    } else if (t > 1.0) {
+      t = 1.0;
+    }
+    const double cx = a.x() + (dx * t);
+    const double cy = a.y() + (dy * t);
+    const double ex = point.x() - cx;
+    const double ey = point.y() - cy;
+    const double distance = std::sqrt(ex * ex + ey * ey);
+    if (distance < nearest.distance) {
+      nearest = {cx, cy, distance};
+    }
+  }
+  return nearest;
+}
+
+} // namespace detail
 namespace {
 
 [[noreturn]] void precision_lost(const char* message) {
@@ -955,33 +992,15 @@ struct BoundaryCandidate final {
 
 } // namespace
 
+CorridorCentrelineProjection corridor_project_to_centreline(const TerrainCorridor& corridor,
+                                                            const Vector2& point) {
+  const auto raw = detail::project_corridor_raw(corridor, point);
+  return {Vector2::create(raw.x, raw.y), raw.distance};
+}
+
 double corridor_distance_to_centreline(const TerrainCorridor& corridor,
                                        const Vector2& point) noexcept {
-  const auto track_ = corridor.points();
-  double nearest_distance = std::numeric_limits<double>::infinity();
-  for (std::size_t index = 1; index < track_.size(); ++index) {
-    const simulation::Vector2& a = track_[index - 1];
-    const simulation::Vector2& b = track_[index];
-    const double dx = b.x() - a.x();
-    const double dy = b.y() - a.y();
-    const double wx = point.x() - a.x();
-    const double wy = point.y() - a.y();
-    double t = (wx * dx + wy * dy) / (dx * dx + dy * dy);
-    if (t < 0.0) {
-      t = 0.0;
-    } else if (t > 1.0) {
-      t = 1.0;
-    }
-    const double cx = a.x() + (dx * t);
-    const double cy = a.y() + (dy * t);
-    const double ex = point.x() - cx;
-    const double ey = point.y() - cy;
-    const double distance = std::sqrt(ex * ex + ey * ey);
-    if (distance < nearest_distance) {
-      nearest_distance = distance;
-    }
-  }
-  return nearest_distance;
+  return detail::project_corridor_raw(corridor, point).distance;
 }
 
 bool terrain_supports_point(const TerrainDefinition& terrain, const Vector2& point) {

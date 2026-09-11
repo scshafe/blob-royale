@@ -16,6 +16,7 @@
 #include "mode_states/race_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "tick_sequence.hpp"
+#include "terrain_definition.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -77,7 +78,8 @@ template <typename ModeStateType> struct ModeStateWireEncoding;
 template <> struct ModeStateWireEncoding<simulation::NoModeState> {
   static constexpr std::string_view kSchemaId = kNoModeStateSchemaId;
 
-  static void encode_value(const simulation::NoModeState&, ComponentObjectSink&) {}
+  static void encode_value(const simulation::NoModeState&, const simulation::TerrainDefinition&,
+                           ComponentObjectSink&) {}
 
   static void append_placements(const simulation::NoModeState&, std::vector<ModeStatePlacement>&) {}
 };
@@ -99,6 +101,7 @@ template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> 
   // Member order is the order `docs/protocol/v3.md` § "Object member order" declares for this
   // block, which is the order they are written here.
   static void encode_value(const simulation::RoyalePlacementsModeState& mode_state,
+                           const simulation::TerrainDefinition&,
                            ComponentObjectSink& sink) {
     sink.set_string("previous_phase", simulation::match_phase_name(mode_state.previous_phase));
     sink.set_unsigned("elimination_grace_ticks", mode_state.elimination_grace_ticks);
@@ -125,6 +128,7 @@ template <> struct ModeStateWireEncoding<simulation::KingOfTheHillModeState> {
 
   // Member order is the order `docs/protocol/v3.md` § "Object member order" declares.
   static void encode_value(const simulation::KingOfTheHillModeState& mode_state,
+                           const simulation::TerrainDefinition&,
                            ComponentObjectSink& sink) {
     sink.set_unsigned("points_to_win", mode_state.points_to_win);
     sink.set_unsigned("point_interval_ticks", mode_state.point_interval_ticks);
@@ -135,22 +139,22 @@ template <> struct ModeStateWireEncoding<simulation::KingOfTheHillModeState> {
                                 std::vector<ModeStatePlacement>&) {}
 };
 
-// Race carries its declared course and durations plus finishes. Its generic placements stay
-// empty because a finish is not an elimination; the controller is recorded in each standing.
-// Added under the open 2.5 minor, in ADR 0007's declared member order.
+// Race carries its bound road identity, gates, durations, and finishes. Geometry belongs to the
+// snapshot's terrain; resolving here prevents publishing a state for another map. Its generic
+// placements stay empty because a finish is not an elimination.
 template <> struct ModeStateWireEncoding<simulation::RaceModeState> {
   static constexpr std::string_view kSchemaId = kRaceModeStateSchemaId;
 
-  static void encode_value(const simulation::RaceModeState& mode_state, ComponentObjectSink& sink) {
+  static void encode_value(const simulation::RaceModeState& mode_state,
+                           const simulation::TerrainDefinition& terrain,
+                           ComponentObjectSink& sink) {
     static_assert(kRaceCoursePointLimit == simulation::kMaximumMapMarkerCount);
-    require_positive_world_scalar(mode_state.track_half_width,
-                                  "snapshot_message.data.match.mode_state.value.track_half_width");
+    const simulation::TerrainCorridor* road = terrain.find_corridor(mode_state.road.value());
+    require_value(road != nullptr, "road", "race road must name a corridor in snapshot terrain");
     require_positive_world_scalar(mode_state.checkpoint_radius,
                                   "snapshot_message.data.match.mode_state.value.checkpoint_radius");
-    require_value(mode_state.checkpoint_radius <= mode_state.track_half_width, "checkpoint_radius",
-                  "checkpoint radius must be no greater than track half-width");
-    require_value(mode_state.track.size() >= 2 && mode_state.track.size() <= kRaceCoursePointLimit,
-                  "track", "track must contain 2 to 4096 points");
+    require_value(mode_state.checkpoint_radius <= road->half_width(), "checkpoint_radius",
+                  "checkpoint radius must be no greater than the selected corridor half-width");
     require_value(!mode_state.checkpoints.empty() &&
                       mode_state.checkpoints.size() <= kRaceCoursePointLimit,
                   "checkpoints", "checkpoints must contain 1 to 4096 points");
@@ -163,7 +167,7 @@ template <> struct ModeStateWireEncoding<simulation::RaceModeState> {
                                   "snapshot_message.data.match.mode_state.value.standings",
                                   "standing count exceeds the accepted protocol v3 ranking limit"};
     }
-    sink.set_number("track_half_width", mode_state.track_half_width);
+    sink.set_string("road", mode_state.road.value());
     sink.set_number("checkpoint_radius", mode_state.checkpoint_radius);
     const auto encode_points = [&sink](const std::string_view name,
                                        const std::vector<simulation::Vector2>& points) {
@@ -173,7 +177,6 @@ template <> struct ModeStateWireEncoding<simulation::RaceModeState> {
                               entry.set_number("y", points[index].y());
                             });
     };
-    encode_points("track", mode_state.track);
     encode_points("checkpoints", mode_state.checkpoints);
     sink.set_unsigned("time_limit_ticks", mode_state.time_limit_ticks);
     sink.set_unsigned("finish_window_ticks", mode_state.finish_window_ticks);
@@ -224,12 +227,13 @@ mode_state_wire_schema_id_of(const simulation::ModeMatchState& mode_state) noexc
       mode_state);
 }
 
-// The held block's `value` members, in declared order.
+// The held block's `value` members, in declared order, checked against its actual map terrain.
 inline void encode_mode_state_value(const simulation::ModeMatchState& mode_state,
+                                    const simulation::TerrainDefinition& terrain,
                                     ComponentObjectSink& sink) {
   std::visit(
-      [&sink]<typename ModeStateType>(const ModeStateType& held) {
-        ModeStateWireEncoding<ModeStateType>::encode_value(held, sink);
+      [&terrain, &sink]<typename ModeStateType>(const ModeStateType& held) {
+        ModeStateWireEncoding<ModeStateType>::encode_value(held, terrain, sink);
       },
       mode_state);
 }

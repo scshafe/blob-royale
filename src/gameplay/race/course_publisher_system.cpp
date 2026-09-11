@@ -20,10 +20,9 @@ CoursePublisherSystem::CoursePublisherSystem(RaceCourse course,
 
 void CoursePublisherSystem::apply(simulation::GameWorld& world,
                                   const simulation::TickContext&) const {
-  simulation::RaceModeState& block = race_mode_state_in(world);
-  block.track_half_width = course_.track_half_width();
+  simulation::RaceModeState& block = race_mode_state_in(world, course_);
+  block.road = simulation::RaceRoadName::create(course_.road_name());
   block.checkpoint_radius = course_.checkpoint_radius();
-  block.track.assign(course_.track().begin(), course_.track().end());
   block.checkpoints.assign(course_.checkpoints().begin(), course_.checkpoints().end());
   block.time_limit_ticks = configuration_.time_limit_ticks();
   block.finish_window_ticks = configuration_.finish_window_ticks();

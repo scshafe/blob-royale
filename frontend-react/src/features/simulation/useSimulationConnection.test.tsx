@@ -1,3 +1,4 @@
+import { solidTerrain } from './fixtures/terrainFrames';
 import { StrictMode, type PropsWithChildren } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -124,6 +125,7 @@ function createValidatedSnapshot(messageSequence = 2) {
     messageSequence: messageSequence - 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    terrain: solidTerrain,
   });
 }
 

@@ -1245,37 +1245,28 @@ export const protocolV3Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/race-mode-state.schema.json',
     title: 'Blob Royale protocol v3 race mode state',
     description:
-      "The race's declared course and durations, followed by its observed finish standings. Each racer's next gate and return countdown are entity components. The generic match.placements array is empty for race because its eliminated_tick does not describe a finish.",
+      "The selected terrain corridor's identity, race gates and durations, followed by observed finish standings. Road geometry belongs only to welcome terrain. Each racer's next gate and return countdown are entity components. The generic match.placements array is empty for race because its eliminated_tick does not describe a finish.",
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
     required: [
-      'track_half_width',
+      'road',
       'checkpoint_radius',
-      'track',
       'checkpoints',
       'time_limit_ticks',
       'finish_window_ticks',
       'standings',
     ],
     properties: {
-      track_half_width: {
-        $ref: 'common.schema.json#/$defs/positive_world_scalar',
+      road: {
+        $ref: 'common.schema.json#/$defs/kind_name',
+        $comment:
+          "Exact name of the selected corridor in this session's retained welcome terrain. Membership is checked at contextual encoding/decoding boundaries, never inferred from array order or gates.",
       },
       checkpoint_radius: {
         $ref: 'common.schema.json#/$defs/positive_world_scalar',
         $comment:
-          'No greater than track_half_width, enforced at configuration validation.',
-      },
-      track: {
-        type: 'array',
-        minItems: 2,
-        maxItems: 4096,
-        items: {
-          $ref: 'common.schema.json#/$defs/vector2',
-        },
-        description:
-          'Centreline nodes in declared map order; there is no closing segment. The bound mirrors the map marker ceiling.',
+          "No greater than the selected terrain corridor's half_width; contextual validation requires this session's terrain.",
       },
       checkpoints: {
         type: 'array',
@@ -1325,7 +1316,7 @@ export const protocolV3Schemas = {
       },
     },
     $comment:
-      'Added in 2.5. Course geometry and standing order are gameplay invariants; arrays and every nested object are closed and bounded here.',
+      'The 3.0 road identity replaces track and track_half_width mirrors. Exact corridor binding and gate-width admission require retained terrain; arrays and every nested object are closed and bounded here.',
   },
   raceProgressComponent: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',

@@ -1,3 +1,4 @@
+import { solidTerrain } from './fixtures/terrainFrames';
 import { describe, expect, it } from 'vitest';
 
 import { snapshotDocument } from './fixtures/sessionFrames';
@@ -18,6 +19,7 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
 }).data;
 
 const EMPTY: SessionSeat = Object.freeze({

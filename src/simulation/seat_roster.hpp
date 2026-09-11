@@ -1,14 +1,14 @@
 #ifndef BLOB_ROYALE_SIMULATION_SEAT_ROSTER_HPP
 #define BLOB_ROYALE_SIMULATION_SEAT_ROSTER_HPP
 
+#include "bounded_name.hpp"
 #include "controller_id.hpp"
 #include "match_phase.hpp"
+#include "seat_kind_name_policy.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
-#include "snake_case_identity.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <iterator>
 #include <optional>
@@ -35,66 +35,12 @@ namespace blob_royale::simulation {
 // per-tick cost of a lobby depend on how long a bot kind happens to be named. The unused tail is
 // zero-filled so the defaulted comparison compares names rather than whatever the storage held.
 //
-// It is a near-copy of `ContactRuleName`'s storage boilerplate and deliberately not a shared
-// template yet: the two validate against different rules -- a contact rule name is any snake_case
-// identity within its own capacity, while a seat kind is published to a client and arrives from
-// one, so it must satisfy the wire's `kind_name` grammar and length exactly. The *grammar* is
-// already shared through `snake_case_identity.hpp`, which is the part that could drift; only the
-// array and the accessors repeat. A third bounded name is the point at which they should become one
-// type. related: snake_case_identity.hpp -- the one grammar this validates against. related:
-// contact_rule_name.hpp -- the same storage shape under a different validation rule.
-class SeatKindName final {
-public:
-  static constexpr std::size_t kCapacity = kMaximumKindNameLength;
-
-  // Creates a validated kind name or throws SimulationValidationError. The rule is the published
-  // `common.schema.json#/$defs/kind_name`, because this name is both accepted from a client and
-  // published back to every client: a name this rejects could never be encoded.
-  //
-  // **Whether the named kind exists is a different question and is not asked here.** The registry
-  // of controller kinds lives in `blob_controllers`, which the simulation cannot reach and must
-  // not; the command that seats an NPC checks the name against that registry before it ever
-  // reaches a tick (plan Step 3).
-  [[nodiscard]] static SeatKindName create(const std::string_view value) {
-    if (!is_wire_kind_name(value)) {
-      throw SimulationValidationError(
-          SimulationValidationCode::kSeatKindNameInvalid, "seat.npc_kind",
-          "seat controller kind " + std::string(value) +
-              " must be a non-empty snake_case identity within the published kind-name length");
-    }
-
-    SeatKindName name;
-    std::copy(value.cbegin(), value.cend(), name.characters_.begin());
-    name.length_ = value.size();
-    return name;
-  }
-
-  // The unnamed kind, which no validated name can hold. It exists so `NpcSeat` is an aggregate with
-  // a defined default and compares unequal to every real kind.
-  SeatKindName() = default;
-  SeatKindName(const SeatKindName&) = default;
-  SeatKindName(SeatKindName&&) noexcept = default;
-  SeatKindName& operator=(const SeatKindName&) = default;
-  SeatKindName& operator=(SeatKindName&&) noexcept = default;
-  ~SeatKindName() = default;
-
-  [[nodiscard]] std::string_view value() const& noexcept {
-    return std::string_view(characters_.data(), length_);
-  }
-  [[nodiscard]] std::string_view value() const&& = delete;
-
-  [[nodiscard]] bool empty() const noexcept { return length_ == 0; }
-
-  [[nodiscard]] friend bool operator==(const SeatKindName& left, const std::string_view right) {
-    return left.value() == right;
-  }
-
-  friend bool operator==(const SeatKindName&, const SeatKindName&) = default;
-
-private:
-  std::array<char, kCapacity> characters_{};
-  std::size_t length_{};
-};
+// The policy preserves the published kind-name grammar and the unnamed NpcSeat default. Registry
+// membership stays with the command that seats an NPC; the simulation cannot reach the controller
+// registry. BoundedName shares storage and accessors with contact and road names while distinct
+// policies keep their types, validation rules, and errors separate.
+// related: seat_kind_name_policy.hpp -- accepted names and structured rejection.
+using SeatKindName = BoundedName<SeatKindNamePolicy>;
 
 // canonical: seat -- one place in a pre-match lobby, in exactly one of its three states.
 //

@@ -503,9 +503,8 @@ export interface RaceStanding {
 
 /** The schema-correlated race block shared by the course renderer, HUD, and results. */
 export interface RaceModeState {
-  readonly track_half_width: number;
+  readonly road: string;
   readonly checkpoint_radius: number;
-  readonly track: readonly SessionVector2[];
   readonly checkpoints: readonly SessionVector2[];
   readonly time_limit_ticks: number;
   readonly finish_window_ticks: number;
@@ -558,11 +557,8 @@ export function raceModeState(
   const block: unknown = match.mode_state.value;
   if (
     !isRecord(block) ||
-    !isPositiveNumber(block.track_half_width) ||
+    typeof block.road !== 'string' ||
     !isPositiveNumber(block.checkpoint_radius) ||
-    !Array.isArray(block.track) ||
-    block.track.length < 2 ||
-    !block.track.every(isRacePoint) ||
     !Array.isArray(block.checkpoints) ||
     block.checkpoints.length < 1 ||
     !block.checkpoints.every(isRacePoint) ||

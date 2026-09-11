@@ -109,6 +109,7 @@ enum class SimulationValidationCode {
   kSpatialGridStaticBodyOutOfBounds,
   kSpatialGridPointOutOfBounds,
   kSpatialGridCellCoordinateOutOfBounds,
+  kRaceRoadNameInvalid,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -294,6 +295,8 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.SPATIAL_GRID_POINT_OUT_OF_BOUNDS";
   case SimulationValidationCode::kSpatialGridCellCoordinateOutOfBounds:
     return "SIMULATION.SPATIAL_GRID_CELL_COORDINATE_OUT_OF_BOUNDS";
+  case SimulationValidationCode::kRaceRoadNameInvalid:
+    return "SIMULATION.RACE_ROAD_NAME_INVALID";
   }
   return "SIMULATION.VALIDATION_CODE_INVALID";
 }

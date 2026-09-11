@@ -213,8 +213,11 @@ The bounded selected-ray correction is neither an exhaustive nearby-point search
 exact-real interval certificate (ADR 0008).
 Shape, temporary-work, and cache limits live in `simulation_limits.hpp`; exhaustion or lost
 precision is a named failure, never partial terrain. `swept_geometry.hpp` and
-`motion_event_order.hpp` own every root and exact event order. These are pure foundations: the
-live tick and race/controller/client reader migrations remain at the later ADR 0008 plan steps.
+`motion_event_order.hpp` own every root and exact event order. Live swept-kernel adoption still
+requires the ADR 0008 physics gate. Race, controllers, and the session client already read the
+shared terrain. One centreline projection core preserves authored ties and written arithmetic for
+the racer's point/distance query and the no-throw distance-only query; the latter never acquires
+point-materialization validation on standalone signed/extreme corridors.
 
 **The map is the arena source.** Phase 4's fold, the commit-time bounds validation, and `SpatialGrid`
 all read `MapDefinition::bounds()`. `SimulationConfig` keeps `world_width` and `world_height`
@@ -324,8 +327,16 @@ state that is **not** entity-shaped is one arm of the `ModeMatchState` variant p
 carries only what has no entity: `NoModeState` for every mode whose state is entity-shaped, and
 `RoyalePlacementsModeState` (schema id `royale_placements`) for royale's ordered placement list and
 the published mirror of the engine's previous phase; `KingOfTheHillModeState` for three declared
-constants; and `RaceModeState` for a course, its durations, and recorded finish standings. Hill
-scores and race progress remain entity components.
+constants; and `RaceModeState` for required selected-road identity, gates, durations, and recorded
+finish standings. Road geometry remains only in terrain. The race arm cannot default-construct an
+empty road; race-owned initialization supplies its bound course, while a default match still holds
+`NoModeState`. Hill scores and race progress remain entity components.
+
+`@extension-point bounded_name` — `bounded_name.hpp`. Distinct policies own grammar, capacity,
+domain diagnostics, and whether an empty default sentinel is permitted; one fixed-storage value
+owns copying, zero tails, equality, and lifetime-safe views. Seat/contact names preserve their
+empty sentinels. Required race-road names do not have one. Name syntax does not prove membership:
+consuming boundaries resolve the selected road against their actual terrain.
 
 `@extension-point command_kind` — `command_registry.hpp`. Adding a command kind edits **two**
 existing files in this domain:

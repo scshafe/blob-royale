@@ -17,9 +17,11 @@ import {
 } from './fixtures/protocolV3Examples';
 import {
   firstEntity,
+  raceSnapshotDocument,
   snapshotDocument,
   welcomeDocument,
 } from './fixtures/sessionFrames';
+import { namedRaceTerrain, raceTerrain } from './fixtures/terrainFrames';
 import {
   CONFIGURATION_FETCH_TIMEOUT_MILLISECONDS,
   SESSION_FRAME_MAX_BYTES,
@@ -506,7 +508,7 @@ describe('SimulationApi configuration', () => {
 });
 
 describe('SimulationApi session lifecycle', () => {
-  async function createJoinedApi() {
+  async function createJoinedApi(allowedLobbyIds: readonly number[] = [1]) {
     const sockets: FakeSimulationWebSocket[] = [];
     const api = new SimulationApi({
       fetchImplementation: createFetchMock(
@@ -516,9 +518,12 @@ describe('SimulationApi session lifecycle', () => {
       ),
       location: secureLocation,
       webSocketFactory: (url, subprotocol) => {
-        expect(url).toBe(
-          'wss://game.example.test:8443/api/v3/lobbies/1/session',
-        );
+        expect(
+          allowedLobbyIds.map(
+            (lobbyId) =>
+              `wss://game.example.test:8443/api/v3/lobbies/${lobbyId}/session`,
+          ),
+        ).toContain(url);
         expect(subprotocol).toBe('blob-royale.session.v3');
         const socket = new FakeSimulationWebSocket();
         sockets.push(socket);
@@ -581,6 +586,86 @@ describe('SimulationApi session lifecycle', () => {
     expect(callbacks.onFailure).not.toHaveBeenCalled();
     expect(callbacks.onDisconnected).not.toHaveBeenCalled();
     expect(socket.close).not.toHaveBeenCalled();
+  });
+
+  it('retains welcome terrain across snapshots and rejects a changed road before publication', async () => {
+    const { api, configuration, sockets } = await createJoinedApi([1, 2]);
+    const callbacks = createCallbacks();
+    api.openSession(configuration, 1, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+    const welcome = welcomeDocument();
+    socket.receive(
+      JSON.stringify({
+        ...welcome,
+        data: {
+          ...welcome.data,
+          mode: 'race',
+          terrain: namedRaceTerrain('alternate_road'),
+        },
+      }),
+    );
+    const first = raceSnapshotDocument(2);
+    first.data.match.mode_state.value.road = 'alternate_road';
+    socket.receive(JSON.stringify(first));
+    const invalid = raceSnapshotDocument(3);
+    invalid.data.tick_sequence += 1;
+    socket.receive(JSON.stringify(invalid));
+    expect(callbacks.onSnapshot).toHaveBeenCalledTimes(1);
+    expect(callbacks.onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      }),
+    );
+    expect(socket.close).toHaveBeenCalledWith(1002, 'protocol_error');
+    invalid.data.match.mode_state.value.road = 'alternate_road';
+    socket.receive(JSON.stringify(invalid));
+    expect(callbacks.onSnapshot).toHaveBeenCalledTimes(1);
+
+    const nextCallbacks = createCallbacks();
+    api.openSession(configuration, 2, nextCallbacks);
+    const nextSocket = sockets[1];
+    if (nextSocket === undefined) throw new Error('TEST.SOCKET_NOT_CREATED');
+    nextSocket.open();
+    nextSocket.receive(
+      JSON.stringify({
+        ...welcome,
+        data: {
+          ...welcome.data,
+          lobby_id: 2,
+          mode: 'race',
+          terrain: raceTerrain,
+        },
+      }),
+    );
+    nextSocket.receive(JSON.stringify(raceSnapshotDocument(2)));
+    expect(nextCallbacks.onSnapshot).toHaveBeenCalledTimes(1);
+    expect(nextCallbacks.onFailure).not.toHaveBeenCalled();
+  });
+
+  it('refuses a gate wider than the welcome-selected corridor before accepting any snapshot', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, 1, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+    const welcome = welcomeDocument();
+    socket.receive(
+      JSON.stringify({
+        ...welcome,
+        data: { ...welcome.data, mode: 'race', terrain: raceTerrain },
+      }),
+    );
+    const snapshot = raceSnapshotDocument();
+    snapshot.data.match.mode_state.value.checkpoint_radius = 61;
+    socket.receive(JSON.stringify(snapshot));
+    expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      }),
+    );
+    expect(socket.close).toHaveBeenCalledWith(1002, 'protocol_error');
   });
 
   it.each(['width_world_units', 'height_world_units'] as const)(

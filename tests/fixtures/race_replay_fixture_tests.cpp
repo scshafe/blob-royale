@@ -95,11 +95,14 @@ TEST_CASE("the replay format reads the race section and publishes its course fro
   const Snapshots snapshots = fixture.run();
   for (const auto& snapshot : snapshots) {
     const auto& race = race_of(snapshot);
-    CHECK(race.track_half_width == 20.0);
+    CHECK(race.road.value() == fixture.race().road());
+    const auto* road = snapshot.terrain().find_corridor(race.road.value());
+    REQUIRE(road != nullptr);
+    CHECK(road->half_width() == 20.0);
     CHECK(race.checkpoint_radius == 5.0);
     CHECK(race.time_limit_ticks == 400);
     CHECK(race.finish_window_ticks == 8);
-    CHECK(race.track ==
+    CHECK(std::vector<simulation::Vector2>(road->points().begin(), road->points().end()) ==
           std::vector<simulation::Vector2>{simulation::Vector2::create(100.0, 320.0),
                                            simulation::Vector2::create(140.0, 320.0),
                                            simulation::Vector2::create(140.0, 280.0)});

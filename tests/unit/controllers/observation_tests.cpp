@@ -120,17 +120,19 @@ TEST_CASE("Observation retains the actual terrain after the publisher and simula
 
 TEST_CASE("Racer observation fixtures publish their exact authored straight and bent roads",
           "[unit][controllers][observation][terrain][racer]") {
-  for (const simulation::RaceModeState& course :
-       {testing::straight_racer_course(), testing::bent_racer_course()}) {
+  for (const auto& [course, terrain] :
+       {std::pair{testing::straight_racer_course(), testing::straight_racer_terrain()},
+        std::pair{testing::bent_racer_course(), testing::bent_racer_terrain()}}) {
     const controllers::Observation observation = testing::racer_observation(
-        testing::racer_observation_world(simulation::Vector2::create(200.0, 320.0), 0, course));
+        testing::racer_observation_world(simulation::Vector2::create(200.0, 320.0), 0, course),
+        terrain);
     REQUIRE(observation.terrain().ground() == simulation::TerrainGround::kCorridors);
     REQUIRE(observation.terrain().corridors().size() == 1);
     const simulation::TerrainCorridor& road = observation.terrain().corridors().front();
     CHECK(road.name() == "road");
     CHECK(road.half_width() == 80.0);
-    CHECK(road.half_width() == course.track_half_width);
-    CHECK(std::ranges::equal(road.points(), course.track));
+    CHECK(course.road.value() == road.name());
+    CHECK(observation.terrain() == terrain);
     CHECK(observation.terrain().holes().empty());
     CHECK(std::get<simulation::RaceModeState>(observation.snapshot().match().mode_state()) ==
           course);

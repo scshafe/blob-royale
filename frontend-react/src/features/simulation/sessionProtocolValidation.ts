@@ -13,6 +13,7 @@ import type {
   SessionHttpErrorResponse,
   SessionLobbyDirectoryMessage,
   SessionSnapshotMessage,
+  SessionTerrain,
   SessionWelcomeMessage,
 } from './simulationProtocolTypes';
 import { HTTP_ERROR_REGISTRY } from './simulationProtocolValidation';
@@ -70,6 +71,8 @@ export interface SessionSequenceState {
   readonly messageSequence: number;
   readonly requestId: string;
   readonly tickSequence: number | null;
+  /** Immutable terrain admitted with this connection's welcome, never replaced by a frame. */
+  readonly terrain: SessionTerrain;
 }
 
 const ajv = createProtocolAjv();
@@ -318,6 +321,42 @@ function assertSnapshotEntityInvariants(
   }
 }
 
+/** The schema proves the name grammar; only this session context can prove its binding. */
+function assertRaceTerrainBinding(
+  snapshot: SessionSnapshotMessage,
+  terrain: SessionTerrain,
+): void {
+  if (
+    snapshot.data.match.mode_state.schema_id !==
+    'blob-royale://protocol/v3/mode-state/race'
+  ) {
+    return;
+  }
+  const state: Readonly<Record<string, unknown>> =
+    snapshot.data.match.mode_state.value;
+  const road = state.road;
+  const corridor = terrain.corridors.find(
+    (candidate) => candidate.name === road,
+  );
+  if (corridor === undefined) {
+    throw new SimulationApiError(
+      'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      'Race road does not name a corridor in this session terrain.',
+      { context: { road: typeof road === 'string' ? road : null } },
+    );
+  }
+  if (
+    typeof state.checkpoint_radius !== 'number' ||
+    state.checkpoint_radius > corridor.half_width
+  ) {
+    throw new SimulationApiError(
+      'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      'Race checkpoint radius exceeds its selected terrain corridor half-width.',
+      { context: { road: corridor.name, half_width: corridor.half_width } },
+    );
+  }
+}
+
 /** Schema and terrain semantics precede freezing; the API additionally checks fetched bounds. */
 export function validateSessionWelcomeMessage(
   document: unknown,
@@ -435,6 +474,7 @@ export function validateSessionSnapshotMessage(
   }
 
   assertSnapshotEntityInvariants(document);
+  assertRaceTerrainBinding(document, previousSequence.terrain);
   return deepFreeze(document);
 }
 

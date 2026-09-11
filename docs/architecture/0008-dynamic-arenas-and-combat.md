@@ -939,3 +939,29 @@ round caps, and envelope clipping. C++ cases use the canonical factories and sup
 browser tests use the same data for validation/rendering. Raster antialiasing is not a second
 gameplay support predicate. Phase C adoption and release/native verification remain separate
 gates; this entry specifies the Step 7 contract and does not claim those gates passed.
+
+## Race terrain-reader contraction, 2026-09-10 (plan Step 8)
+
+Race's temporary `track`/`track_half_width` mirrors are removed from mode state and session v3.
+Required `road` is selected identity, not geometry: a non-default validated bounded name in the
+authoritative race block, exactly resolved against terrain at race initialization and consumer
+boundaries. The client retains welcome terrain to reject missing bindings and a checkpoint radius
+larger than the selected half-width before publishing a snapshot. There is no arbitrary first-road
+selection, fixed-name fallback, or new generic simulation create/commit validation hook.
+
+The existing race helper initializes from a bound course. Both recorder and publisher already own
+that course; their order and member ownership remain unchanged, including an initially Running
+first-tick finisher. Production tick-zero state remains `NoModeState`. Direct controller/protocol
+fixtures explicitly supply matching authored terrain instead of installing race state on a bare
+solid arena.
+
+One canonical centreline projection arithmetic core replaces the racer's private loop, preserving
+first-authored ties and the exact written operation order. The old distance-only API does not gain
+point-construction errors on its broader standalone-corridor domain. Bounded-name storage is
+consolidated at its documented third-name threshold, retaining distinct policies and old default
+sentinels while disallowing an empty default for road identity. Both extractions require proof on
+the two lanes before old readers/types delegate. The plan owns completion evidence; this contract
+does not approve live solver adoption. The preceding Step 7a separately resolved the diagnosed
+clipped-corner admission issue recorded in
+`../reviews/2026-09-10-terrain-clipped-corner-admissibility-review.md`; bounded numerical limitations
+and the Step 5 human gate remain.

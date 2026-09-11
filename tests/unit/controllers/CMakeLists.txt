@@ -7,6 +7,7 @@ add_executable(blob_controllers_unit_tests
   human_bot_symmetry_tests.cpp
   observation_tests.cpp
   racer_controller_tests.cpp
+  racer_projection_promotion_tests.cpp
   scripted_replay_controller_tests.cpp
   wanderer_controller_tests.cpp
 )

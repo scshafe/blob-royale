@@ -1,3 +1,4 @@
+import { raceTerrain, solidTerrain } from './fixtures/terrainFrames';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -35,6 +36,7 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
 }).data;
 
 function matchWith(
@@ -48,6 +50,7 @@ const hill = validateSessionSnapshotMessage(hillSnapshotDocument(), {
   messageSequence: 1,
   requestId: hillSnapshotDocument().meta.request_id,
   tickSequence: null,
+  terrain: solidTerrain,
 }).data;
 
 function hillMatchWith(
@@ -62,6 +65,7 @@ function raceFrame(scenario: RaceSnapshotScenario = 'running') {
     messageSequence: 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    terrain: raceTerrain,
   }).data;
 }
 
@@ -749,6 +753,7 @@ describe('sessionSelectors for the race', () => {
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      terrain: raceTerrain,
     }).data;
     expect(
       describeMatchOverlay({

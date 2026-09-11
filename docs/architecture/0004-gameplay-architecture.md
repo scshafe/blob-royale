@@ -1350,3 +1350,22 @@ commit as authoritative behavior. No command vocabulary is advertised before its
 These commits are not separately deployable releases; released versioning discipline resumes
 after the final coordinated release. This does not approve the Step 5 physics gate or change
 the kernel's policy sockets.
+
+## Amendment: race road identity, 2026-09-10 (plan Step 8)
+
+The temporary race geometry mirror from Step 7 is retired. `RaceModeState` carries a validated
+selected `road` identity alongside gates, clocks, and standings; the centreline and half-width
+remain solely in terrain. Observers resolve that exact identity against retained terrain, and
+the encoder/client validate the selected binding and checkpoint-radius bound. An absent binding
+fails visibly rather than selecting the first corridor or a conventional name.
+
+Race-owned initialization requires the bound course and preserves the existing recorder-before-
+publisher lifecycle order. The publisher still owns declared values and the recorder owns
+standings, including an initially Running first-tick finish. The production initial snapshot
+retains `NoModeState`; there is no extra initialization tick or generic mode-state validation
+socket in the kernel. The new identity value cannot be default-constructed empty.
+
+The third bounded name consolidates fixed name storage behind distinct validation policies.
+Existing seat/contact-name source APIs, empty sentinels, domain errors, and no-throw moves remain;
+this is not a promise of ABI or nominal class identity compatibility. The canonical name grammar
+is still `snake_case_identity.hpp`. Prerequisite proof and final verification live in the plan.

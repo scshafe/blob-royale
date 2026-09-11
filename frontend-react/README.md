@@ -1,6 +1,6 @@
 # Blob Royale web client
 
-This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v3 session socket, processes the complete published world and renders its known visual components, and turns a keyboard into `set_thrust` commands. Processing the complete world does not require showing the whole map at once. Its public artifact is the production bundle in `dist/`.
+This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v3 session socket, processes the complete published world and renders its known visual components, and turns cursor aim plus held Space into `set_thrust` commands. Processing the complete world does not require showing the whole map at once. Its public artifact is the production bundle in `dist/`.
 
 `SimulationApi` is the canonical browser transport. It derives `/api/v1/config`, `/api/v3/lobbies`, and canonical `/api/v3/lobbies/<lobby_id>/session` endpoints from the page authority, opens the session socket with the `blob-royale.session.v3` subprotocol, validates every inbound frame against the accepted Draft 2020-12 schemas with Ajv, and exposes `sendCommand`, which is a no-op that reports `false` unless the session is open, welcomed, and the kind is one the welcome advertised.
 
@@ -13,10 +13,20 @@ tick. `set_movement_tuning` uses that same `sendCommand` path with caller-suppli
 request ids; the API reserves pending before socket send and validates exact correlated results
 before accepting a snapshot. Its `idle | pending | resolved | unknown` state never infers success
 from a changed room revision, local send success, or a reconnect. Room changes clear old exchange
-state; interrupted same-room retries preserve unknown and never replay a request. Step 10 exposes
-this API and state only; tuning UI controls belong to Step 11.
+state; interrupted same-room retries preserve unknown and never replay a request. `useMovementTuning`
+owns the UI draft, explicit Apply/Reset, and review of peer changes without becoming another sender.
+`MovementTuningPanel` shows authoritative values separately from exact request outcomes.
 
-`useThrustInput` is the only place a keyboard becomes a command. WASD and the arrow keys become one unit direction, sent on change and at most once every 50 ms, never once per frame; releasing the last key sends `{x: 0, y: 0}` because a thrust persists on the server until the next command; and input is ignored entirely while this session owns no body.
+`useThrustInput` is the canonical aim/propulsion owner. Click the arena and hold Space to accelerate
+in the cursor's direction, at the room's configured strength regardless of pointer distance.
+Releasing Space clears intent and coasts; it does not zero velocity. WASD/arrows no longer steer.
+Canvas supplies pointer and projected-body observations through its existing projection/handlers;
+the hook alone normalizes aim and emits changed zero/unit commands, at most every 50 ms. Body,
+camera, and viewport updates recompute aim under a stationary cursor. An exact-center aim is zero.
+Leaving/cancelling, editing, camera interaction, blur, disconnect, or an observed body replacement
+requires a fresh go activation; merely holding the key through cancellation cannot resume thrust.
+The wire has no incarnation token for a body removed/recreated wholly between delivered snapshots,
+so that invisible transition is not claimed as detectable. Native UI Space/Enter remains native.
 
 Rendering goes through `rendering/entityRendererRegistry.ts`, tagged `@extension-point entity_renderer`. It is keyed by component kind: `physics_body` draws a disc or a static obstacle with the own-body highlight, `controllable` draws the display name under its body, `zone` draws the safe zone from its own component, and every remaining kind is registered as non-visual with a stated reason. Adding a component kind is a new `rendering/<kind>Renderer.ts` plus one registration line — `SimulationCanvas` names no kind — and the registry's `satisfies Record<SessionComponentKind, …>` fails the build if a generated kind has no entry.
 
@@ -34,7 +44,8 @@ view shows outside-map background and the actual map boundary. Bodyless follow r
 centre and reacquires the current body by controller identity. **Manual view** lets the user drag
 the map or activate named pan buttons independently, then choose **Follow player** to resume.
 Manual centres stay within the world rectangle. Tab/Enter/Space activate ordinary camera buttons;
-WASD and arrows still steer the blob. No camera action sends a gameplay command.
+the same Space press cannot also activate propulsion. Camera code has no gameplay sender. Its
+interaction can cancel previously held thrust through the canonical input owner, never start it.
 
 A new room or immutable welcome identity resets the camera without resetting unrelated debug
 disclosure. World coordinates, simulation rules, and complete validated snapshots remain unchanged

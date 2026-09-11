@@ -14,6 +14,7 @@ import {
 import { BrowserE2EError } from './BrowserE2EError';
 import {
   CONNECTED_STATUS,
+  connectionStatus,
   PRODUCTION_ORIGIN,
   installCanvasRecorder,
   matchHudCell,
@@ -331,7 +332,7 @@ async function startMatchWithTwoBrowsers(
   const contextA = await browser.newContext({ baseURL: PRODUCTION_ORIGIN });
   contexts.push(contextA);
   const pageA = await openSessionPage(contextA, pageErrors);
-  await expect(pageA.getByRole('status')).toHaveText(CONNECTED_STATUS);
+  await expect(connectionStatus(pageA)).toHaveText(CONNECTED_STATUS);
   await expect(matchHudCell(pageA, 'Phase')).toHaveText('lobby');
   await expect(matchHudCell(pageA, 'Alive')).toHaveText('1');
   const nameA = await readOwnDisplayName(pageA);
@@ -343,7 +344,7 @@ async function startMatchWithTwoBrowsers(
   const contextB = await browser.newContext({ baseURL: PRODUCTION_ORIGIN });
   contexts.push(contextB);
   const pageB = await openSessionPage(contextB, pageErrors);
-  await expect(pageB.getByRole('status')).toHaveText(CONNECTED_STATUS);
+  await expect(connectionStatus(pageB)).toHaveText(CONNECTED_STATUS);
   const nameB = await readOwnDisplayName(pageB);
   expect(nameB).not.toBe(nameA);
 

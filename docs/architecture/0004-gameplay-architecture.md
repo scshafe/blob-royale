@@ -746,8 +746,9 @@ the uniform scale and translation; every entity and mode-state renderer uses tha
   view** as a separate pressed-state button. In manual mode, dragging the map or using named pan
   buttons moves only the camera; **Follow player** resumes tracking immediately. Pan buttons move
   96 CSS pixels per activation, with Tab/Enter/Space navigation rather than an arrow-key widget.
-  Manual centres clamp to the inclusive world rectangle; follow does not clamp. WASD and arrows
-  continue to steer. Camera motion never sends a gameplay command.
+  Manual centres clamp to the inclusive world rectangle; follow does not clamp. The original
+  WASD/arrow steering binding is superseded by the 2026-09-11 cursor/Space amendment below.
+  Camera code has no gameplay sender and never activates propulsion.
 
 Two approaches were considered: keep fitting the whole map, which is useful as an overview but
 cannot preserve a readable local scale as maps grow; or select a world-space window through one
@@ -1430,3 +1431,20 @@ The existing `step` entry point returns bounded tuning decisions only after succ
 as specified in ADR 0002. This is not a new policy hook or generic world event. Seated players may
 update in all four accepted phases; bots do not use tuning tactically. ADR 0008 owns delivery,
 resource, and failure semantics; the plan owns proof and completion evidence.
+
+## Amended 2026-09-11: Cursor direction and held-Space propulsion (Step 11a)
+
+The owner replaced directional WASD/arrows and the prior right-mouse proposal with cursor-only
+direction and held Space propulsion. Keep the existing ownership: Feature's canonical input hook
+owns aim normalization, go activation, and the sole command scheduler; Viewer owns camera policy;
+Canvas reuses its one projection and existing pointer handlers to publish observations. Changes to
+body position, camera, viewport, or page layout recompute direction under a stationary pointer.
+Pointer distance never scales acceleration, and exact-center aim is zero. No new wire command.
+
+Left-drag panning and native Space/Enter camera-button activation remain independent of gameplay.
+The camera still has no command sender; input isolation may release existing thrust when a camera
+gesture begins, never activate it. Releasing Space or cancelling input coasts through server drag.
+Fresh activation is required after UI editing, pointer loss, blur, disconnect, and observed body or
+session replacement. Body incarnation wholly between snapshots is not observable without new wire
+identity, so no position heuristic or stronger detection claim is made. ADR 0008 records the owner
+decision; the execution plan records exact implementation and verification evidence.

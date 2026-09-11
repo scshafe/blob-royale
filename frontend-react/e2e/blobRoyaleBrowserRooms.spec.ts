@@ -9,6 +9,7 @@ import {
 import { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
 import {
   CONNECTED_STATUS,
+  connectionStatus,
   PRODUCTION_ORIGIN,
   joinRoomButton,
   lobbyStartButton,
@@ -209,7 +210,7 @@ test('two browsers play in two rooms, and a room whose last person left returns 
     await expect(
       pageA.getByRole('heading', { level: 2, name: 'Room 1' }),
     ).toBeVisible();
-    await expect(pageA.getByRole('status')).toHaveText(CONNECTED_STATUS);
+    await expect(connectionStatus(pageA)).toHaveText(CONNECTED_STATUS);
     await expect(matchHudCell(pageA, 'Phase')).toHaveText('lobby');
     const nameA = await readOwnDisplayName(pageA);
     await expect(seatCards(pageA)).toHaveCount(2);
@@ -244,7 +245,7 @@ test('two browsers play in two rooms, and a room whose last person left returns 
     await expect(
       pageB.getByRole('heading', { level: 2, name: 'Room 2' }),
     ).toBeVisible();
-    await expect(pageB.getByRole('status')).toHaveText(CONNECTED_STATUS);
+    await expect(connectionStatus(pageB)).toHaveText(CONNECTED_STATUS);
     await expect(matchHudCell(pageB, 'Phase')).toHaveText('lobby');
     const nameB = await readOwnDisplayName(pageB);
     expect(nameB).not.toBe(nameA);

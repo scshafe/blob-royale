@@ -56,8 +56,8 @@ interface PendingSeatCount {
  * **Right-click and keyboard are the same menu.** `contextmenu` on an empty seat opens the bot menu
  * and suppresses the browser's own; the seat is also a button, so Enter or a click opens the same
  * menu for anyone without a mouse. Escape and a click outside close it. The menu is walked with
- * Tab, never the arrow keys, because the thrust hook owns the arrows and WASD for the whole window
- * and a menu that fought it would steer the blob while choosing a bot.
+ * Tab. Native button activation belongs to the menu; held Space on a control never also activates
+ * propulsion. Former directional steering keys are not implicitly reassigned to menu navigation.
  *
  * **The seat-count control is debounced.** A dragged number input emits a change per step, and
  * the session's command bucket holds thirty tokens: sent per step, a drag from four to sixty-four

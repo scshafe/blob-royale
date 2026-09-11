@@ -3,9 +3,13 @@ import { expect, test as playwrightTest, type Locator } from '@playwright/test';
 import { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
 import {
   CONNECTED_STATUS,
+  aimFromPaintedBody,
+  connectionStatus,
+  focusSimulationCanvas,
   RETRYING_STATUS,
   installCanvasRecorder,
   matchHudCell,
+  recordSessionTraffic,
   requireCanvasFrame,
   requireLabel,
   waitForReadyServer,
@@ -95,6 +99,7 @@ test('production Chromium reconnects to a restarted exact server', async ({
   await blobRoyaleServer.start();
   await waitForReadyServer(request, blobRoyaleServer);
   await installCanvasRecorder(page);
+  const traffic = recordSessionTraffic(page);
 
   // Room 1 by its URL: the directory in front of it is Step 15's to drive through the UI.
   const navigationResponse = await page.goto('/?lobby=1', {
@@ -105,7 +110,7 @@ test('production Chromium reconnects to a restarted exact server', async ({
   await expect(
     page.getByRole('heading', { level: 1, name: 'Blob Royale' }),
   ).toBeVisible();
-  await expect(page.getByRole('status')).toHaveText(CONNECTED_STATUS);
+  await expect(connectionStatus(page)).toHaveText(CONNECTED_STATUS);
 
   const canvas = page.getByRole('img', {
     name: 'Blob Royale simulation world',
@@ -148,15 +153,25 @@ test('production Chromium reconnects to a restarted exact server', async ({
     page.getByRole('button', { name: 'Manual view', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
 
+  // Keep go physically held through disconnect and a new welcome, including reused numeric IDs.
+  // The replacement session must discard that activation rather than replay an old command.
+  const originalDisplayName =
+    (await matchHudCell(page, 'Player').textContent())?.trim() ?? '';
+  await focusSimulationCanvas(page);
+  await aimFromPaintedBody(page, originalDisplayName, { x: 60, y: 0 }, 10);
+  await page.keyboard.down('Space');
+  await expect(matchHudCell(page, 'Thrust')).not.toHaveText('idle');
+
   await Promise.all([
     blobRoyaleServer.terminateWithSigterm(),
-    expect(page.getByRole('status')).toHaveText(RETRYING_STATUS),
+    expect(connectionStatus(page)).toHaveText(RETRYING_STATUS),
   ]);
   await expect(canvas).toHaveCount(0);
+  const disconnectedSendCount = traffic.sentFrames.length;
 
   await blobRoyaleServer.start();
   await waitForReadyServer(request, blobRoyaleServer);
-  await expect(page.getByRole('status')).toHaveText(CONNECTED_STATUS, {
+  await expect(connectionStatus(page)).toHaveText(CONNECTED_STATUS, {
     timeout: 10_000,
   });
   await expect(
@@ -189,6 +204,15 @@ test('production Chromium reconnects to a restarted exact server', async ({
       14 * (resumedFrame.height / resumedFrame.cssHeight),
     8,
   );
+  await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
+  expect(traffic.sentFrames).toHaveLength(disconnectedSendCount);
+  await focusSimulationCanvas(page);
+  await aimFromPaintedBody(page, resumedDisplayName, { x: 60, y: 0 }, 10);
+  await page.keyboard.down('Space'); // Repeat of the held key, not fresh activation.
+  await assertTwoIncreasingCompleteTicks(completeTickCaption);
+  await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
+  expect(traffic.sentFrames).toHaveLength(disconnectedSendCount);
+  await page.keyboard.up('Space');
 
   await blobRoyaleServer.terminateWithSigterm();
   expect(pageErrors).toEqual([]);

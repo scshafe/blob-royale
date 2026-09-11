@@ -103,6 +103,8 @@
 }
 
 .SimulationStage {
+  align-self: start;
+  max-width: 960px;
   min-width: 0;
   position: relative;
 }
@@ -391,6 +393,14 @@ button.SeatButton {
 
 .SimulationCanvas canvas {
   display: block;
+}
+
+.SimulationCanvas canvas:not(.ManualCameraCanvas) {
+  cursor: crosshair;
+}
+.SimulationCanvas canvas:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
 }
 
 .SimulationViewport {

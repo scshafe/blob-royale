@@ -9,12 +9,14 @@ import { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
 import { BrowserE2EError } from './BrowserE2EError';
 import {
   CONNECTED_STATUS,
+  connectionStatus,
   PRODUCTION_ORIGIN,
   installCanvasRecorder,
   matchHudCell,
   readCanvasFrame,
   requireCanvasFrame,
   requireLabel,
+  recordSessionTraffic,
   waitForReadyServer,
   type RecordedArc,
   type RecordedFrame,
@@ -80,18 +82,9 @@ async function openCameraSession(
   pageErrors: string[],
 ): Promise<CameraSession> {
   const page = await context.newPage();
-  const sentFrames: string[] = [];
-  const webSocketUrls: string[] = [];
+  const { sentFrames, webSocketUrls } = recordSessionTraffic(page);
   page.on('pageerror', (error) => {
     pageErrors.push(error.message);
-  });
-  page.on('websocket', (socket) => {
-    webSocketUrls.push(socket.url());
-    socket.on('framesent', ({ payload }) => {
-      sentFrames.push(
-        typeof payload === 'string' ? payload : payload.toString(),
-      );
-    });
   });
   await installCanvasRecorder(page);
   const response = await page.goto('/?lobby=1', {
@@ -99,7 +92,7 @@ async function openCameraSession(
   });
   expect(response?.status()).toBe(200);
   await expect(page).toHaveTitle('Blob Royale');
-  await expect(page.getByRole('status')).toHaveText(CONNECTED_STATUS);
+  await expect(connectionStatus(page)).toHaveText(CONNECTED_STATUS);
   await expect(matchHudCell(page, 'Phase')).toHaveText('lobby');
   const displayNameCell = matchHudCell(page, 'Player');
   await expect(displayNameCell).toHaveText(/^player-[1-9][0-9]*$/);

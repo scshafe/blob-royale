@@ -143,9 +143,16 @@ external origin the same way. The production bundle is produced with `npm run bu
 
 The client starts in **Follow player**, keeping your current blob centred on a movable view of
 the map. Choose **Manual view** to drag the map or use its pan buttons independently, then
-**Follow player** to resume tracking. WASD and arrow keys still steer your blob. Larger worlds
+**Follow player** to resume tracking. Click the arena, point toward where you want to accelerate,
+and hold **Space** to go; release Space to coast. Pointer distance does not change thrust strength,
+and WASD/arrows are no longer movement bindings. Larger worlds
 extend beyond the viewport instead of being shrunk to fit it. These camera controls are part of
 the local follow-up implementation; the recorded `b1e80d4` tailnet deployment predates them.
+
+The room's movement panel adjusts acceleration and normal top speed for everyone through explicit
+Apply/Reset actions. If someone changes the room while you are editing, your draft is retained and
+requires review before Apply. Only a server-confirmed result says applied; interruption remains
+unknown even after current values are reviewed.
 
 ## Repository map
 

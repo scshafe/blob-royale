@@ -38,7 +38,8 @@ the viewer's debug disclosure.
 **Manual view** freezes the current centre. Drag the map or use the named pan buttons to move the
 view independently; **Follow player** returns to tracking. Manual centres stay within world
 bounds, while strict follow never clamps and may show outside-map background. Buttons use
-Tab/Enter/Space, leaving WASD and arrows to steering. No camera API receives a gameplay sender.
+Tab/Enter/Space, without also activating propulsion. WASD/arrows no longer steer. No camera API
+receives a gameplay sender; the canonical input owner may release held thrust on interaction.
 Pointer capture ends on release, cancellation, loss of capture, blur, or switching to follow.
 
 `useCanvasViewport` measures available CSS width, capped at 960 pixels with a 3:2 aspect and integer
@@ -65,7 +66,7 @@ menu, and Start. Every rule the panel renders is a selector in `lobbySelectors.t
 without a renderer, and every press is one closed command through `sendCommand`. Right-click on an
 empty seat opens the bot menu and suppresses the browser's own; the seat is also a button, so the
 same menu opens from the keyboard, and Escape or a click outside closes it. The menu is walked with
-Tab, never the arrow keys, because `useThrustInput` owns the arrows and WASD for the whole window.
+Tab; former WASD/arrow steering bindings are retired, not reassigned to lobby navigation.
 `welcome.npc_controller_kinds` is the whole menu, read from the server's registry, so a new bot
 appears in it with no change here. The seat-count control is floored one above the highest occupied
 seat and capped at `welcome.seat_count_maximum`, which are the two asks the tick would ignore, and it
@@ -94,7 +95,11 @@ IDs/revisions prevent submission. Body presence is not tuning authority.
 The tuning section marks `data-gameplay-input="blocked"`, including its buttons. The canonical
 `useThrustInput` clears held steering when focus enters that section or a native editing control,
 allows native editing keys, and requires a fresh gameplay press after leaving. Unmarked camera
-buttons retain their current bindings. Step 11a separately migrates movement to the owner-selected
-cursor direction plus held Space; the Step 11 UI checkpoint does not implement that input change.
+buttons retain their native activation bindings. The owner-selected movement control is cursor
+direction plus held Space. Input observation uses the same Canvas projection as rendering;
+normalization, go activation, throttling, and cancellation remain in `useThrustInput`. A stationary
+pointer is re-evaluated when the body, camera, or viewport changes. Left drag remains camera panning,
+not propulsion, and WASD/arrows no longer generate thrust. An observed body/session change discards
+old activation; the wire cannot reveal same-entity body recreation wholly between snapshots.
 
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v3`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

@@ -21,7 +21,7 @@ import {
   zoneExposureReport,
 } from './sessionSelectors';
 import type { SimulationConnection } from './useSimulationConnection';
-import type { ThrustDirection } from './useThrustInput';
+import type { ThrustAimObservation, ThrustDirection } from './useThrustInput';
 
 export interface SimulationViewerProps {
   readonly connection: SimulationConnection;
@@ -29,6 +29,7 @@ export interface SimulationViewerProps {
   readonly lobbyId: number;
   readonly thrust: ThrustDirection;
   readonly movementTuning: MovementTuningControls;
+  readonly onAimObservation: (observation: ThrustAimObservation | null) => void;
 }
 
 const connectionStatusLabels = Object.freeze({
@@ -49,6 +50,7 @@ export function SimulationViewer({
   lobbyId,
   thrust,
   movementTuning,
+  onAimObservation,
 }: SimulationViewerProps) {
   const [debugPanelVisible, setDebugPanelVisible] = useState(false);
   const debugPanelId = useId();
@@ -64,9 +66,9 @@ export function SimulationViewer({
   // The own entity and the own body are different questions since respawn timers: a knocked-out
   // player keeps its entity, with its name and score, and only the body is gone until it is
   // re-seated. "In play" is the body.
-  const isOwnBodyPresent =
-    findEntityById(connection.entities, connection.ownEntityId)?.components
-      .physics_body !== undefined;
+  const ownBody = findEntityById(connection.entities, connection.ownEntityId)
+    ?.components.physics_body;
+  const isOwnBodyPresent = ownBody !== undefined;
   // The lobby is operable exactly while the match is in `lobby` and this session may start one:
   // a mode with no lobby publishes an empty roster and no `start_match`, and the tick ignores every
   // lobby command outside `lobby`, so the panel is not drawn where nothing it does could land.
@@ -100,6 +102,8 @@ export function SimulationViewer({
               configuration={connection.configuration}
               onPan={panByWorldOffset}
               ownEntityId={connection.ownEntityId}
+              ownBodyPosition={ownBody?.position ?? null}
+              onAimObservation={onAimObservation}
               snapshot={connection.snapshot?.data ?? null}
               terrain={connection.session?.terrain ?? null}
             />
@@ -169,7 +173,9 @@ export function SimulationViewer({
               )}
             />
             <p className="SteeringHint">
-              Steer with WASD or the arrow keys while your blob is in the arena.
+              Aim with the cursor, click or tab into the arena, and hold Space
+              to move. Release Space to coast. Left-drag pans in Manual view;
+              WASD and arrows do not steer.
             </p>
             <MovementTuningPanel controls={movementTuning} />
             <button

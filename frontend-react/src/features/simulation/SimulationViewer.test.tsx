@@ -8,6 +8,15 @@ import {
 import { useMovementTuning } from './useMovementTuning';
 import { SimulationApiError } from './SimulationApiError';
 import { useThrustInput } from './useThrustInput';
+import type { ThrustAimObservation } from './useThrustInput';
+import {
+  aimPointer,
+  installCanvasAimSurface,
+} from './fixtures/canvasAimObservations';
+import { cursorSteeringConnection } from './fixtures/cursorSteeringFrames';
+import { findEntityById } from './sessionSelectors';
+import { THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS } from './simulationConstants';
+import type { SessionCommand } from './simulationProtocolTypes';
 import {
   cameraConfiguration,
   cameraSessionIdentity,
@@ -69,13 +78,55 @@ const zeroThrust = Object.freeze({ x: 0, y: 0 });
 
 /** Mirror the feature's always-mounted controls owner while exercising the view in isolation. */
 function SimulationViewer(
-  props: Omit<SimulationViewerProps, 'movementTuning'>,
+  props: Omit<SimulationViewerProps, 'movementTuning' | 'onAimObservation'> &
+    Partial<Pick<SimulationViewerProps, 'onAimObservation'>>,
 ) {
   const movementTuning = useMovementTuning({
     lobbyId: props.lobbyId,
     connection: props.connection,
   });
-  return <RoomViewer {...props} movementTuning={movementTuning} />;
+  return (
+    <RoomViewer
+      onAimObservation={ignoreAimObservation}
+      {...props}
+      movementTuning={movementTuning}
+    />
+  );
+}
+
+function ignoreAimObservation(observation: ThrustAimObservation | null): void {
+  void observation;
+}
+
+/** Same composition as Feature: actual body availability and stable welcome/entity incarnation. */
+function CursorViewer({
+  connection,
+}: {
+  readonly connection: SimulationConnection;
+}) {
+  const thrust = useThrustInput({
+    enabled:
+      connection.status === 'connected' &&
+      findEntityById(connection.entities, connection.ownEntityId)?.components
+        .physics_body !== undefined,
+    session: connection.session,
+    ownEntityId: connection.ownEntityId,
+    sendCommand: connection.sendCommand,
+  });
+  return (
+    <SimulationViewer
+      lobbyId={1}
+      connection={connection}
+      thrust={thrust.direction}
+      onAimObservation={thrust.observeAim}
+    />
+  );
+}
+
+async function advanceThrustInterval() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS);
+  });
 }
 
 function createConnection(
@@ -139,10 +190,202 @@ function entitiesWithOwnExposure(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe('SimulationViewer', () => {
+  it('steers exclusively from cursor direction at fixed strength and releases to coast without reactivation after pointer departure', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    render(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, cameraSessionIdentity())}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerDown(canvas, aimPointer(590, 370, { buttons: 1 }));
+    fireEvent.keyDown(canvas, { code: 'KeyW' });
+    fireEvent.keyDown(canvas, { code: 'ArrowRight' });
+    expect(sender).not.toHaveBeenCalled();
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0 },
+    });
+    fireEvent.pointerMove(canvas, aimPointer(980, 370));
+    expect(sender).toHaveBeenCalledTimes(1);
+    fireEvent.pointerMove(canvas, aimPointer(680, 470));
+    await advanceThrustInterval();
+    const diagonal = sender.mock.lastCall?.[0];
+    if (diagonal?.kind !== 'set_thrust')
+      throw new Error('TEST.CURSOR_THRUST_MISSING');
+    expect(diagonal.payload.x).toBeCloseTo(Math.SQRT1_2, 12);
+    expect(diagonal.payload.y).toBeCloseTo(Math.SQRT1_2, 12);
+    fireEvent.pointerMove(canvas, aimPointer(580, 370));
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 0, y: 0 },
+    });
+    fireEvent.pointerMove(canvas, aimPointer(680, 370));
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0 },
+    });
+    fireEvent.pointerLeave(canvas, aimPointer());
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 0, y: 0 },
+    });
+    const beforeReentry = sender.mock.calls.length;
+    fireEvent.pointerEnter(canvas, aimPointer());
+    fireEvent.keyDown(canvas, { code: 'Space', repeat: true });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(beforeReentry);
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0 },
+    });
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 0, y: 0 },
+    });
+  });
+
+  it('updates stationary-cursor aim as a body moves in manual view without treating new snapshot objects as a new body', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    const identity = cameraSessionIdentity();
+    const view = render(
+      <CursorViewer connection={cursorSteeringConnection(sender, identity)} />,
+    );
+    const manual = screen.getByRole('button', { name: 'Manual view' });
+    act(() => manual.focus());
+    fireEvent.click(manual);
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    act(() => canvas.focus());
+    fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0 },
+    });
+    view.rerender(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, identity, 'initial', {
+          x: 600,
+          y: 430,
+        })}
+      />,
+    );
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 0, y: -1 },
+    });
+    const sends = sender.mock.calls.length;
+    view.rerender(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, identity, 'initial', {
+          x: 600,
+          y: 430,
+        })}
+      />,
+    );
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(sends);
+    fireEvent.pointerDown(canvas, aimPointer(700, 390, { buttons: 1 }));
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 0, y: 0 },
+    });
+    fireEvent.pointerUp(canvas, aimPointer(700, 390));
+    fireEvent.lostPointerCapture(canvas, aimPointer(700, 390));
+    fireEvent.keyDown(canvas, { code: 'Space', repeat: true });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(sends + 1);
+    // Ordinary capture release keeps the in-canvas aim: only a new go press, not mouse motion,
+    // is required. Unexpected capture loss is a separate cancellation path in Canvas tests.
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenCalledTimes(sends + 2);
+    const resumed = sender.mock.lastCall?.[0];
+    if (resumed?.kind !== 'set_thrust')
+      throw new Error('TEST.CURSOR_THRUST_MISSING');
+    expect(resumed.payload.x).toBeCloseTo(20 / Math.hypot(20, -80), 12);
+    expect(resumed.payload.y).toBeCloseTo(-80 / Math.hypot(20, -80), 12);
+  });
+
+  it('requires fresh go after actual body loss, entity replacement, and a same-number new welcome', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    let identity = cameraSessionIdentity();
+    const view = render(
+      <CursorViewer connection={cursorSteeringConnection(sender, identity)} />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerDown(canvas, aimPointer(680, 370, { buttons: 1 }));
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, identity, 'bodyless')}
+      />,
+    );
+    view.rerender(
+      <CursorViewer connection={cursorSteeringConnection(sender, identity)} />,
+    );
+    fireEvent.keyDown(canvas, { code: 'Space', repeat: true });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(1);
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenCalledTimes(2);
+    view.rerender(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, identity, 'replacement')}
+      />,
+    );
+    fireEvent.keyDown(canvas, { code: 'Space', repeat: true });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(2);
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenCalledTimes(3);
+    identity = { ...identity };
+    view.rerender(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, identity, 'replacement')}
+      />,
+    );
+    fireEvent.keyDown(canvas, { code: 'Space', repeat: true });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(3);
+  });
+
   it('isolates numeric and range tuning edits from steering and camera movement until explicit Apply', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const connection = createConnection({
@@ -154,10 +397,17 @@ describe('SimulationViewer', () => {
     function EditableViewer() {
       const thrust = useThrustInput({
         enabled: true,
+        session: connection.session,
+        ownEntityId: connection.ownEntityId,
         sendCommand: connection.sendCommand,
       });
       return (
-        <SimulationViewer lobbyId={1} connection={connection} thrust={thrust} />
+        <SimulationViewer
+          lobbyId={1}
+          connection={connection}
+          thrust={thrust.direction}
+          onAimObservation={thrust.observeAim}
+        />
       );
     }
     render(<EditableViewer />);
@@ -172,6 +422,8 @@ describe('SimulationViewer', () => {
     fireEvent.keyUp(acceleration, { code: 'ArrowUp' });
     fireEvent.keyDown(acceleration, { code: 'KeyW' });
     fireEvent.keyUp(acceleration, { code: 'KeyW' });
+    expect(fireEvent.keyDown(acceleration, { code: 'Space' })).toBe(true);
+    fireEvent.keyUp(acceleration, { code: 'Space' });
     fireEvent.change(acceleration, { target: { value: '480' } });
     fireEvent.change(
       screen.getByRole('slider', { name: 'Normal top speed slider' }),
@@ -184,6 +436,8 @@ describe('SimulationViewer', () => {
     act(() => apply.focus());
     fireEvent.keyDown(apply, { code: 'ArrowRight' });
     fireEvent.keyUp(apply, { code: 'ArrowRight' });
+    expect(fireEvent.keyDown(apply, { code: 'Space' })).toBe(true);
+    fireEvent.keyUp(apply, { code: 'Space' });
     expect(connection.sendCommand).not.toHaveBeenCalled();
     fireEvent.click(apply);
     expect(connection.sendCommand).toHaveBeenCalledTimes(1);
@@ -200,20 +454,28 @@ describe('SimulationViewer', () => {
     expect(canvas).toHaveAttribute('data-camera-center-y', beforeY);
   });
 
-  it('wires local manual/follow controls without sending gameplay commands or stealing steering keys', () => {
+  it('keeps native camera activation independent and removes directional keyboard steering', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const connection = createConnection();
     function SteerableViewer() {
       const thrust = useThrustInput({
         enabled: true,
+        session: connection.session,
+        ownEntityId: connection.ownEntityId,
         sendCommand: connection.sendCommand,
       });
       return (
-        <SimulationViewer lobbyId={1} connection={connection} thrust={thrust} />
+        <SimulationViewer
+          lobbyId={1}
+          connection={connection}
+          thrust={thrust.direction}
+          onAimObservation={thrust.observeAim}
+        />
       );
     }
     render(<SteerableViewer />);
-    const canvas = screen.getByRole('img');
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
     const initialX = Number(canvas.getAttribute('data-camera-center-x'));
     const initialY = Number(canvas.getAttribute('data-camera-center-y'));
     expect(
@@ -222,8 +484,11 @@ describe('SimulationViewer', () => {
     expect(screen.getByRole('button', { name: 'Pan right' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Manual view' }));
     const panRight = screen.getByRole('button', { name: 'Pan right' });
+    fireEvent.pointerMove(canvas, aimPointer());
+    act(() => panRight.focus());
     expect(panRight).toBeEnabled();
-    fireEvent.keyDown(panRight, { code: 'Enter' });
+    expect(fireEvent.keyDown(panRight, { code: 'Space' })).toBe(true);
+    fireEvent.keyUp(panRight, { code: 'Space' });
     fireEvent.click(panRight);
     expect(canvas).toHaveAttribute('data-camera-mode', 'manual');
     expect(Number(canvas.getAttribute('data-camera-center-x'))).toBe(
@@ -237,10 +502,7 @@ describe('SimulationViewer', () => {
     fireEvent.keyDown(screen.getByRole('button', { name: 'Follow player' }), {
       code: 'ArrowRight',
     });
-    expect(connection.sendCommand).toHaveBeenCalledWith({
-      kind: 'set_thrust',
-      payload: { x: 1, y: 0 },
-    });
+    expect(connection.sendCommand).not.toHaveBeenCalled();
     expect(Number(canvas.getAttribute('data-camera-center-x'))).toBe(initialX);
   });
 

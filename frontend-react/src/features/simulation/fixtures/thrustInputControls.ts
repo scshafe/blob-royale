@@ -9,6 +9,8 @@ export interface ThrustInputControls {
   readonly editable: HTMLDivElement;
   readonly editableChild: HTMLSpanElement;
   readonly camera: HTMLButtonElement;
+  readonly link: HTMLAnchorElement;
+  readonly surface: HTMLCanvasElement;
 }
 
 /** Explicit tuning controls and native editors, beside an intentionally unmarked camera button. */
@@ -35,7 +37,21 @@ export function createThrustInputControls(): ThrustInputControls {
   editable.append(editableChild);
   const camera = document.createElement('button');
   camera.textContent = 'Follow player';
-  container.append(tuningRegion, input, textarea, select, editable, camera);
+  const link = document.createElement('a');
+  link.href = '#input-fixture';
+  link.textContent = 'Room link';
+  const surface = document.createElement('canvas');
+  surface.tabIndex = 0;
+  container.append(
+    tuningRegion,
+    input,
+    textarea,
+    select,
+    editable,
+    camera,
+    link,
+    surface,
+  );
   document.body.append(container);
 
   return {
@@ -49,5 +65,7 @@ export function createThrustInputControls(): ThrustInputControls {
     editable,
     editableChild,
     camera,
+    link,
+    surface,
   };
 }

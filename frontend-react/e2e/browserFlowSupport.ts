@@ -15,6 +15,13 @@ export const CONNECTED_STATUS = 'Connected to the match session.';
 export const RETRYING_STATUS =
   'The match session disconnected. Retrying with bounded backoff…';
 
+/** The connection status, distinct from the tuning panel's request-outcome status. */
+export function connectionStatus(page: Page): Locator {
+  return page.locator(
+    '[aria-labelledby="simulation-viewer-heading"] > [role="status"]',
+  );
+}
+
 const READINESS_PATH = '/api/v1/health/ready';
 const READINESS_TIMEOUT_MILLISECONDS = 10_000;
 const READINESS_RETRY_INTERVAL_MILLISECONDS = 50;
@@ -205,6 +212,123 @@ export interface RecordedFrame {
     readonly width: number;
     readonly height: number;
   } | null;
+}
+
+/** Real transport observations, never a replacement WebSocket or an injected command sender. */
+export interface RecordedSessionTraffic {
+  readonly sentFrames: string[];
+  readonly receivedFrames: string[];
+  readonly webSocketUrls: string[];
+}
+
+export function recordSessionTraffic(page: Page): RecordedSessionTraffic {
+  const traffic: RecordedSessionTraffic = {
+    sentFrames: [],
+    receivedFrames: [],
+    webSocketUrls: [],
+  };
+  page.on('websocket', (socket) => {
+    traffic.webSocketUrls.push(socket.url());
+    socket.on('framesent', ({ payload }) => {
+      traffic.sentFrames.push(
+        typeof payload === 'string' ? payload : payload.toString(),
+      );
+    });
+    socket.on('framereceived', ({ payload }) => {
+      traffic.receivedFrames.push(
+        typeof payload === 'string' ? payload : payload.toString(),
+      );
+    });
+  });
+  return traffic;
+}
+
+/** A body's painted centre, not the display-name baseline below it. */
+export function requirePaintedBody(
+  frame: RecordedFrame,
+  displayName: string,
+  radiusWorldUnits: number,
+): RecordedArc {
+  const label = requireLabel(frame, displayName);
+  const horizontalRatio = frame.width / frame.cssWidth;
+  const verticalRatio = frame.height / frame.cssHeight;
+  const bodies = frame.arcs.filter(
+    (arc) =>
+      Math.abs(arc.x - label.x) < 0.001 &&
+      Math.abs(arc.radius - radiusWorldUnits * horizontalRatio) < 0.001 &&
+      Math.abs(label.y - arc.y - (radiusWorldUnits + 4) * verticalRatio) <
+        0.001,
+  );
+  const body = bodies[0];
+  if (bodies.length !== 1 || body === undefined) {
+    throw new BrowserE2EError(
+      'BROWSER_E2E.OWN_BODY_NOT_DRAWN',
+      'The frame must paint exactly one body beneath the requested participant label.',
+      {
+        display_name: displayName,
+        body_count: bodies.length,
+        frame_index: frame.index,
+      },
+    );
+  }
+  return body;
+}
+
+/** Deliberate arena focus; merely hovering must not steal a sidebar control's keyboard focus. */
+export async function focusSimulationCanvas(page: Page): Promise<void> {
+  const canvas = page.getByRole('img', {
+    name: 'Blob Royale simulation world',
+  });
+  await canvas.scrollIntoViewIfNeeded();
+  await canvas.click();
+  await expect(canvas).toBeFocused();
+}
+
+/**
+ * One real pointer placement relative to the actual raw painted body, in displayed CSS pixels.
+ * Never follows a moving body: subsequent stationary-cursor updates must come from production.
+ */
+export async function aimFromPaintedBody(
+  page: Page,
+  displayName: string,
+  offset: { readonly x: number; readonly y: number },
+  radiusWorldUnits: number,
+): Promise<{ readonly x: number; readonly y: number }> {
+  const canvas = page.getByRole('img', {
+    name: 'Blob Royale simulation world',
+  });
+  const box = await canvas.boundingBox();
+  if (box === null) {
+    throw new BrowserE2EError(
+      'BROWSER_E2E.AIM_CANVAS_NOT_VISIBLE',
+      'Cursor steering requires the actual visible canvas.',
+    );
+  }
+  const frame = await requireCanvasFrame(page);
+  const body = requirePaintedBody(frame, displayName, radiusWorldUnits);
+  const point = {
+    x: box.x + (body.x * box.width) / frame.width + offset.x,
+    y: box.y + (body.y * box.height) / frame.height + offset.y,
+  };
+  if (
+    point.x < box.x ||
+    point.x >= box.x + box.width ||
+    point.y < box.y ||
+    point.y >= box.y + box.height
+  ) {
+    throw new BrowserE2EError(
+      'BROWSER_E2E.AIM_OUTSIDE_CANVAS',
+      'The authored cursor offset must remain inside the canvas.',
+      {
+        pointer_x: point.x,
+        pointer_y: point.y,
+        canvas_x: box.x,
+        canvas_y: box.y,
+      },
+    );
+  }
+  await page.mouse.move(point.x, point.y);
+  return point;
 }
 
 interface CanvasRecorderState {

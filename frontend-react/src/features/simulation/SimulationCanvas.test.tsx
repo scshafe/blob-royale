@@ -34,6 +34,13 @@ import {
   EXPOSED_OWN_RING_COLOR,
   EXPOSED_PEER_RING_COLOR,
 } from './rendering/zoneExposureRenderer';
+import { findEntityById } from './sessionSelectors';
+import type { ThrustAimObservation } from './useThrustInput';
+import {
+  aimPointer,
+  installCanvasAimSurface,
+} from './fixtures/canvasAimObservations';
+import type { WorldPoint } from './rendering/worldProjection';
 
 const configuration = validateSimulationConfigurationResponse(
   structuredClone(configurationResponseExample),
@@ -48,8 +55,16 @@ const goldenSnapshot = validateSessionSnapshotMessage(snapshotDocument(), {
 }).data;
 
 function SimulationCanvas(
-  props: Omit<SimulationCanvasProps, 'camera' | 'onPan' | 'terrain'> &
-    Partial<Pick<SimulationCanvasProps, 'camera' | 'onPan' | 'terrain'>>,
+  props: Omit<
+    SimulationCanvasProps,
+    'camera' | 'onPan' | 'terrain' | 'ownBodyPosition' | 'onAimObservation'
+  > &
+    Partial<
+      Pick<
+        SimulationCanvasProps,
+        'camera' | 'onPan' | 'terrain' | 'ownBodyPosition' | 'onAimObservation'
+      >
+    >,
 ) {
   return (
     <CameraCanvas
@@ -61,10 +76,19 @@ function SimulationCanvas(
         },
       }}
       onPan={() => undefined}
+      onAimObservation={ignoreAimObservation}
+      ownBodyPosition={
+        findEntityById(props.snapshot?.entities ?? [], props.ownEntityId)
+          ?.components.physics_body?.position ?? null
+      }
       terrain={solidTerrain}
       {...props}
     />
   );
+}
+
+function ignoreAimObservation(_observation: ThrustAimObservation | null): void {
+  void _observation;
 }
 
 // Return type inferred deliberately: an erased `Mock` field would lose the recorded argument types
@@ -131,7 +155,10 @@ function createCanvasContext() {
   };
 }
 
-function bodyEntity(entityId: number): SessionEntitySnapshot {
+function bodyEntity(
+  entityId: number,
+  position: WorldPoint = { x: 240, y: 300 },
+): SessionEntitySnapshot {
   return {
     entity_id: entityId,
     components: {
@@ -141,7 +168,7 @@ function bodyEntity(entityId: number): SessionEntitySnapshot {
         collision_mask: 3,
         is_static: false,
         mass: 1,
-        position: { x: 240, y: 300 },
+        position,
         radius: 10,
         velocity: { x: 0, y: 0 },
       },
@@ -168,6 +195,220 @@ afterEach(() => {
 });
 
 describe('SimulationCanvas', () => {
+  it('observes the same projected body center it draws in CSS pixels without taking focus on hover', () => {
+    const { context, arc } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    const onAimObservation = vi.fn(
+      (observation: ThrustAimObservation | null) => {
+        void observation;
+      },
+    );
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+        onAimObservation={onAimObservation}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+    expect(onAimObservation).toHaveBeenLastCalledWith({
+      pointer: { x: 580, y: 320 },
+      projectedBodyCenter: { x: 480, y: 320 },
+      cameraGestureActive: false,
+    });
+    expect(arc).toHaveBeenLastCalledWith(480, 320, 10, 0, 2 * Math.PI);
+    expect(canvas).not.toHaveFocus();
+    fireEvent.pointerDown(canvas, aimPointer(680, 370, { buttons: 1 }));
+    expect(canvas).toHaveFocus();
+  });
+
+  it('refreshes a stationary cursor for body, camera, viewport, fractional density, scroll, and rendered layout changes', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const onAimObservation = vi.fn(
+      (observation: ThrustAimObservation | null) => {
+        void observation;
+      },
+    );
+    const props = {
+      configuration,
+      ownEntityId: 21,
+      onAimObservation,
+      camera: { mode: 'manual' as const, center: { x: 240, y: 300 } },
+    };
+    const view = render(
+      <SimulationCanvas
+        {...props}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    const surface = installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+    view.rerender(
+      <SimulationCanvas
+        {...props}
+        snapshot={{
+          ...goldenSnapshot,
+          entities: [bodyEntity(21, { x: 340, y: 300 })],
+        }}
+      />,
+    );
+    expect(onAimObservation.mock.lastCall?.[0]).toEqual({
+      pointer: { x: 580, y: 320 },
+      projectedBodyCenter: { x: 580, y: 320 },
+      cameraGestureActive: false,
+    });
+    view.rerender(
+      <SimulationCanvas
+        {...props}
+        camera={{ mode: 'manual', center: { x: 340, y: 300 } }}
+        snapshot={{
+          ...goldenSnapshot,
+          entities: [bodyEntity(21, { x: 340, y: 300 })],
+        }}
+      />,
+    );
+    expect(onAimObservation.mock.lastCall?.[0]?.projectedBodyCenter).toEqual({
+      x: 480,
+      y: 320,
+    });
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(601);
+    });
+    expect(onAimObservation.mock.lastCall?.[0]).toEqual({
+      pointer: { x: 580, y: 320 },
+      projectedBodyCenter: { x: 300.5, y: 200 },
+      cameraGestureActive: false,
+    });
+    vi.stubGlobal('devicePixelRatio', 1.25);
+    fireEvent.resize(window);
+    expect(canvas).toHaveAttribute('width', '751');
+    expect(onAimObservation.mock.lastCall?.[0]).toEqual({
+      pointer: { x: 580, y: 320 },
+      projectedBodyCenter: { x: 300.5, y: 200 },
+      cameraGestureActive: false,
+    });
+    surface.moveTo(200, 150);
+    fireEvent.scroll(window);
+    expect(onAimObservation.mock.lastCall?.[0]?.pointer).toEqual({
+      x: 480,
+      y: 220,
+    });
+    surface.moveTo(220, 170);
+    view.rerender(
+      <SimulationCanvas
+        {...props}
+        camera={{ mode: 'manual', center: { x: 340, y: 300 } }}
+        snapshot={{
+          ...goldenSnapshot,
+          entities: [bodyEntity(21, { x: 340, y: 300 })],
+        }}
+      />,
+    );
+    expect(onAimObservation.mock.lastCall?.[0]?.pointer).toEqual({
+      x: 460,
+      y: 200,
+    });
+  });
+
+  it('publishes null for departed, cancelled, bodyless, hidden, and unmounted surfaces', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const onAimObservation = vi.fn(
+      (observation: ThrustAimObservation | null) => {
+        void observation;
+      },
+    );
+    const props = {
+      configuration,
+      ownEntityId: 21,
+      onAimObservation,
+      camera: { mode: 'follow' as const, center: { x: 240, y: 300 } },
+    };
+    const bodySnapshot = { ...goldenSnapshot, entities: [bodyEntity(21)] };
+    const view = render(
+      <SimulationCanvas {...props} snapshot={bodySnapshot} />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.pointerLeave(canvas, aimPointer());
+    expect(onAimObservation).toHaveBeenLastCalledWith(null);
+    fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.pointerCancel(canvas, aimPointer());
+    expect(onAimObservation).toHaveBeenLastCalledWith(null);
+    fireEvent.pointerMove(canvas, aimPointer());
+    view.rerender(
+      <SimulationCanvas
+        {...props}
+        snapshot={{ ...goldenSnapshot, entities: [] }}
+      />,
+    );
+    expect(onAimObservation).toHaveBeenLastCalledWith(null);
+    view.rerender(<SimulationCanvas {...props} snapshot={bodySnapshot} />);
+    expect(onAimObservation.mock.lastCall?.[0]).not.toBeNull();
+    act(() => {
+      for (const observer of CanvasViewportObserver.active) observer.resize(0);
+    });
+    expect(onAimObservation).toHaveBeenLastCalledWith(null);
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(960);
+    });
+    expect(onAimObservation.mock.lastCall?.[0]).not.toBeNull();
+    view.unmount();
+    expect(onAimObservation).toHaveBeenLastCalledWith(null);
+  });
+
+  it('marks manual dragging before reporting its aim and preserves right-click browser behavior', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const onAimObservation = vi.fn(
+      (observation: ThrustAimObservation | null) => {
+        void observation;
+      },
+    );
+    const onPan = vi.fn((point: WorldPoint) => {
+      void point;
+    });
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        onAimObservation={onAimObservation}
+        onPan={onPan}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    const surface = installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+    onAimObservation.mockClear();
+    fireEvent.pointerDown(canvas, aimPointer(680, 370, { buttons: 1 }));
+    expect(
+      onAimObservation.mock.calls.every(
+        ([value]) => value?.cameraGestureActive === true,
+      ),
+    ).toBe(true);
+    fireEvent.pointerMove(canvas, aimPointer(660, 380, { buttons: 1 }));
+    expect(onPan).toHaveBeenLastCalledWith({ x: 20, y: -10 });
+    fireEvent.lostPointerCapture(canvas, aimPointer());
+    expect(surface.captured.size).toBe(0);
+    expect(onAimObservation).toHaveBeenLastCalledWith(null);
+    expect(fireEvent.contextMenu(canvas)).toBe(true);
+    fireEvent.pointerDown(
+      canvas,
+      aimPointer(680, 370, { button: 2, buttons: 2 }),
+    );
+    expect(surface.captured.size).toBe(0);
+    expect(onPan).toHaveBeenCalledTimes(1);
+  });
+
   it('does not infer solid ground before terrain arrives in welcome', () => {
     const { context, fillRect } = createCanvasContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(

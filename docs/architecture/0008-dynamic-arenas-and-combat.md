@@ -1056,7 +1056,8 @@ no direction and therefore zero thrust. WASD/arrows no longer steer after Step 1
 available for later charge/shield bindings, without assigning or implementing abilities here.
 The earlier proposed Space-for-charge binding is superseded. Left-drag camera panning remains.
 
-One canonical input owner retains projection, direction, send throttling, and cancellation.
+One canonical input owner retains direction, send throttling, and cancellation, observing the
+Canvas's existing shared projection rather than owning a second projection.
 Typing, tuning controls, camera interaction, blur, disconnect, replacement bodies, and later stun
 must not create or resume a held propulsion request; renewed propulsion requires fresh activation
 after cancellation. The cursor can change aim without propulsion when Space is released. This
@@ -1069,3 +1070,8 @@ Fresh snapshot/body objects are not new body incarnations. A same-entity body re
 entirely between delivered snapshots cannot be distinguished with the current wire, which has no
 incarnation token. Cancellation covers observed lifecycle transitions; no position-jump heuristic
 or guarantee for an invisible transition is claimed. This step does not expand the protocol.
+
+Implementation clarification (2026-09-11, Step 11a): Feature retains the sole input/sender hook;
+Canvas publishes CSS-space pointer/body observations through a stable callback, and Viewer retains
+camera policy. ADR 0004's dated cursor/Space amendment records these ownership boundaries. The
+execution plan records exact web/browser evidence and the headless tab-blur verification limit.

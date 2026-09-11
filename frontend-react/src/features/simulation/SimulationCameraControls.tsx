@@ -10,7 +10,7 @@ interface SimulationCameraControlsProps {
   readonly panByWorldOffset: (offset: WorldPoint) => void;
 }
 
-/** Local presentation controls. Ordinary buttons reserve arrow keys for gameplay steering. */
+/** Local presentation controls. Native keyboard activation never doubles as propulsion. */
 export function SimulationCameraControls({
   mode,
   setMode,
@@ -38,7 +38,7 @@ export function SimulationCameraControls({
       <p>
         {mode === 'follow'
           ? 'Following your blob. The view waits in place while you have no body.'
-          : 'Drag the map or use the pan buttons. Your blob still steers with WASD or arrows.'}
+          : 'Left-drag the map or use the pan buttons. Focus the arena, point, and hold Space to move.'}
       </p>
       <div aria-label="Pan camera" className="CameraPanButtons" role="group">
         <button

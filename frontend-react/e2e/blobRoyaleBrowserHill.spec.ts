@@ -10,6 +10,7 @@ import { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
 import { BrowserE2EError } from './BrowserE2EError';
 import {
   CONNECTED_STATUS,
+  connectionStatus,
   PRODUCTION_ORIGIN,
   findLabel,
   installCanvasRecorder,
@@ -182,7 +183,7 @@ test('a browser seats a hill seeker that takes the hill and wins', async ({
     contexts.push(context);
     const page = await openSessionPage(context, pageErrors);
 
-    await expect(page.getByRole('status')).toHaveText(CONNECTED_STATUS);
+    await expect(connectionStatus(page)).toHaveText(CONNECTED_STATUS);
     await expect(matchHudCell(page, 'Phase')).toHaveText('lobby');
     await expect(page.locator('.MatchOverlayTitle')).toHaveText(
       'Waiting for players',

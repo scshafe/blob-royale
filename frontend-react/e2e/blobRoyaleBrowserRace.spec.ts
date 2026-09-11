@@ -10,6 +10,9 @@ import { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
 import { BrowserE2EError } from './BrowserE2EError';
 import {
   CONNECTED_STATUS,
+  connectionStatus,
+  aimFromPaintedBody,
+  focusSimulationCanvas,
   PRODUCTION_ORIGIN,
   findLabel,
   installCanvasRecorder,
@@ -140,7 +143,7 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
       waitUntil: 'domcontentloaded',
     });
     expect(response?.status()).toBe(200);
-    await expect(page.getByRole('status')).toHaveText(CONNECTED_STATUS);
+    await expect(connectionStatus(page)).toHaveText(CONNECTED_STATUS);
     await expect(matchHudCell(page, 'Phase')).toHaveText('lobby');
     const displayName = await readOwnDisplayName(page);
 
@@ -185,7 +188,9 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
 
     // Both centers began inside gate 1. Only the human goes down: y=670 -> beyond710 takes about
     // 4.45 s at the accepted 9 wu/s cap. The bot is already leaving to the right, clear of contact.
-    await page.keyboard.down('KeyS');
+    await focusSimulationCanvas(page);
+    await aimFromPaintedBody(page, displayName, { x: 0, y: 100 }, 20);
+    await page.keyboard.down('Space');
     try {
       await expect(matchHudCell(page, 'Thrust')).toHaveText('0.00, 1.00');
       await expect(matchHudCell(page, 'Return')).toHaveText(RETURN_PATTERN, {
@@ -229,39 +234,43 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
       const laterBodylessFrame = await requireRawCanvasFrame(page);
       expect(findLabel(laterBodylessFrame, displayName)).toBeNull();
       expect(laterBodylessFrame.worldBoundary).toEqual(retainedBoundary);
-    } finally {
-      await page.keyboard.up('KeyS');
-    }
-    await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
-    await expect(matchHudCell(page, 'Gate')).toHaveText('1 of 3');
+      await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
+      await expect(matchHudCell(page, 'Gate')).toHaveText('1 of 3');
 
-    // The name must reappear at the last gate's center, a full 30 world-relative pixels above its grid
-    // label. This proves checkpoint return rather than merely observing an arbitrary body rejoin.
-    await expect
-      .poll(
-        async () => {
-          const frame = await readCanvasFrame(page);
-          const label = frame === null ? null : findLabel(frame, displayName);
-          return label === null ? null : { x: label.x, y: label.y };
-        },
-        {
-          message:
-            'the browser must return at rest to gate 1 rather than its starting grid',
-          timeout: MOTION_TIMEOUT_MILLISECONDS,
-        },
-      )
-      .toEqual({ x: 400, y: 664 });
-    await expect(matchHudCell(page, 'Return')).toHaveCount(0);
-    await expect(matchHudCell(page, 'Alive')).toHaveText('2');
-    expectCourse(await requireCanvasFrame(page));
-    const returnedCameraFrame = await requireRawCanvasFrame(page);
-    const returnedLabel = requireLabel(returnedCameraFrame, displayName);
-    expect(returnedLabel.x).toBeCloseTo(returnedCameraFrame.width / 2, 8);
-    expect(returnedLabel.y).toBeCloseTo(
-      returnedCameraFrame.height / 2 +
-        24 * (returnedCameraFrame.height / returnedCameraFrame.cssHeight),
-      8,
-    );
+      // The name must reappear at the last gate's center, a full 30 world-relative pixels above its grid
+      // label. This proves checkpoint return rather than merely observing an arbitrary body rejoin.
+      await expect
+        .poll(
+          async () => {
+            const frame = await readCanvasFrame(page);
+            const label = frame === null ? null : findLabel(frame, displayName);
+            return label === null ? null : { x: label.x, y: label.y };
+          },
+          {
+            message:
+              'the browser must return at rest to gate 1 rather than its starting grid',
+            timeout: MOTION_TIMEOUT_MILLISECONDS,
+          },
+        )
+        .toEqual({ x: 400, y: 664 });
+      await expect(matchHudCell(page, 'Return')).toHaveCount(0);
+      await expect(matchHudCell(page, 'Alive')).toHaveText('2');
+      expectCourse(await requireCanvasFrame(page));
+      const returnedCameraFrame = await requireRawCanvasFrame(page);
+      const returnedLabel = requireLabel(returnedCameraFrame, displayName);
+      expect(returnedLabel.x).toBeCloseTo(returnedCameraFrame.width / 2, 8);
+      expect(returnedLabel.y).toBeCloseTo(
+        returnedCameraFrame.height / 2 +
+          24 * (returnedCameraFrame.height / returnedCameraFrame.cssHeight),
+        8,
+      );
+      // Space stayed held throughout the bodyless countdown and return. Repeated keydown must
+      // not replay propulsion into the returned body; only a later fresh activation may move it.
+      await page.keyboard.down('Space');
+      await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
+    } finally {
+      await page.keyboard.up('Space');
+    }
 
     await expect(standingCell(page, BOT_DISPLAY_NAME)).toHaveText('#1', {
       timeout: FINISH_TIMEOUT_MILLISECONDS,

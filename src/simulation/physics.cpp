@@ -263,6 +263,28 @@ PlayerPairCollisionResult resolve_player_pair_collision(const PhysicsBody& first
                                                         const double player_radius) {
   const PlayerPairContact contact =
       detect_player_pair_contact(first_body, second_body, player_radius);
+  return resolve_player_pair_collision(first_body, second_body, contact);
+}
+
+double combined_restitution(const double first_restitution,
+                            const double second_restitution) noexcept {
+  return std::min(first_restitution, second_restitution);
+}
+
+PlayerPairCollisionResult resolve_general_pair_collision(const PhysicsBody& first_body,
+                                                         const PhysicsBody& second_body,
+                                                         const double configured_radius) {
+  // The same detection and the same rejection as the accepted narrow phase, measured at the pair's
+  // own contact distance rather than at twice one common radius. `configured_radius` is the
+  // fallback for a body that declares no size, which is why it is still an argument.
+  const PlayerPairContact contact = detect_pair_contact(
+      first_body, second_body, pair_contact_distance(first_body, second_body, configured_radius));
+  return resolve_general_pair_collision(first_body, second_body, contact);
+}
+
+PlayerPairCollisionResult resolve_player_pair_collision(const PhysicsBody& first_body,
+                                                        const PhysicsBody& second_body,
+                                                        const PlayerPairContact& contact) {
   if (!contact.is_contact() || greater_than_or_approximately_equal(contact.relative_normal_speed(),
                                                                    0.0, kVelocityTolerance)) {
     return PlayerPairCollisionResult{contact, false, first_body.velocity(), second_body.velocity()};
@@ -300,19 +322,9 @@ PlayerPairCollisionResult resolve_player_pair_collision(const PhysicsBody& first
   return PlayerPairCollisionResult{contact, true, first_velocity, second_velocity};
 }
 
-double combined_restitution(const double first_restitution,
-                            const double second_restitution) noexcept {
-  return std::min(first_restitution, second_restitution);
-}
-
 PlayerPairCollisionResult resolve_general_pair_collision(const PhysicsBody& first_body,
                                                          const PhysicsBody& second_body,
-                                                         const double configured_radius) {
-  // The same detection and the same rejection as the accepted narrow phase, measured at the pair's
-  // own contact distance rather than at twice one common radius. `configured_radius` is the
-  // fallback for a body that declares no size, which is why it is still an argument.
-  const PlayerPairContact contact = detect_pair_contact(
-      first_body, second_body, pair_contact_distance(first_body, second_body, configured_radius));
+                                                         const PlayerPairContact& contact) {
   if (!contact.is_contact() || greater_than_or_approximately_equal(contact.relative_normal_speed(),
                                                                    0.0, kVelocityTolerance)) {
     return PlayerPairCollisionResult{contact, false, first_body.velocity(), second_body.velocity()};
@@ -383,6 +395,14 @@ PlayerPairCollisionResult resolve_general_pair_collision(const PhysicsBody& firs
                           "physics.resolve_general_pair_collision.second_velocity.y"));
 
   return PlayerPairCollisionResult{contact, true, first_velocity, second_velocity};
+}
+
+Vector2 reflect_static_contact_velocity(const Vector2& velocity, const Vector2& normal) {
+  const double normal_speed = (velocity.x() * normal.x()) + (velocity.y() * normal.y());
+  const Vector2 reflected_velocity =
+      Vector2::create(velocity.x() - (2.0 * normal_speed * normal.x()),
+                      velocity.y() - (2.0 * normal_speed * normal.y()));
+  return reflected_velocity;
 }
 
 WallMotionResult resolve_player_wall_motion(const Vector2& position, const Vector2& velocity,

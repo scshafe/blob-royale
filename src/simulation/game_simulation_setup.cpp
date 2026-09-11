@@ -9,7 +9,12 @@ GameSimulationSetup GameSimulationSetup::engine_defaults() { return GameSimulati
 
 GameSimulationSetup GameSimulationSetup::of_mode(MapDefinition map,
                                                  std::unique_ptr<const GameMode> mode) {
-  return GameSimulationSetup().with_map(std::move(map)).with_mode(std::move(mode));
+  // Construct the final value directly: moving a chain of empty optionals obscures their
+  // initialization from the pinned optimized compiler once a map owns shared terrain storage.
+  GameSimulationSetup setup;
+  setup.map_.emplace(std::move(map));
+  setup.mode_ = std::move(mode);
+  return setup;
 }
 
 GameSimulationSetup GameSimulationSetup::with_map(MapDefinition map) && {

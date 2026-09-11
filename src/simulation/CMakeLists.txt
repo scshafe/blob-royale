@@ -2,6 +2,7 @@ add_library(blob_simulation STATIC
   arena_bounds.cpp
   candidate_pair.cpp
   contact_rule_table.cpp
+  continuous_motion.cpp
   controller_id.cpp
   entity_id.cpp
   game_simulation.cpp
@@ -10,6 +11,7 @@ add_library(blob_simulation STATIC
   input_batch.cpp
   map_definition.cpp
   match_lifecycle_system.cpp
+  motion_triggers.cpp
   physics.cpp
   physics_body.cpp
   player_snapshot.cpp

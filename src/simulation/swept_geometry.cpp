@@ -258,17 +258,24 @@ SweptBoundaryRoots swept_line_boundary_roots(const double start_coordinate,
 SweptBoundaryRoots swept_circle_boundary_roots(const Vector2& start, const Vector2& displacement,
                                                const Vector2& center,
                                                const double boundary_radius) {
+  return swept_circle_boundary_query(start, displacement, center, boundary_radius).roots;
+}
+
+CircleSweepResult swept_circle_boundary_query(const Vector2& start, const Vector2& displacement,
+                                              const Vector2& center, const double boundary_radius) {
   require_radius(boundary_radius, 2.0 * kMaximumPhysicalComponentMagnitude,
                  "swept_geometry.boundary_radius");
   const double offset_x = start.x() - center.x();
   const double offset_y = start.y() - center.y();
+  const bool initial_centers_coincident = offset_x == 0.0 && offset_y == 0.0;
   const double scale = std::max({std::abs(offset_x), std::abs(offset_y), std::abs(displacement.x()),
                                  std::abs(displacement.y()), boundary_radius});
   SweptRootAccumulator roots;
   if (scale == 0.0) {
     roots.add(0.0);
     roots.add(1.0);
-    return roots.finish();
+    return {roots.finish(), CircleInitialRelation::kOnBoundary, CircleLineTopology::kStationary,
+            CircleRadialMotion::kOrthogonal, initial_centers_coincident};
   }
 
   // Power-of-two scaling retains every accepted input bit. Dividing by an arbitrary maximum
@@ -298,6 +305,14 @@ SweptBoundaryRoots swept_circle_boundary_roots(const Vector2& start, const Vecto
   exact_c.add_product(mx, mx);
   exact_c.add_product(my, my);
   exact_c.add_expansion(exact_radius_squared, -1.0);
+  const CircleInitialRelation initial_relation =
+      exact_c.zero()
+          ? CircleInitialRelation::kOnBoundary
+          : (exact_c.negative() ? CircleInitialRelation::kInside : CircleInitialRelation::kOutside);
+  const CircleRadialMotion initial_radial_motion =
+      exact_b.zero()
+          ? CircleRadialMotion::kOrthogonal
+          : (exact_b.negative() ? CircleRadialMotion::kApproaching : CircleRadialMotion::kReceding);
   const double a = exact_a.rounded();
   const double b = exact_b.rounded();
   const double c = exact_c.rounded();
@@ -306,12 +321,15 @@ SweptBoundaryRoots swept_circle_boundary_roots(const Vector2& start, const Vecto
       roots.add(0.0);
       roots.add(1.0);
     }
-    return roots.finish();
+    return {roots.finish(), initial_relation, CircleLineTopology::kStationary,
+            initial_radial_motion, initial_centers_coincident};
   }
   if (exact_c.zero()) {
     roots.add(0.0);
     roots.add((-2.0 * b) / a);
-    return roots.finish();
+    return {roots.finish(), initial_relation,
+            exact_b.zero() ? CircleLineTopology::kTangent : CircleLineTopology::kSecant,
+            initial_radial_motion, initial_centers_coincident};
   }
 
   // Endpoint membership is an exact polynomial fact, not a proximity snap. Factor out an
@@ -329,10 +347,14 @@ SweptBoundaryRoots swept_circle_boundary_roots(const Vector2& start, const Vecto
     }
     roots.add(1.0);
     if (!difference.negative() && !difference.zero()) {
-      return roots.finish(); // The other exact root is outside, even if its division rounds to 1.
+      // The other exact root is outside, even if its division rounds to 1.
+      return {roots.finish(), initial_relation, CircleLineTopology::kSecant, initial_radial_motion,
+              initial_centers_coincident};
     }
     roots.add(other);
-    return roots.finish();
+    return {roots.finish(), initial_relation,
+            difference.zero() ? CircleLineTopology::kTangent : CircleLineTopology::kSecant,
+            initial_radial_motion, initial_centers_coincident};
   }
 
   // The half-quadratic is a*t*t + 2*b*t + c. Its discriminant is evaluated by the
@@ -345,11 +367,13 @@ SweptBoundaryRoots swept_circle_boundary_roots(const Vector2& start, const Vecto
   exact_discriminant.add_product(exact_a, exact_radius_squared);
   exact_discriminant.add_product(cross, cross, -1.0);
   if (exact_discriminant.negative()) {
-    return roots.finish();
+    return {roots.finish(), initial_relation, CircleLineTopology::kMiss, initial_radial_motion,
+            initial_centers_coincident};
   }
   if (exact_discriminant.zero()) {
     roots.add(-b / a);
-    return roots.finish();
+    return {roots.finish(), initial_relation, CircleLineTopology::kTangent, initial_radial_motion,
+            initial_centers_coincident};
   }
   const double square_root = std::sqrt(exact_discriminant.rounded());
   const double q = b >= 0.0 ? -b - square_root : -b + square_root;
@@ -360,7 +384,8 @@ SweptBoundaryRoots swept_circle_boundary_roots(const Vector2& start, const Vecto
   }
   roots.add(first);
   roots.add(second);
-  return roots.finish();
+  return {roots.finish(), initial_relation, CircleLineTopology::kSecant, initial_radial_motion,
+          initial_centers_coincident};
 }
 
 MotionTime map_motion_time(const MotionTime local, const MotionTime begin, const MotionTime end) {

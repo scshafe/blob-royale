@@ -2061,3 +2061,31 @@ TEST_CASE("the drag scale multiplies the configured drag before the factor is fo
   // velocity.
   CHECK_FALSE(snapshot_body(whole_snapshot, 1).velocity() == at(120.0, -80.0));
 }
+
+TEST_CASE("direct mode setup preserves the chained factory value and committed snapshots",
+          "[unit][simulation][game_simulation][setup][determinism]") {
+  const auto terrain = simulation::TerrainDefinition::create(
+      simulation::ArenaBounds::create(500.0, 500.0), simulation::TerrainGround::kSolid, {},
+      {simulation::TerrainHole::create("far_pit", at(400.0, 400.0), 5.0)});
+  const auto map = simulation::MapDefinition::create("setup_proof", terrain, {}, {},
+                                                     simulation::MapMetadata::none());
+  auto direct = simulation::GameSimulationSetup::of_mode(map, testing::TestGameMode::create({}));
+  auto chained = simulation::GameSimulationSetup::engine_defaults().with_map(map).with_mode(
+      testing::TestGameMode::create({}));
+  CHECK(direct.has_map() == chained.has_map());
+  CHECK(direct.has_mode() == chained.has_mode());
+  CHECK_FALSE(direct.has_systems());
+  CHECK_FALSE(direct.has_contact_rules());
+  auto direct_game = simulation::GameSimulation::create(
+      configuration(), simulation::GameWorld::create({player(1, 100.0, 100.0, 17.0, -9.0)}),
+      std::move(direct));
+  auto chained_game = simulation::GameSimulation::create(
+      configuration(), simulation::GameWorld::create({player(1, 100.0, 100.0, 17.0, -9.0)}),
+      std::move(chained));
+  CHECK(direct_game.snapshot() == chained_game.snapshot());
+  for (std::size_t tick = 0; tick < 50; ++tick) {
+    advance(direct_game, 1);
+    advance(chained_game, 1);
+    CHECK(direct_game.snapshot() == chained_game.snapshot());
+  }
+}

@@ -625,3 +625,120 @@ These are explicit work/storage guards, not a performance certification; Step 4 
 Step 5 retains the native-evidence gate. The new production-map fuzz harness exercises these input
 boundaries. Race's distance loop is duplicated only for the staged, bit-identical promotion proof;
 Step 6 removes the old implementation by delegation, before any new publication owner appears.
+
+## Continuous-motion prototype boundary, 2026-09-10 (plan Step 4)
+
+This section records the **unwired prototype proposal**, not Step 5 acceptance or a change to
+ADR 0003's live tick. The original contact detectors remain on the live path. Their impulse
+arithmetic is promoted verbatim to contact-taking helpers only after independent old/new bit
+comparisons pass on both lanes; the old radius-taking wrappers retain their detection semantics.
+Static reflection follows the same proof-before-delegation sequence. A swept hit constructs its
+contact from its geometry certificate, with written square-root arithmetic, without re-entering
+legacy detection and possibly rejecting a rounded time of impact.
+
+The circle owner also returns initial inside/on/outside membership and stationary/miss/tangent/
+secant topology of the supporting infinite line, derived from its existing exact expansion facts
+after the canonical written center-offset subtraction. These are distinct from clipped roots:
+one retained root can be either a tangent or one end of a secant. Detailed-query/root-wrapper
+equivalence must pass on both lanes before delegation. Exact tangencies are rejected as impacts
+before rounded relative-velocity admission; a large-speed tangency can otherwise acquire a false
+closing residual. No second discriminant solver or changed root arithmetic is introduced.
+It separately exposes the initial radial direction (approaching/orthogonal/receding) from the
+same exact dot-product coefficient, and exact coincidence from the canonical offset components.
+Initial contact and velocity-revised retained certificates require approaching radial motion
+unless centers coincide exactly. Distinct centers use their geometric normal even below the old
+position tolerance; only exact coincidence uses the deterministic velocity/axis fallback. Legacy
+detectors and promoted impulse equations keep their existing behavior.
+
+One pure, typed continuous-motion driver receives already accelerated/dragged bodies, immutable
+committed world/context, and borrowed immutable policy facts. It returns bodies, dispositions,
+actual path segments, ordered typed consequences, and work counters, or throws without publishing
+partial results. Responses can change velocity/acceleration and terminate their participating
+bodies; geometry/filter changes and teleportation are invalid prototype responses. The existing
+`ContactResponse`, mode declarations, component registry, event registry, and live kernel are not
+adopted or extended here. Step 16 uses this same driver and disposition type; Step 18 adapts the
+same guarded-pair core instead of implementing another composition.
+
+Motion anchors change only when that body's velocity changes or its motion terminates. Pair
+roots use the fixed common epoch beginning at the later of the two anchors; body/wall roots use
+the body's anchor. Advancing global time filters certificates rather than reparameterizing them.
+This preserves untouched endpoint and future-root bits when an unrelated event is inserted.
+Swept broad-phase coverage belongs to these trajectories, never the committed-position index.
+
+The Step 2 event key selects the minimum currently eligible event. Event times never decrease;
+causally enabled events at the same time are reconsidered under that same priority order, rather
+than pretending their priority could act before their cause. A current-time geometric certificate
+survives a velocity-only response (notably a gate touch after a nonlethal bounce); termination
+removes the body and all later consequences. Future certificates are invalidated by motion changes.
+When a retained contact's generating velocity revisions differ, the same circle owner classifies
+current radial motion along a full-quantum reference line, including at tick end. That directional
+veto cannot revoke certified geometry using newly rounded membership, line topology, or future
+roots. The original time, normal, and distance stay fixed. The selected-certificate diagnostic
+trace may contain a subsequently declined contact or wall; only returned typed effects are
+gameplay consequences.
+
+Contact callbacks retain the live kernel's closing-speed predicate. Closing initial overlap is a
+time-zero event, without depenetration. Body membership uses the canonical circle polynomial at
+the sum of effective radii, not the legacy detector's initial proximity band. The existing gate
+endpoint predicate remains the written square-root distance against authored radius plus
+`kPositionTolerance`; the canonical gate helper applies that spatial expansion exactly once.
+Stationary/separating overlaps and exact tangencies have no
+contact, guard, or lethal consequence in this proposal. Delivering every closed touch is an
+explicit alternative for Step 5, not an accidentally preserved baseline. After a pair response,
+repeat suppression records both **post-response** motion revisions; its own response cannot
+immediately retrigger it. Another contact changing either trajectory re-enables the pair. Time
+advance and acceleration-only changes do not change current-motion revisions.
+
+At an epoch beginning exactly at tick end, zero remaining displacement does not mean zero
+relative velocity: an impact may enable another touching pair before a tied finish. That branch
+passes relative velocity times one canonical fixed delta to the same detailed circle query solely
+as reference-line geometry. Only initial inside/on-boundary membership, non-tangent/non-stationary
+topology, and closing speed admit an event at the existing end time. Outside reference roots are
+never mapped or traveled; no part of the next tick is simulated.
+
+A folding body's center must initially lie in the envelope and its radius must fit the arena;
+initial radius overlap with a wall is allowed. Outward motion at or beyond the inset wall plane
+reflects immediately, while inward overlap may leave without relocation. Static geometry outside
+the envelope and folding centers outside it are invalid inputs. A consumed tied wall certificate
+must refresh the axis even when an intervening pair response made that old wall non-closing, so
+the next opposite-wall event is not lost.
+
+Pure motion triggers have stable identity and bounded tick-local cursor/eligibility state.
+Support loss uses the canonical terrain query and bypasses guard state. Ordered gate occupancy
+uses Step 2 roots and a stable eligibility boundary; overlapping next gates may advance at the
+preceding gate's exact time, and finish terminates immediately. A trigger must advance its cursor,
+change current motion, or terminate. No trigger receives arbitrary mutable world access.
+
+The guarded-pair core reads committed player/lethal/phase facts and explicit frozen per-side
+guard facts. The unguarded lethal branch preserves both bodies and terminates its victim(s).
+Otherwise it selects the existing base equation, quarters each guarded side's received velocity
+delta, applies symmetric perfect eligibility from pre-response incoming world-frame motion, and
+zeros newly stunned dynamic sources' velocity and acceleration. Its separation projection uses
+inverse-mass weights, with zero weight for static and newly stopped sources for that correction
+only. A later external impact may still move a stopped body. Static geometry has zero motion
+velocity even if a stored static body value carries nonzero velocity; its stored fields remain
+unchanged by integration.
+
+When neither side has a guard, the base equation's output is returned unchanged, including its
+binary64 restitution-zero residue; no defense projection modifies an unguarded contact. The
+separation correction applies only to the guarded composition that changed the base response.
+
+The quartered response is an **external-impulse gameplay policy**, not globally energy conserving:
+unit-mass collinear velocities `(10, 9)` become `(9.75, 10)` when the first side shields, increasing
+the squared-speed sum from `181` to `195.0625` despite separation. Only the subsequent non-closing
+projection is intended to be dissipative relative to its input. A global energy cap would require
+a different tradeoff against the quarter target and remains an owner choice at Step 5.
+
+The named prototype ceilings in `simulation_limits.hpp` bound bodies, candidate examinations,
+root/trigger queries, selected events, cursor/declaration storage, paths, and returned effects.
+Exhaustion is a named failure, never truncated travel, skipped contacts, discrete fallback, or a
+partial committed frame. Verification, measurements, and the required specialist review are
+recorded with Step 4 completion; native capacity and adoption remain unaccepted until Step 5.
+
+Swept broad-phase endpoints are scalar geometric bounds, not prematurely constructed final body
+values: an early collision/termination may make an otherwise out-of-range hypothetical endpoint
+irrelevant. Terrain/gate helper inputs retain their existing stricter whole-sweep coordinate
+domain, however. If `start + displacement` lies beyond the representable `Vector2` component
+envelope, those helpers visibly reject even when an earlier trigger could have ended travel.
+This is an explicit prototype numeric-admissibility limitation to settle before live adoption,
+not a hidden discrete fallback or permission to clip the query.

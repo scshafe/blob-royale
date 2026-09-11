@@ -24,6 +24,7 @@ add_library(blob_gameplay STATIC
   royale/zone_shrink_system.cpp
   sandbox/sandbox_mode.cpp
   shared/duration_ticks.cpp
+  shared/guarded_pair_contact.cpp
   shared/hazard_archetype.cpp
   shared/hazard_crossing.cpp
   shared/hazard_spawn_system.cpp

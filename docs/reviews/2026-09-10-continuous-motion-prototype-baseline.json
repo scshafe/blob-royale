@@ -1,0 +1,370 @@
+{
+  "schema": "blob-royale-continuous-motion-prototype-baseline-v1",
+  "recorded_on": "2026-09-10",
+  "purpose": "Step 4 advisory evidence for the Step 5 human gate; not an accepted performance threshold",
+  "command": "./scripts/run-benchmarks-linux",
+  "comparison_class": "advisory",
+  "host_operating_system": "Darwin",
+  "host_architecture": "arm64",
+  "native_performance_certified": false,
+  "implementation_boundary": "Step 4 permanent pure prototype, unwired from the live kernel",
+  "source_suite_schema": "blob-royale-benchmark-v1",
+  "source_suite_status": "passed",
+  "source_suite_cases": [
+    "sparse_64",
+    "sparse_512",
+    "sparse_2048",
+    "clustered_512",
+    "royale_deployed_roster",
+    "continuous_motion_charge_speed",
+    "continuous_motion_dense_32_holes",
+    "continuous_motion_dense_shield_contacts"
+  ],
+  "source_suite_measurement_policy": {
+    "lens": "distributional robust summaries",
+    "comparison_class": "advisory",
+    "regression_budgets_enforced": false,
+    "dedicated_native_linux_runner_required_for_budgets": true,
+    "warmup_run_count": 1,
+    "timed_sample_count": 9,
+    "timed_regions_include_correctness_hashing": false,
+    "delivery_backpressure_measured": true
+  },
+  "platform": {
+    "operating_system": "Linux",
+    "architecture": "x86_64",
+    "kernel_release": "6.8.0-100-generic",
+    "distribution": "Ubuntu 24.04.4 LTS",
+    "cpu_model": "VirtualApple @ 2.50GHz",
+    "logical_cpu_count": 8,
+    "physical_memory_bytes": 12513808384,
+    "cpu_governor": "unavailable",
+    "glibc": "2.39",
+    "compiler_id": "GNU",
+    "compiler_version": "13.3.0",
+    "compiler_version_string": "13.3.0",
+    "build_type": "Release",
+    "boost": "1_83",
+    "toolchain_id": "ubuntu-24.04-amd64-20260804",
+    "base_image_digest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+    "execution_environment": "pinned_oci_container"
+  },
+  "exclusions": [
+    "terrain compilation",
+    "acceleration and drag intake",
+    "ability windows and registered stun lifecycle",
+    "live-kernel wiring",
+    "publication and transport",
+    "worst-case supported body capacity",
+    "native performance certification",
+    "approved charge tuning"
+  ],
+  "cases": [
+    {
+      "name": "continuous_motion_charge_speed",
+      "implementation_boundary": "pure continuous-motion prototype; live kernel remains unwired",
+      "comparison_class": "advisory",
+      "native_capacity_certified": false,
+      "workload_definition": {
+        "world_width_world_units": 960,
+        "world_height_world_units": 640,
+        "body_radius_world_units": 4,
+        "fixed_delta_seconds": 0.0025,
+        "initial_body_count": 16,
+        "terrain_hole_count": 0,
+        "terrain_corridor_count": 0,
+        "terrain_feature_count": 4,
+        "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+        "support_loss_trigger_count": 8,
+        "terrain_compilation_in_timed_region": false,
+        "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+        "layout": "eight independent rows: dynamic x128, static x192; y48+72*row",
+        "dynamic_body_count": 8,
+        "static_body_count": 8,
+        "initial_speed_world_units_per_second": 40000,
+        "unreflected_travel_world_units": 100,
+        "approved_charge_tuning": false
+      },
+      "deterministic_work": {
+        "pair_examinations_per_solve": 1080,
+        "charged_root_queries_per_solve": 144,
+        "events_per_solve": 8,
+        "trigger_queries_per_solve": 16,
+        "broad_phase_rebuilds_per_solve": 9,
+        "maximum_candidate_pairs": 8,
+        "path_segments_per_solve": 16,
+        "effects_per_solve": 8,
+        "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+      },
+      "correctness": {
+        "complete_result_hash": "fnv1a64:53a16ad6bc6a44a0",
+        "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+        "independent_repeat_equal": true,
+        "timed_final_outputs_equal_reference": true,
+        "contact_fact_count": 8,
+        "stun_fact_count": 0,
+        "elimination_fact_count": 0,
+        "terminated_body_count": 0
+      },
+      "measurement": {
+        "sample_count": 9,
+        "solves_per_sample": 16,
+        "latency": {
+          "unit": "nanoseconds_per_solve",
+          "samples": [
+            37887.6875,
+            26888.375,
+            26139.75,
+            26406.75,
+            26116.125,
+            26084.75,
+            26372.6875,
+            27445.875,
+            26945.9375
+          ],
+          "summary": {
+            "median": 26406.75,
+            "percentile_25": 26139.75,
+            "percentile_75": 26945.9375,
+            "median_absolute_deviation": 322,
+            "minimum": 26084.75,
+            "maximum": 37887.6875
+          }
+        },
+        "throughput": {
+          "unit": "solves_per_second",
+          "samples": [
+            26393.79877697735,
+            37190.7934190891,
+            38255.91292954217,
+            37869.105437056816,
+            38290.5197459424,
+            38336.575968717356,
+            37918.01650855644,
+            36435.347752622205,
+            37111.34563419811
+          ],
+          "summary": {
+            "median": 37869.105437056816,
+            "percentile_25": 37111.34563419811,
+            "percentile_75": 38255.91292954217,
+            "median_absolute_deviation": 467.47053166053956,
+            "minimum": 26393.79877697735,
+            "maximum": 38336.575968717356
+          }
+        }
+      }
+    },
+    {
+      "name": "continuous_motion_dense_32_holes",
+      "implementation_boundary": "pure continuous-motion prototype; live kernel remains unwired",
+      "comparison_class": "advisory",
+      "native_capacity_certified": false,
+      "workload_definition": {
+        "world_width_world_units": 960,
+        "world_height_world_units": 640,
+        "body_radius_world_units": 4,
+        "fixed_delta_seconds": 0.0025,
+        "initial_body_count": 32,
+        "terrain_hole_count": 32,
+        "terrain_corridor_count": 0,
+        "terrain_feature_count": 36,
+        "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+        "support_loss_trigger_count": 32,
+        "terrain_compilation_in_timed_region": false,
+        "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+        "layout": "8x4 hole centers (128+80*column,128+160*row); one body starts40wu left of each",
+        "dynamic_body_count": 32,
+        "static_body_count": 0,
+        "hole_radius_world_units": 8,
+        "initial_speed_world_units_per_second": 40000,
+        "collision_mask": 0,
+        "authored_hole_limit_exercised": true
+      },
+      "deterministic_work": {
+        "pair_examinations_per_solve": 2118,
+        "charged_root_queries_per_solve": 1680,
+        "events_per_solve": 32,
+        "trigger_queries_per_solve": 32,
+        "broad_phase_rebuilds_per_solve": 33,
+        "maximum_candidate_pairs": 0,
+        "path_segments_per_solve": 32,
+        "effects_per_solve": 32,
+        "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+      },
+      "correctness": {
+        "complete_result_hash": "fnv1a64:8f206d66b10f4e84",
+        "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+        "independent_repeat_equal": true,
+        "timed_final_outputs_equal_reference": true,
+        "contact_fact_count": 0,
+        "stun_fact_count": 0,
+        "elimination_fact_count": 32,
+        "terminated_body_count": 32
+      },
+      "measurement": {
+        "sample_count": 9,
+        "solves_per_sample": 16,
+        "latency": {
+          "unit": "nanoseconds_per_solve",
+          "samples": [
+            578976.875,
+            579031.8125,
+            576696.9375,
+            578895.6875,
+            576872.25,
+            578476.875,
+            577055.5,
+            577322.5,
+            577843.4375
+          ],
+          "summary": {
+            "median": 577843.4375,
+            "percentile_25": 577055.5,
+            "percentile_75": 578895.6875,
+            "median_absolute_deviation": 971.1875,
+            "minimum": 576696.9375,
+            "maximum": 579031.8125
+          }
+        },
+        "throughput": {
+          "unit": "solves_per_second",
+          "samples": [
+            1727.1846997343373,
+            1727.0208275473638,
+            1734.0130230880582,
+            1727.4269295709687,
+            1733.4860534546426,
+            1728.677572461302,
+            1732.935566856221,
+            1732.1341191448453,
+            1730.5725653412824
+          ],
+          "summary": {
+            "median": 1730.5725653412824,
+            "percentile_25": 1727.4269295709687,
+            "percentile_75": 1732.935566856221,
+            "median_absolute_deviation": 2.913488113360245,
+            "minimum": 1727.0208275473638,
+            "maximum": 1734.0130230880582
+          }
+        }
+      }
+    },
+    {
+      "name": "continuous_motion_dense_shield_contacts",
+      "implementation_boundary": "pure continuous-motion prototype; live kernel remains unwired",
+      "comparison_class": "advisory",
+      "native_capacity_certified": false,
+      "workload_definition": {
+        "world_width_world_units": 960,
+        "world_height_world_units": 640,
+        "body_radius_world_units": 4,
+        "fixed_delta_seconds": 0.0025,
+        "initial_body_count": 32,
+        "terrain_hole_count": 0,
+        "terrain_corridor_count": 0,
+        "terrain_feature_count": 4,
+        "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+        "support_loss_trigger_count": 32,
+        "terrain_compilation_in_timed_region": false,
+        "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+        "layout": "eight touching collinear four-body chains; x128+8*member,y64+64*group",
+        "dynamic_body_count": 32,
+        "static_body_count": 0,
+        "group_count": 8,
+        "bodies_per_group": 4,
+        "within_group_center_spacing_world_units": 8,
+        "between_group_spacing_world_units": 64,
+        "initial_x_velocities_per_group": [
+          8000,
+          4000,
+          -4000,
+          -8000
+        ],
+        "frozen_guards_per_group": [
+          "ordinary",
+          "perfect",
+          "perfect",
+          "ordinary"
+        ],
+        "expected_terminal_x_velocities_per_group": [
+          -250,
+          -250,
+          0,
+          0
+        ],
+        "cascade_policy": "stun clears current motion; later external bumps remain physical"
+      },
+      "deterministic_work": {
+        "pair_examinations_per_solve": 17834,
+        "charged_root_queries_per_solve": 1520,
+        "events_per_solve": 40,
+        "trigger_queries_per_solve": 112,
+        "broad_phase_rebuilds_per_solve": 41,
+        "maximum_candidate_pairs": 48,
+        "path_segments_per_solve": 32,
+        "effects_per_solve": 80,
+        "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+      },
+      "correctness": {
+        "complete_result_hash": "fnv1a64:8d567eb367dea076",
+        "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+        "independent_repeat_equal": true,
+        "timed_final_outputs_equal_reference": true,
+        "contact_fact_count": 40,
+        "stun_fact_count": 40,
+        "elimination_fact_count": 0,
+        "terminated_body_count": 0
+      },
+      "measurement": {
+        "sample_count": 9,
+        "solves_per_sample": 16,
+        "latency": {
+          "unit": "nanoseconds_per_solve",
+          "samples": [
+            239741.5625,
+            238545.3125,
+            238341.0625,
+            237964.125,
+            237979.875,
+            237801.875,
+            238037.4375,
+            239244.1875,
+            237914.4375
+          ],
+          "summary": {
+            "median": 238037.4375,
+            "percentile_25": 237964.125,
+            "percentile_75": 238545.3125,
+            "median_absolute_deviation": 235.5625,
+            "minimum": 237801.875,
+            "maximum": 239741.5625
+          }
+        },
+        "throughput": {
+          "unit": "solves_per_second",
+          "samples": [
+            4171.158265475975,
+            4192.0756669657885,
+            4195.668129993337,
+            4202.314109322151,
+            4202.035991488776,
+            4205.181309020377,
+            4201.019850081356,
+            4179.829865250123,
+            4203.191746192368
+          ],
+          "summary": {
+            "median": 4201.019850081356,
+            "percentile_25": 4192.0756669657885,
+            "percentile_75": 4202.314109322151,
+            "median_absolute_deviation": 4.161458939021031,
+            "minimum": 4171.158265475975,
+            "maximum": 4205.181309020377
+          }
+        }
+      }
+    }
+  ]
+}

@@ -6,6 +6,7 @@
 #include "commands/join_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "commands/start_match_command.hpp"
+#include "continuous_motion.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "entity_id_reservation.hpp"
@@ -22,17 +23,20 @@
 #include "match_configuration.hpp"
 #include "match_phase.hpp"
 #include "match_snapshot.hpp"
+#include "motion_triggers.hpp"
 #include "physics_body.hpp"
 #include "player_snapshot.hpp"
 #include "protocol_json_encoding.hpp"
 #include "request_id.hpp"
 #include "royale/royale_configuration.hpp"
 #include "seat_roster.hpp"
+#include "shared/guarded_pair_contact.hpp"
 #include "shared/hazard_archetype.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "snapshot_delivery_state.hpp"
 #include "spatial_grid.hpp"
+#include "terrain_definition.hpp"
 #include "vector2.hpp"
 #include "world_snapshot.hpp"
 
@@ -40,6 +44,7 @@
 #include <boost/version.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <chrono>
 #include <cmath>
@@ -62,6 +67,7 @@
 #include <sys/resource.h>
 #include <sys/utsname.h>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -101,25 +107,28 @@ constexpr std::string_view kExpectedToolchainId = "ubuntu-24.04-amd64-20260804";
 constexpr std::string_view kExpectedBaseImageDigest =
     "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467";
 
-// The royale case: the deployed match, at the roster ADR 0006 budgets a room for.
+// The royale case: the historical deployed workload ADR 0006 measured and budgeted.
 //
 // `docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision" sets the acceptance
 // number for one room at **a mean step of at most 250 µs and a p99 of at most 1 ms** at the
-// deployed roster -- eight seats, the deployed hazard table, the 32-marker map -- measured on the
-// native runner. The kernel cases above are the engine's floor and say nothing about a live match
-// (`benchmarks/README.md`); this case is the live match. Every number but the seat count is read
-// from `deploy/ubuntu-pc/blob-royale.cfg` and the map it names, so the case cannot drift from the
-// deployment; the seat count is widened from the deployed four to the eight the budget is stated
-// for, and both values are in the output.
+// historical roster -- eight seats, the reference hazard table, the 32-marker map -- measured on
+// the native runner. The kernel cases above are the engine's floor and say nothing about a live
+// match
+// (`benchmarks/README.md`); this case runs real royale gameplay but is not today's selected
+// deployment mode. Every number but the seat count is read from the frozen reference fixture and
+// its named map; four reference seats widen to the budgeted eight. Provenance is explicit in JSON.
 constexpr std::string_view kRoyaleCaseName = "royale_deployed_roster";
+constexpr std::string_view kRoyaleReferenceSourceCommit =
+    "a9e0104ca25724ac4660a4fc9031620b8a852d40";
+constexpr std::string_view kRoyaleReferenceSourcePath = "deploy/ubuntu-pc/blob-royale.cfg";
 constexpr std::uint64_t kRoyaleSeatCount = 8;
-// Sixteen seconds of `running`. The countdown holds the match for the deployed five seconds, so
+// Sixteen seconds of `running`. The countdown holds the match for the reference five seconds, so
 // the timed ticks run from about tick 2,001 to about tick 8,400 and cross every spawn tick of both
-// deployed hazard kinds -- the comet every 2,400 ticks and the boulder at tick 8,000 -- which a
+// reference hazard kinds -- the comet every 2,400 ticks and the boulder at tick 8,000 -- which a
 // ten-second window would not. Nobody thrusts, and the 32 markers all sit within 233 wu of the
 // centre while the zone is still above 480 wu at the end, so the zone eliminates nobody; the
-// deployed comet is lethal, though, and the field thins as comets cross it, which is what a
-// deployed match does. The output carries the player count at both ends of the window.
+// reference comet is lethal, though, and the field thins as comets cross it. The output carries the
+// player count at both ends of the window.
 constexpr std::size_t kRoyaleRunningTicksPerSample = 6'400;
 constexpr std::size_t kRoyaleSnapshotsPerSample = 200;
 constexpr double kRoyaleStepMeanBudgetNanoseconds = 250'000.0;
@@ -688,20 +697,20 @@ make_backpressure_snapshots(SnapshotLifetimeTracker& lifetime_tracker) {
 // ---------------------------------------------------------------------------------------------
 // The royale case.
 
-// Where the deployment's inputs are on this machine: the runner passes both paths.
+// Where the historical reference inputs are on this machine: the runner passes both paths.
 struct RoyaleCaseInputs final {
-  std::filesystem::path deployment_configuration;
+  std::filesystem::path reference_configuration;
   std::filesystem::path maps_directory;
 };
 
-// Everything one identical royale simulation is built from, resolved once from the deployment.
+// Everything one identical royale simulation is built from, resolved once from the reference.
 struct RoyaleMatch final {
   SimulationConfig configuration;
   simulation::MapDefinition map;
   gameplay::GameModeConfiguration mode_configuration;
   std::string mode_name;
   std::uint64_t seed;
-  std::uint64_t deployed_lobby_seat_count;
+  std::uint64_t reference_lobby_seat_count;
   std::string configuration_path;
 };
 
@@ -713,35 +722,35 @@ struct TickStatistics final {
   double maximum;
 };
 
-// Reads the deployed configuration through the production loader and the named map through the
+// Reads the historical configuration through the production loader and the named map through the
 // production map loader, then widens the lobby to the budgeted seat count and nothing else.
 [[nodiscard]] RoyaleMatch load_royale_match(const RoyaleCaseInputs& inputs) {
-  const std::string configuration_path = inputs.deployment_configuration.string();
+  const std::string configuration_path = inputs.reference_configuration.string();
   const char* const arguments[] = {"blob_simulation_benchmarks", "--config",
                                    configuration_path.c_str()};
   application::ApplicationConfigLoader::Result loaded =
       application::ApplicationConfigLoader::load(3, arguments);
   const auto* const run_request =
       std::get_if<application::ApplicationConfigLoader::RunRequest>(&loaded);
-  require(run_request != nullptr, "BENCHMARK.DEPLOYMENT_CONFIGURATION_INVALID",
-          "the deployment configuration did not load as a run request");
+  require(run_request != nullptr, "BENCHMARK.ROYALE_REFERENCE_CONFIGURATION_INVALID",
+          "the historical royale reference configuration did not load as a run request");
   const application::ApplicationConfig& configuration = run_request->application_config();
   const application::MatchConfiguration& match = configuration.match_configuration();
-  require(match.mode_name() == "royale", "BENCHMARK.DEPLOYMENT_MODE_UNEXPECTED",
-          "the royale case requires a deployment whose [match] mode is royale");
+  require(match.mode_name() == "royale", "BENCHMARK.ROYALE_REFERENCE_MODE_UNEXPECTED",
+          "the historical royale reference must declare [match] mode=royale");
 
-  // The map is read from the repository's `maps/`, not from the container path the deployed
-  // configuration names, which exists only inside the deployed container.
+  // The map is read from the repository's `maps/`, not from the historical container path the
+  // reference configuration preserves. No configuration value is rewritten to obtain that map.
   simulation::MapDefinition map =
       application::MapLoader::load(inputs.maps_directory / match.map_name());
 
   // The seat count is a `[match]` fact and the lobby is world state, so the widening to eight seats
   // is done on the initial world's roster in `RoyaleRun` and the mode configuration is the
-  // deployment's own, untouched.
+  // historical reference's own, untouched.
   gameplay::GameModeConfiguration mode_configuration = configuration.game_mode_configuration();
-  require(!mode_configuration.hazards.empty(), "BENCHMARK.DEPLOYMENT_HAZARDS_MISSING",
-          "the royale case expects the deployment to declare at least one hazard kind");
-  require(map.spawn_points().size() >= kRoyaleSeatCount, "BENCHMARK.DEPLOYMENT_MAP_TOO_SMALL",
+  require(!mode_configuration.hazards.empty(), "BENCHMARK.ROYALE_REFERENCE_HAZARDS_MISSING",
+          "the historical royale reference must declare at least one hazard kind");
+  require(map.spawn_points().size() >= kRoyaleSeatCount, "BENCHMARK.ROYALE_REFERENCE_MAP_TOO_SMALL",
           "the royale case needs a spawn marker for each of its eight seats");
 
   return RoyaleMatch{.configuration = configuration.simulation_config(),
@@ -749,7 +758,7 @@ struct TickStatistics final {
                      .mode_configuration = std::move(mode_configuration),
                      .mode_name = match.mode_name(),
                      .seed = match.seed(),
-                     .deployed_lobby_seat_count = match.lobby_seat_count(),
+                     .reference_lobby_seat_count = match.lobby_seat_count(),
                      .configuration_path = configuration_path};
 }
 
@@ -969,17 +978,25 @@ private:
     hazards.emplace_back(std::move(hazard));
   }
 
-  json::object deployment;
-  deployment.emplace("configuration", match.configuration_path);
-  deployment.emplace("mode", match.mode_name);
-  deployment.emplace("map", match.map.name());
-  deployment.emplace("spawn_marker_count", match.map.spawn_points().size());
-  deployment.emplace("seed", match.seed);
-  deployment.emplace("drag_per_second", match.configuration.drag_per_second());
-  deployment.emplace("deployed_lobby_seat_count", match.deployed_lobby_seat_count);
-  deployment.emplace("benchmark_lobby_seat_count", kRoyaleSeatCount);
-  deployment.emplace("countdown_ticks", match.mode_configuration.royale.countdown_ticks());
-  deployment.emplace("hazards", std::move(hazards));
+  json::object reference_configuration;
+  reference_configuration.emplace("configuration", match.configuration_path);
+  reference_configuration.emplace("source_kind", "frozen_historical_deployment");
+  reference_configuration.emplace("source_commit", kRoyaleReferenceSourceCommit);
+  reference_configuration.emplace("source_path", kRoyaleReferenceSourcePath);
+  reference_configuration.emplace("source_commit_scope", "configuration_only");
+  reference_configuration.emplace("map_source", "current_repository_maps");
+  reference_configuration.emplace("maps_directory", inputs.maps_directory.string());
+  reference_configuration.emplace("represents_current_deployment", false);
+  reference_configuration.emplace("mode", match.mode_name);
+  reference_configuration.emplace("map", match.map.name());
+  reference_configuration.emplace("spawn_marker_count", match.map.spawn_points().size());
+  reference_configuration.emplace("seed", match.seed);
+  reference_configuration.emplace("drag_per_second", match.configuration.drag_per_second());
+  reference_configuration.emplace("reference_lobby_seat_count", match.reference_lobby_seat_count);
+  reference_configuration.emplace("benchmark_lobby_seat_count", kRoyaleSeatCount);
+  reference_configuration.emplace("countdown_ticks",
+                                  match.mode_configuration.royale.countdown_ticks());
+  reference_configuration.emplace("hazards", std::move(hazards));
 
   json::object correctness;
   correctness.emplace("first_timed_tick_sequence", first_timed_tick);
@@ -992,7 +1009,7 @@ private:
   json::object result;
   result.emplace("name", kRoyaleCaseName);
   result.emplace("player_count", kRoyaleSeatCount);
-  result.emplace("deployment", std::move(deployment));
+  result.emplace("historical_reference", std::move(reference_configuration));
   result.emplace("correctness", std::move(correctness));
   result.emplace("measurements", std::move(measurements));
   result.emplace("budget", std::move(budget));
@@ -1311,6 +1328,439 @@ void run_warmup(const Scenario& scenario, const WorldSnapshot& reference_snapsho
   return result;
 }
 
+// These are pure Step 4 workloads, not live-kernel measurements or approved charge tuning.
+// Every solve starts from identical already-accelerated bodies and frozen per-entity guard facts.
+enum class MotionPrototypeKind { kChargeSpeed, kDenseHoles, kDenseShields };
+constexpr std::size_t kMotionPrototypeSolvesPerSample = 16;
+using MotionPrototypeEffect = gameplay::GuardedPairConsequence;
+using MotionPrototypeResult = simulation::ContinuousMotionResult<MotionPrototypeEffect>;
+
+struct MotionPrototypeFacts final {
+  std::vector<gameplay::GuardState> guards;
+};
+
+struct MotionPrototypeCase final {
+  MotionPrototypeKind kind;
+  std::string_view name;
+  simulation::MapDefinition map;
+  std::vector<simulation::ContactRule::Subject> bodies;
+  MotionPrototypeFacts facts;
+};
+
+[[nodiscard]] simulation::PairMotionResponse<MotionPrototypeEffect>
+prototype_pair_response(const GameWorld& world, const simulation::ContactRule::Subject& first,
+                        const simulation::ContactRule::Subject& second,
+                        const simulation::PlayerPairContact& contact,
+                        const simulation::TickContext& context, const MotionPrototypeFacts& facts) {
+  const gameplay::PairGuardFacts pair{
+      facts.guards.at(static_cast<std::size_t>(first.entity.value() - 1)),
+      facts.guards.at(static_cast<std::size_t>(second.entity.value() - 1))};
+  return gameplay::compose_guarded_pair(world, first, second, contact, context, pair);
+}
+
+[[nodiscard]] std::optional<simulation::MotionTriggerProposal>
+prototype_support_query(const GameWorld&, const simulation::ContactRule::Subject&,
+                        const simulation::MotionTriggerWindow& window,
+                        const simulation::TickContext& context, const MotionPrototypeFacts&,
+                        const std::uint64_t, simulation::MotionQueryBudget& budget) {
+  return simulation::support_loss_motion_trigger(context.map().terrain(), window, budget);
+}
+
+[[nodiscard]] simulation::MotionTriggerResponse<MotionPrototypeEffect>
+prototype_support_response(const GameWorld&, const simulation::ContactRule::Subject& subject,
+                           const simulation::MotionTriggerEvent& event,
+                           const simulation::TickContext&, const MotionPrototypeFacts&) {
+  return {{subject.body, simulation::MotionDisposition::kTerminate},
+          event.cursor + 1,
+          {gameplay::GuardedPairEliminationFact{subject.entity}}};
+}
+
+[[nodiscard]] PhysicsBody prototype_dynamic_body(const double x, const double y, const double speed,
+                                                 const PhysicsBody::CollisionLayer mask = 1) {
+  return PhysicsBody::create(Vector2::create(x, y), Vector2::create(speed, 0.0),
+                             Vector2::create(0.0, 0.0), 4.0, 1.0,
+                             PhysicsBody::kDefaultCollisionLayer, mask, false);
+}
+
+[[nodiscard]] MotionPrototypeCase make_motion_prototype_case(const MotionPrototypeKind kind) {
+  std::vector<simulation::TerrainHole> holes;
+  std::vector<simulation::ContactRule::Subject> bodies;
+  MotionPrototypeFacts facts;
+  const auto append = [&](PhysicsBody body, const gameplay::GuardState guard) {
+    bodies.push_back({EntityId::create(static_cast<std::uint64_t>(bodies.size()) + 1), body});
+    facts.guards.push_back(guard);
+  };
+  std::string_view name;
+  if (kind == MotionPrototypeKind::kChargeSpeed) {
+    name = "continuous_motion_charge_speed";
+    for (std::size_t row = 0; row < 8; ++row) {
+      const double y = 48.0 + (72.0 * static_cast<double>(row));
+      append(prototype_dynamic_body(128.0, y, 40'000.0), gameplay::GuardState::kNone);
+      append(PhysicsBody::create_static(Vector2::create(192.0, y)).with_radius(4.0),
+             gameplay::GuardState::kNone);
+    }
+  } else if (kind == MotionPrototypeKind::kDenseHoles) {
+    name = "continuous_motion_dense_32_holes";
+    for (std::size_t index = 0; index < 32; ++index) {
+      const double x = 128.0 + (80.0 * static_cast<double>(index % 8));
+      const double y = 128.0 + (160.0 * static_cast<double>(index / 8));
+      holes.push_back(simulation::TerrainHole::create("hole_" + std::to_string(index),
+                                                      Vector2::create(x, y), 8.0));
+      append(prototype_dynamic_body(x - 40.0, y, 40'000.0, 0), gameplay::GuardState::kNone);
+    }
+    require(holes.size() == simulation::kMaximumTerrainHoleCount,
+            "BENCHMARK.TERRAIN_HOLE_LIMIT_CHANGED",
+            "the dense-32-hole workload must still exercise the authored hole limit");
+  } else {
+    name = "continuous_motion_dense_shield_contacts";
+    constexpr std::array speeds{8'000.0, 4'000.0, -4'000.0, -8'000.0};
+    constexpr std::array guards{gameplay::GuardState::kOrdinary, gameplay::GuardState::kPerfect,
+                                gameplay::GuardState::kPerfect, gameplay::GuardState::kOrdinary};
+    for (std::size_t group = 0; group < 8; ++group) {
+      for (std::size_t member = 0; member < speeds.size(); ++member) {
+        append(prototype_dynamic_body(128.0 + (8.0 * static_cast<double>(member)),
+                                      64.0 + (64.0 * static_cast<double>(group)), speeds[member]),
+               guards[member]);
+      }
+    }
+  }
+  auto terrain = simulation::TerrainDefinition::create(
+      simulation::ArenaBounds::create(960.0, 640.0), simulation::TerrainGround::kSolid, {},
+      std::move(holes));
+  auto map = simulation::MapDefinition::create("continuous_motion_benchmark", std::move(terrain),
+                                               {}, {}, simulation::MapMetadata::none());
+  return {kind, name, std::move(map), std::move(bodies), std::move(facts)};
+}
+
+[[nodiscard]] GameWorld prototype_committed_world(const MotionPrototypeCase& inputs) {
+  auto world = GameWorld::create({});
+  world.mutable_match().phase = simulation::MatchPhase::kRunning;
+  for (const auto& subject : inputs.bodies) {
+    world.mutable_store<PhysicsBody>().insert_or_assign(subject.entity, subject.body);
+  }
+  return world;
+}
+
+// Own every referent of TickContext; independent harnesses never share mutable world or grid state.
+class MotionPrototypeHarness final {
+public:
+  explicit MotionPrototypeHarness(const MotionPrototypeCase& inputs)
+      : inputs_(&inputs), configuration_(SimulationConfig::create(960.0, 640.0, 4.0, 400, 12, 8)),
+        world_(prototype_committed_world(inputs)),
+        grid_(SpatialGrid::create(configuration_, inputs.map.bounds(), world_)),
+        context_(simulation::TickContext::create(simulation::TickSequence::create(1),
+                                                 FixedDelta::canonical(), configuration_,
+                                                 inputs.map, grid_)) {
+    for (const auto& subject : inputs.bodies) {
+      if (!subject.body.is_static()) {
+        triggers_.push_back(
+            {subject.entity, 100, 0, 1, prototype_support_query, prototype_support_response});
+      }
+    }
+  }
+
+  MotionPrototypeHarness(const MotionPrototypeHarness&) = delete;
+  MotionPrototypeHarness& operator=(const MotionPrototypeHarness&) = delete;
+
+  [[nodiscard]] MotionPrototypeResult solve() const {
+    return simulation::solve_continuous_motion<MotionPrototypeEffect, MotionPrototypeFacts>(
+        world_, inputs_->bodies, context_, inputs_->facts, prototype_pair_response, triggers_);
+  }
+
+private:
+  const MotionPrototypeCase* inputs_;
+  SimulationConfig configuration_;
+  GameWorld world_;
+  SpatialGrid grid_;
+  simulation::TickContext context_;
+  std::vector<simulation::MotionTrigger<MotionPrototypeEffect, MotionPrototypeFacts>> triggers_;
+};
+
+void hash_motion_vector(std::uint64_t& hash, const Vector2& value) {
+  hash_double(hash, value.x());
+  hash_double(hash, value.y());
+}
+
+void hash_motion_body(std::uint64_t& hash, const PhysicsBody& body) {
+  hash_motion_vector(hash, body.position());
+  hash_motion_vector(hash, body.velocity());
+  hash_motion_vector(hash, body.acceleration());
+  hash_double(hash, body.radius());
+  hash_double(hash, body.mass());
+  hash_double(hash, body.restitution());
+  hash_double(hash, body.drag_scale());
+  hash_uint64(hash, body.collision_layer());
+  hash_uint64(hash, body.collision_mask());
+  hash_uint64(hash, body.is_static() ? 1 : 0);
+  hash_uint64(hash, static_cast<std::uint64_t>(body.bounds_behavior()));
+}
+
+void hash_motion_event(std::uint64_t& hash, const simulation::MotionEventKey& event) {
+  hash_double(hash, event.time().value());
+  hash_uint64(hash, static_cast<std::uint64_t>(event.priority()));
+  hash_uint64(hash, event.first_entity().value());
+  hash_uint64(hash, event.second_identity());
+}
+
+[[nodiscard]] std::string motion_prototype_result_hash(const MotionPrototypeResult& result) {
+  std::uint64_t hash = kFnvOffsetBasis;
+  hash_uint64(hash, result.motion.bodies.size());
+  for (const auto& body : result.motion.bodies) {
+    hash_uint64(hash, body.entity.value());
+    hash_motion_body(hash, body.result.body);
+    hash_uint64(hash, static_cast<std::uint64_t>(body.result.disposition));
+  }
+  hash_uint64(hash, result.motion.paths.size());
+  for (const auto& path : result.motion.paths) {
+    hash_uint64(hash, path.entity.value());
+    hash_double(hash, path.begin.value());
+    hash_double(hash, path.end.value());
+    hash_motion_vector(hash, path.start);
+    hash_motion_vector(hash, path.finish);
+  }
+  hash_uint64(hash, result.motion.events.size());
+  for (const auto& event : result.motion.events) {
+    hash_motion_event(hash, event);
+  }
+  hash_uint64(hash, result.effects.size());
+  for (const auto& ordered : result.effects) {
+    hash_motion_event(hash, ordered.event);
+    hash_uint64(hash, ordered.effect.index());
+    std::visit(
+        [&](const auto& fact) {
+          using Fact = std::decay_t<decltype(fact)>;
+          if constexpr (std::is_same_v<Fact, gameplay::GuardedPairContactFact>) {
+            hash_uint64(hash, fact.contact.pair.lower_id().value());
+            hash_uint64(hash, fact.contact.pair.higher_id().value());
+            hash_motion_vector(hash, fact.contact.normal);
+            hash_double(hash, fact.contact.relative_normal_speed);
+            const auto name = fact.contact.rule_name.value();
+            hash_uint64(hash, name.size());
+            for (const char character : name) {
+              hash_byte(hash, static_cast<std::uint8_t>(static_cast<unsigned char>(character)));
+            }
+          } else {
+            hash_uint64(hash, fact.entity.value());
+          }
+        },
+        ordered.effect);
+  }
+  hash_uint64(hash, result.trigger_cursors.size());
+  for (const auto cursor : result.trigger_cursors) {
+    hash_uint64(hash, cursor);
+  }
+  hash_uint64(hash, result.motion.work.pair_examinations);
+  hash_uint64(hash, result.motion.work.root_queries);
+  hash_uint64(hash, result.motion.work.events);
+  hash_uint64(hash, result.motion.work.trigger_queries);
+  hash_uint64(hash, result.motion.work.broad_phase_rebuilds);
+  hash_uint64(hash, result.motion.work.maximum_candidate_pairs);
+  return hash_label(hash);
+}
+
+struct MotionPrototypeConsequences final {
+  std::size_t contacts{};
+  std::size_t stuns{};
+  std::size_t eliminations{};
+  std::size_t terminations{};
+};
+
+[[nodiscard]] MotionPrototypeConsequences
+validate_motion_prototype_result(const MotionPrototypeCase& inputs,
+                                 const MotionPrototypeResult& result) {
+  require(result.motion.bodies.size() == inputs.bodies.size(),
+          "BENCHMARK.MOTION_BODY_COUNT_MISMATCH", "pure motion must retain every result slot");
+  require(result.motion.work.events == result.motion.events.size(),
+          "BENCHMARK.MOTION_EVENT_COUNT_MISMATCH", "motion work and event trace must agree");
+  MotionPrototypeConsequences counts;
+  for (const auto& effect : result.effects) {
+    counts.contacts +=
+        std::holds_alternative<gameplay::GuardedPairContactFact>(effect.effect) ? 1 : 0;
+    counts.stuns += std::holds_alternative<gameplay::GuardedPairStunFact>(effect.effect) ? 1 : 0;
+    counts.eliminations +=
+        std::holds_alternative<gameplay::GuardedPairEliminationFact>(effect.effect) ? 1 : 0;
+  }
+  for (std::size_t index = 0; index < result.motion.bodies.size(); ++index) {
+    const auto& resolved = result.motion.bodies[index];
+    require(resolved.entity == inputs.bodies[index].entity, "BENCHMARK.MOTION_BODY_ORDER_MISMATCH",
+            "result bodies must be in canonical entity order");
+    counts.terminations +=
+        resolved.result.disposition == simulation::MotionDisposition::kTerminate ? 1 : 0;
+    if (inputs.kind == MotionPrototypeKind::kChargeSpeed) {
+      if (resolved.result.body.is_static()) {
+        require(resolved.result.body == inputs.bodies[index].body,
+                "BENCHMARK.MOTION_STATIC_BODY_CHANGED",
+                "charge stress must preserve static bodies");
+      } else {
+        require(resolved.result.body.velocity().x() == -40'000.0 &&
+                    resolved.result.body.velocity().y() == 0.0 &&
+                    std::abs(resolved.result.body.position().x() - 140.0) <=
+                        simulation::kPositionTolerance,
+                "BENCHMARK.MOTION_CHARGE_REFLECTION_MISMATCH",
+                "charge-speed bodies must hit the static disc and finish their reflected path");
+      }
+    } else if (inputs.kind == MotionPrototypeKind::kDenseHoles) {
+      require(resolved.result.disposition == simulation::MotionDisposition::kTerminate &&
+                  resolved.result.body.position().x() > inputs.bodies[index].body.position().x() &&
+                  resolved.result.body.position().x() <
+                      inputs.bodies[index].body.position().x() + 40.0,
+              "BENCHMARK.MOTION_HOLE_CROSSING_NOT_STOPPED",
+              "each body must terminate at its own first hole rim before crossing the hole center");
+    } else {
+      const double expected_speed = index % 4 < 2 ? -250.0 : 0.0;
+      const double expected_x = inputs.bodies[index].body.position().x() +
+                                (expected_speed * simulation::kFixedDeltaSeconds);
+      require(resolved.result.body.velocity() == Vector2::create(expected_speed, 0.0) &&
+                  resolved.result.body.position().x() == expected_x,
+              "BENCHMARK.MOTION_SHIELD_CHAIN_OUTCOME_MISMATCH",
+              "the finite shield cascade must preserve the later external bump after stun");
+    }
+  }
+  if (inputs.kind == MotionPrototypeKind::kChargeSpeed) {
+    require(counts.contacts == 8 && counts.stuns == 0 && counts.eliminations == 0 &&
+                counts.terminations == 0 && result.motion.events.size() == 8,
+            "BENCHMARK.MOTION_CHARGE_CONSEQUENCES_MISMATCH",
+            "eight charge stress rows must each reflect exactly once without falling");
+  } else if (inputs.kind == MotionPrototypeKind::kDenseHoles) {
+    require(counts.contacts == 0 && counts.stuns == 0 && counts.eliminations == 32 &&
+                counts.terminations == 32 && result.motion.events.size() == 32 &&
+                std::ranges::all_of(result.trigger_cursors,
+                                    [](const auto cursor) { return cursor == 1; }),
+            "BENCHMARK.MOTION_HOLE_CONSEQUENCES_MISMATCH",
+            "all thirty-two masked-off bodies must produce exactly one support termination");
+  } else {
+    require(counts.contacts == 40 && counts.stuns == 40 && counts.eliminations == 0 &&
+                counts.terminations == 0 && result.motion.events.size() == 40,
+            "BENCHMARK.MOTION_SHIELD_CONSEQUENCES_MISMATCH",
+            "each of eight dense four-body chains must emit five contacts and five stun facts");
+  }
+  return counts;
+}
+
+[[nodiscard]] json::object benchmark_motion_prototype(const MotionPrototypeKind kind) {
+  const auto inputs = make_motion_prototype_case(kind);
+  const MotionPrototypeHarness harness{inputs};
+  const auto reference = harness.solve();
+  const auto consequences = validate_motion_prototype_result(inputs, reference);
+  const std::string expected_hash = motion_prototype_result_hash(reference);
+  const auto independent_inputs = make_motion_prototype_case(kind);
+  const MotionPrototypeHarness independent{independent_inputs};
+  const auto independent_result = independent.solve();
+  static_cast<void>(validate_motion_prototype_result(independent_inputs, independent_result));
+  require(motion_prototype_result_hash(independent_result) == expected_hash,
+          "BENCHMARK.MOTION_REFERENCE_HASH_MISMATCH",
+          "independent authored terrain/world/facts produced different complete motion results");
+  for (std::size_t warmup = 0; warmup < kWarmupRunCount; ++warmup) {
+    static_cast<void>(harness.solve());
+  }
+
+  Measurement measurement{.operations_per_sample = kMotionPrototypeSolvesPerSample,
+                          .nanoseconds_per_operation = {}};
+  for (std::size_t sample = 0; sample < kTimedSampleCount; ++sample) {
+    std::optional<MotionPrototypeResult> final_result;
+    const auto start = Clock::now();
+    for (std::size_t solve = 0; solve < kMotionPrototypeSolvesPerSample; ++solve) {
+      final_result = harness.solve();
+    }
+    const auto end = Clock::now();
+    require(final_result.has_value(), "BENCHMARK.MOTION_RESULT_MISSING",
+            "timed pure-motion sample retained no final result");
+    static_cast<void>(validate_motion_prototype_result(inputs, *final_result));
+    require(motion_prototype_result_hash(*final_result) == expected_hash,
+            "BENCHMARK.MOTION_TIMED_HASH_MISMATCH",
+            "timed pure-motion final result differs from its untimed reference");
+    measurement.nanoseconds_per_operation.push_back(
+        duration_nanoseconds_per_operation(start, end, kMotionPrototypeSolvesPerSample));
+  }
+
+  json::object definition;
+  definition.emplace("world_width_world_units", 960.0);
+  definition.emplace("world_height_world_units", 640.0);
+  definition.emplace("body_radius_world_units", 4.0);
+  definition.emplace("fixed_delta_seconds", simulation::kFixedDeltaSeconds);
+  definition.emplace("initial_body_count", inputs.bodies.size());
+  definition.emplace("terrain_hole_count", inputs.map.terrain().holes().size());
+  definition.emplace("terrain_corridor_count", inputs.map.terrain().corridors().size());
+  definition.emplace("terrain_feature_count", 4 + inputs.map.terrain().holes().size());
+  definition.emplace("terrain_feature_count_definition",
+                     "four envelope planes plus authored circular holes");
+  definition.emplace("support_loss_trigger_count", reference.trigger_cursors.size());
+  definition.emplace("terrain_compilation_in_timed_region", false);
+  definition.emplace(
+      "state_reset_policy",
+      "every solve borrows identical committed world, bodies and frozen guard facts");
+  if (kind == MotionPrototypeKind::kChargeSpeed) {
+    definition.emplace("layout", "eight independent rows: dynamic x128, static x192; y48+72*row");
+    definition.emplace("dynamic_body_count", 8);
+    definition.emplace("static_body_count", 8);
+    definition.emplace("initial_speed_world_units_per_second", 40'000.0);
+    definition.emplace("unreflected_travel_world_units", 100.0);
+    definition.emplace("approved_charge_tuning", false);
+  } else if (kind == MotionPrototypeKind::kDenseHoles) {
+    definition.emplace(
+        "layout", "8x4 hole centers (128+80*column,128+160*row); one body starts40wu left of each");
+    definition.emplace("dynamic_body_count", 32);
+    definition.emplace("static_body_count", 0);
+    definition.emplace("hole_radius_world_units", 8.0);
+    definition.emplace("initial_speed_world_units_per_second", 40'000.0);
+    definition.emplace("collision_mask", 0);
+    definition.emplace("authored_hole_limit_exercised", true);
+  } else {
+    definition.emplace("layout",
+                       "eight touching collinear four-body chains; x128+8*member,y64+64*group");
+    definition.emplace("dynamic_body_count", 32);
+    definition.emplace("static_body_count", 0);
+    definition.emplace("group_count", 8);
+    definition.emplace("bodies_per_group", 4);
+    definition.emplace("within_group_center_spacing_world_units", 8.0);
+    definition.emplace("between_group_spacing_world_units", 64.0);
+    definition.emplace("initial_x_velocities_per_group",
+                       json::array{8'000.0, 4'000.0, -4'000.0, -8'000.0});
+    definition.emplace("frozen_guards_per_group",
+                       json::array{"ordinary", "perfect", "perfect", "ordinary"});
+    definition.emplace("expected_terminal_x_velocities_per_group",
+                       json::array{-250.0, -250.0, 0.0, 0.0});
+    definition.emplace("cascade_policy",
+                       "stun clears current motion; later external bumps remain physical");
+  }
+
+  json::object work;
+  work.emplace("pair_examinations_per_solve", reference.motion.work.pair_examinations);
+  work.emplace("charged_root_queries_per_solve", reference.motion.work.root_queries);
+  work.emplace("events_per_solve", reference.motion.work.events);
+  work.emplace("trigger_queries_per_solve", reference.motion.work.trigger_queries);
+  work.emplace("broad_phase_rebuilds_per_solve", reference.motion.work.broad_phase_rebuilds);
+  work.emplace("maximum_candidate_pairs", reference.motion.work.maximum_candidate_pairs);
+  work.emplace("path_segments_per_solve", reference.motion.paths.size());
+  work.emplace("effects_per_solve", reference.effects.size());
+  work.emplace("root_counter_policy",
+               "canonical public-query charges, including bounded pre-fast-return charges");
+
+  json::object correctness;
+  correctness.emplace("complete_result_hash", expected_hash);
+  correctness.emplace(
+      "hash_fields",
+      "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters");
+  correctness.emplace("independent_repeat_equal", true);
+  correctness.emplace("timed_final_outputs_equal_reference", true);
+  correctness.emplace("contact_fact_count", consequences.contacts);
+  correctness.emplace("stun_fact_count", consequences.stuns);
+  correctness.emplace("elimination_fact_count", consequences.eliminations);
+  correctness.emplace("terminated_body_count", consequences.terminations);
+
+  json::object result;
+  result.emplace("name", inputs.name);
+  result.emplace("implementation_boundary",
+                 "pure continuous-motion prototype; live kernel remains unwired");
+  result.emplace("comparison_class", "advisory");
+  result.emplace("native_capacity_certified", false);
+  result.emplace("workload_definition", std::move(definition));
+  result.emplace("deterministic_work", std::move(work));
+  result.emplace("correctness", std::move(correctness));
+  result.emplace("measurement", encode_measurement(measurement, "solve", "solves"));
+  return result;
+}
+
 [[nodiscard]] json::object platform_metadata() {
   utsname names{};
   if (uname(&names) != 0) {
@@ -1424,11 +1874,14 @@ void run_warmup(const Scenario& scenario, const WorldSnapshot& reference_snapsho
   const BackpressureOutcome backpressure = measure_delivery_backpressure();
 
   json::array case_results;
-  case_results.reserve(std::size(scenarios));
+  case_results.reserve(std::size(scenarios) + 4);
   for (const Scenario& scenario : scenarios) {
     case_results.emplace_back(benchmark_scenario(scenario));
   }
   case_results.emplace_back(benchmark_royale_case(royale_inputs));
+  case_results.emplace_back(benchmark_motion_prototype(MotionPrototypeKind::kChargeSpeed));
+  case_results.emplace_back(benchmark_motion_prototype(MotionPrototypeKind::kDenseHoles));
+  case_results.emplace_back(benchmark_motion_prototype(MotionPrototypeKind::kDenseShields));
 
   json::object output;
   output.emplace("schema", kBenchmarkSchema);
@@ -1467,16 +1920,16 @@ int main(const int argument_count, const char* const arguments[]) {
 
   try {
     // Exactly the two inputs the royale case reads, passed by `scripts/run-benchmarks-linux`.
-    if (argument_count != 5 || std::string_view(arguments[1]) != "--deployment-config" ||
+    if (argument_count != 5 || std::string_view(arguments[1]) != "--royale-reference-config" ||
         std::string_view(arguments[3]) != "--maps-directory") {
-      std::cerr << json::serialize(
-                       error_output("BENCHMARK.ARGUMENTS_UNSUPPORTED",
-                                    "usage: blob_simulation_benchmarks --deployment-config <path> "
-                                    "--maps-directory <path>"))
+      std::cerr << json::serialize(error_output(
+                       "BENCHMARK.ARGUMENTS_UNSUPPORTED",
+                       "usage: blob_simulation_benchmarks --royale-reference-config <path> "
+                       "--maps-directory <path>"))
                 << '\n';
       return 64;
     }
-    const RoyaleCaseInputs royale_inputs{.deployment_configuration = arguments[2],
+    const RoyaleCaseInputs royale_inputs{.reference_configuration = arguments[2],
                                          .maps_directory = arguments[4]};
     std::cout << json::serialize(run_benchmarks(royale_inputs)) << '\n';
     return 0;

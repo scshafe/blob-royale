@@ -175,12 +175,8 @@ ContactResponse reflect_static_response(const ContactRule::Subject& first,
   // and leaves the tangential component attached to the moving body. That is ADR 0003
   // § "Wall policy"'s "preserves speed magnitude on the reflected axis and leaves the other
   // component unchanged", written for an arbitrary normal instead of an axis-aligned edge.
-  const Vector2& velocity = first.body.velocity();
-  const Vector2& normal = contact.normal();
-  const double normal_speed = (velocity.x() * normal.x()) + (velocity.y() * normal.y());
   const Vector2 reflected_velocity =
-      Vector2::create(velocity.x() - (2.0 * normal_speed * normal.x()),
-                      velocity.y() - (2.0 * normal_speed * normal.y()));
+      reflect_static_contact_velocity(first.body.velocity(), contact.normal());
   return ContactResponse::create(
       first.body.with_velocity(reflected_velocity), second.body,
       {WorldEvent{contact_event_of(first, second, contact,

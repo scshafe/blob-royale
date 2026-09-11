@@ -6,6 +6,9 @@ add_executable(blob_simulation_unit_tests
   simulation/component_join_tests.cpp
   simulation/component_registry_tests.cpp
   simulation/component_store_tests.cpp
+  simulation/contact_impulse_promotion_tests.cpp
+  simulation/continuous_motion_tests.cpp
+  simulation/swept_circle_topology_promotion_tests.cpp
   simulation/contact_rule_table_tests.cpp
   simulation/deterministic_random_tests.cpp
   simulation/entity_id_reservation_tests.cpp

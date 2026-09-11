@@ -72,11 +72,11 @@ if [[ ! -x "${BENCHMARK_EXECUTABLE}" ]]; then
   fail "BENCHMARK.EXECUTABLE_MISSING" "built benchmark executable is missing"
 fi
 
-# The royale case runs the match the tailnet deployment runs: the deployed configuration's own
-# `[simulation]`, `[royale]`, and `[hazard.*]` sections on the map it names, read from the
-# repository rather than from a second copy of the numbers.
+# Preserve the historical royale workload independently of the current deployment's selected mode.
+# The reference fixture records its exact source commit; the production loader still reads every
+# measured value, and the executable reports historical provenance rather than live-deployment cost.
 benchmark_output="$("${BENCHMARK_EXECUTABLE}" \
-  --deployment-config "${REPOSITORY_DIRECTORY}/deploy/ubuntu-pc/blob-royale.cfg" \
+  --royale-reference-config "${REPOSITORY_DIRECTORY}/benchmarks/fixtures/royale-roster.cfg" \
   --maps-directory "${REPOSITORY_DIRECTORY}/maps")"
 readonly benchmark_output
 printf '%s\n' "${benchmark_output}" | tee "${BENCHMARK_RESULT_FILE}"

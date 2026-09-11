@@ -484,3 +484,25 @@ need fixing under it.
   — the findings this design closes.
 * [`../../.claude/prompts/2026-09-08-multi-lobby-server-architecture.md`](../../.claude/prompts/2026-09-08-multi-lobby-server-architecture.md)
   — the brief.
+
+## Amendment — historical royale benchmark input, 2026-09-10
+
+The `royale_deployed_roster` case retains its identity and measured algorithms, but its name now
+denotes the historical royale workload rather than the current deployment selection. The
+deployment switched to `king_of_the_hill`/`hills-960x640` in `a55dca4`; coupling this fixed royale
+case to that live configuration made the required benchmark command fail before measuring it.
+
+`benchmarks/fixtures/royale-roster.cfg` preserves
+`a9e0104ca25724ac4660a4fc9031620b8a852d40:deploy/ubuntu-pc/blob-royale.cfg` byte for byte after its
+provenance comment. This commit identifies the configuration only: the production map loader
+still reads `arena-960x640` from the current repository's `maps/`. The runner supplies the explicit
+`--royale-reference-config` input; the production loaders, drag 2, seed 1, royale tuning,
+comet/boulder hazards, four-to-eight seat widening, 6,400 running ticks, timing boundaries,
+correctness hashes, and advisory budget reporting remain the same. No deployment file is changed,
+no case is dropped, and no fallback overrides the selected mode. JSON labels this provenance
+`historical_reference`, not a measurement of today's deployed hill room.
+
+The historical native evidence above is retained as historical evidence; this correction neither
+regenerates it nor certifies current native performance. The new continuous-motion prototype
+cases are separately labelled unwired/advisory, and neither their results nor a Mac-hosted
+emulated run satisfies the dynamic-arena plan's Step 5 native-evidence/human-review gate.

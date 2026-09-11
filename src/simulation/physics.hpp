@@ -7,6 +7,10 @@
 
 namespace blob_royale::simulation {
 
+namespace detail {
+struct MotionContactAccess;
+} // namespace detail
+
 // canonical: deterministic_physics -- pure fixed-step integration, contact, and wall equations.
 class PlayerPairContact;
 class PlayerPairCollisionResult;
@@ -53,6 +57,14 @@ class WallMotionResult;
 [[nodiscard]] PlayerPairCollisionResult
 resolve_player_pair_collision(const PhysicsBody& first_body, const PhysicsBody& second_body,
                               double player_radius);
+
+// The identical accepted impulse over an already-certified contact, with no position detection.
+// The contact must describe these bodies in first/second orientation at the hit. Continuous
+// motion supplies that contact from its canonical root, not a second rounded overlap predicate.
+// The contact/separating guard, written arithmetic, and failure diagnostics are unchanged.
+[[nodiscard]] PlayerPairCollisionResult
+resolve_player_pair_collision(const PhysicsBody& first_body, const PhysicsBody& second_body,
+                              const PlayerPairContact& contact);
 
 // canonical: pair_restitution -- how two bodies' restitutions combine into one pair restitution.
 //
@@ -109,6 +121,18 @@ resolve_player_pair_collision(const PhysicsBody& first_body, const PhysicsBody& 
 resolve_general_pair_collision(const PhysicsBody& first_body, const PhysicsBody& second_body,
                                double configured_radius);
 
+// The identical general impulse over a contact already certified for these two dynamic bodies.
+// No radius or overlap calculation is repeated; all other preconditions above still apply.
+[[nodiscard]] PlayerPairCollisionResult
+resolve_general_pair_collision(const PhysicsBody& first_body, const PhysicsBody& second_body,
+                               const PlayerPairContact& contact);
+
+// The existing reflect_static row's velocity equation, in its original binary64 operation order.
+// `normal` is the row-oriented unit contact normal. This equation does not classify contact or
+// motion direction; the caller owns admission exactly as the existing row does.
+[[nodiscard]] Vector2 reflect_static_contact_velocity(const Vector2& velocity,
+                                                      const Vector2& normal);
+
 // Resolves the complete fixed-step motion against an axis-aligned world, x before y. Geometry
 // must be finite, positive, and contain the committed position; invalid input or output throws
 // SimulationValidationError.
@@ -149,6 +173,9 @@ private:
   friend PlayerPairContact detect_player_pair_contact(const PhysicsBody&, const PhysicsBody&,
                                                       double);
   friend PlayerPairContact detect_pair_contact(const PhysicsBody&, const PhysicsBody&, double);
+  // Defined only by the canonical continuous-motion implementation. This is not a public contact
+  // factory: that owner certifies hit membership and validates its normal/distance/speed first.
+  friend struct detail::MotionContactAccess;
 
   PlayerPairContact(bool is_contact, Vector2 normal, double center_distance,
                     double relative_normal_speed) noexcept;
@@ -183,6 +210,10 @@ private:
                                                                  const PhysicsBody&, double);
   friend PlayerPairCollisionResult resolve_general_pair_collision(const PhysicsBody&,
                                                                   const PhysicsBody&, double);
+  friend PlayerPairCollisionResult
+  resolve_player_pair_collision(const PhysicsBody&, const PhysicsBody&, const PlayerPairContact&);
+  friend PlayerPairCollisionResult
+  resolve_general_pair_collision(const PhysicsBody&, const PhysicsBody&, const PlayerPairContact&);
 
   PlayerPairCollisionResult(PlayerPairContact contact, bool impulse_applied, Vector2 first_velocity,
                             Vector2 second_velocity) noexcept;

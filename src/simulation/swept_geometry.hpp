@@ -37,6 +37,28 @@ private:
   std::size_t count_{};
 };
 
+enum class CircleInitialRelation { kInside, kOnBoundary, kOutside };
+enum class CircleLineTopology { kStationary, kMiss, kTangent, kSecant };
+enum class CircleRadialMotion { kApproaching, kOrthogonal, kReceding };
+
+// Exact classifications of the same canonical circle polynomial that produces `roots`.
+// `topology` describes the complete supporting line, not its clipped [0,1] root list: a secant
+// can have zero or one returned root, and a tangent can lie outside the swept interval. Stationary
+// motion has its own topology regardless of initial relation. These facts must not be inferred
+// from rounded contact normals, velocities, or the number of clipped roots.
+// `initial_radial_motion` is the exact sign of dot(start-center, displacement), before normalizing
+// a contact normal. Orthogonal includes stationary motion and coincident centers; the separate
+// `initial_centers_coincident` fact distinguishes that degenerate origin from a nonzero tangent.
+struct CircleSweepResult final {
+  SweptBoundaryRoots roots;
+  CircleInitialRelation initial_relation;
+  CircleLineTopology topology;
+  CircleRadialMotion initial_radial_motion;
+  bool initial_centers_coincident;
+
+  friend bool operator==(const CircleSweepResult&, const CircleSweepResult&) = default;
+};
+
 // canonical: swept_geometry -- the only analytic event-root arithmetic, for contacts and triggers.
 //
 // Position is start + displacement * t. A boundary_radius is the radius of the locus traced by
@@ -51,6 +73,14 @@ private:
                                                              const Vector2& displacement,
                                                              const Vector2& center,
                                                              double boundary_radius);
+
+// The same roots plus exact initial relation and supporting-line topology, classified from the
+// existing bounded expansion facts. "Exact" applies after the canonical written center-offset
+// subtraction and power-of-two normalization; this introduces no second arithmetic policy.
+[[nodiscard]] CircleSweepResult swept_circle_boundary_query(const Vector2& start,
+                                                            const Vector2& displacement,
+                                                            const Vector2& center,
+                                                            double boundary_radius);
 
 [[nodiscard]] SweptBoundaryRoots swept_capsule_boundary_roots(const Vector2& start,
                                                               const Vector2& displacement,

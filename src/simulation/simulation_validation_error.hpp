@@ -69,6 +69,13 @@ enum class SimulationValidationCode {
   kTerrainGeometryPrecisionLost,
   kTerrainBoundaryLimitExceeded,
   kTerrainQueryRadiusInvalid,
+  kContinuousMotionInvalidInput,
+  kContinuousMotionBudgetExceeded,
+  kContinuousMotionInvalidResponse,
+  kContinuousMotionNoProgress,
+  kContinuousMotionPrecisionLost,
+  kGuardedPairFactsInvalid,
+  kGuardedPairSeparationFailed,
   kMapNameInvalid,
   kMapStaticBodyNotStatic,
   kMapStaticBodyOutOfBounds,
@@ -207,6 +214,20 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.TERRAIN_BOUNDARY_LIMIT_EXCEEDED";
   case SimulationValidationCode::kTerrainQueryRadiusInvalid:
     return "SIMULATION.TERRAIN_QUERY_RADIUS_INVALID";
+  case SimulationValidationCode::kContinuousMotionInvalidInput:
+    return "SIMULATION.CONTINUOUS_MOTION_INVALID_INPUT";
+  case SimulationValidationCode::kContinuousMotionBudgetExceeded:
+    return "SIMULATION.CONTINUOUS_MOTION_BUDGET_EXCEEDED";
+  case SimulationValidationCode::kContinuousMotionInvalidResponse:
+    return "SIMULATION.CONTINUOUS_MOTION_INVALID_RESPONSE";
+  case SimulationValidationCode::kContinuousMotionNoProgress:
+    return "SIMULATION.CONTINUOUS_MOTION_NO_PROGRESS";
+  case SimulationValidationCode::kContinuousMotionPrecisionLost:
+    return "SIMULATION.CONTINUOUS_MOTION_PRECISION_LOST";
+  case SimulationValidationCode::kGuardedPairFactsInvalid:
+    return "SIMULATION.GUARDED_PAIR_FACTS_INVALID";
+  case SimulationValidationCode::kGuardedPairSeparationFailed:
+    return "SIMULATION.GUARDED_PAIR_SEPARATION_FAILED";
   case SimulationValidationCode::kMapNameInvalid:
     return "SIMULATION.MAP_NAME_INVALID";
   case SimulationValidationCode::kMapStaticBodyNotStatic:

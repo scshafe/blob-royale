@@ -124,6 +124,20 @@ inline constexpr std::size_t kMaximumTerrainArrangementElementCount = 60'000;
 // Maximum coordinatewise directed nextafter corrections after analytic
 // nearest-boundary selection. Exhaustion raises TERRAIN_GEOMETRY_PRECISION_LOST.
 inline constexpr std::size_t kMaximumTerrainWitnessRoundingStepCount = 4;
+// Pure continuous-motion prototype ceilings. Step 5 selects supported native capacity; these
+// deterministic work/storage guards are not performance certification or live-kernel adoption.
+inline constexpr std::size_t kMaximumMotionBodyCount = 256;
+inline constexpr std::size_t kMaximumMotionCandidatePairCount =
+    (kMaximumMotionBodyCount * (kMaximumMotionBodyCount - 1)) / 2;
+inline constexpr std::size_t kMaximumMotionPairExaminationCount = 1'000'000;
+inline constexpr std::size_t kMaximumMotionRootQueryCount = 250'000;
+inline constexpr std::size_t kMaximumMotionEventCount = 2'048;
+inline constexpr std::size_t kMaximumMotionTriggerQueryCount = 250'000;
+inline constexpr std::size_t kMaximumMotionPathSegmentCount =
+    kMaximumMotionBodyCount + (2 * kMaximumMotionEventCount);
+inline constexpr std::size_t kMaximumMotionEffectCount = 8'192;
+inline constexpr std::size_t kMaximumMotionTriggerDeclarationCount = 512;
+inline constexpr std::size_t kMaximumMotionTriggerCursorValue = kMaximumMapMarkerCount;
 inline constexpr std::uint64_t kSimulationTicksPerSecond = 400;
 inline constexpr std::int64_t kFixedDeltaNanoseconds = 2'500'000;
 inline constexpr double kFixedDeltaSeconds = 1.0 / static_cast<double>(kSimulationTicksPerSecond);

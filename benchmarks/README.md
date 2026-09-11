@@ -3,20 +3,22 @@
 This directory owns the deterministic, advisory Linux performance baseline. The executable calls
 the canonical public `GameSimulation::step()`, `SpatialGrid::rebuilt()`,
 `GameSimulation::snapshot()`, `encode_snapshot_message()`, and `SnapshotDeliveryState` APIs. It
-does not provide another engine, scheduler, simulation clock, delivery queue, or benchmark
-framework.
+also measures the canonical unwired continuous-motion prototype described below. It does not
+provide another engine, scheduler, simulation clock, delivery queue, or benchmark framework.
 
 ## What is under measurement, and what is not
 
-`GameSimulation::create` takes three arguments -- the configuration, the initial world, and a
+The four sparse/clustered engine cases use `GameSimulation::create`, whose three arguments are the
+configuration, the initial world, and a
 `GameSimulationSetup` that carries every declaration a mode makes. The benchmark passes **no
 setup**, so it runs on `GameSimulationSetup::engine_defaults()`: the reserved mode name `idle`, the
-two built-in contact rows, no declared system at any stage, a spawn policy that never seats, an
+built-in contact rows, no declared system at any stage, a spawn policy that never seats, an
 objective that never starts a match, and an arena synthesized as `MapDefinition::bare_arena` from
 `SimulationConfig`'s world scalars. Each world is `GameWorld::create(std::vector<EntitySeed>)`, the
 scenario-seeded path, rather than the production `GameWorld::create(configuration, map, seed)` that
 seats a map's static bodies. `step` is called with `InputBatch::empty()`, the no-input tick. No map
-directory, no `GameMode`, no `blob_gameplay` target, and no command participate.
+directory, `GameMode`, gameplay system, or command participates in these four cases. The separate
+royale case does use the production gameplay and input-loading targets.
 
 **This is the kernel's floor, not a live match's cost, and the two must not be compared.** A running
 `royale` match additionally pays for its four declared systems, its rotating-ring spawn policy, its
@@ -32,21 +34,28 @@ decoding, and the `SessionWebSocketSession` path are not measured by this suite.
 
 ## The royale case
 
-`royale_deployed_roster` is the one case that **is** a live match, and it is the measurement ADR
-0006 (`docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision") states its per-room
-budget against: **a mean step of at most 250 µs and a p99 of at most 1 ms** at the deployed roster.
-The runner passes the executable `--deployment-config deploy/ubuntu-pc/blob-royale.cfg` and
-`--maps-directory maps`, and the case reads the deployed `[simulation]`, `[royale]`, and
-`[hazard.*]` sections through the production `ApplicationConfigLoader` and the named map through
-the production `MapLoader`, so it cannot drift from the deployment. The one value it changes is the
-lobby: the deployed four seats are widened to the eight the budget is stated for, and the output
-carries both numbers.
+`royale_deployed_roster` retains its historical case identity and runs real royale gameplay, but
+does **not** measure the currently selected deployment mode. ADR 0006
+(`docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision") states its per-room
+budget against this historical workload: **a mean step of at most 250 µs and a p99 of at most 1 ms**
+at eight seats.
+
+The runner passes `--royale-reference-config benchmarks/fixtures/royale-roster.cfg` and
+`--maps-directory maps`. The fixture preserves the bytes of
+`a9e0104ca25724ac4660a4fc9031620b8a852d40:deploy/ubuntu-pc/blob-royale.cfg` after a provenance comment.
+That commit identifies the **configuration only**; `MapLoader` still loads the named
+`arena-960x640` from the current repository's `maps/`, not a historical map checkout. The
+production `ApplicationConfigLoader` reads the reference `[simulation]`, `[royale]`, and
+`[hazard.*]` sections unchanged. Only the lobby widens from the reference four seats to the
+budgeted eight. JSON records both counts and explicit provenance under `historical_reference`,
+including `represents_current_deployment=false` and the current map source. No live configuration
+is edited, no mode is silently overridden, and a missing/invalid reference remains a hard failure.
 
 Each sample builds a fresh simulation, spawns and joins eight controllers and presses Start on tick
-1, carries the match through the deployed countdown with empty ticks, and then times **each
+1, carries the match through the reference countdown with empty ticks, and then times **each
 `step` individually** for 6,400 running ticks -- sixteen seconds, which crosses every spawn tick of
-both deployed hazard kinds. Every tick carries the reservation the runtime would give it, so the
-zone entity and the hazards are created exactly as in production; the deployed comet is lethal,
+both reference hazard kinds. Every tick carries the reservation the runtime would give it, so the
+zone entity and the hazards are created exactly as in production; the reference comet is lethal,
 so the field thins as comets cross it, and the output carries the player count at both ends of the
 window. The per-sample mean, median,
 p99, and maximum are reported as raw samples and as robust summaries across the nine samples; the
@@ -55,8 +64,48 @@ p99, and maximum are reported as raw samples and as robust summaries across the 
 separately. The final snapshot of every timed sample must hash-match an untimed reference, which
 is what makes a seeded hazard table a benchmark rather than a random one.
 
-The number is authoritative only on `cole-ubuntu-pc`; read the `platform` block before believing
-it anywhere else, and record the native result in ADR 0006 as a dated amendment.
+Native comparison requires the named `cole-ubuntu-pc` runner and comparable recorded workload
+inputs. Read the `platform` and `historical_reference` blocks before comparing results, and record
+new native evidence in ADR 0006 as a dated amendment. Mac-hosted emulated runs remain advisory.
+
+## Unwired continuous-motion prototype cases
+
+These three Step 4 cases call the same `solve_continuous_motion`, `compose_guarded_pair`, and
+`support_loss_motion_trigger` implementations the later integration will adopt. They do not alter
+or measure the currently live discrete kernel. All use a 960-by-640 envelope, radius-four bodies,
+the fixed 400 Hz quantum, one warm-up, nine samples, and sixteen independent solves per sample.
+
+- `continuous_motion_charge_speed`: eight independent rows, each with one dynamic body at
+  x=128 moving at 40,000 wu/s and one static disc at x=192. Each body reflects once and completes
+  its actual path. The 100-wu proposed displacement is stress input, not approved charge tuning.
+- `continuous_motion_dense_32_holes`: the authored maximum of 32 radius-eight holes on an 8-by-4
+  grid, with one body starting 40 wu left of each hole at 40,000 wu/s. Collision masks are zero;
+  all 32 bodies must terminate on their first support loss rather than cross a hole and reland.
+- `continuous_motion_dense_shield_contacts`: eight touching four-body chains with x velocities
+  `(8000, 4000, -4000, -8000)` and frozen guards `(ordinary, perfect, perfect, ordinary)`. Each
+  finite zero-time cascade produces five contacts and five stun facts. Terminal velocities are
+  `(-250, -250, 0, 0)`: stun kills current motion, but later external bumps remain physical.
+
+Each solve borrows identical already-accelerated bodies, committed world, and frozen guard facts.
+Terrain compilation and world/grid setup are outside timing; acceleration/drag intake, ability
+activation/windows, registered stun lifecycle, live-kernel wiring, publication, and transport are
+not measured. Result allocation and solver/callback work are inside timing. The typed consequence
+facts are not new registered events.
+
+Independent reference runs and the retained final output of every timed sample must match a
+complete deterministic hash: every body field and disposition, actual path segments, ordered event
+keys, typed consequences, trigger cursors, and work counters. Hashing and correctness checks occur
+after the clock stops. JSON reports exact layout/density inputs, terrain feature counts, charged
+root queries, events, pair examinations, candidate-pair high-water count, rebuilds, paths, and
+effects. Root counts are canonical public-query budget charges, including charges before bounded
+fast returns, not a claim that every charged primitive performed a root solve.
+
+These results are explicitly advisory and certify no native capacity, supported charge speed, or
+production rollout. Step 5's human/native-evidence gate remains independent of passing these cases.
+The dated Step 4 review and selected prototype baseline are retained under
+`docs/reviews/2026-09-10-continuous-motion-prototype-review.md` and the sibling
+`2026-09-10-continuous-motion-prototype-baseline.json`. They are evidence for that gate, not
+accepted regression thresholds; the complete transient suite output remains under `out/benchmarks/`.
 
 ## Measurement contract
 
@@ -71,8 +120,10 @@ it anywhere else, and record the native result in ADR 0006 as a dated amendment.
   and reports the median, 25th percentile, 75th percentile, median absolute deviation, minimum,
   and maximum. No regression threshold is enforced.
 - Each simulation sample constructs a fresh identical `GameSimulation` before timing. Snapshot
-  creation, final tick/player-count checks, and an exact FNV-1a hash of the complete ordered final
-  snapshot occur after timing. Every timed sample must match an independent untimed reference.
+  creation, final tick/player-count checks, and an exact FNV-1a hash of the ordered final snapshot's
+  player-motion projection occur after timing. This existing hash is unchanged; the separate
+  prototype hash covers its complete typed result. Every timed sample must match an independent
+  untimed reference.
 - Candidate-pair generation is not exposed separately by `SpatialGrid`. The
   `grid_rebuild_and_candidate_pair_generation` measurement therefore times the public atomic
   rebuild operation and reports the untimed canonical candidate count/hash. It must not be
@@ -105,10 +156,10 @@ status from CI environment variables.
 **No pre-framework baseline is a valid comparison, and none is kept in the tree.** Every run writes
 `out/benchmarks/blob-simulation-benchmark.json` and replaces the previous one; the file is not
 committed and carries the host it ran on in its `platform` block. Read that block before comparing
-two runs at all. The `cole-ubuntu-pc` native runner
-(`docs/operations/tailnet.md`) is the only host on which a number here is more than advisory, and
-the tree has no baseline from it yet: a re-baseline there is owed before any regression claim about
-the gameplay-framework work.
+two runs at all. The named `cole-ubuntu-pc` native runner (`docs/operations/tailnet.md`) has dated
+royale evidence recorded in ADR 0006. That evidence remains historical; a new native run with
+comparable workload inputs and recorded implementation boundaries is required before making a new
+performance or regression claim. It does not certify the unwired continuous-motion prototype.
 
 ## Root CMake registration
 
@@ -122,5 +173,5 @@ add_subdirectory(benchmarks)
 `benchmarks/CMakeLists.txt` declares `blob_simulation_benchmarks` and links the canonical
 simulation, gameplay, application-input, protocol, and server targets plus Boost.JSON for the
 machine-readable report. The server link exists solely to exercise its production bounded delivery
-state, and the application-input link solely to read the deployed configuration and map for the
-royale case; the benchmark opens no listener and owns no transport or runtime clock.
+state, and the application-input link solely to read the historical reference configuration and map
+for the royale case; the benchmark opens no listener and owns no transport or runtime clock.

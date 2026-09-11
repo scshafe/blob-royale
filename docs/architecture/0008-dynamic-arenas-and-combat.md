@@ -1037,3 +1037,35 @@ needed here). What if two people race? Canonical revision rules decide once. Wha
 callback is late? Claim-before-write preserves the next request. What if movement gains modifiers?
 The single intent/locomotion owner can compose them without another authoring surface. The plan
 records implementation and exact verification; this amendment does not claim those gates passed.
+
+## Owner UI and input clarification, 2026-09-11 (Steps 11 and 11a)
+
+The owner selected **keep draft; require review** when another participant changes room movement
+tuning during unsaved local edits. Preserve both edited values and their base revision, display
+the newer authoritative pair, and require an explicit review action before applying the draft
+against that revision. Review rebases the comparison revision, not the draft values. A subsequent
+peer update requires review again. Reset explicitly submits current authored defaults through the
+same command path. An interrupted request remains unknown even after current values are reviewed;
+shared state cannot establish whose request committed. There is no automatic resubmission.
+
+The owner superseded **right-button propulsion and directional-key priority** with **cursor-only
+aim and held Space propulsion**. Mouse position determines direction from the owned blob; Space
+requests the authoritative acceleration magnitude, and release clears thrust without deleting
+momentum. Pointer distance and speed never scale acceleration. An exact-center pointer supplies
+no direction and therefore zero thrust. WASD/arrows no longer steer after Step 11a; those keys are
+available for later charge/shield bindings, without assigning or implementing abilities here.
+The earlier proposed Space-for-charge binding is superseded. Left-drag camera panning remains.
+
+One canonical input owner retains projection, direction, send throttling, and cancellation.
+Typing, tuning controls, camera interaction, blur, disconnect, replacement bodies, and later stun
+must not create or resume a held propulsion request; renewed propulsion requires fresh activation
+after cancellation. The cursor can change aim without propulsion when Space is released. This
+separates aim from go without adding another sender, wire command, or private movement strength.
+Step 11 preserves current steering outside editing until Step 11a deliberately migrates source,
+tests, help text, and real-browser scenarios together. Neither clarification approves Step 5.
+
+The input implementation can observe welcome identity, owned entity identity, and body presence.
+Fresh snapshot/body objects are not new body incarnations. A same-entity body removed and recreated
+entirely between delivered snapshots cannot be distinguished with the current wire, which has no
+incarnation token. Cancellation covers observed lifecycle transitions; no position-jump heuristic
+or guarantee for an invisible transition is claimed. This step does not expand the protocol.

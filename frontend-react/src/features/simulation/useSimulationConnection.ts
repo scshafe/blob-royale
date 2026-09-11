@@ -47,6 +47,8 @@ export interface SimulationSessionIdentity {
   readonly lobbyId: number;
   readonly map: string;
   readonly mode: string;
+  /** The server-advertised interval for eligible tuning attempts in this connection. */
+  readonly movementTuningMinimumIntervalMilliseconds: number;
   /** The NPC kinds a `seat_npc` may name, in the server's registry order: the whole bot menu. */
   readonly npcControllerKinds: readonly string[];
   /** The most seats the room's map can seat, which is what bounds a seat-count control. */
@@ -173,6 +175,8 @@ export function simulationConnectionReducer(
           lobbyId: action.welcome.data.lobby_id,
           map: action.welcome.data.map,
           mode: action.welcome.data.mode,
+          movementTuningMinimumIntervalMilliseconds:
+            action.welcome.data.movement_tuning_minimum_interval_milliseconds,
           npcControllerKinds: action.welcome.data.npc_controller_kinds,
           seatCountMaximum: action.welcome.data.seat_count_maximum,
           terrain: action.welcome.data.terrain,

@@ -61,12 +61,24 @@ function sameDirection(
   return left !== null && left.x === right.x && left.y === right.y;
 }
 
+/** Native editors and explicit editing regions own their keys; unmarked camera buttons do not. */
+function blocksGameplayInput(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [data-gameplay-input="blocked"]',
+    ) !== null
+  );
+}
+
 /**
  * @canonical thrust_input -- the only place a keyboard becomes a command.
  *
  * Sends `set_thrust` on change and at most once every 50 ms, never once per frame: a thrust is a
  * level that persists on the server until the next command, so releasing a key MUST send zero and
  * holding one MUST send nothing further. Input is ignored entirely while this session owns no body.
+ * Focusing an explicit blocked editing region clears held intent through this same sender. Native
+ * input keys remain untouched there; leaving requires a fresh press, never restoration of old keys.
  */
 export function useThrustInput({
   enabled,
@@ -111,7 +123,23 @@ export function useThrustInput({
       }
     };
 
+    const clearHeldKeys = (): void => {
+      if (pressedKeys.current.size === 0) {
+        return;
+      }
+      pressedKeys.current.clear();
+      flush();
+    };
+
+    const isEditing = (event: KeyboardEvent): boolean =>
+      blocksGameplayInput(event.target) ||
+      blocksGameplayInput(document.activeElement);
+
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (isEditing(event)) {
+        clearHeldKeys();
+        return;
+      }
       if (
         !(event.code in THRUST_KEY_DIRECTIONS) ||
         event.altKey ||
@@ -129,6 +157,10 @@ export function useThrustInput({
     };
 
     const handleKeyUp = (event: KeyboardEvent): void => {
+      if (isEditing(event)) {
+        clearHeldKeys();
+        return;
+      }
       if (!pressedKeys.current.delete(event.code)) {
         return;
       }
@@ -137,18 +169,25 @@ export function useThrustInput({
     };
 
     const handleBlur = (): void => {
-      if (pressedKeys.current.size === 0) {
-        return;
-      }
       // A key released while the window is unfocused never reports keyup, and a thrust persists
       // until the next command, so a lost focus would otherwise leave a blob accelerating forever.
-      pressedKeys.current.clear();
-      flush();
+      clearHeldKeys();
+    };
+
+    const handleFocusIn = (event: FocusEvent): void => {
+      if (blocksGameplayInput(event.target)) {
+        clearHeldKeys();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', handleBlur);
+    window.addEventListener('focusin', handleFocusIn);
+
+    if (blocksGameplayInput(document.activeElement)) {
+      pressedKeys.current.clear();
+    }
 
     if (enabled) {
       // A newly seated body starts at rest, so zero is what the server already believes.
@@ -164,6 +203,7 @@ export function useThrustInput({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focusin', handleFocusIn);
       clearPendingSend();
     };
   }, [enabled, sendCommand]);

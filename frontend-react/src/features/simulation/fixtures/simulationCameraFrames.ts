@@ -65,6 +65,8 @@ export function cameraSessionIdentity(): SimulationSessionIdentity {
     lobbyId: welcome.lobby_id,
     map: welcome.map,
     mode: welcome.mode,
+    movementTuningMinimumIntervalMilliseconds:
+      welcome.movement_tuning_minimum_interval_milliseconds,
     npcControllerKinds: welcome.npc_controller_kinds,
     seatCountMaximum: welcome.seat_count_maximum,
     terrain: welcome.terrain,

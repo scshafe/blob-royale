@@ -7,6 +7,7 @@ import { useLobbyDirectory } from './useLobbyDirectory';
 import { useRoomNavigation } from './useRoomNavigation';
 import { useSimulationConnection } from './useSimulationConnection';
 import { useThrustInput } from './useThrustInput';
+import { useMovementTuning } from './useMovementTuning';
 
 /**
  * The root of the feature, and deliberately the only place its three long-lived things meet: where
@@ -22,6 +23,10 @@ import { useThrustInput } from './useThrustInput';
 export function SimulationFeature() {
   const navigation = useRoomNavigation();
   const connection = useSimulationConnection(navigation.lobbyId);
+  const movementTuning = useMovementTuning({
+    lobbyId: navigation.lobbyId,
+    connection,
+  });
   const directory = useLobbyDirectory({
     enabled: navigation.lobbyId === null,
   });
@@ -60,6 +65,7 @@ export function SimulationFeature() {
         <SimulationViewer
           connection={connection}
           lobbyId={navigation.lobbyId}
+          movementTuning={movementTuning}
           thrust={thrust}
         />
       )}

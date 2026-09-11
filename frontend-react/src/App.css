@@ -107,6 +107,76 @@
   position: relative;
 }
 
+.MovementTuningPanel {
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 1rem;
+}
+
+.MovementTuningPanel h3 {
+  margin-block: 0 0.5rem;
+}
+.MovementTuningHint {
+  color: #475569;
+  font-size: 0.875rem;
+}
+.MovementTuningValues {
+  display: grid;
+  gap: 0.35rem;
+}
+.MovementTuningValues div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  justify-content: space-between;
+}
+.MovementTuningValues dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.MovementTuningFields {
+  border: 0;
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.MovementTuningFields legend {
+  font-weight: 600;
+  margin-block-end: 0.5rem;
+}
+.MovementTuningFields input {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+}
+.MovementTuningFields input[type='number'] {
+  padding: 0.4rem;
+}
+.MovementTuningActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block-start: 0.75rem;
+}
+.MovementTuningReview {
+  border-inline-start: 3px solid #b45309;
+  padding-inline-start: 0.75rem;
+}
+.MovementTuningOutcome {
+  margin-block-end: 0;
+  overflow-wrap: anywhere;
+}
+.MovementTuningOutcome-applied {
+  color: #166534;
+}
+.MovementTuningOutcome-rejected,
+.MovementTuningOutcome-unknown {
+  color: #92400e;
+}
+
 .SimulationCanvas {
   margin: 0;
 }

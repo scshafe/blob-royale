@@ -195,6 +195,10 @@ describe('useSimulationConnection', () => {
     await flushPromises();
     act(() => {
       apis[0]?.callbacks?.onWelcome(createValidatedWelcome());
+    });
+    const firstIdentity = hook.result.current.session;
+    expect(firstIdentity).not.toBeNull();
+    act(() => {
       apis[0]?.callbacks?.onMovementTuningState({
         status: 'pending',
         request: tuningCommand().payload,
@@ -211,6 +215,17 @@ describe('useSimulationConnection', () => {
     await flushPromises();
     act(() => apis[1]?.callbacks?.onWelcome(createValidatedWelcome()));
     expect(hook.result.current.movementTuning.status).toBe('unknown');
+    expect(hook.result.current.session).not.toBe(firstIdentity);
+    expect(hook.result.current.session?.lobbyId).toBe(firstIdentity?.lobbyId);
+    expect(hook.result.current.session?.controllerId).toBe(
+      firstIdentity?.controllerId,
+    );
+    expect(
+      hook.result.current.session?.movementTuningMinimumIntervalMilliseconds,
+    ).toBe(
+      createValidatedWelcome().data
+        .movement_tuning_minimum_interval_milliseconds,
+    );
     expect(apis[1]?.sendCommand).not.toHaveBeenCalled();
     hook.unmount();
   });
@@ -303,11 +318,15 @@ describe('useSimulationConnection', () => {
       lobbyId: 1,
       map: 'arena-960x640',
       mode: 'royale',
+      movementTuningMinimumIntervalMilliseconds:
+        createValidatedWelcome().data
+          .movement_tuning_minimum_interval_milliseconds,
       npcControllerKinds: ['wanderer', 'chaser'],
       seatCountMaximum: 32,
       terrain: createValidatedWelcome().data.terrain,
     });
     expect(result.current.ownEntityId).toBeNull();
+    const identity = result.current.session;
     const terrain = result.current.session?.terrain;
 
     act(() => {
@@ -321,6 +340,13 @@ describe('useSimulationConnection', () => {
       createValidatedWelcome().data.terrain,
     );
     expect(result.current.session?.terrain).toBe(terrain);
+    expect(result.current.session).toBe(identity);
+    expect(
+      result.current.session?.movementTuningMinimumIntervalMilliseconds,
+    ).toBe(
+      createValidatedWelcome().data
+        .movement_tuning_minimum_interval_milliseconds,
+    );
     expect(Object.isFrozen(result.current.session?.terrain)).toBe(true);
   });
 

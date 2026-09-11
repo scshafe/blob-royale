@@ -1,6 +1,7 @@
 export { SimulationApi } from './SimulationApi';
 export { SimulationFeature } from './SimulationFeature';
 export { useLobbyDirectory } from './useLobbyDirectory';
+export { useMovementTuning } from './useMovementTuning';
 export { useRoomNavigation } from './useRoomNavigation';
 export { useSimulationConnection } from './useSimulationConnection';
 export { useThrustInput } from './useThrustInput';

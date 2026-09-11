@@ -1,6 +1,6 @@
 # Simulation session domain
 
-This directory owns the browser's complete Blob Royale capability: choosing a room from the protocol v3 lobby directory, joining that room's match session, decoding its frames, rendering the world, and steering one blob. Its public exports are `SimulationApi`, `useLobbyDirectory`, `useRoomNavigation`, `useSimulationConnection`, `useThrustInput`, `entityRendererRegistry`, and `SimulationFeature` through `index.ts`.
+This directory owns the browser's complete Blob Royale capability: choosing a room from the protocol v3 lobby directory, joining that room's match session, decoding its frames, rendering the world, tuning shared room movement, and steering one blob. Its public exports are `SimulationApi`, `useLobbyDirectory`, `useMovementTuning`, `useRoomNavigation`, `useSimulationConnection`, `useThrustInput`, `entityRendererRegistry`, and `SimulationFeature` through `index.ts`.
 
 **Rooms, since protocol 2.4.** The page is either on the directory or in one room, and the URL says which: `/` is the directory and `/?lobby=<id>` is a room, a query rather than a path because the bundle is served as a static directory behind `tailscale serve` with no single-page fallback. `useRoomNavigation` is the one place that decision is made and the URL written; a `popstate` reads the URL again, so the browser's back button is a leave. `SimulationShell` is the persistent frame: the app's name, a breadcrumb naming the level (`Rooms`, or `Rooms › Room 2`), and Leave. `SimulationFeature` mounts the three long-lived things above the view switch -- navigation, the connection into the current room, and the directory read while in none -- so choosing a room swaps the content and never re-creates a socket or a poll. Leaving is one transition: the room becomes `null`, the connection hook disposes its socket, and the directory hook, now enabled, reads the directory once immediately and then once a second, and only while the page is visible.
 
@@ -73,5 +73,28 @@ sends one `set_seat_count` a quarter of a second after the last change: a dragge
 change per step and the session's command bucket holds thirty tokens. Start is enabled exactly when
 every seat is filled and every NPC seat has its controller, which is the server's own start
 condition, so the button is never enabled for a press the tick would only remember.
+
+**Room movement tuning** uses `useMovementTuning` above the conditional room view, so removing a
+panel or replacing a body cannot restart its request IDs. IDs belong to the requested room and
+the immutable welcome identity, never a body's ID or reused numeric controller identity. The
+hook owns local drafts and UI timing; `SimulationApi` remains the only request/result correlator
+and sender. `MovementTuningPanel` presents acceleration and normal top speed, published limits,
+authored defaults, and the current room revision/effective tick independently of request outcome.
+Editing sends nothing; Apply submits one complete pair and Reset submits authored defaults.
+
+A dirty draft retains its values and base revision when another player changes the room. Review
+explicitly accepts comparison against the currently displayed revision without replacing those
+values; another room update requires review again. Only the API's matching committed result can
+say applied/rejected. A changed shared revision or matching values never prove success, and
+reviewing current values cannot turn an interrupted request's unknown outcome into applied.
+Reconnect never automatically resends. The server-advertised minimum interval and rate refusal
+bound new attempts; pending requests, invalid drafts, absent seated authority, and exhausted safe
+IDs/revisions prevent submission. Body presence is not tuning authority.
+
+The tuning section marks `data-gameplay-input="blocked"`, including its buttons. The canonical
+`useThrustInput` clears held steering when focus enters that section or a native editing control,
+allows native editing keys, and requires a fresh gameplay press after leaving. Unmarked camera
+buttons retain their current bindings. Step 11a separately migrates movement to the owner-selected
+cursor direction plus held Space; the Step 11 UI checkpoint does not implement that input change.
 
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v3`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

@@ -1,7 +1,11 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { SimulationViewer } from './SimulationViewer';
+import {
+  SimulationViewer as RoomViewer,
+  type SimulationViewerProps,
+} from './SimulationViewer';
+import { useMovementTuning } from './useMovementTuning';
 import { SimulationApiError } from './SimulationApiError';
 import { useThrustInput } from './useThrustInput';
 import {
@@ -22,6 +26,7 @@ import {
   raceScenarioDocument,
   type RaceSnapshotScenario,
   snapshotDocument,
+  welcomeDocument,
 } from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import { validateSimulationConfigurationResponse } from './simulationProtocolValidation';
@@ -53,12 +58,25 @@ const session: SimulationSessionIdentity = Object.freeze({
   lobbyId: 1,
   map: 'arena-960x640',
   mode: 'royale',
+  movementTuningMinimumIntervalMilliseconds:
+    welcomeDocument().data.movement_tuning_minimum_interval_milliseconds,
   npcControllerKinds: ['wanderer', 'chaser'],
   seatCountMaximum: 32,
   terrain: solidTerrain,
 });
 
 const zeroThrust = Object.freeze({ x: 0, y: 0 });
+
+/** Mirror the feature's always-mounted controls owner while exercising the view in isolation. */
+function SimulationViewer(
+  props: Omit<SimulationViewerProps, 'movementTuning'>,
+) {
+  const movementTuning = useMovementTuning({
+    lobbyId: props.lobbyId,
+    connection: props.connection,
+  });
+  return <RoomViewer {...props} movementTuning={movementTuning} />;
+}
 
 function createConnection(
   overrides: Partial<SimulationConnection> = {},
@@ -125,6 +143,63 @@ afterEach(() => {
 });
 
 describe('SimulationViewer', () => {
+  it('isolates numeric and range tuning edits from steering and camera movement until explicit Apply', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const connection = createConnection({
+      session: {
+        ...session,
+        acceptedCommandKinds: ['set_thrust', 'set_movement_tuning'],
+      },
+    });
+    function EditableViewer() {
+      const thrust = useThrustInput({
+        enabled: true,
+        sendCommand: connection.sendCommand,
+      });
+      return (
+        <SimulationViewer lobbyId={1} connection={connection} thrust={thrust} />
+      );
+    }
+    render(<EditableViewer />);
+    const canvas = screen.getByRole('img');
+    const beforeX = canvas.getAttribute('data-camera-center-x');
+    const beforeY = canvas.getAttribute('data-camera-center-y');
+    const acceleration = screen.getByRole('spinbutton', {
+      name: 'Acceleration (wu/s²)',
+    });
+    act(() => acceleration.focus());
+    expect(fireEvent.keyDown(acceleration, { code: 'ArrowUp' })).toBe(true);
+    fireEvent.keyUp(acceleration, { code: 'ArrowUp' });
+    fireEvent.keyDown(acceleration, { code: 'KeyW' });
+    fireEvent.keyUp(acceleration, { code: 'KeyW' });
+    fireEvent.change(acceleration, { target: { value: '480' } });
+    fireEvent.change(
+      screen.getByRole('slider', { name: 'Normal top speed slider' }),
+      { target: { value: '1250' } },
+    );
+    expect(connection.sendCommand).not.toHaveBeenCalled();
+    expect(canvas).toHaveAttribute('data-camera-center-x', beforeX);
+    expect(canvas).toHaveAttribute('data-camera-center-y', beforeY);
+    const apply = screen.getByRole('button', { name: 'Apply movement tuning' });
+    act(() => apply.focus());
+    fireEvent.keyDown(apply, { code: 'ArrowRight' });
+    fireEvent.keyUp(apply, { code: 'ArrowRight' });
+    expect(connection.sendCommand).not.toHaveBeenCalled();
+    fireEvent.click(apply);
+    expect(connection.sendCommand).toHaveBeenCalledTimes(1);
+    expect(connection.sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_movement_tuning',
+      payload: {
+        tuning_request_id: 1,
+        expected_revision: snapshot.data.match.movement.revision,
+        acceleration_world_units_per_second_squared: 480,
+        normal_top_speed_world_units_per_second: 1250,
+      },
+    });
+    expect(canvas).toHaveAttribute('data-camera-center-x', beforeX);
+    expect(canvas).toHaveAttribute('data-camera-center-y', beforeY);
+  });
+
   it('wires local manual/follow controls without sending gameplay commands or stealing steering keys', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const connection = createConnection();

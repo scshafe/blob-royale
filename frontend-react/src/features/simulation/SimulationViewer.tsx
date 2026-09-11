@@ -1,6 +1,8 @@
 import { useId, useState } from 'react';
 
 import { LobbyPanel } from './LobbyPanel';
+import { MovementTuningPanel } from './MovementTuningPanel';
+import type { MovementTuningControls } from './useMovementTuning';
 import { MatchOverlay } from './MatchOverlay';
 import { SimulationCanvas } from './SimulationCanvas';
 import { SimulationCameraControls } from './SimulationCameraControls';
@@ -26,6 +28,7 @@ export interface SimulationViewerProps {
   /** The room this view is in, which is the shell's decision and not the socket's. */
   readonly lobbyId: number;
   readonly thrust: ThrustDirection;
+  readonly movementTuning: MovementTuningControls;
 }
 
 const connectionStatusLabels = Object.freeze({
@@ -45,6 +48,7 @@ export function SimulationViewer({
   connection,
   lobbyId,
   thrust,
+  movementTuning,
 }: SimulationViewerProps) {
   const [debugPanelVisible, setDebugPanelVisible] = useState(false);
   const debugPanelId = useId();
@@ -167,6 +171,7 @@ export function SimulationViewer({
             <p className="SteeringHint">
               Steer with WASD or the arrow keys while your blob is in the arena.
             </p>
+            <MovementTuningPanel controls={movementTuning} />
             <button
               aria-controls={debugPanelId}
               aria-expanded={debugPanelVisible}

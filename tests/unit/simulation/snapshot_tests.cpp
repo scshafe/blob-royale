@@ -367,7 +367,7 @@ TEST_CASE("WorldSnapshot publishes the controller link and never the recorded co
   CHECK(snapshot.components<simulation::Controllable>()[0].value.commands_this_tick.empty());
 }
 
-TEST_CASE("WorldSnapshot carries the match section and the generator's draw count",
+TEST_CASE("WorldSnapshot carries the match section and every named stream draw count",
           "[unit][simulation][snapshot][match_state][deterministic_random]") {
   const simulation::WorldSnapshot snapshot =
       simulation_from_world(simulation::GameWorld::create({positioned_seed(2, 2.0, 2.0)}))
@@ -379,7 +379,7 @@ TEST_CASE("WorldSnapshot carries the match section and the generator's draw coun
   CHECK(snapshot.match().running_started_tick() == simulation::TickSequence::zero());
   CHECK_FALSE(snapshot.match().outcome().is_decided());
   CHECK(simulation::mode_match_state_schema_id_of(snapshot.match().mode_state()) == "none");
-  // A tick that drew nothing publishes a zero draw count, so a run that diverged in how many draws
-  // it took diverges visibly at the first differing tick.
-  CHECK(snapshot.random_draw_count() == 0);
+  // A tick that drew nothing publishes zero for every stream, so a run that diverged in how many
+  // draws it took on either stream diverges visibly at the first differing tick.
+  CHECK(snapshot.random_draw_counts() == simulation::RandomDrawCounts{});
 }

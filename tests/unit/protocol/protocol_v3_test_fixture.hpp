@@ -33,6 +33,7 @@
 #include "mode_states/race_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
 #include "physics_body.hpp"
+#include "random_stream_registry.hpp"
 #include "seat_roster.hpp"
 #include "simulation_config.hpp"
 #include "simulation_system.hpp"
@@ -322,6 +323,37 @@ public:
     return game_simulation.snapshot();
   }();
   return snapshot;
+}
+
+// Uses ordinary world-owned draws so the full encoder test proves publication of real counts,
+// not a manually injected snapshot or generator state. Two ticks consume hazards=4 and hill=6.
+class CountedRandomDrawSystem final : public simulation::SimulationSystem {
+public:
+  [[nodiscard]] std::string_view name() const noexcept override { return "counted_random_draws"; }
+
+  void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
+    for (std::size_t draw = 0; draw < 2; ++draw) {
+      static_cast<void>(world.random(simulation::RandomStreamKind::kHazards).next_bits());
+    }
+    for (std::size_t draw = 0; draw < 3; ++draw) {
+      static_cast<void>(world.random(simulation::RandomStreamKind::kHill).next_bits());
+    }
+  }
+};
+
+[[nodiscard]] inline simulation::WorldSnapshot counted_random_snapshot() {
+  std::vector<simulation::SystemPipeline::StagedSystem> systems;
+  systems.push_back(simulation::SystemPipeline::StagedSystem{
+      simulation::SystemStage::kLifecycle, std::make_unique<const CountedRandomDrawSystem>()});
+  simulation::GameSimulation game = simulation::GameSimulation::create(
+      simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16),
+      simulation::GameWorld::create({}),
+      simulation::GameSimulationSetup::engine_defaults().with_systems(
+          simulation::SystemPipeline::create(std::move(systems))));
+  for (std::size_t tick = 0; tick < 2; ++tick) {
+    game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  }
+  return game.snapshot();
 }
 
 // A committed tick of a match that has never transitioned, which is what every lobby looks like

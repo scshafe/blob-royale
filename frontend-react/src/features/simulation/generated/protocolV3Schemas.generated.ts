@@ -1458,14 +1458,31 @@ export const protocolV3Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/snapshot-data.schema.json',
     title: 'Blob Royale protocol v3 world snapshot data',
     description:
-      'One complete immutable simulation tick: every published entity in ascending entity_id order with the components it carries, plus the generic match section. Never a delta, never partial.',
+      'One complete immutable simulation tick: per-stream random draw counts, every published entity in ascending entity_id order with the components it carries, and the generic match section. Never a delta, never partial.',
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
-    required: ['tick_sequence', 'entities', 'match'],
+    required: ['tick_sequence', 'random_draw_counts', 'entities', 'match'],
     properties: {
       tick_sequence: {
         $ref: 'common.schema.json#/$defs/tick_sequence',
+      },
+      random_draw_counts: {
+        description:
+          'Committed cumulative draw counts in the closed random-stream registry order. Counts expose neither seeds nor generator state.',
+        type: 'object',
+        additionalProperties: false,
+        required: ['hazards', 'hill'],
+        properties: {
+          hazards: {
+            $ref: 'common.schema.json#/$defs/safe_integer',
+          },
+          hill: {
+            $ref: 'common.schema.json#/$defs/safe_integer',
+          },
+        },
+        $comment:
+          'Each engine count is uint64; the encoder rejects a count above 2^53-1 with stream-specific context rather than rounding or clamping. Initialization consumes neither stream. The old C++ scalar random_draw_count was never a v3 JSON member.',
       },
       entities: {
         type: 'array',

@@ -173,10 +173,15 @@ first thing a designer asks for and one cadence cannot say it. So the whole decl
 one section, and a configuration that declares none has no hazards.
 
 The archetype **names no entry edge**. A hazard needs a reproducible entry point *and* direction and
-both must come from the world's seeded generator, so configuring the edge would make one component
+both come from the world's named `hazards` stream, so configuring the edge would make one component
 of that geometry authored and the rest drawn. It would also need a closed edge vocabulary in C++,
 and a designer wanting an edge the enumeration does not name would be back to writing code, which is
 the bar the whole mechanic exists to clear.
+
+That stream retains the original match seed and draw order: edge, entry fraction, exit fraction.
+Reservation and capacity admission still precede every draw. The separate `hill` stream cannot
+advance hazard state; it is initialized without drawing and remains unused by hill motion until
+the roaming implementation. Both streams roll back with the working world on any failed tick.
 
 ## `royale`
 

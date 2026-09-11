@@ -7,6 +7,7 @@
 #include "http_error.hpp"
 #include "mode_state_wire_encoding.hpp"
 #include "protocol_encoding_error.hpp"
+#include "random_draw_counts_encoding.hpp"
 #include "utc_timestamp.hpp"
 
 #include "component_join.hpp"
@@ -590,9 +591,15 @@ std::string encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot
     encoded_entities.emplace_back(encode_entity(snapshot, entity, directory, cursors));
   }
 
+  json::object random_draw_counts;
+  random_draw_counts.reserve(kV3RandomStreamNames.size());
+  JsonComponentObjectSink random_count_sink{random_draw_counts};
+  encode_random_draw_counts(snapshot.random_draw_counts(), random_count_sink);
+
   json::object data;
-  data.reserve(3);
+  data.reserve(4);
   data.emplace("tick_sequence", snapshot.tick_sequence().value());
+  data.emplace("random_draw_counts", std::move(random_draw_counts));
   data.emplace("entities", std::move(encoded_entities));
   data.emplace("match", encode_match(snapshot.match(), snapshot.terrain()));
 

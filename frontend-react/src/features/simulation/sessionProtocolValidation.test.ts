@@ -453,6 +453,83 @@ describe('validateSessionSnapshotMessage', () => {
   });
 });
 
+describe('snapshot random draw counts', () => {
+  it.each([
+    { hazards: 0, hill: 0 },
+    { hazards: Number.MAX_SAFE_INTEGER, hill: 0 },
+    { hazards: 0, hill: Number.MAX_SAFE_INTEGER },
+    { hazards: Number.MAX_SAFE_INTEGER, hill: Number.MAX_SAFE_INTEGER },
+  ])('accepts exact safe counts %o and freezes the closed value', (counts) => {
+    const document = snapshotDocument();
+    document.data.random_draw_counts = counts;
+    const snapshot = validateSessionSnapshotMessage(document, welcomeSequence);
+    expect(snapshot.data.random_draw_counts).toEqual(counts);
+    expect(Object.isFrozen(snapshot.data.random_draw_counts)).toBe(true);
+  });
+
+  it('requires the named count object in every snapshot', () => {
+    const document = snapshotDocument();
+    Reflect.deleteProperty(document.data, 'random_draw_counts');
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow(
+      expect.objectContaining({ code: 'SIMULATION.SESSION_FRAME_INVALID' }),
+    );
+  });
+
+  it('rejects a scalar count even alongside the required named counts', () => {
+    const document = snapshotDocument();
+    Reflect.set(document.data, 'random_draw_count', 0);
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow(
+      expect.objectContaining({ code: 'SIMULATION.SESSION_FRAME_INVALID' }),
+    );
+  });
+
+  it.each([
+    null,
+    [],
+    0,
+    '0',
+    { hazards: 0 },
+    { hill: 0 },
+    { hazards: 0, hill: 0, future_stream: 0 },
+  ])('rejects an absent, malformed, or open count set %o', (counts) => {
+    const document = snapshotDocument();
+    Reflect.set(document.data, 'random_draw_counts', counts);
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow(
+      expect.objectContaining({ code: 'SIMULATION.SESSION_FRAME_INVALID' }),
+    );
+  });
+
+  it.each(['hazards', 'hill'] as const)(
+    'rejects invalid %s counts without coercion',
+    (stream) => {
+      for (const value of [
+        -1,
+        0.5,
+        Number.MAX_SAFE_INTEGER + 1,
+        Number.POSITIVE_INFINITY,
+        Number.NaN,
+        '0',
+        true,
+        null,
+      ]) {
+        const document = snapshotDocument();
+        Reflect.set(document.data.random_draw_counts, stream, value);
+        expect(() =>
+          validateSessionSnapshotMessage(document, welcomeSequence),
+        ).toThrow(
+          expect.objectContaining({ code: 'SIMULATION.SESSION_FRAME_INVALID' }),
+        );
+      }
+    },
+  );
+});
+
 describe('validateSessionCommand', () => {
   it('accepts the golden command envelope', () => {
     expect(() =>

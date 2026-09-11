@@ -296,10 +296,17 @@ interface MutableBlobRoyaleProtocolV3WebSocketSnapshotMessage {
   };
 }
 /**
- * One complete immutable simulation tick: every published entity in ascending entity_id order with the components it carries, plus the generic match section. Never a delta, never partial.
+ * One complete immutable simulation tick: per-stream random draw counts, every published entity in ascending entity_id order with the components it carries, and the generic match section. Never a delta, never partial.
  */
 interface MutableBlobRoyaleProtocolV3WorldSnapshotData {
   tick_sequence: number;
+  /**
+   * Committed cumulative draw counts in the closed random-stream registry order. Counts expose neither seeds nor generator state.
+   */
+  random_draw_counts: {
+    hazards: number;
+    hill: number;
+  };
   /**
    * @maxItems 1024
    */

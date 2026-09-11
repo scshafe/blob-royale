@@ -47,7 +47,8 @@ encode_welcome_message(const SessionWelcome& welcome, const RequestId& request_i
 // @extension-point snapshot_encoding -- encodes one immutable snapshot as protocol v3 JSON.
 //
 // Every published entity in ascending `entity_id` order with the components it carries keyed by
-// component kind, plus the generic `match` section. The component set of an entity is generated
+// component kind, plus named random draw counts and the generic `match` section. Counts expose
+// neither seeds nor generator state. The component set of an entity is generated
 // from `simulation::ComponentRegistry`, so a kind added to the world is published here without this
 // function changing; the per-kind wire shape is that kind's own `ComponentWireEncoding`.
 //
@@ -59,7 +60,7 @@ encode_welcome_message(const SessionWelcome& welcome, const RequestId& request_i
 // the first snapshot's `2`, an invalid timestamp, the uncommitted tick zero, a phase start tick the
 // wire cannot carry, more than 1,024 entities or placements, entity ids that are not ascending and
 // distinct, a placement whose controller the directory cannot name, or a complete frame above the
-// byte limit.
+// byte limit, or a named random draw count above 2^53-1 (with stream-specific context).
 [[nodiscard]] std::string
 encode_snapshot_message_v3(const simulation::WorldSnapshot& snapshot,
                            const ControllerDirectoryView& directory, const RequestId& request_id,

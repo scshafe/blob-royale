@@ -83,7 +83,7 @@ public:
   [[nodiscard]] std::uint64_t seed() const noexcept { return random_.seed(); }
 
   // Draws taken so far. Two wanderers that diverged in how many draws they took are already
-  // unequal, which is the same reason `WorldSnapshot` commits the world generator's draw count.
+  // unequal, which is the same reason `WorldSnapshot` commits each world stream's draw count.
   [[nodiscard]] std::uint64_t draw_count() const noexcept { return random_.draw_count(); }
 
   [[nodiscard]] const Personality& personality() const& noexcept { return personality_; }

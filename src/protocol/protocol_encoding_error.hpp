@@ -24,6 +24,7 @@ enum class ProtocolEncodingErrorCode {
   kMatchModeNameInvalid,
   kComponentValueOutOfRange,
   kLobbyDirectoryInvalid,
+  kRandomDrawCountOutOfRange,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -61,6 +62,8 @@ protocol_encoding_error_code_name(ProtocolEncodingErrorCode error_code) noexcept
     return "PROTOCOL.ENCODING.COMPONENT_VALUE_OUT_OF_RANGE";
   case ProtocolEncodingErrorCode::kLobbyDirectoryInvalid:
     return "PROTOCOL.ENCODING.LOBBY_DIRECTORY_INVALID";
+  case ProtocolEncodingErrorCode::kRandomDrawCountOutOfRange:
+    return "PROTOCOL.ENCODING.RANDOM_DRAW_COUNT_OUT_OF_RANGE";
   }
   return "PROTOCOL.ENCODING.ERROR_CODE_INVALID";
 }

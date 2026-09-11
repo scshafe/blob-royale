@@ -8,6 +8,7 @@
 #include "map_definition.hpp"
 #include "match_phase.hpp"
 #include "physics_body.hpp"
+#include "random_stream_registry.hpp"
 #include "shared/hazard_crossing.hpp"
 #include "simulation_limits.hpp"
 #include "tick_context.hpp"
@@ -57,7 +58,8 @@ void HazardSpawnSystem::apply(simulation::GameWorld& world,
     }
 
     const HazardCrossing crossing =
-        draw_hazard_crossing(world.random(), bounds, archetype.radius(), archetype.speed());
+        draw_hazard_crossing(world.random(simulation::RandomStreamKind::kHazards), bounds,
+                             archetype.radius(), archetype.speed());
 
     // `is_static` is false because the general impulse divides by both masses and
     // `resolve_general_pair_collision` requires two dynamic bodies; a static hazard would be a body

@@ -572,6 +572,25 @@ describe('SimulationApi session lifecycle', () => {
     expect(callbacks.onFailure).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid random draw counts before publishing a snapshot', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, 1, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+    socket.receive(JSON.stringify(welcomeDocument()));
+    const invalid = snapshotDocument();
+    invalid.data.random_draw_counts.hazards = Number.MAX_SAFE_INTEGER + 1;
+    socket.receive(JSON.stringify(invalid));
+    expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'SIMULATION.SESSION_FRAME_INVALID',
+      }),
+    );
+    expect(socket.close).toHaveBeenCalledWith(1002, 'protocol_error');
+  });
+
   it('stays open and frameless for a joiner the match has deferred', async () => {
     const { api, configuration, sockets } = await createJoinedApi();
     const callbacks = createCallbacks();

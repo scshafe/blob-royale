@@ -9,6 +9,7 @@
 #include "map_definition.hpp"
 #include "match_phase.hpp"
 #include "physics_body.hpp"
+#include "random_stream_registry.hpp"
 #include "royale/royale_configuration.hpp"
 #include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
@@ -124,7 +125,8 @@ TEST_CASE("hazard_spawn seats nothing before the match is running",
   CHECK(published_hazards(lobby).empty());
   // Nothing was drawn either, which is the stronger statement: a tick that seats nothing must not
   // advance the generator, or the arena's contents would depend on how long the lobby lasted.
-  CHECK(lobby.random_draw_count() == 0);
+  CHECK(lobby.random_draw_counts()[simulation::random_stream_index(
+            simulation::RandomStreamKind::kHazards)] == 0);
 }
 
 TEST_CASE("hazard_spawn seats a crossing body carrying the archetype's own physics",
@@ -274,7 +276,8 @@ TEST_CASE("the same seed and the same commands reproduce every crossing exactly"
   const simulation::WorldSnapshot left = first.advance(1);
   // Draws actually happened, so the equality above is evidence about a generator that ran rather
   // than about one that was never touched.
-  CHECK(left.random_draw_count() > 0);
+  CHECK(left.random_draw_counts()[simulation::random_stream_index(
+            simulation::RandomStreamKind::kHazards)] > 0);
 }
 
 TEST_CASE("a different seed produces different crossings",

@@ -573,8 +573,8 @@ TEST_CASE("GameWorld seats a map's static bodies with the world's own id policy"
   CHECK(world.store<simulation::PhysicsBody>().entries()[0].value.position() ==
         simulation::Vector2::create(10.0, 20.0));
   CHECK(world.store<simulation::Controllable>().empty());
-  CHECK(world.random().seed() == 4'242);
-  CHECK(world.random().draw_count() == 0);
+  CHECK(world.random(simulation::RandomStreamKind::kHazards).seed() == 4'242);
+  CHECK(world.random_draw_counts() == simulation::RandomDrawCounts{});
 }
 
 TEST_CASE("GameWorld seats a map's static bodies with the configured player radius",
@@ -622,6 +622,6 @@ TEST_CASE("a seeded GameWorld carries an unusable reservation and a zero-seeded 
   const simulation::GameWorld world = simulation::GameWorld::create({seed(2, 2.0)});
 
   CHECK(world.entity_id_reservation().empty());
-  CHECK(world.random().seed() == 0);
+  CHECK(world.random(simulation::RandomStreamKind::kHazards).seed() == 0);
   CHECK(world.match().phase == simulation::MatchPhase::kLobby);
 }

@@ -58,7 +58,7 @@ GameWorld GameWorld::create(std::vector<EntitySeed> seeds) {
       ComponentStore<PhysicsBody>::create(std::move(bodies));
   std::get<ComponentStore<Controllable>>(stores) =
       ComponentStore<Controllable>::create(std::move(controllables));
-  return GameWorld(std::move(stores), DeterministicRandom::create(0));
+  return GameWorld(std::move(stores), RandomStreams::create(0));
 }
 
 GameWorld GameWorld::create(const SimulationConfig& configuration, const MapDefinition& map,
@@ -129,7 +129,7 @@ GameWorld GameWorld::create(const SimulationConfig& configuration, const MapDefi
       ComponentStore<PhysicsBody>::create(std::move(bodies));
   std::get<ComponentStore<Controllable>>(stores) =
       ComponentStore<Controllable>::create(std::move(controllables));
-  return GameWorld(std::move(stores), DeterministicRandom::create(seed));
+  return GameWorld(std::move(stores), RandomStreams::create(seed));
 }
 
 EntityId GameWorld::create_entity() {
@@ -164,7 +164,7 @@ void GameWorld::destroy_entity(const EntityId entity) noexcept {
       [this, entity]<typename Component>() { mutable_store<Component>().erase(entity); });
 }
 
-GameWorld::GameWorld(ComponentStores<ComponentRegistry> stores, DeterministicRandom random) noexcept
-    : stores_(std::move(stores)), random_(random) {}
+GameWorld::GameWorld(ComponentStores<ComponentRegistry> stores, RandomStreams random) noexcept
+    : stores_(std::move(stores)), random_(std::move(random)) {}
 
 } // namespace blob_royale::simulation

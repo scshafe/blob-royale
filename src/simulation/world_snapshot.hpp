@@ -6,6 +6,7 @@
 #include "entity_id.hpp"
 #include "match_snapshot.hpp"
 #include "player_snapshot.hpp"
+#include "random_stream_registry.hpp"
 #include "terrain_definition.hpp"
 #include "tick_sequence.hpp"
 
@@ -42,9 +43,9 @@ class MapDefinition;
 // and a Controllable. It is materialized once at construction so the encoder walks a contiguous
 // span rather than merging two stores per frame.
 //
-// `match()` is the generic lifecycle section and `random_draw_count()` is the generator's draw
-// count, which is committed in every snapshot so two runs that diverge in how many draws they took
-// diverge visibly at the first differing tick
+// `match()` is the generic lifecycle section and `random_draw_counts()` holds each named stream's
+// count in registry order, so two runs that diverge in how many draws they took on any stream
+// diverge visibly at the first differing tick. Seeds and generator states are not published
 // (`docs/architecture/0004-gameplay-architecture.md` § "Snapshots and protocol shape").
 //
 // `terrain()` retains the actual immutable terrain member of the simulation's map. All snapshots
@@ -80,7 +81,7 @@ public:
   [[nodiscard]] const MatchSnapshot& match() const& noexcept { return match_; }
   [[nodiscard]] const MatchSnapshot& match() const&& = delete;
 
-  [[nodiscard]] std::uint64_t random_draw_count() const noexcept { return random_draw_count_; }
+  [[nodiscard]] RandomDrawCounts random_draw_counts() const noexcept { return random_draw_counts_; }
 
   [[nodiscard]] const TerrainDefinition& terrain() const& noexcept { return *terrain_; }
   [[nodiscard]] const TerrainDefinition& terrain() const&& = delete;
@@ -99,7 +100,7 @@ private:
 
   WorldSnapshot(TickSequence tick_sequence, std::vector<EntityId> entities,
                 ComponentStores<ComponentRegistry> stores, std::vector<PlayerSnapshot> players,
-                MatchSnapshot match, std::uint64_t random_draw_count,
+                MatchSnapshot match, RandomDrawCounts random_draw_counts,
                 std::shared_ptr<const TerrainDefinition> terrain) noexcept;
 
   TickSequence tick_sequence_;
@@ -107,7 +108,7 @@ private:
   ComponentStores<ComponentRegistry> stores_;
   std::vector<PlayerSnapshot> players_;
   MatchSnapshot match_;
-  std::uint64_t random_draw_count_;
+  RandomDrawCounts random_draw_counts_;
   std::shared_ptr<const TerrainDefinition> terrain_;
 };
 

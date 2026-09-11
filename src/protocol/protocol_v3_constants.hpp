@@ -65,6 +65,9 @@ inline constexpr std::size_t kMatchPlacementLimit = 1'024;
 // The published race gate array is bounded by the map's marker ceiling. The combined
 // authored marker count is validated by MapDefinition; a schema bounds each array independently.
 inline constexpr std::size_t kRaceCoursePointLimit = 4'096;
+// The closed count-object keys in snapshot-data.schema.json, in explicit registry order.
+// random_draw_counts_encoding.hpp asserts agreement with the simulation registry.
+inline constexpr std::array<std::string_view, 2> kV3RandomStreamNames{"hazards", "hill"};
 inline constexpr std::size_t kSnapshotFrameV3MaximumByteCount = 2'097'152;
 // v1's inbound bound, unchanged, now reached by real traffic
 // (`docs/protocol/v3.md` § "Admission order" step 1).

@@ -54,6 +54,7 @@ export function hillSnapshotDocument(messageSequence = 2) {
   return {
     data: {
       tick_sequence: 12904,
+      random_draw_counts: structuredClone(golden.data.random_draw_counts),
       entities: [
         {
           entity_id: 3,
@@ -159,6 +160,7 @@ export function raceSnapshotDocument(messageSequence = 2) {
   return {
     data: {
       tick_sequence: 12904,
+      random_draw_counts: structuredClone(golden.data.random_draw_counts),
       entities: hill.data.entities
         .filter((entity) => entity.components.controllable !== undefined)
         .map((entity) => ({

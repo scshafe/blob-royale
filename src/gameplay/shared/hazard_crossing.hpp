@@ -62,8 +62,8 @@ struct HazardCrossing final {
 // point on the opposite edge that fixes the direction. Two points rather than an angle because an
 // angle would need a range that guaranteed the body actually entered, and the range depends on
 // where on the edge it started; aiming at the opposite edge makes crossing structural instead of a
-// constraint to enforce afterwards. `GameWorld::random()` is the only randomness source inside a
-// tick, so a replay of `(map, mode configuration, seed, command log)` reproduces every crossing
+// constraint to enforce afterwards. The caller supplies the world's named hazards stream, so a
+// replay of `(map, mode configuration, seed, command log)` reproduces every crossing
 // exactly (`docs/architecture/0004-gameplay-architecture.md` § "Determinism obligations for
 // framework code").
 [[nodiscard]] HazardCrossing draw_hazard_crossing(simulation::DeterministicRandom& random,

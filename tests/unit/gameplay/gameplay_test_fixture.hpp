@@ -76,7 +76,7 @@ gameplay_map(const std::size_t point_count, const std::string& name = "gameplay_
   return gameplay_map(0, "gameplay_map_without_spawn_points");
 }
 
-// The seed is explicit because a mode whose systems draw from `GameWorld::random()` -- a hazard
+// The seed is explicit because a mode whose systems draw from `GameWorld::random(kind)` -- a hazard
 // spawner is the first -- is only testable if two runs can be given the same seed deliberately and
 // different seeds deliberately. Everything written before hazards passed no seed and keeps `0`.
 [[nodiscard]] inline simulation::GameSimulation

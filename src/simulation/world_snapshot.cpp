@@ -61,23 +61,23 @@ WorldSnapshot WorldSnapshot::from_world(const TickSequence tick_sequence, const 
 
   return WorldSnapshot(
       tick_sequence, std::move(entities), std::move(stores), project_players(world),
-      MatchSnapshot::create(std::move(mode_name), world.match()), world.random().draw_count(),
+      MatchSnapshot::create(std::move(mode_name), world.match()), world.random_draw_counts(),
       std::shared_ptr<const TerrainDefinition>{map, &map->terrain()});
 }
 
 WorldSnapshot::WorldSnapshot(const TickSequence tick_sequence, std::vector<EntityId> entities,
                              ComponentStores<ComponentRegistry> stores,
                              std::vector<PlayerSnapshot> players, MatchSnapshot match,
-                             const std::uint64_t random_draw_count,
+                             const RandomDrawCounts random_draw_counts,
                              std::shared_ptr<const TerrainDefinition> terrain) noexcept
     : tick_sequence_(tick_sequence), entities_(std::move(entities)), stores_(std::move(stores)),
-      players_(std::move(players)), match_(std::move(match)), random_draw_count_(random_draw_count),
+      players_(std::move(players)), match_(std::move(match)), random_draw_counts_(random_draw_counts),
       terrain_(std::move(terrain)) {}
 
 bool operator==(const WorldSnapshot& left, const WorldSnapshot& right) {
   return left.tick_sequence_ == right.tick_sequence_ && left.entities_ == right.entities_ &&
          left.stores_ == right.stores_ && left.players_ == right.players_ &&
-         left.match_ == right.match_ && left.random_draw_count_ == right.random_draw_count_ &&
+         left.match_ == right.match_ && left.random_draw_counts_ == right.random_draw_counts_ &&
          *left.terrain_ == *right.terrain_;
 }
 

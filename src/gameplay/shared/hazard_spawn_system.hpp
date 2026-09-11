@@ -18,15 +18,15 @@ namespace blob_royale::gameplay {
 // a crossing body for each kind whose interval is due this tick. It adds no configuration and no
 // new rejection: every value it reads was checked at startup by `HazardArchetype::create`.
 //
-// **Every geometric choice comes from `GameWorld::random()`, in one fixed order, and nothing else
-// is a randomness source.** Per spawned hazard the draws are exactly three, always in this order:
+// **Every geometric choice comes from `GameWorld::random(RandomStreamKind::kHazards)`, in one
+// fixed order.** Per spawned hazard the draws are exactly three, always in this order:
 // the entry edge, the point along that edge, and the point on the opposite edge it is aimed at --
 // all three taken by `draw_hazard_crossing` (`shared/hazard_crossing.hpp`), which is the only
-// function in the tree that reads the generator on a mechanic's behalf. A
+// function that reads this stream on the hazard mechanic's behalf. A
 // replay of `(map, mode configuration, seed, command log)` therefore reproduces every crossing
 // exactly, which is `docs/architecture/0004-gameplay-architecture.md` § "Determinism obligations
-// for framework code". `draw_count` is committed in every snapshot, so two runs that diverge in how
-// many hazards they drew for diverge visibly at the first differing tick.
+// for framework code". The hazard count is committed in every snapshot's `random_draw_counts`, so
+// two runs that diverge in how many hazards they drew for diverge visibly at the first differing tick.
 //
 // **It runs at `kLifecycle`, and that is a design decision rather than a scheduling convenience.**
 // Creating an entity is roster bookkeeping, which is what the stage is for and what

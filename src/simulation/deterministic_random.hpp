@@ -17,16 +17,16 @@ namespace blob_royale::simulation {
 // outcome a property of the toolchain (`docs/architecture/0004-gameplay-architecture.md`
 // § "Determinism obligations for framework code").
 //
-// The generator is owned by GameWorld and seeded from match configuration, so a draw is part of
-// the committed world and a replay of `(map, mode configuration, seed, command log)` reproduces it
-// exactly. `draw_count` is committed in every snapshot, so two runs that diverge in **how many**
-// draws they took diverge visibly at the first differing tick instead of silently later.
+// Each named generator is owned by GameWorld through RandomStreams, so a draw is part of the
+// committed world and a replay of `(map, mode configuration, seed, command log)` reproduces it
+// exactly. Each stream's draw_count is committed in every snapshot, so two runs that diverge in
+// **how many** draws they took diverge visibly at the first differing tick instead of silently later.
 //
 // Every operation is a pure function of the generator's own state: no clock, no global, and no
 // per-worker storage of any kind, so the only way two runs differ is by drawing a different number
 // of times.
-// related: game_world.hpp -- the owner of one match's generator.
-// related: world_snapshot.hpp -- the publication that carries `draw_count`.
+// related: random_streams.hpp -- the owner and seed derivation of each named generator.
+// related: world_snapshot.hpp -- the publication that carries per-stream draw counts.
 class DeterministicRandom final {
 public:
   // The SplitMix64 constants, named so a reader can check them against the published algorithm
@@ -39,6 +39,15 @@ public:
     return DeterministicRandom(seed);
   }
 
+  // canonical: splitmix64_finalizer -- pure unsigned mixing for deterministic stream seeds.
+  // No generator is advanced. Both next_bits and stream seed derivation use this finalizer; its
+  // independent frozen proof retains the pre-extraction arithmetic and distribution behavior.
+  [[nodiscard]] static constexpr std::uint64_t mix_bits(std::uint64_t mixed) noexcept {
+    mixed = (mixed ^ (mixed >> 30U)) * kFirstMixMultiplier;
+    mixed = (mixed ^ (mixed >> 27U)) * kSecondMixMultiplier;
+    return mixed ^ (mixed >> 31U);
+  }
+
   DeterministicRandom(const DeterministicRandom&) = default;
   DeterministicRandom(DeterministicRandom&&) noexcept = default;
   DeterministicRandom& operator=(const DeterministicRandom&) = default;
@@ -49,10 +58,7 @@ public:
   [[nodiscard]] std::uint64_t next_bits() noexcept {
     ++draw_count_;
     state_ += kGoldenGammaIncrement;
-    std::uint64_t mixed = state_;
-    mixed = (mixed ^ (mixed >> 30U)) * kFirstMixMultiplier;
-    mixed = (mixed ^ (mixed >> 27U)) * kSecondMixMultiplier;
-    return mixed ^ (mixed >> 31U);
+    return mix_bits(state_);
   }
 
   // A value in [0, 1) built from the top 53 bits, which is exactly the number of bits a binary64

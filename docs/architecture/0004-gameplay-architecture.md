@@ -1369,3 +1369,38 @@ The third bounded name consolidates fixed name storage behind distinct validatio
 Existing seat/contact-name source APIs, empty sentinels, domain errors, and no-throw moves remain;
 this is not a promise of ABI or nominal class identity compatibility. The canonical name grammar
 is still `snake_case_identity.hpp`. Prerequisite proof and final verification live in the plan.
+
+## Amendment: named deterministic random streams, 2026-09-11 (plan Step 9)
+
+This replaces the single-generator statements and unqualified `GameWorld::random()` API in
+§ "Entities, components, and stores" and § "Determinism obligations for framework code", and the
+scalar C++ snapshot counter in § "Snapshots and protocol shape". `GameWorld` owns one fixed-size `RandomStreams`
+value. The closed registry fixes names and ordinals: `hazards = 0`, then `hill = 1`. Registration
+order is explicit compatibility data, never derived from a name sort or container iteration.
+Callers name the stream they consume. Invalid runtime stream identities fail explicitly rather
+than indexing unchecked or selecting another stream.
+
+The hazard generator initializes with the exact old match seed, state, and zero draw count.
+The hill generator initializes with `mix64(match_seed + golden_gamma * 1)`, where addition and
+multiplication use unsigned modulo-2^64 arithmetic and `mix64` is the canonical SplitMix64
+finalizer. Initialization draws from neither stream. The existing generator's count increment,
+state increment, shifts, multiplications, top-53-bit conversion, and rejection sampling preserve
+their written order; its existing uint64 counter-wrap behavior is not changed in this step.
+The promoted finalizer is proved before the old reader delegates. Hazard draws retain their
+existing stage, declaration order, and pre-draw reservation/capacity checks. Hill movement does
+not start consuming its stream until Step 12. Bots retain their existing external seeds until
+Step 15.
+
+Separate stream state means extra hill draws cannot advance hazards, or vice versa. All stream
+state remains in the copied working world, so the existing non-throwing whole-world commit
+provides transactional rollback with no new kernel socket. Proof checks successful observable
+continuation after a failed tick, not only unchanged published counters.
+
+Snapshots retain only one uint64 draw count per registered stream, not seeds or generator state.
+The previous scalar `random_draw_count` was C++-only: session v3 now **adds** required
+`random_draw_counts: {hazards, hill}`. The encoder rejects any count above `2^53 - 1` with the
+specific stream's context instead of rounding or clamping it; the C++ snapshot does not narrow
+its count type. The wire schema is closed and clients validate the complete count object.
+Independent frozen legacy-generator and actual hazard-birth proofs accompany the cutover;
+unchanged accepted replay outcomes and full gate evidence are recorded in the plan. This dated
+contract does not itself claim those gates completed or approve the separate physics gate.

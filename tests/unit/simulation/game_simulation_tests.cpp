@@ -1684,7 +1684,7 @@ TEST_CASE("a simulation with no declared mode runs the engine's own declarations
   CHECK(snapshot.match().phase() == simulation::MatchPhase::kLobby);
   CHECK(snapshot.match().phase_started_tick() == simulation::TickSequence::zero());
   CHECK_FALSE(snapshot.match().outcome().is_decided());
-  CHECK(snapshot.random_draw_count() == 0);
+  CHECK(snapshot.random_draw_counts() == simulation::RandomDrawCounts{});
 }
 
 TEST_CASE("a setup that declares both a mode and an explicit pipeline is rejected",

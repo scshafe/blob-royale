@@ -33,6 +33,7 @@ add_executable(blob_gameplay_unit_tests
   shared/guarded_pair_contact_tests.cpp
   shared/hazard_archetype_tests.cpp
   shared/hazard_spawn_system_tests.cpp
+  shared/hazard_stream_promotion_tests.cpp
   shared/lethal_hazard_contact_rule_tests.cpp
   shared/lifetime_expiry_system_tests.cpp
   shared/lobby_start_rule_tests.cpp

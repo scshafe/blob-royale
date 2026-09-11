@@ -1,6 +1,10 @@
 {
   "data": {
     "tick_sequence": 12904,
+    "random_draw_counts": {
+      "hazards": 0,
+      "hill": 0
+    },
     "entities": [
       {
         "entity_id": 1,

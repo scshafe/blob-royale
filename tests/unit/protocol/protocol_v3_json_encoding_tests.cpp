@@ -187,7 +187,7 @@ TEST_CASE("Snapshot v3 encoder emits canonical bytes for the accepted golden wor
 
   CHECK(
       encoded ==
-      R"({"data":{"tick_sequence":12904,"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
+      R"({"data":{"tick_sequence":12904,"random_draw_counts":{"hazards":0,"hill":0},"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}}},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
 }
 
 TEST_CASE("Error response v3 encoder matches the accepted golden example and canonical bytes",
@@ -201,6 +201,35 @@ TEST_CASE("Error response v3 encoder matches the accepted golden example and can
   CHECK(
       encoded ==
       R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+}
+
+TEST_CASE("Snapshot v3 publishes real per-stream counts without exposing random state",
+          "[unit][protocol][v3][encoding][random_draw_counts]") {
+  const auto snapshot = fixture::counted_random_snapshot();
+  CHECK(snapshot.random_draw_counts() == simulation::RandomDrawCounts{4, 6});
+  const std::string encoded = protocol::encode_snapshot_message_v3(
+      snapshot, fixture::golden_directory(), fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+  CHECK(encoded.starts_with(
+      R"({"data":{"tick_sequence":2,"random_draw_counts":{"hazards":4,"hill":6},"entities":[])"));
+  const auto document = boost::json::parse(encoded);
+  const auto& data = document.as_object().at("data").as_object();
+  CHECK(data.size() == 4);
+  CHECK(data.at("random_draw_counts") == boost::json::parse(R"({"hazards":4,"hill":6})"));
+  CHECK_FALSE(data.contains("random_draw_count"));
+  CHECK_FALSE(data.contains("random_seed"));
+  CHECK_FALSE(data.contains("random_state"));
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
+  CHECK(protocol::encode_snapshot_message_v3(
+            snapshot, fixture::golden_directory(), fixture::session_request_id(),
+            fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp, encoded.size()) == encoded);
+  fixture::require_protocol_error_code(
+      [&] {
+        return protocol::encode_snapshot_message_v3(
+            snapshot, fixture::golden_directory(), fixture::session_request_id(),
+            fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp, encoded.size() - 1);
+      },
+      protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
 }
 
 TEST_CASE("Error response v3 encoder carries the fourteen rows v3 shares with v1",
@@ -227,6 +256,9 @@ TEST_CASE("Snapshot v3 encoder emits every normative object member in canonical 
 
   require_members_in_order(encoded, {R"("data")",
                                      R"("tick_sequence")",
+                                     R"("random_draw_counts")",
+                                     R"("hazards")",
+                                     R"("hill")",
                                      R"("entities")",
                                      R"("entity_id")",
                                      R"("components")",

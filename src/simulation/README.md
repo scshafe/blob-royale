@@ -301,13 +301,22 @@ cannot hide the lost body from counter cleanup.
 `WorldSnapshot` and `PlayerSnapshot` are immutable, copy-owned publication values. A snapshot
 carries the ascending entity roster, every registered component kind through `components<C>()`, the
 protocol v1 `players()` projection of the entities carrying both a `PhysicsBody` and a
-`Controllable`, the `MatchSnapshot` section, and the generator's `random_draw_count()`. Its roster
-is derived from the stores it just copied, so a published component whose entity is missing from
+`Controllable`, the `MatchSnapshot` section, and the named generators' `random_draw_counts()`.
+Its roster is derived from the stores it just copied, so a published component whose entity is missing from
 `entities()` is unrepresentable rather than merely avoided. **A published component is what its kind
 declares it publishes** (`component_publication.hpp`): `Controllable::commands_this_tick` is
 tick-local live input and is stripped here, so a snapshot never discloses a player's input for the
 tick it is rendering. Snapshot creation happens only after a complete tick and retains canonical
 entity ordering. Older snapshots never change when the simulation advances.
+
+`RandomStreams` owns a fixed array of committed generators, addressed through the closed ordered
+registry in `random_stream_registry.hpp`. Stable ordinals are `hazards = 0` and `hill = 1`.
+Hazards use the old match seed unchanged; hill uses the canonical SplitMix64 finalizer of
+`match_seed + golden_gamma * 1`, with unsigned wrap and no initialization draws. Extra draws on
+one stream never advance the other. Invalid runtime identities are named failures, not fallbacks.
+The existing working-world copy and whole-world commit cover every stream; there is no separate
+rollback mechanism. Snapshots own only the count array. C++ counts remain uint64, while the v3
+encoder rejects a count outside the wire's safe-integer range rather than silently rounding it.
 
 ## Extension points
 

@@ -21,6 +21,8 @@ add_executable(blob_simulation_unit_tests
   simulation/mode_states/race_mode_state_tests.cpp
   simulation/motion_event_order_tests.cpp
   simulation/physics_tests.cpp
+  simulation/random_streams_promotion_tests.cpp
+  simulation/random_stream_world_tests.cpp
   simulation/seat_roster_tests.cpp
   simulation/simulation_system_tests.cpp
   simulation/snapshot_tests.cpp

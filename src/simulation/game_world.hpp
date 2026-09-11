@@ -4,13 +4,13 @@
 #include "component_registry.hpp"
 #include "component_store.hpp"
 #include "controller_id.hpp"
-#include "deterministic_random.hpp"
 #include "entity_id.hpp"
 #include "entity_id_reservation.hpp"
 #include "entity_roster.hpp"
 #include "map_definition.hpp"
 #include "match_state.hpp"
 #include "physics_body.hpp"
+#include "random_streams.hpp"
 #include "simulation_config.hpp"
 #include "world_event_registry.hpp"
 
@@ -45,8 +45,8 @@ namespace blob_royale::simulation {
 //     (`docs/architecture/0004-gameplay-architecture.md` § "World events").
 //   * `MatchState`, the match-wide state the engine's lifecycle system writes and a mode's systems
 //     read.
-//   * `DeterministicRandom`, seeded from match configuration. It is the only randomness source
-//     inside a tick.
+//   * `RandomStreams`, seeded from match configuration. These named generators are the only
+//     randomness sources inside a tick, with independent state and draw counts.
 //   * **this tick's EntityIdReservation**, which is what makes `create_entity()` work. The kernel
 //     installs the tick's reservation at the start of the tick and clears it at commit, so a world
 //     outside a tick can create nothing and a system inside one draws only ids the tick's input
@@ -87,11 +87,11 @@ public:
 
   // Canonicalizes caller order into strict ascending EntityId order. A seeded entity carries a
   // PhysicsBody, and one that named a controller also carries a Controllable, which is exactly
-  // what makes it a player entity rather than a wall. The generator is seeded at zero, because
-  // this path has no match configuration to read a seed from.
+  // what makes it a player entity rather than a wall. The match seed is zero, because this path
+  // has no match configuration to read a seed from; every stream follows the same seed derivation.
   [[nodiscard]] static GameWorld create(std::vector<EntitySeed> seeds);
 
-  // The production construction path: seats the map's static bodies and seeds the generator.
+  // The production construction path: seats the map's static bodies and seeds all named streams.
   //
   // **The id policy for map content is owned here.** A static body takes the id
   // `kMinimumEntityId + index` in the map's declared order, so a map's entities are a deterministic
@@ -174,15 +174,25 @@ public:
   [[nodiscard]] const MatchState& match() const&& = delete;
   [[nodiscard]] MatchState& mutable_match() noexcept { return match_; }
 
-  [[nodiscard]] DeterministicRandom& random() & noexcept { return random_; }
-  [[nodiscard]] const DeterministicRandom& random() const& noexcept { return random_; }
-  [[nodiscard]] const DeterministicRandom& random() const&& = delete;
+  // A stream identity is mandatory. Unknown runtime kinds fail with
+  // SIMULATION.RANDOM_STREAM_KIND_INVALID before touching any generator.
+  [[nodiscard]] DeterministicRandom& random(const RandomStreamKind kind) & {
+    return random_.get(kind);
+  }
+  [[nodiscard]] const DeterministicRandom& random(const RandomStreamKind kind) const& {
+    return random_.get(kind);
+  }
+  [[nodiscard]] const DeterministicRandom& random(RandomStreamKind kind) const&& = delete;
+
+  [[nodiscard]] RandomDrawCounts random_draw_counts() const noexcept {
+    return random_.draw_counts();
+  }
 
   // What is left of this tick's reservation. A committed world always holds `none()`.
   [[nodiscard]] EntityIdReservation entity_id_reservation() const noexcept { return reservation_; }
 
   // Structural equality over every part of one match's state. Two **committed** worlds compare on
-  // their stores, match state, and generator alone, because a committed world's event list is
+  // their stores, match state, and every generator, because a committed world's event list is
   // empty and its reservation is `none()`.
   friend bool operator==(const GameWorld&, const GameWorld&) = default;
 
@@ -203,12 +213,12 @@ private:
     reservation_ = EntityIdReservation::none();
   }
 
-  GameWorld(ComponentStores<ComponentRegistry> stores, DeterministicRandom random) noexcept;
+  GameWorld(ComponentStores<ComponentRegistry> stores, RandomStreams random) noexcept;
 
   ComponentStores<ComponentRegistry> stores_;
   MatchState match_;
   std::vector<WorldEvent> events_;
-  DeterministicRandom random_;
+  RandomStreams random_;
   EntityIdReservation reservation_{EntityIdReservation::none()};
 };
 

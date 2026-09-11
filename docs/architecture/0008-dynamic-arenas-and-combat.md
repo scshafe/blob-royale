@@ -783,7 +783,7 @@ cliff collider entities or duplicate darkness geometry. The center criterion is 
 The existing supported-rim equality convention is retained pending any explicit boundary-rule
 change; the owner's example does not supply a replacement numerical tolerance rule.
 
-### Perfect shield; later behavior deferred
+### Perfect shield; later behavior initially deferred
 
 During a very short opening immediately after activation, a qualifying incoming opponent's
 current velocity and acceleration are set to zero and the opponent is stunned. "Negate momentum"
@@ -798,6 +798,7 @@ and advisory benchmark remain historical prototype evidence, not approval of tha
 Neither continued ordinary shielding nor an immediately inactive shield may be silently chosen.
 Resolve the complete lifecycle before Step 18. The owner confirmed a short opening, not new
 exact duration/cooldown/stun values; existing numerical proposals remain tuning candidates.
+This historical deferral is superseded by the later owner decision below.
 
 ### Mouse direction with authoritative fixed strength
 
@@ -863,3 +864,21 @@ kept identical correctness hashes and work counts. See
 `docs/reviews/2026-09-10-per-object-contact-prototype-review.md` and its sibling baseline JSON
 for scope, numerical limitations, and measurements. This is not human Step 5 acceptance, native
 certification, capacity selection, or a decision about post-perfect-window shielding.
+
+## Owner decision: ordinary protection after the perfect opening, 2026-09-10
+
+The owner selected **ordinary protection with reduced knockback for the remaining shield
+duration**. This supersedes the earlier post-opening deferral and clears that hold for Step 18.
+The short perfect opening still cancels a qualifying incoming opponent's current velocity and
+acceleration and applies stun. After that opening, contact protection and reduced received
+impulse remain, but the special momentum cancellation and parry stun do not. Cliffs continue
+to bypass all shield phases.
+
+Use the already tested quarter-impulse target as the initial tuning assumption communicated
+during execution, with the pair-level non-closing correction taking precedence. The owner
+confirmed reduced knockback, not that exact fraction; exact shield/perfect/stun/cooldown
+durations likewise remain tuning candidates. Reuse the permanent pure composition and the
+shared tick-window lifecycle rather than introducing a second shield response.
+
+This is a gameplay decision, not approval of live continuous-physics adoption at Step 5,
+native capacity/performance certification, or evidence that the live shield is implemented.

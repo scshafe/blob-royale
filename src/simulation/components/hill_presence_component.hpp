@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_COMPONENTS_HILL_PRESENCE_COMPONENT_HPP
 
 #include "component_kind_name.hpp"
+#include "component_lifetime.hpp"
 
 #include <cstdint>
 #include <string_view>
@@ -13,7 +14,7 @@ namespace blob_royale::simulation {
 //
 // **An absent `HillPresence` reads as zero**, for the reasons `ZoneExposure` is spelled the same
 // way: nothing seeds a counter at spawn, a knocked-out entity's partial point is forgotten by the
-// system that owns the counter, and one world state has one spelling. `hill_scoring` erases the
+// shared body-bound cleanup, and one world state has one spelling. `hill_scoring` erases the
 // entry when the entity leaves the hill or when the counter rolls over into a `Score` point, and
 // leaves it exactly as it is while the hill is contested
 // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "Scoring").
@@ -33,6 +34,10 @@ struct HillPresence final {
 
 template <> struct ComponentKindName<HillPresence> {
   static constexpr std::string_view value = "hill_presence";
+};
+
+template <> struct ComponentLifetime<HillPresence> {
+  static constexpr bool bound_to_body = true;
 };
 
 } // namespace blob_royale::simulation

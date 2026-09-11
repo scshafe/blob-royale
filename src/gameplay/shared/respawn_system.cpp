@@ -77,6 +77,9 @@ void RespawnSystem::apply(simulation::GameWorld& world, const simulation::TickCo
           entity, simulation::RespawnTimer{respawn_delay_ticks_});
     }
   }
+  // One registry sweep covers both this tick's removals and previously bodyless entities.
+  // It precedes next-tick seating even for a zero delay and names no mode-owned component.
+  world.erase_body_bound_components_without_body();
 }
 
 } // namespace blob_royale::gameplay

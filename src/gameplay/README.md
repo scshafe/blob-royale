@@ -246,12 +246,15 @@ match quietly played with no zone and therefore no elimination.
 answers. Royale's `placement_recorder` ranks and destroys. `shared/respawn_system` is the other
 answer, for a mode whose fallen come back: it erases the eliminated entity's `PhysicsBody`, attaches
 a `RespawnTimer` of the mode's configured delay, counts existing timers down first, and erases a
-timer at zero -- at which point the entity, still carrying its `Controllable` and everything else it
-owned, is exactly what the engine's `SpawnSystem` calls "awaiting a body". An entity eliminated on
+timer at zero -- at which point the entity, still carrying its `Controllable` and body-independent
+state, is exactly what the engine's `SpawnSystem` calls "awaiting a body". An entity eliminated on
 tick `N` with delay `D` is offered to the mode's spawn policy at phase 0 of tick `N + D + 1`; with
 `D = 0`, on `N + 1`. A policy defers an entity that carries a timer, which is one predicate
-(`shared/next_free_spawn_point_policy.hpp`). The body is the only thing erased; a mode that pairs
-respawn with a body-bound counter of its own erases that counter in the system that owns it.
+(`shared/next_free_spawn_point_policy.hpp`). At the end of the same lifecycle pass, the canonical
+registry sweep erases every `ComponentLifetime<C>::bound_to_body` kind on every bodyless entity.
+`HillPresence` and `ZoneExposure` declare that trait; their systems perform no separate body-loss
+cleanup. Score, checkpoint progress, controller identity, and the timer survive. Royale still
+destroys whole entities, so its elimination path requires no additional sweep.
 
 `shared/match_reset_system` is royale's restart wipe generalized: on the single `lobby` tick whose
 `previous_phase` is `ended` it destroys every participant -- alive, respawning, or awaiting a seat
@@ -274,12 +277,11 @@ and `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `hill_rules
 `kLifecycle`; seats joiners at the next free point in every phase, because the field is open; and
 returns a knocked-out player after the configured respawn delay with its score intact.
 
-After its scoring pass, `hill_scoring` erases partial `HillPresence` for this tick's
-`EliminationEvent`s, then removes any presence on already-bodyless entities. A completed point on
-the knockout tick remains earned. Clearing the event's entity before lifecycle body removal is
-necessary when the respawn delay is zero: next tick's phase 0 can seat the body before another
-scoring pass, so a bodyless-only check would carry the old partial point through the return.
-Shared respawn still erases only the body and manages its timer; counter cleanup stays hill-owned.
+After scoring, shared respawn removes eliminated bodies and sweeps body-bound `HillPresence`,
+including entries already lacking a body. A completed point on the knockout tick remains earned.
+The sweep happens on that tick before commit, so next tick's zero-delay seating cannot carry
+partial progress through the return. Hill scoring owns only presence accrual, leaving-region
+erasure, and point rollover; body-loss cleanup has one shared owner.
 
 What it contributed outside its own directory is two component headers plus one line in
 `component_registry.hpp`, one mode-state header plus one type and one schema id in

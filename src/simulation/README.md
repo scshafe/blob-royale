@@ -33,9 +33,17 @@ LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion>`, w
 are royale's, `Hill` and `HillPresence` describe hill scoring, and `RaceProgress` counts ordered
 gates; `HillMotion` carries roaming velocity and private scheduling, while `LethalOnContact` and
 `RespawnTimer` support shared mechanics. Because it is a type list,
-three behaviors are **generated rather than maintained** — structural world equality,
-`destroy_entity` erasing from every store, and snapshot
+four behaviors are **generated rather than maintained** — structural world equality,
+`destroy_entity` erasing from every store, body-bound lifetime cleanup, and snapshot
 publication of every kind — so a new kind cannot forget to participate in any of them.
+
+`component_lifetime.hpp` owns the default-false `ComponentLifetime<C>::bound_to_body` trait.
+`HillPresence` and `ZoneExposure` declare it beside their values. The one registry-generated,
+allocation-free `GameWorld::erase_body_bound_components_without_body()` sweep removes those
+kinds from every bodyless entity, including non-participants and already-bodyless entities.
+Shared respawn calls it after body removal, before commit; arbitrary intermediate store edits do
+not promise that invariant. Score, race progress, controller identity, hill geometry/motion, and
+respawn timers remain body-independent. Whole-entity destruction already erases every kind.
 
 The world's seat count is `kMaximumEntityCount`, and it says entities because it bounds entities: a
 wall, a projectile, a pickup, and a zone each take a seat and none of them is a player.
@@ -314,10 +322,10 @@ survives a tick unless a system writes it.
 `simulation_limits.hpp` owns the bounds shared by input and publication: physical component
 magnitudes at most `10^12`, protocol-safe integers at most `2^53 - 1`. The hill and race
 configuration factories enforce those bounds for their published geometry and winning score, so
-startup cannot accept values that only fail when a snapshot is encoded. Entity-shaped partial
-progress remains the owning system's responsibility: hill scoring clears this tick's eliminated
-entities after awarding points, before shared respawn erases their bodies, so zero-delay seating
-cannot hide the lost body from counter cleanup.
+startup cannot accept values that only fail when a snapshot is encoded. Body-bound partial
+progress is cleared by shared respawn's registry sweep after scoring and body removal on the
+knockout tick, so zero-delay seating cannot hide the lost body from counter cleanup. Scoring
+systems retain their normal counter rollover and leaving-region rules, not body-loss cleanup.
 
 `WorldSnapshot` and `PlayerSnapshot` are immutable, copy-owned publication values. A snapshot
 carries the ascending entity roster, every registered component kind through `components<C>()`, the

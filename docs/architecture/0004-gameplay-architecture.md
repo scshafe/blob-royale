@@ -197,6 +197,14 @@ snapshot construction visiting every kind. **Adding a component kind therefore c
 participate in entity destruction, world equality, or the snapshot** — the three places a
 hand-written registry would rot.
 
+**Amended 2026-09-11 (ADR 0008, plan Step 13):** Body-bound lifetime is a fourth generated
+behavior. `ComponentLifetime<C>::bound_to_body` defaults to false and is specialized beside a
+kind whose state cannot outlive its body. Shared respawn calls the one registry-generated
+`GameWorld::erase_body_bound_components_without_body()` sweep after body removal; a new bound
+kind needs no per-system knockout cleanup. The sweep also handles older bodyless entries,
+without allocation, in ascending entity order within each registered store. Entity destruction
+continues to erase all kinds independently of this trait.
+
 `GameWorld` keeps its name and becomes the complete mutable state of one simulated match: it owns
 entities, every component store, `MatchState`, the tick's event list, and the seeded generator.
 

@@ -27,13 +27,11 @@ namespace blob_royale::gameplay {
 //             presence = (HillPresence or 0) + 1
 //             if presence >= I:   Score += 1, erase HillPresence
 //             else:               HillPresence = presence
-//     for every entity eliminated this tick:  erase HillPresence
-//     for every entity carrying HillPresence and no PhysicsBody, ascending:  erase HillPresence
 //
 // **Leaving the hill loses the partial point; a contested hill freezes it; being knocked out
-// forgets it.** This mode owns its counter's hygiene both before lifecycle body removal and while
-// bodyless, so even a zero-delay return forgets progress. Completed points stand on the knockout
-// tick. `I = 0` awards a point on the first inside tick, because
+// forgets it.** Shared lifecycle respawn removes body-bound presence after scoring and before
+// next-tick seating, so even a zero-delay return forgets progress. Completed points stand on the
+// knockout tick. `I = 0` awards a point on the first inside tick, because
 // the increment precedes the test. `Score` sits on the player entity, absent reads as zero, and it
 // survives a respawn because the entity does.
 //
@@ -43,6 +41,7 @@ namespace blob_royale::gameplay {
 // different rules, which is the rule `zone_elimination` set.
 // related: hill_movement_system.hpp -- the system that writes the circle this tests against.
 // related: ../../simulation/components/hill_presence_component.hpp -- the counter this owns.
+// related: ../shared/respawn_system.hpp -- body-bound cleanup after scoring.
 class HillScoringSystem final : public simulation::SimulationSystem {
 public:
   static constexpr std::string_view kSystemName = "hill_scoring";

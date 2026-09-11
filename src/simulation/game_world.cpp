@@ -1,5 +1,6 @@
 #include "game_world.hpp"
 
+#include "component_lifetime.hpp"
 #include "components/controllable_component.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
@@ -162,6 +163,26 @@ void GameWorld::destroy_entity(const EntityId entity) noexcept {
   // derived roster, so destruction has exactly one effect to get right.
   ComponentRegistry::for_each_kind(
       [this, entity]<typename Component>() { mutable_store<Component>().erase(entity); });
+}
+
+void GameWorld::erase_body_bound_components_without_body() noexcept {
+  const ComponentStore<PhysicsBody>& bodies = store<PhysicsBody>();
+  ComponentRegistry::for_each_kind([this, &bodies]<typename Component>() {
+    if constexpr (ComponentLifetime<Component>::bound_to_body) {
+      ComponentStore<Component>& components = mutable_store<Component>();
+      std::size_t index = 0;
+      while (index < components.size()) {
+        const EntityId entity = components.entries()[index].entity;
+        if (bodies.find(entity) == nullptr) {
+          // Erasing shifts the next ascending entry into this index. Re-read the store instead
+          // of retaining a span/reference or skipping adjacent bodyless entries.
+          components.erase(entity);
+        } else {
+          ++index;
+        }
+      }
+    }
+  });
 }
 
 GameWorld::GameWorld(ComponentStores<ComponentRegistry> stores, RandomStreams random) noexcept

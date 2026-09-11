@@ -1,7 +1,9 @@
 #include "shared/respawn_system.hpp"
 
+#include "fixtures/respawn_component_lifetime_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
 
+#include "component_lifetime.hpp"
 #include "components/controllable_component.hpp"
 #include "components/respawn_timer_component.hpp"
 #include "controller_id.hpp"
@@ -23,6 +25,8 @@
 namespace gameplay = blob_royale::gameplay;
 namespace simulation = blob_royale::simulation;
 namespace testing = blob_royale::testing;
+namespace lifetime_fixture = testing::component_lifetime_fixture;
+namespace respawn_lifetime_fixture = testing::respawn_component_lifetime_fixture;
 
 namespace {
 
@@ -163,4 +167,74 @@ TEST_CASE("an entity eliminated this tick is not decremented this tick",
   CHECK(timer_of(world, 1)->ticks_remaining == 1);
   REQUIRE(timer_of(world, 2) != nullptr);
   CHECK(timer_of(world, 2)->ticks_remaining == 2);
+}
+
+TEST_CASE("respawn cleans all body-bound kinds after zero or delayed duplicate eliminations",
+          "[unit][gameplay][shared][respawn][component_lifetime]") {
+  for (const auto delay : respawn_lifetime_fixture::kRespawnDelays) {
+    CAPTURE(delay);
+    auto world = respawn_lifetime_fixture::world_with_duplicate_eliminations();
+    const auto before = world;
+    const auto respawn = gameplay::RespawnSystem::create(delay);
+    apply(*respawn, world);
+
+    const auto eliminated = lifetime_fixture::entity(respawn_lifetime_fixture::kEliminatedPlayer);
+    CHECK(world.store<simulation::PhysicsBody>().find(eliminated) == nullptr);
+    CHECK(world.store<simulation::Controllable>() == before.store<simulation::Controllable>());
+    CHECK(world.store<simulation::Score>() == before.store<simulation::Score>());
+    CHECK(world.store<simulation::RaceProgress>() == before.store<simulation::RaceProgress>());
+    CHECK(world.store<simulation::Hill>() == before.store<simulation::Hill>());
+    CHECK(world.store<simulation::HillMotion>() == before.store<simulation::HillMotion>());
+    CHECK_FALSE(world.contains(
+        lifetime_fixture::entity(respawn_lifetime_fixture::kBodylessNonparticipant)));
+    simulation::ComponentRegistry::for_each_kind([&world]<typename Component>() {
+      if constexpr (simulation::ComponentLifetime<Component>::bound_to_body) {
+        for (const auto& entry : world.store<Component>().entries()) {
+          CHECK(world.store<simulation::PhysicsBody>().find(entry.entity) != nullptr);
+        }
+      }
+    });
+    REQUIRE(world.store<simulation::HillPresence>().size() == 1);
+    CHECK(world.store<simulation::HillPresence>().entries().front().entity ==
+          lifetime_fixture::entity(lifetime_fixture::kNonparticipantBody));
+
+    const auto* new_timer = world.store<simulation::RespawnTimer>().find(eliminated);
+    if (delay == 0) {
+      CHECK(new_timer == nullptr);
+    } else {
+      REQUIRE(new_timer != nullptr);
+      CHECK(new_timer->ticks_remaining == delay);
+    }
+    const auto* old_timer = world.store<simulation::RespawnTimer>().find(
+        lifetime_fixture::entity(respawn_lifetime_fixture::kExistingBodylessPlayer));
+    REQUIRE(old_timer != nullptr);
+    CHECK(old_timer->ticks_remaining == lifetime_fixture::kReturnTicks - 1);
+
+    // Reapplying sees the retained duplicate event list, but starts no replacement timer and
+    // cannot restore body-bound state. Existing timers still advance normally.
+    apply(*respawn, world);
+    CHECK(world.store<simulation::HillPresence>().find(eliminated) == nullptr);
+    CHECK(world.store<simulation::ZoneExposure>().find(eliminated) == nullptr);
+    const auto* following_timer = world.store<simulation::RespawnTimer>().find(eliminated);
+    if (delay == 0) {
+      CHECK(following_timer == nullptr);
+    } else {
+      REQUIRE(following_timer != nullptr);
+      CHECK(following_timer->ticks_remaining == delay - 1);
+    }
+  }
+}
+
+TEST_CASE("respawn cleans previously bodyless counters even without an elimination event",
+          "[unit][gameplay][shared][respawn][component_lifetime]") {
+  auto world = lifetime_fixture::mixed_world();
+  const auto respawn =
+      gameplay::RespawnSystem::create(respawn_lifetime_fixture::kRespawnDelays.front());
+  apply(*respawn, world);
+  for (const auto id : lifetime_fixture::kMixedEntities) {
+    const auto target = lifetime_fixture::entity(id);
+    const bool has_live_body = world.store<simulation::PhysicsBody>().find(target) != nullptr;
+    CHECK((world.store<simulation::HillPresence>().find(target) != nullptr) == has_live_body);
+    CHECK((world.store<simulation::ZoneExposure>().find(target) != nullptr) == has_live_body);
+  }
 }

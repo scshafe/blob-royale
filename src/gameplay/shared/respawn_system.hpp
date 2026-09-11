@@ -22,6 +22,7 @@ namespace blob_royale::gameplay {
 //     PhysicsBody:
 //         erase the PhysicsBody
 //         if respawn_delay_ticks > 0: attach RespawnTimer { respawn_delay_ticks }
+//     erase every body-bound component whose entity has no PhysicsBody
 //
 // **The written order is the contract**: an entity eliminated this tick is not decremented this
 // tick. An entity eliminated on tick `N` with delay `D` therefore awaits a body from tick `N + D`
@@ -29,12 +30,13 @@ namespace blob_royale::gameplay {
 // offered on `N + 1`. A mode's policy must defer an entity that still carries a timer
 // (`shared/next_free_spawn_point_policy.hpp` does), which is one predicate.
 //
-// **The body is the only thing erased.** Score, race progress, and the controller link stay on the
+// **Persistent entity state survives.** Score, race progress, and the controller link stay on the
 // entity, which is the whole point of not destroying it: a hill match remembers what the fallen
 // had scored and a race remembers which gate they had reached. A mode that pairs this with a
-// body-bound counter of its own -- royale's `ZoneExposure`, the hill's presence counter -- erases
-// that counter in the system that owns it; this one knows nothing about any other kind. Royale
-// does not declare it and keeps destroying the eliminated: attrition is its game.
+// body-bound counter declares ComponentLifetime beside that kind. One registry-generated sweep
+// removes bound state after body erasure, including stale state on previously bodyless entities;
+// this system knows no individual bound kind. Royale does not declare it and keeps destroying the
+// eliminated: attrition is its game.
 //
 // The guard on the second loop is what makes the rule total. An elimination naming an entity with
 // no body -- one already out of play, or a producer naming something that was never playing -- is
@@ -49,6 +51,7 @@ namespace blob_royale::gameplay {
 // move").
 // related: ../../simulation/components/respawn_timer_component.hpp -- the counter this owns.
 // related: ../../simulation/events/elimination_event.hpp -- the event this consumes.
+// related: ../../simulation/component_lifetime.hpp -- the per-kind lifetime declaration.
 // related: ../royale/placement_recorder_system.hpp -- the other consumer, for attrition.
 class RespawnSystem final : public simulation::SimulationSystem {
 public:

@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_COMPONENTS_ZONE_EXPOSURE_COMPONENT_HPP
 
 #include "component_kind_name.hpp"
+#include "component_lifetime.hpp"
 
 #include <cstdint>
 #include <string_view>
@@ -16,7 +17,9 @@ namespace blob_royale::simulation {
 // counter dies with the entity through `destroy_entity`, and a controller that rejoins under a new
 // `EntityId` carries no partial grace (`docs/architecture/0005-royale-mode.md` § "Where zone and
 // elimination state live"). `zone_elimination` therefore *erases* the entry when an entity is
-// inside rather than storing an explicit zero, so one world state has one spelling.
+// inside rather than storing an explicit zero, so one world state has one spelling. Exposure
+// belongs to the current body; shared body-bound cleanup also discards it if a retaining mode
+// removes only that body. Royale's existing whole-entity destruction needs no separate sweep.
 //
 // State that is per entity and durable across ticks is a component by the rule
 // `docs/architecture/0004-gameplay-architecture.md` § "The tick: one fixed kernel, three named
@@ -38,6 +41,10 @@ struct ZoneExposure final {
 
 template <> struct ComponentKindName<ZoneExposure> {
   static constexpr std::string_view value = "zone_exposure";
+};
+
+template <> struct ComponentLifetime<ZoneExposure> {
+  static constexpr bool bound_to_body = true;
 };
 
 } // namespace blob_royale::simulation

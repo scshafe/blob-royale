@@ -13,6 +13,7 @@
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "match_phase.hpp"
 #include "physics_body.hpp"
+#include "shared/respawn_system.hpp"
 #include "simulation_system.hpp"
 #include "tick_sequence.hpp"
 #include "vector2.hpp"
@@ -177,9 +178,12 @@ TEST_CASE("being knocked out forgets the partial point but keeps the score",
   CHECK(score_of(world, 1) == 1);
   CHECK(presence_of(world, 1) == 2);
 
-  // The shape the shared respawn leaves behind: the controller stays, the body is gone.
+  // Shared lifecycle cleanup, not scoring, owns body-bound state after a body disappears.
   world.mutable_store<simulation::PhysicsBody>().erase(entity(1));
   score(world, four_ticks);
+  const testing::TickHarness harness{simulation::TickSequence::create(50)};
+  gameplay::RespawnSystem::create(four_ticks.respawn_delay_ticks())
+      ->apply(world, harness.context());
   CHECK(world.store<simulation::HillPresence>().find(entity(1)) == nullptr);
   CHECK(score_of(world, 1) == 1);
 }

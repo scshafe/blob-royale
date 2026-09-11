@@ -1115,3 +1115,19 @@ Implementation clarification (2026-09-11, Step 11a): Feature retains the sole in
 Canvas publishes CSS-space pointer/body observations through a stable callback, and Viewer retains
 camera policy. ADR 0004's dated cursor/Space amendment records these ownership boundaries. The
 execution plan records exact web/browser evidence and the headless tab-blur verification limit.
+
+## Amendment: body-bound lifetime ownership, 2026-09-11 (plan Step 13)
+
+`ComponentLifetime<T>::bound_to_body` is a default-false simulation trait declared beside each
+body-bound component. `GameWorld::erase_body_bound_components_without_body()` consumes the one
+component registry, walks each selected store in ascending entity order without allocation, and
+erases entries lacking a body. Shared respawn calls it once after all current body removals,
+cleaning newly and already-bodyless entities even when they are not participants. The invariant
+holds after that sweep, not after every intermediate mutable-store operation.
+
+`HillPresence` and `ZoneExposure` declare the trait. Both scorer body-loss passes retire; normal
+leaving-hill and point-rollover erasure remain scoring policy. Score, race progress, controller
+identity, respawn timers, and the non-body hill/motion remain persistent. Royale still destroys
+whole entities and therefore already clears every kind. ADR 0007's shared-respawn and scoring
+paragraphs are amended in lockstep. Zero-delay return, tick order, accepted replay values, and
+public component values do not change.

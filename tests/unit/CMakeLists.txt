@@ -5,6 +5,7 @@ add_executable(blob_simulation_unit_tests
   simulation/command_kind_mask_tests.cpp
   simulation/command_registry_tests.cpp
   simulation/component_join_tests.cpp
+  simulation/component_lifetime_tests.cpp
   simulation/component_registry_tests.cpp
   simulation/component_store_tests.cpp
   simulation/contact_impulse_promotion_tests.cpp

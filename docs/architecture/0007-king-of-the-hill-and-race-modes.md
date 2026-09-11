@@ -215,14 +215,18 @@ registry, and `shared/respawn_system` at `kLifecycle` consumes the tick's `Elimi
     for every distinct eliminated entity, ascending, that carries a Controllable and a PhysicsBody:
         erase the PhysicsBody
         if respawn_delay_ticks > 0: attach RespawnTimer { respawn_delay_ticks }
+    sweep registered body-bound kinds, erasing entries without a PhysicsBody
 
 The written order is the contract: an entity eliminated this tick is not decremented this tick.
 An entity eliminated on tick `N` with delay `D` therefore awaits a body from tick `N + D` and is
 offered to the spawn policy at phase 0 of tick `N + D + 1`; with `D = 0` it is offered on `N + 1`.
-**The body is the only thing erased.** Score, race progress, and the controller link stay on the
-entity, which is the whole point of not destroying it; a mode that pairs respawn with a body-bound
-counter of its own -- `ZoneExposure`, `HillPresence` -- erases that counter in the system that owns
-it. Royale does not declare `respawn` and keeps destroying the eliminated: attrition is its game.
+**Amended 2026-09-11 (ADR 0008, plan Step 13):** ~~The body is the only thing erased, and each
+counter owner clears its body-bound state.~~ Score, race progress, and the controller link stay on
+the entity, which is the whole point of not destroying it. A single registry-generated sweep at
+the end of shared respawn removes body-bound kinds from every bodyless entity, including older
+stale entries. `ZoneExposure` and `HillPresence` declare `ComponentLifetime<T>::bound_to_body`;
+counter owners do not duplicate that cleanup. Royale does not declare `respawn` and keeps
+destroying the eliminated: attrition is its game.
 A mode's spawn policy must defer an entity that still carries a timer, which is one predicate.
 
 **4. Seating is a public helper.** The occupancy predicate and the at-rest seating write that live
@@ -328,18 +332,16 @@ contact rule. Per tick, with `I` the configured `point_interval_ticks`:
             presence = (HillPresence or 0) + 1
             if presence >= I:   Score += 1, erase HillPresence
             else:               HillPresence = presence
-    for every entity named by this tick's EliminationEvents:  erase HillPresence
-    for every entity carrying HillPresence and no PhysicsBody, ascending:  erase HillPresence
 
 Three consequences are the rules a player feels. **Leaving the hill loses the partial point**; a
 contested hill **freezes** progress rather than losing it, so a rival who touches the rim for one
 tick cannot erase a second of holding; and being knocked out of play forgets the partial point.
-The elimination-event cleanup runs **after scoring**, so a whole point completed on the knockout
-tick stands, then partial presence is erased before the shared respawn removes the body at
-`kLifecycle`. Checking only for a missing body was insufficient: with a zero respawn delay, phase 0
-of the next tick can seat the player before scoring ever observes it bodyless. The event cleanup
-handles that case on the knockout tick, and the final bodyless pass still removes any older stale
-presence. Both cleanups belong to the hill; shared respawn's behavior is unchanged. `I = 0` awards
+**Amended 2026-09-11 (plan Step 13):** ~~The scorer owns elimination-event and already-bodyless
+cleanup.~~ Shared respawn's registry sweep runs **after scoring and body removal** at `kLifecycle`,
+so a whole point completed on the knockout tick stands and partial presence is erased before
+commit. Checking for a missing body on the next scoring pass was insufficient: zero-delay phase 0
+can seat it before that pass. The shared sweep removes both newly and already-bodyless entries
+on the current tick, preserving return timing and scoring outcomes. `I = 0` awards
 a point on the first inside tick because the increment precedes the test;
 `contested_hill_scores = true` is the free-for-all variant in which
 everyone inside scores.

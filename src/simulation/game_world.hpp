@@ -160,6 +160,13 @@ public:
   // that carried it. Total: an id naming no entity is a no-op.
   void destroy_entity(EntityId entity) noexcept;
 
+  // Erases every body-bound component whose entity has no PhysicsBody, including entities that
+  // were already bodyless before the caller's removals. Persistent kinds and live bodies are
+  // unchanged. Allocation-free, nonthrowing, and idempotent; the caller owns lifecycle timing.
+  // This establishes the invariant after the sweep, not after arbitrary mutable_store writes.
+  // related: component_lifetime.hpp -- each kind declares its lifetime beside its value.
+  void erase_body_bound_components_without_body() noexcept;
+
   // This tick's events in production order. Empty on every committed world, because the kernel
   // clears the list at commit.
   [[nodiscard]] std::span<const WorldEvent> events() const& noexcept { return events_; }

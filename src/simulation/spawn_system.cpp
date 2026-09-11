@@ -8,6 +8,7 @@
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 #include "spawn_seating.hpp"
+#include "terrain_queries.hpp"
 #include "tick_context.hpp"
 #include "vector2.hpp"
 
@@ -99,15 +100,24 @@ void require_spawn_points_are_seatable(const SimulationConfig& configuration,
                                        const MapDefinition& map) {
   const std::span<const MapDefinition::Marker> spawn_points = map.spawn_points();
   for (std::size_t index = 0; index < spawn_points.size(); ++index) {
-    if (map.bounds().contains_disc_center(spawn_points[index].position,
-                                          configuration.player_radius())) {
-      continue;
+    if (!map.bounds().contains_disc_center(spawn_points[index].position,
+                                           configuration.player_radius())) {
+      throw SimulationValidationError(
+          SimulationValidationCode::kMapSpawnPointNotSeatable,
+          "map." + std::string(map.name()) + ".spawn_points[" + std::to_string(index) +
+              "].position",
+          "a spawn point must keep the complete closed disc of the configured player radius inside "
+          "the arena");
     }
-    throw SimulationValidationError(
-        SimulationValidationCode::kMapSpawnPointNotSeatable,
-        "map." + std::string(map.name()) + ".spawn_points[" + std::to_string(index) + "].position",
-        "a spawn point must keep the complete closed disc of the configured player radius inside "
-        "the arena");
+    if (!terrain_supports_disc(map.terrain(), spawn_points[index].position,
+                               configuration.player_radius())) {
+      throw SimulationValidationError(
+          SimulationValidationCode::kMapSpawnPointNotSeatable,
+          "map." + std::string(map.name()) + ".spawn_points[" + std::to_string(index) +
+              "].position",
+          "a spawn point must keep the complete closed disc of the configured player radius on "
+          "supported terrain");
+    }
   }
 }
 

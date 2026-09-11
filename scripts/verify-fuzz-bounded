@@ -73,6 +73,10 @@ run_campaign \
   "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/application" \
   65537
 run_campaign \
+  "blob_map_loader_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/map" \
+  65537
+run_campaign \
   "blob_application_cli_fuzzer" \
   "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/cli" \
   4096

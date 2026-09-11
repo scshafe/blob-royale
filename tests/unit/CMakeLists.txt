@@ -23,6 +23,8 @@ add_executable(blob_simulation_unit_tests
   simulation/spawn_seating_tests.cpp
   simulation/spawn_system_tests.cpp
   simulation/swept_geometry_tests.cpp
+  simulation/terrain_definition_tests.cpp
+  simulation/terrain_queries_tests.cpp
   simulation/system_pipeline_tests.cpp
   simulation/tick_context_tests.cpp
   simulation/world_event_registry_tests.cpp
@@ -50,6 +52,7 @@ add_executable(blob_application_unit_tests
   application/map_loader_tests.cpp
   application/match_startup_validation_tests.cpp
   application/scenario_loader_tests.cpp
+  application/terrain_promotion_tests.cpp
 )
 
 blob_royale_configure_first_party_target(blob_application_unit_tests)

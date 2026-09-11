@@ -3,7 +3,9 @@
 
 #include "map_definition.hpp"
 #include "physics_body.hpp"
+#include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "terrain_definition.hpp"
 
 #include "application_input_test_fixture.hpp"
 
@@ -28,7 +30,19 @@ constexpr std::string_view kValidMapConfiguration = "[map]\n"
                                                     "\n"
                                                     "[bounds]\n"
                                                     "width_world_units=200\n"
-                                                    "height_world_units=100\n";
+                                                    "height_world_units=100\n"
+                                                    "\n"
+                                                    "[terrain]\n"
+                                                    "ground=solid\n";
+
+constexpr std::string_view kCorridorDeclaration = "\n[terrain.corridor.road]\n"
+                                                  "half_width_world_units=10\n"
+                                                  "points_world_units=20,50;100,50;100,20\n";
+
+constexpr std::string_view kHoleDeclaration = "\n[terrain.hole.pit]\n"
+                                              "center_x_world_units=100\n"
+                                              "center_y_world_units=50\n"
+                                              "radius_world_units=5\n";
 
 constexpr std::string_view kValidStaticBodies =
     "position_x_world_units,position_y_world_units,collision_layer,collision_mask\n"
@@ -76,6 +90,9 @@ TEST_CASE("map loader reads the three authored files into one validated map",
   CHECK(map.name() == kMapName);
   CHECK(map.bounds().width() == 200.0);
   CHECK(map.bounds().height() == 100.0);
+  CHECK(map.terrain().ground() == simulation::TerrainGround::kSolid);
+  CHECK(map.terrain().corridors().empty());
+  CHECK(map.terrain().holes().empty());
   REQUIRE(map.metadata().find("display_name") != nullptr);
   CHECK(*map.metadata().find("display_name") == "Loader Arena");
 
@@ -103,6 +120,213 @@ TEST_CASE("map loader publishes the two accepted CSV headers", "[unit][applicati
         "position_x_world_units,position_y_world_units,collision_layer,collision_mask");
   CHECK(MapLoader::expected_markers_header() ==
         "marker_kind,position_x_world_units,position_y_world_units,team_id");
+}
+
+TEST_CASE("map loader builds named corridors and holes through terrain factories",
+          "[unit][application][map][terrain]") {
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration =
+      replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=corridors");
+  configuration.append(kCorridorDeclaration);
+  configuration.append(kHoleDeclaration);
+  const std::string supported_bodies =
+      replace_once(std::string{kValidStaticBodies}, "20,30,2,1", "20,50,2,1");
+  const simulation::MapDefinition map = MapLoader::load(
+      write_map_directory(workspace, kMapName, supported_bodies, kValidMarkers, configuration));
+
+  CHECK(map.terrain().ground() == simulation::TerrainGround::kCorridors);
+  CHECK(map.terrain().bounds() == map.bounds());
+  REQUIRE(map.terrain().corridors().size() == 1);
+  const simulation::TerrainCorridor& road = map.terrain().corridors()[0];
+  CHECK(road.name() == "road");
+  CHECK(road.half_width() == 10.0);
+  REQUIRE(road.points().size() == 3);
+  CHECK(road.points()[0] == simulation::Vector2::create(20.0, 50.0));
+  CHECK(road.points()[1] == simulation::Vector2::create(100.0, 50.0));
+  CHECK(road.points()[2] == simulation::Vector2::create(100.0, 20.0));
+  REQUIRE(map.terrain().holes().size() == 1);
+  CHECK(map.terrain().holes()[0].name() == "pit");
+  CHECK(map.terrain().holes()[0].center() == simulation::Vector2::create(100.0, 50.0));
+  CHECK(map.terrain().holes()[0].radius() == 5.0);
+}
+
+TEST_CASE("map loader accepts holes in solid ground and preserves family declaration order",
+          "[unit][application][map][terrain]") {
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration{kValidMapConfiguration};
+  configuration.append(replace_once(std::string{kHoleDeclaration}, ".pit]", ".zeta]"));
+  configuration.append(replace_once(std::string{kHoleDeclaration}, ".pit]", ".alpha]"));
+  const simulation::MapDefinition map = MapLoader::load(
+      write_map_directory(workspace, kMapName, kValidStaticBodies, kValidMarkers, configuration));
+
+  CHECK(map.terrain().ground() == simulation::TerrainGround::kSolid);
+  REQUIRE(map.terrain().holes().size() == 2);
+  CHECK(map.terrain().holes()[0].name() == "zeta");
+  CHECK(map.terrain().holes()[1].name() == "alpha");
+}
+
+TEST_CASE("map loader accepts point-pair whitespace and keeps names local to their family",
+          "[unit][application][map][terrain]") {
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration =
+      replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=corridors");
+  configuration.append(replace_once(std::string{kCorridorDeclaration}, "20,50;100,50;100,20",
+                                    " 20 , 50 ;\t100,50 ; 100,20 \t"));
+  configuration.append(replace_once(std::string{kHoleDeclaration}, ".pit]", ".road]"));
+  const std::string supported_bodies =
+      replace_once(std::string{kValidStaticBodies}, "20,30,2,1", "20,50,2,1");
+  const simulation::MapDefinition map = MapLoader::load(
+      write_map_directory(workspace, kMapName, supported_bodies, kValidMarkers, configuration));
+
+  REQUIRE(map.terrain().corridors().size() == 1);
+  REQUIRE(map.terrain().holes().size() == 1);
+  CHECK(map.terrain().corridors()[0].name() == map.terrain().holes()[0].name());
+  REQUIRE(map.terrain().corridors()[0].points().size() == 3);
+  CHECK(map.terrain().corridors()[0].points()[0] == simulation::Vector2::create(20.0, 50.0));
+}
+
+TEST_CASE("map loader requires explicit terrain and rejects unknown ground spellings",
+          "[unit][application][map][terrain][validation]") {
+  for (const std::string& configuration :
+       {replace_once(std::string{kValidMapConfiguration}, "\n[terrain]\nground=solid\n", ""),
+        replace_once(std::string{kValidMapConfiguration}, "ground=solid\n", ""),
+        replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=Solid"),
+        replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=void"),
+        replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground="),
+        replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=solid=solid")}) {
+    INFO(configuration);
+    TemporaryApplicationInputWorkspace workspace;
+    const auto directory =
+        write_map_directory(workspace, kMapName, kValidStaticBodies, kValidMarkers, configuration);
+    require_application_input_error_code([&] { static_cast<void>(MapLoader::load(directory)); },
+                                         ApplicationInputErrorCode::kMapValueInvalid);
+  }
+}
+
+TEST_CASE("map loader keeps terrain fixed and family section schemas closed",
+          "[unit][application][map][terrain][validation]") {
+  for (const std::string_view declaration :
+       {"\n[terrain]\nground=solid\n", "ground=solid\n", "unknown=solid\n",
+        "\n[terrain.unknown.road]\nwidth=10\n",
+        "\n[terrain.corridor.]\nhalf_width_world_units=10\n",
+        "\n[terrain.hole.]\nradius_world_units=5\n", "\n[terrain.corridor.road] trailing\n",
+        "\n[terrain.corridor.road]\nhalf_width_world_units=10\n",
+        "\n[terrain.corridor.road]\npoints_world_units=20,50;100,50\n",
+        "\n[terrain.hole.pit]\ncenter_x_world_units=100\ncenter_y_world_units=50\n",
+        "\n[terrain.hole.pit]\ncenter_x_world_units=100\nradius_world_units=5\n",
+        "\n[terrain.hole.pit]\ncenter_y_world_units=50\nradius_world_units=5\n",
+        "\n[terrain.hole.pit]\npoints_world_units=20,50;100,50\n"}) {
+    INFO(declaration);
+    TemporaryApplicationInputWorkspace workspace;
+    const auto directory =
+        write_map_directory(workspace, kMapName, kValidStaticBodies, kValidMarkers,
+                            std::string{kValidMapConfiguration}.append(declaration));
+    require_application_input_error_code([&] { static_cast<void>(MapLoader::load(directory)); },
+                                         ApplicationInputErrorCode::kMapValueInvalid);
+  }
+}
+
+TEST_CASE("map loader rejects repeated named sections and repeated family keys",
+          "[unit][application][map][terrain][validation]") {
+  for (const std::string& declarations :
+       {std::string{kHoleDeclaration}.append(kHoleDeclaration),
+        std::string{kCorridorDeclaration}.append(kCorridorDeclaration),
+        std::string{kHoleDeclaration}.append("radius_world_units=5\n"),
+        std::string{kCorridorDeclaration}.append("points_world_units=20,50;100,50\n"),
+        std::string{kCorridorDeclaration}.append("radius_world_units=5\n")}) {
+    INFO(declarations);
+    TemporaryApplicationInputWorkspace workspace;
+    const auto directory =
+        write_map_directory(workspace, kMapName, kValidStaticBodies, kValidMarkers,
+                            std::string{kValidMapConfiguration}.append(declarations));
+    require_application_input_error_code([&] { static_cast<void>(MapLoader::load(directory)); },
+                                         ApplicationInputErrorCode::kMapValueInvalid);
+  }
+}
+
+TEST_CASE("map loader rejects malformed corridor point lists without partial acceptance",
+          "[unit][application][map][terrain][validation]") {
+  for (const std::string_view points :
+       {"20,50;", ";20,50", "20,50;;100,50", "20,50,100,50", "20;100,50", "20,;100,50",
+        ",50;100,50", "20,nan;100,50", "20,inf;100,50", "20,5x;100,50"}) {
+    INFO(points);
+    TemporaryApplicationInputWorkspace workspace;
+    std::string configuration =
+        replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=corridors");
+    configuration.append(
+        replace_once(std::string{kCorridorDeclaration}, "20,50;100,50;100,20", points));
+    const auto directory =
+        write_map_directory(workspace, kMapName, kValidStaticBodies, kValidMarkers, configuration);
+    require_application_input_error_code([&] { static_cast<void>(MapLoader::load(directory)); },
+                                         ApplicationInputErrorCode::kMapValueInvalid);
+  }
+}
+
+TEST_CASE("map loader reports the named terrain field for a malformed scalar",
+          "[unit][application][map][terrain][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const auto directory = write_map_directory(
+      workspace, kMapName, kValidStaticBodies, kValidMarkers,
+      std::string{kValidMapConfiguration}.append(replace_once(
+          std::string{kHoleDeclaration}, "radius_world_units=5", "radius_world_units=nan")));
+  try {
+    static_cast<void>(MapLoader::load(directory));
+    FAIL("non-finite terrain radius must be rejected");
+  } catch (const ApplicationInputError& error) {
+    CHECK(error.error_code() == ApplicationInputErrorCode::kMapValueInvalid);
+    CHECK(error.context() ==
+          (directory / "map.cfg").string() + ":terrain.hole.pit.radius_world_units");
+  }
+}
+
+TEST_CASE("map loader delegates terrain identity and geometry rules to simulation",
+          "[unit][application][map][terrain][validation]") {
+  const std::string corridor_configuration =
+      replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=corridors");
+  for (const std::string& configuration :
+       {corridor_configuration, std::string{kValidMapConfiguration}.append(kCorridorDeclaration),
+        corridor_configuration + replace_once(std::string{kCorridorDeclaration}, ".road]", ".Bad]"),
+        corridor_configuration + replace_once(std::string{kCorridorDeclaration},
+                                              "half_width_world_units=10",
+                                              "half_width_world_units=0"),
+        corridor_configuration +
+            replace_once(std::string{kCorridorDeclaration}, "20,50;100,50;100,20", "20,50"),
+        corridor_configuration +
+            replace_once(std::string{kCorridorDeclaration}, "20,50;100,50;100,20", "20,50;20,50"),
+        corridor_configuration +
+            replace_once(std::string{kCorridorDeclaration}, "20,50;100,50;100,20", "20,50;201,50"),
+        std::string{kValidMapConfiguration} + replace_once(std::string{kHoleDeclaration},
+                                                           "radius_world_units=5",
+                                                           "radius_world_units=0"),
+        std::string{kValidMapConfiguration} + replace_once(std::string{kHoleDeclaration},
+                                                           "center_x_world_units=100",
+                                                           "center_x_world_units=201")}) {
+    INFO(configuration);
+    TemporaryApplicationInputWorkspace workspace;
+    const auto directory =
+        write_map_directory(workspace, kMapName, kValidStaticBodies, kValidMarkers, configuration);
+    CHECK_THROWS_AS(static_cast<void>(MapLoader::load(directory)),
+                    simulation::SimulationValidationError);
+  }
+}
+
+TEST_CASE("map loader delegates terrain count limits to simulation",
+          "[unit][application][map][terrain][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration{kValidMapConfiguration};
+  for (std::size_t index = 0; index <= simulation::kMaximumTerrainHoleCount; ++index) {
+    configuration.append(replace_once(std::string{kHoleDeclaration}, ".pit]",
+                                      ".pit_" + std::to_string(index) + "]"));
+  }
+  const auto directory =
+      write_map_directory(workspace, kMapName, kValidStaticBodies, kValidMarkers, configuration);
+  try {
+    static_cast<void>(MapLoader::load(directory));
+    FAIL("excess terrain holes must be rejected by the domain");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kTerrainShapeLimitExceeded);
+  }
 }
 
 TEST_CASE("map loader rejects a map whose declared name is not its directory name",

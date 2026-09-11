@@ -28,6 +28,11 @@ blob_royale_add_fuzzer(
   blob_controllers
 )
 blob_royale_add_fuzzer(
+  blob_map_loader_fuzzer
+  map_loader_fuzzer.cpp
+  blob_application_input
+)
+blob_royale_add_fuzzer(
   blob_application_cli_fuzzer
   application_cli_fuzzer.cpp
   blob_application_input
@@ -56,6 +61,7 @@ blob_royale_add_fuzzer(
 
 add_custom_target(blob_royale_fuzzers DEPENDS
   blob_application_config_fuzzer
+  blob_map_loader_fuzzer
   blob_application_cli_fuzzer
   blob_http_request_fuzzer
   blob_protocol_command_fuzzer

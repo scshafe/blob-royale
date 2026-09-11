@@ -190,10 +190,27 @@ in `tests/unit/simulation/game_simulation_tests.cpp`.
 
 ## Maps and the arena
 
-`MapDefinition` is the static, mode-independent content of one arena: a name, `ArenaBounds`, static
-bodies, markers, and bounded `MapMetadata`. **Markers are the one authoring concept**, and
+`MapDefinition` is the static, mode-independent content of one arena: a name, immutable terrain,
+static bodies, markers, and bounded `MapMetadata`. **Markers are the one point-prop authoring concept**, and
 `spawn_points()` is the ordered projection of the markers of kind `spawn`, materialized once at
 construction because every mode needs it.
+
+`terrain_definition.hpp` owns the rectangular envelope, either solid ground or named polyline
+corridors, and circular holes. `bounds()` delegates to that envelope; it does not store another
+rectangle. The existing programmatic bounds factory explicitly constructs solid ground, while map
+files require terrain declarations. `terrain_queries.hpp` is the canonical point support, swept
+interval/first-exit, nearest-supported-point, and radius-clearance capability. Clearance measures
+the exposed Boolean boundary, so overlapping road seams are not cliffs. Its analytic line/arc
+cache shares one immutable allocation with the authored geometry and is compiled only at creation.
+Analytic feature selection precedes at most four directed coordinate-rounding steps to obtain a
+supported witness; clearance rounds toward the supported center and cannot increase its computed
+distance. Recovery at an intersection uses the Boolean supported angular sector, not one curve's
+normal. The bounded selected-ray correction is neither an exhaustive nearby-point search nor an
+exact-real interval certificate (ADR 0008).
+Shape, temporary-work, and cache limits live in `simulation_limits.hpp`; exhaustion or lost
+precision is a named failure, never partial terrain. `swept_geometry.hpp` and
+`motion_event_order.hpp` own every root and exact event order. These are pure foundations: the
+live tick and race/controller/client reader migrations remain at the later ADR 0008 plan steps.
 
 **The map is the arena source.** Phase 4's fold, the commit-time bounds validation, and `SpatialGrid`
 all read `MapDefinition::bounds()`. `SimulationConfig` keeps `world_width` and `world_height`
@@ -213,8 +230,9 @@ boundary obstacle unrepresentable. `MapDefinition::static_bodies()` is declared 
 `GameWorld::create(configuration, map, seed)` seats it: the world owns the id policy for map
 content and numbers a map's bodies `kMinimumEntityId + index` in declared order, so a map's
 entities are a deterministic function of the map file alone. That factory also rejects a map whose
-spawn points cannot seat a disc of the configured radius, which is the one place a spawn point
-meets a radius.
+spawn points cannot seat a disc of the configured radius inside the envelope and over supported
+terrain, which is the one place a spawn point meets a radius. A static body's center must also be
+supported at map construction; this adds no new dynamic-body or live contact policy.
 
 ## Ownership and invariants
 
@@ -401,7 +419,8 @@ and `race`, which returns racers to checkpoints and records finishes. The last t
 component and mode-state registries without changing the numbered kernel phases.
 
 `@extension-point map_definition` — `map_definition.hpp`. A map is a data directory and one line of
-match configuration: `map.cfg` for name, bounds, and metadata, `static_bodies.csv` for obstacles,
+match configuration: `map.cfg` for name, terrain (including bounds), and metadata,
+`static_bodies.csv` for obstacles,
 `markers.csv` for spawn points and mode props. No C++ file changes at all. Two implementations: the
 960x640 arena, and an obstacle course whose walls are `static_bodies.csv` rows resolved by the
 built-in `reflect_static` row. A mode reads the marker kinds it understands and ignores the rest,

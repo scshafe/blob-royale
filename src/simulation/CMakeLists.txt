@@ -1,4 +1,5 @@
 add_library(blob_simulation STATIC
+  arena_bounds.cpp
   candidate_pair.cpp
   contact_rule_table.cpp
   controller_id.cpp
@@ -17,6 +18,8 @@ add_library(blob_simulation STATIC
   spawn_seating.cpp
   spawn_system.cpp
   swept_geometry.cpp
+  terrain_definition.cpp
+  terrain_queries.cpp
   system_pipeline.cpp
   team_id.cpp
   tick_sequence.cpp

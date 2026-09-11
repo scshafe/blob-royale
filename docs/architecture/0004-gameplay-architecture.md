@@ -668,9 +668,13 @@ public:
   [[nodiscard]] static MapDefinition create(std::string name, ArenaBounds bounds,
                                             std::vector<PhysicsBody> static_bodies,
                                             std::vector<Marker> markers, MapMetadata metadata);
+  [[nodiscard]] static MapDefinition create(std::string name, TerrainDefinition terrain,
+                                            std::vector<PhysicsBody> static_bodies,
+                                            std::vector<Marker> markers, MapMetadata metadata);
 
   [[nodiscard]] std::string_view name() const noexcept;
   [[nodiscard]] const ArenaBounds& bounds() const& noexcept;
+  [[nodiscard]] const TerrainDefinition& terrain() const& noexcept;
   [[nodiscard]] std::span<const PhysicsBody> static_bodies() const& noexcept;
   [[nodiscard]] std::span<const Marker> markers() const& noexcept;
   [[nodiscard]] std::span<const Marker> spawn_points() const& noexcept;  // markers of kind "spawn"
@@ -678,7 +682,7 @@ public:
 };
 ```
 
-**Markers are the one authoring concept.** `spawn_points()` is the ordered projection of markers
+**Markers are the one point-prop authoring concept.** `spawn_points()` is the ordered projection of markers
 whose kind is `spawn`, computed once at load because every mode needs it; it is a convenience, not a
 second way to author a point. A mode reads the marker kinds it understands and ignores the rest,
 which is what lets any mode play any map; a mode that *requires* a kind rejects the map in
@@ -689,6 +693,15 @@ for INI and `ScenarioLoader` for CSV (`src/application/README.md`). **No new JSO
 created outside `blob_protocol`.** A map is a data directory: `map.cfg` for name, bounds, and
 metadata; `static_bodies.csv` for obstacles; `markers.csv` for spawn points and mode props. Adding a
 map is adding a directory and naming it in configuration; no code changes at all.
+
+**Amended 2026-09-10 (ADR 0008, plan Step 3):** `MapDefinition` owns immutable terrain, including
+its rectangular envelope; `bounds()` delegates to that envelope. The bounds factory remains an
+explicit solid-ground constructor for programmatic rectangles and accepted replay fixtures.
+Authored map files require `[terrain]` and strict named corridor/hole sections in `MapLoader`;
+ground is not marker metadata. Static-body centers must be supported, and the existing startup
+seating validation also requires the configured player disc to fit on ground. Pure canonical
+queries below gameplay serve all later consumers. This does not change the live tick, race's
+current marker reader, or protocol publication; those retain their named later-step cutovers.
 
 The current scenario CSV is the degenerate map. It stays the canonical initial-state seed that ADR
 0003 § "Fixture contract and expected outcomes" depends on, and it is additionally read as a map

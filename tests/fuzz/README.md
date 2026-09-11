@@ -6,11 +6,14 @@ corpus member once through `scripts/verify-fuzz-regressions`; nightly and releas
 a time-bounded mutating campaign through `scripts/verify-fuzz-bounded`.
 
 The fuzz workspace deliberately writes a process-local regular file because configuration and
-scenario acquisition checks are part of the production contract. Any minimized crash input belongs
+scenario acquisition checks are part of the production contract. The map harness writes the mutable
+`fuzz-map/map.cfg` beside fixed valid `static_bodies.csv` and `markers.csv` headers; its declared map
+name must be `fuzz-map` to reach terrain parsing and value validation. Any minimized crash input belongs
 in the matching `corpus` directory with a descriptive stable filename. A crash must be fixed; do not
 delete, skip, retry, or suppress the input.
 
-The native targets cover command-line shape, INI configuration, scenario CSV, untrusted
+The native targets cover command-line shape, INI configuration, map-directory terrain declarations,
+scenario CSV, untrusted
 protocol-v1 request IDs, protocol-v2 client command envelopes, and raw HTTP header preflight plus
 Beast header parsing. The command harness checks the decoder's session-stamped identities,
 accepted-command invariants, and early oversized-frame rejection. They link

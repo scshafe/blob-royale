@@ -19,8 +19,15 @@ namespace blob_royale::application {
 // partially accepted document:
 //
 //   map.cfg            `[map] name`, `[map] display_name`, `[bounds] width_world_units`,
-//                      `[bounds] height_world_units`. Every key required, every section required,
-//                      an unknown section or key rejected, a duplicate rejected.
+//                      `[bounds] height_world_units`, `[terrain] ground=solid|corridors`.
+//                      Every fixed key and section required; no implicit solid fallback.
+//                      Optional `[terrain.corridor.<name>]` instances require
+//                      `half_width_world_units` and `points_world_units=x,y;x,y;...`.
+//                      Optional `[terrain.hole.<name>]` instances require
+//                      `center_x_world_units`, `center_y_world_units`, `radius_world_units`.
+//                      Unknown sections/keys and duplicate sections/keys are rejected. A point
+//                      list has complete comma-separated pairs, semicolons only between pairs,
+//                      and permits horizontal whitespace around each coordinate.
 //   static_bodies.csv  `position_x_world_units,position_y_world_units,collision_layer,
 //                      collision_mask`. Header always present; zero rows is a map with no
 //                      obstacles.
@@ -43,8 +50,9 @@ namespace blob_royale::application {
 //
 // Throws ApplicationInputError with an `APPLICATION.MAP.*` code for every filesystem, grammar, and
 // cross-field failure, and lets `simulation::SimulationValidationError` from
-// `MapDefinition::create` propagate for a content rule the simulation owns -- an out-of-bounds
-// marker, a dynamic body in the static list, a count past a limit. related: match_configuration.hpp
+// the terrain and map factories propagate for content rules the simulation owns -- an invalid
+// terrain name or geometry, an out-of-bounds marker, a dynamic body in the static list, a count
+// past a limit. related: match_configuration.hpp
 // -- where the directory to load comes from. related: ../simulation/map_definition.hpp -- the value
 // this produces.
 class MapLoader final {

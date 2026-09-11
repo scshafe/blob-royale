@@ -2,6 +2,7 @@
 
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "terrain_queries.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -36,18 +37,6 @@ namespace {
   });
 }
 
-void require_arena_scalar(const double value, const std::string_view context) {
-  if (!std::isfinite(value)) {
-    throw SimulationValidationError{SimulationValidationCode::kArenaBoundsScalarNotFinite,
-                                    std::string{context}, "value must be finite"};
-  }
-  if (value <= 0.0 || value > kMaximumWorldDimension) {
-    throw SimulationValidationError{SimulationValidationCode::kArenaBoundsScalarOutOfRange,
-                                    std::string{context},
-                                    "value must be greater than zero and at most 1000000000"};
-  }
-}
-
 [[nodiscard]] std::string static_body_context(const std::size_t index) {
   return "map_definition.static_bodies[" + std::to_string(index) + "]";
 }
@@ -57,24 +46,6 @@ void require_arena_scalar(const double value, const std::string_view context) {
 }
 
 } // namespace
-
-ArenaBounds ArenaBounds::create(const double width, const double height) {
-  require_arena_scalar(width, "map_definition.bounds.width_world_units");
-  require_arena_scalar(height, "map_definition.bounds.height_world_units");
-  return ArenaBounds{width, height};
-}
-
-bool ArenaBounds::contains(const Vector2& point) const noexcept {
-  return point.x() >= 0.0 && point.x() <= width_ && point.y() >= 0.0 && point.y() <= height_;
-}
-
-bool ArenaBounds::contains_disc_center(const Vector2& point, const double radius) const noexcept {
-  return point.x() >= radius && point.x() <= width_ - radius && point.y() >= radius &&
-         point.y() <= height_ - radius;
-}
-
-ArenaBounds::ArenaBounds(const double width, const double height) noexcept
-    : width_(width), height_(height) {}
 
 MapMetadata MapMetadata::create(std::vector<Entry> entries) {
   if (entries.size() > kMaximumMapMetadataEntryCount) {
@@ -147,6 +118,14 @@ MapDefinition::Marker MapDefinition::Marker::spawn(Vector2 position) {
 MapDefinition MapDefinition::create(std::string name, const ArenaBounds bounds,
                                     std::vector<PhysicsBody> static_bodies,
                                     std::vector<Marker> markers, MapMetadata metadata) {
+  return create(std::move(name), TerrainDefinition::solid(bounds), std::move(static_bodies),
+                std::move(markers), std::move(metadata));
+}
+
+MapDefinition MapDefinition::create(std::string name, TerrainDefinition terrain,
+                                    std::vector<PhysicsBody> static_bodies,
+                                    std::vector<Marker> markers, MapMetadata metadata) {
+  const ArenaBounds& bounds = terrain.bounds();
   if (name.size() > kMaximumMapNameLength || !is_map_name(name)) {
     throw SimulationValidationError{
         SimulationValidationCode::kMapNameInvalid, "map_definition.name",
@@ -186,6 +165,11 @@ MapDefinition MapDefinition::create(std::string name, const ArenaBounds bounds,
           static_body_context(index) + ".position",
           "a static body centre must lie inside the closed arena rectangle"};
     }
+    if (!terrain_supports_point(terrain, body.position())) {
+      throw SimulationValidationError{SimulationValidationCode::kTerrainGeometryOutOfBounds,
+                                      static_body_context(index) + ".position",
+                                      "a static body centre must lie on supported terrain"};
+    }
   }
 
   std::vector<Marker> spawn_points;
@@ -207,20 +191,19 @@ MapDefinition MapDefinition::create(std::string name, const ArenaBounds bounds,
     }
   }
 
-  return MapDefinition{std::move(name),          bounds,
-                       std::move(static_bodies), std::move(markers),
-                       std::move(spawn_points),  std::move(metadata)};
+  return MapDefinition{std::move(name),    std::move(terrain),      std::move(static_bodies),
+                       std::move(markers), std::move(spawn_points), std::move(metadata)};
 }
 
 MapDefinition MapDefinition::bare_arena(const ArenaBounds bounds) {
   return create("bare_arena", bounds, {}, {}, MapMetadata::none());
 }
 
-MapDefinition::MapDefinition(std::string name, const ArenaBounds bounds,
+MapDefinition::MapDefinition(std::string name, TerrainDefinition terrain,
                              std::vector<PhysicsBody> static_bodies, std::vector<Marker> markers,
                              std::vector<Marker> spawn_points, MapMetadata metadata) noexcept
-    : name_(std::move(name)), bounds_(bounds), static_bodies_(std::move(static_bodies)),
-      markers_(std::move(markers)), spawn_points_(std::move(spawn_points)),
-      metadata_(std::move(metadata)) {}
+    : name_(std::move(name)), terrain_(std::move(terrain)),
+      static_bodies_(std::move(static_bodies)), markers_(std::move(markers)),
+      spawn_points_(std::move(spawn_points)), metadata_(std::move(metadata)) {}
 
 } // namespace blob_royale::simulation

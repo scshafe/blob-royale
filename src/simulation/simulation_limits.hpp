@@ -113,6 +113,17 @@ inline constexpr std::size_t kMaximumMapMarkerKindLength = 64;
 inline constexpr std::size_t kMaximumMapMetadataEntryCount = 64;
 inline constexpr std::size_t kMaximumMapMetadataKeyLength = 64;
 inline constexpr std::size_t kMaximumMapMetadataValueLength = 256;
+// Authored terrain and derived Boolean-boundary work are separately bounded. These provisional
+// engineering limits bound startup/query memory, not a native performance certification.
+inline constexpr std::size_t kMaximumTerrainCorridorCount = 8;
+inline constexpr std::size_t kMaximumTerrainSegmentCount = 32;
+inline constexpr std::size_t kMaximumTerrainPointCount = 40;
+inline constexpr std::size_t kMaximumTerrainHoleCount = 32;
+inline constexpr std::size_t kMaximumTerrainBoundaryElementCount = 8'192;
+inline constexpr std::size_t kMaximumTerrainArrangementElementCount = 60'000;
+// Maximum coordinatewise directed nextafter corrections after analytic
+// nearest-boundary selection. Exhaustion raises TERRAIN_GEOMETRY_PRECISION_LOST.
+inline constexpr std::size_t kMaximumTerrainWitnessRoundingStepCount = 4;
 inline constexpr std::uint64_t kSimulationTicksPerSecond = 400;
 inline constexpr std::int64_t kFixedDeltaNanoseconds = 2'500'000;
 inline constexpr double kFixedDeltaSeconds = 1.0 / static_cast<double>(kSimulationTicksPerSecond);

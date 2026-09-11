@@ -424,6 +424,7 @@ void write_fixture_map(const std::filesystem::path& fixture_directory,
   map_configuration.append("[bounds]\n");
   map_configuration.append("width_world_units=100\n");
   map_configuration.append("height_world_units=80\n");
+  map_configuration.append("\n[terrain]\nground=solid\n");
   write_fixture_text_file_atomically(map_directory / "map.cfg", map_configuration,
                                      "server_fixture.write_map_configuration");
   write_fixture_text_file_atomically(

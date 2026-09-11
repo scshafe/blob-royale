@@ -69,6 +69,10 @@ run_corpus \
   "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/application" \
   65537
 run_corpus \
+  "blob_map_loader_fuzzer" \
+  "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/map" \
+  65537
+run_corpus \
   "blob_application_cli_fuzzer" \
   "${REPOSITORY_DIRECTORY}/tests/fuzz/corpus/cli" \
   4096

@@ -36,6 +36,18 @@ the loader refuses only an empty instance name, and `HazardArchetype::create` re
 `common.schema.json#/$defs/kind_name`. The obvious second customer is a per-bot roster
 (`[bot.wanderer]`), which costs one prefix, one enumerator, and its keys — no new structure.
 
+Map authoring uses the same section-family convention in `MapLoader`'s private strict INI reader.
+Every `map.cfg` must declare `[terrain] ground=solid` or `ground=corridors`; an older file with no
+terrain declaration is rejected, not defaulted. `[terrain.corridor.<name>]` requires
+`half_width_world_units` and `points_world_units=x,y;x,y;...`; `[terrain.hole.<name>]` requires
+`center_x_world_units`, `center_y_world_units`, and `radius_world_units`. Names are open, but each
+family's keys are closed. All fields in a declared instance are required, section and key duplicates
+are rejected, and point lists permit whitespace but no empty pairs or trailing semicolon. Geometry,
+snake_case names, per-family uniqueness, and shape counts belong to simulation's terrain factories.
+Solid ground forbids corridor declarations; corridor ground requires at least one. Holes may be
+declared for either ground type. The fixed map name/display name/bounds and the two CSV files remain
+required. See `maps/circuit-960x640/map.cfg` for an authored corridor.
+
 `match_startup_validation.hpp` holds the rules that span two independently validated values: the
 worst-case published population against protocol v2's 1,024-entity snapshot bound, the map's
 arena against the `[world]` scalars protocol v1 publishes, and the map's `spawn` markers against

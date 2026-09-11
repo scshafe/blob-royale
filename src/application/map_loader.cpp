@@ -5,6 +5,7 @@
 #include "map_definition.hpp"
 #include "physics_body.hpp"
 #include "team_id.hpp"
+#include "terrain_definition.hpp"
 #include "vector2.hpp"
 
 #include <algorithm>
@@ -15,6 +16,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -38,6 +40,7 @@ enum class MapConfigField : std::size_t {
   kMapDisplayName,
   kBoundsWidth,
   kBoundsHeight,
+  kTerrainGround,
   kCount,
 };
 
@@ -46,13 +49,61 @@ struct MapConfigFieldSpec final {
   std::string_view key;
 };
 
-constexpr std::array<std::string_view, 2> kMapConfigSections = {"map", "bounds"};
+constexpr std::array<std::string_view, 3> kMapConfigSections = {"map", "bounds", "terrain"};
 
 constexpr std::array<MapConfigFieldSpec, static_cast<std::size_t>(MapConfigField::kCount)>
     kMapConfigFieldSpecs = {{{"map", "name"},
                              {"map", "display_name"},
                              {"bounds", "width_world_units"},
-                             {"bounds", "height_world_units"}}};
+                             {"bounds", "height_world_units"},
+                             {"terrain", "ground"}}};
+
+// The server loader's section-family convention, kept private to this map grammar: the family
+// prefixes and each family's keys are closed, but the instance name belongs to the terrain value
+// factory. There is no second parser-owned spelling of the domain's identity grammar.
+enum class MapSectionFamily : std::size_t { kCorridor, kHole, kCount };
+enum class MapFamilyField : std::size_t {
+  kCorridorHalfWidth,
+  kCorridorPoints,
+  kHoleCenterX,
+  kHoleCenterY,
+  kHoleRadius,
+  kCount,
+};
+struct MapFamilyFieldSpec final {
+  MapSectionFamily family;
+  std::string_view key;
+};
+constexpr std::array<std::string_view, static_cast<std::size_t>(MapSectionFamily::kCount)>
+    kMapSectionFamilyPrefixes = {"terrain.corridor.", "terrain.hole."};
+constexpr std::array<MapFamilyFieldSpec, static_cast<std::size_t>(MapFamilyField::kCount)>
+    kMapFamilyFieldSpecs = {{{MapSectionFamily::kCorridor, "half_width_world_units"},
+                             {MapSectionFamily::kCorridor, "points_world_units"},
+                             {MapSectionFamily::kHole, "center_x_world_units"},
+                             {MapSectionFamily::kHole, "center_y_world_units"},
+                             {MapSectionFamily::kHole, "radius_world_units"}}};
+struct MapSectionFamilyInstance final {
+  MapSectionFamily family;
+  std::string name;
+  std::array<std::optional<std::string>, static_cast<std::size_t>(MapFamilyField::kCount)> values;
+
+  [[nodiscard]] std::string_view value(const MapFamilyField field) const noexcept {
+    return *values[static_cast<std::size_t>(field)];
+  }
+};
+struct MapSectionCursor final {
+  bool is_family_instance = false;
+  std::size_t index = 0;
+};
+
+[[nodiscard]] std::string family_field_context(const MapSectionFamilyInstance& instance,
+                                               const MapFamilyField field) {
+  std::string context{kMapSectionFamilyPrefixes[static_cast<std::size_t>(instance.family)]};
+  context.append(instance.name);
+  context.push_back('.');
+  context.append(kMapFamilyFieldSpecs[static_cast<std::size_t>(field)].key);
+  return context;
+}
 
 [[nodiscard]] std::string_view trim_horizontal_whitespace(std::string_view value) noexcept {
   while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
@@ -94,7 +145,9 @@ constexpr std::array<MapConfigFieldSpec, static_cast<std::size_t>(MapConfigField
 // The strict INI reader for one map's `map.cfg`. It is the same grammar
 // `application_config_loader.cpp` applies to the server configuration -- one section header per
 // line, exactly one equals sign, no duplicate section or key, no unknown section or key, no empty
-// value, every declared key required -- over this file's own four-field table.
+// value, every declared key required -- over this file's own fixed and family-field tables. The
+// 64 KiB acquisition bound also bounds temporary family and point lists; the terrain factories own
+// their tighter count limits, so parsing does not duplicate domain validation.
 class StrictMapIniDocument final {
 public:
   [[nodiscard]] static StrictMapIniDocument parse(const std::string_view contents,
@@ -109,9 +162,13 @@ public:
     return *values_[static_cast<std::size_t>(field)];
   }
 
+  [[nodiscard]] std::span<const MapSectionFamilyInstance> family_instances() const noexcept {
+    return family_instances_;
+  }
+
 private:
   void parse_lines(const std::string_view contents, const std::filesystem::path& source_path) {
-    std::optional<std::size_t> current_section;
+    std::optional<MapSectionCursor> current_section;
     std::size_t line_start = 0;
     std::size_t line_number = 1;
 
@@ -134,7 +191,7 @@ private:
   }
 
   void parse_line(std::string_view line, const std::filesystem::path& source_path,
-                  const std::size_t line_number, std::optional<std::size_t>& current_section) {
+                  const std::size_t line_number, std::optional<MapSectionCursor>& current_section) {
     line = trim_horizontal_whitespace(line);
     if (line.empty() || line.front() == '#' || line.front() == ';') {
       return;
@@ -146,20 +203,7 @@ private:
                                     source_line_context(source_path, line_number),
                                     "section header must have the exact form [lower_case_name]"};
       }
-      const std::string_view section = line.substr(1, line.size() - 2);
-      const std::optional<std::size_t> section_index = find_map_config_section(section);
-      if (!section_index.has_value()) {
-        throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
-                                    source_line_context(source_path, line_number),
-                                    "section is not part of the accepted map schema"};
-      }
-      if (section_seen_[*section_index]) {
-        throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
-                                    source_line_context(source_path, line_number),
-                                    "each section may occur exactly once"};
-      }
-      section_seen_[*section_index] = true;
-      current_section = section_index;
+      current_section = open_section(line.substr(1, line.size() - 2), source_path, line_number);
       return;
     }
 
@@ -178,28 +222,81 @@ private:
     }
 
     const std::string_view key = trim_horizontal_whitespace(line.substr(0, delimiter));
+    const std::string_view parsed_value = trim_horizontal_whitespace(line.substr(delimiter + 1));
+    if (current_section->is_family_instance) {
+      MapSectionFamilyInstance& instance = family_instances_[current_section->index];
+      for (std::size_t index = 0; index < kMapFamilyFieldSpecs.size(); ++index) {
+        if (kMapFamilyFieldSpecs[index].family == instance.family &&
+            kMapFamilyFieldSpecs[index].key == key) {
+          store_value(instance.values[index], parsed_value, source_path, line_number);
+          return;
+        }
+      }
+      throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
+                                  source_line_context(source_path, line_number),
+                                  "key is not valid in its section"};
+    }
     const std::optional<MapConfigField> field =
-        find_map_config_field(kMapConfigSections[*current_section], key);
+        find_map_config_field(kMapConfigSections[current_section->index], key);
     if (!field.has_value()) {
       throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
                                   source_line_context(source_path, line_number),
                                   "key is not valid in its section"};
     }
 
-    std::optional<std::string>& stored_value = values_[static_cast<std::size_t>(*field)];
+    store_value(values_[static_cast<std::size_t>(*field)], parsed_value, source_path, line_number);
+  }
+
+  static void store_value(std::optional<std::string>& stored_value,
+                          const std::string_view parsed_value,
+                          const std::filesystem::path& source_path, const std::size_t line_number) {
     if (stored_value.has_value()) {
       throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
                                   source_line_context(source_path, line_number),
                                   "each map key may occur exactly once"};
     }
 
-    const std::string_view parsed_value = trim_horizontal_whitespace(line.substr(delimiter + 1));
     if (parsed_value.empty()) {
       throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
                                   source_line_context(source_path, line_number),
                                   "map value must not be empty"};
     }
     stored_value.emplace(parsed_value);
+  }
+
+  [[nodiscard]] MapSectionCursor open_section(const std::string_view section,
+                                              const std::filesystem::path& source_path,
+                                              const std::size_t line_number) {
+    if (const std::optional<std::size_t> index = find_map_config_section(section);
+        index.has_value()) {
+      if (section_seen_[*index]) {
+        throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
+                                    source_line_context(source_path, line_number),
+                                    "each section may occur exactly once"};
+      }
+      section_seen_[*index] = true;
+      return MapSectionCursor{false, *index};
+    }
+    for (std::size_t index = 0; index < kMapSectionFamilyPrefixes.size(); ++index) {
+      const std::string_view prefix = kMapSectionFamilyPrefixes[index];
+      if (!section.starts_with(prefix) || section.size() == prefix.size()) {
+        continue;
+      }
+      const auto family = static_cast<MapSectionFamily>(index);
+      const std::string_view name = section.substr(prefix.size());
+      for (const MapSectionFamilyInstance& instance : family_instances_) {
+        if (instance.family == family && instance.name == name) {
+          throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
+                                      source_line_context(source_path, line_number),
+                                      "each section may occur exactly once"};
+        }
+      }
+      family_instances_.push_back(MapSectionFamilyInstance{family, std::string{name}, {}});
+      return MapSectionCursor{true, family_instances_.size() - 1};
+    }
+    throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
+                                source_line_context(source_path, line_number),
+                                "section is not part of the accepted map schema"};
   }
 
   void require_all_fields(const std::filesystem::path& source_path) const {
@@ -215,6 +312,18 @@ private:
       missing_fields.push_back('.');
       missing_fields.append(kMapConfigFieldSpecs[index].key);
     }
+    for (const MapSectionFamilyInstance& instance : family_instances_) {
+      for (std::size_t index = 0; index < kMapFamilyFieldSpecs.size(); ++index) {
+        if (kMapFamilyFieldSpecs[index].family != instance.family ||
+            instance.values[index].has_value()) {
+          continue;
+        }
+        if (!missing_fields.empty()) {
+          missing_fields.append(", ");
+        }
+        missing_fields.append(family_field_context(instance, static_cast<MapFamilyField>(index)));
+      }
+    }
     if (!missing_fields.empty()) {
       throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid, source_path.string(),
                                   "required map keys are missing: " + missing_fields};
@@ -224,6 +333,7 @@ private:
   std::array<bool, kMapConfigSections.size()> section_seen_{};
   std::array<std::optional<std::string>, static_cast<std::size_t>(MapConfigField::kCount)>
       values_{};
+  std::vector<MapSectionFamilyInstance> family_instances_{};
 };
 
 [[nodiscard]] double parse_map_double(const std::string_view text, const std::string& context) {
@@ -251,6 +361,74 @@ private:
                                 "value must be an unsigned base-10 integer"};
   }
   return value;
+}
+
+[[nodiscard]] std::vector<simulation::Vector2> parse_corridor_points(const std::string_view text,
+                                                                     const std::string& context) {
+  std::vector<simulation::Vector2> points;
+  std::size_t point_start = 0;
+  while (point_start <= text.size()) {
+    const std::size_t delimiter = text.find(';', point_start);
+    const std::size_t point_end = delimiter == std::string_view::npos ? text.size() : delimiter;
+    const std::string_view point =
+        trim_horizontal_whitespace(text.substr(point_start, point_end - point_start));
+    const std::size_t comma = point.find(',');
+    if (comma == std::string_view::npos || point.find(',', comma + 1) != std::string_view::npos) {
+      throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid, context,
+                                  "points must be semicolon-separated x,y pairs"};
+    }
+    points.push_back(simulation::Vector2::create(
+        parse_map_double(trim_horizontal_whitespace(point.substr(0, comma)), context),
+        parse_map_double(trim_horizontal_whitespace(point.substr(comma + 1)), context)));
+    if (delimiter == std::string_view::npos) {
+      break;
+    }
+    point_start = delimiter + 1;
+  }
+  return points;
+}
+
+[[nodiscard]] simulation::TerrainDefinition load_terrain(const StrictMapIniDocument& document,
+                                                         const simulation::ArenaBounds bounds,
+                                                         const std::filesystem::path& source_path) {
+  const std::string_view ground_text = document.value(MapConfigField::kTerrainGround);
+  simulation::TerrainGround ground;
+  if (ground_text == "solid") {
+    ground = simulation::TerrainGround::kSolid;
+  } else if (ground_text == "corridors") {
+    ground = simulation::TerrainGround::kCorridors;
+  } else {
+    throw ApplicationInputError{ApplicationInputErrorCode::kMapValueInvalid,
+                                source_path.string() + ":terrain.ground",
+                                "terrain ground must be solid or corridors"};
+  }
+
+  std::vector<simulation::TerrainCorridor> corridors;
+  std::vector<simulation::TerrainHole> holes;
+  for (const MapSectionFamilyInstance& instance : document.family_instances()) {
+    const auto context = [&instance, &source_path](const MapFamilyField field) {
+      return source_path.string() + ":" + family_field_context(instance, field);
+    };
+    if (instance.family == MapSectionFamily::kCorridor) {
+      corridors.push_back(simulation::TerrainCorridor::create(
+          instance.name,
+          parse_map_double(instance.value(MapFamilyField::kCorridorHalfWidth),
+                           context(MapFamilyField::kCorridorHalfWidth)),
+          parse_corridor_points(instance.value(MapFamilyField::kCorridorPoints),
+                                context(MapFamilyField::kCorridorPoints))));
+    } else {
+      holes.push_back(simulation::TerrainHole::create(
+          instance.name,
+          simulation::Vector2::create(parse_map_double(instance.value(MapFamilyField::kHoleCenterX),
+                                                       context(MapFamilyField::kHoleCenterX)),
+                                      parse_map_double(instance.value(MapFamilyField::kHoleCenterY),
+                                                       context(MapFamilyField::kHoleCenterY))),
+          parse_map_double(instance.value(MapFamilyField::kHoleRadius),
+                           context(MapFamilyField::kHoleRadius))));
+    }
+  }
+  return simulation::TerrainDefinition::create(bounds, ground, std::move(corridors),
+                                               std::move(holes));
 }
 
 [[nodiscard]] simulation::PhysicsBody::CollisionLayer
@@ -416,7 +594,8 @@ simulation::MapDefinition MapLoader::load(const std::filesystem::path& map_direc
                                      std::string{document.value(MapConfigField::kMapDisplayName)}});
 
   return simulation::MapDefinition::create(
-      declared_name, bounds, load_static_bodies(map_directory / kStaticBodiesFileName),
+      declared_name, load_terrain(document, bounds, configuration_path),
+      load_static_bodies(map_directory / kStaticBodiesFileName),
       load_markers(map_directory / kMarkersFileName),
       simulation::MapMetadata::create(std::move(metadata_entries)));
 }

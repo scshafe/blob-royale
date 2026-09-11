@@ -3,6 +3,7 @@
 
 #include "physics_body.hpp"
 #include "team_id.hpp"
+#include "terrain_definition.hpp"
 #include "vector2.hpp"
 
 #include <optional>
@@ -12,54 +13,6 @@
 #include <vector>
 
 namespace blob_royale::simulation {
-
-// canonical: arena_bounds -- the rectangular play area one map declares.
-//
-// The rectangle is anchored at the origin and spans `[0, width] x [0, height]`, which is exactly
-// the geometry `docs/architecture/0003-deterministic-simulation-contract.md` § "Wall policy" folds
-// against: one axis has permitted centre interval `[radius, extent - radius]`. Anchoring is part of
-// the accepted physics rather than a simplification here -- moving the origin would change the
-// fold, which is a versioned physics amendment and not a map property.
-//
-// A **non-rectangular arena is the named missing seam**: phase 4's fold is what guarantees a
-// committed centre is in bounds for arbitrarily large finite overshoot, so a differently shaped
-// arena is approximated with static bodies inside a rectangular bound
-// (`docs/architecture/0004-gameplay-architecture.md` § "Justified extension points and what-if
-// stress").
-// related: map_definition -- the value that owns one of these.
-class ArenaBounds final {
-public:
-  // Creates validated bounds or throws SimulationValidationError. Width and height must be finite
-  // and greater than zero, and at most kMaximumWorldDimension, which is the same rule
-  // SimulationConfig applies to the world scalars it still publishes.
-  [[nodiscard]] static ArenaBounds create(double width, double height);
-
-  ArenaBounds(const ArenaBounds&) = default;
-  ArenaBounds(ArenaBounds&&) noexcept = default;
-  ArenaBounds& operator=(const ArenaBounds&) = default;
-  ArenaBounds& operator=(ArenaBounds&&) noexcept = default;
-  ~ArenaBounds() = default;
-
-  [[nodiscard]] double width() const noexcept { return width_; }
-  [[nodiscard]] double height() const noexcept { return height_; }
-
-  // Whether a point lies in the closed rectangle. This is the rule a **static** body's centre
-  // obeys: a wall legitimately sits on or past the centre interval a moving disc is held inside.
-  [[nodiscard]] bool contains(const Vector2& point) const noexcept;
-
-  // Whether a point is a legal centre for a disc of this radius, that is whether the complete
-  // closed disc stays inside the rectangle. This is the rule a **dynamic** body's centre obeys and
-  // is the interval phase 4 folds into.
-  [[nodiscard]] bool contains_disc_center(const Vector2& point, double radius) const noexcept;
-
-  friend bool operator==(const ArenaBounds&, const ArenaBounds&) = default;
-
-private:
-  ArenaBounds(double width, double height) noexcept;
-
-  double width_;
-  double height_;
-};
 
 // canonical: map_metadata -- one map's bounded, ordered key/value annotations.
 //
@@ -116,11 +69,14 @@ private:
 // A map is content, not code: a validated value any mode can play if it provides what that mode's
 // `validate_map` requires (`docs/architecture/0004-gameplay-architecture.md` § "Maps as data").
 //
-// **Markers are the one authoring concept.** `spawn_points()` is the ordered projection of the
-// markers whose kind is `spawn`, materialized once at construction because every mode needs it; it
-// is a convenience, never a second way to author a point. A mode reads the marker kinds it
+// **Markers are the one point-prop authoring concept.** `spawn_points()` is the ordered projection
+// of the markers whose kind is `spawn`, materialized once at construction because every mode needs
+// it; it is a convenience, never a second way to author a point. A mode reads the marker kinds it
 // understands and ignores the rest, which is what lets any mode play any map, and a mode that
 // *requires* a kind rejects the map at startup rather than discovering the absence mid-match.
+// Ground geometry is authored separately through `terrain()`, never marker metadata. Terrain owns
+// the envelope; `bounds()` is a compatibility view of that same immutable value, not a second
+// owner.
 //
 // The map is the arena source for the kernel: phase 4's fold, the commit-time bounds validation,
 // and the spatial index all read `bounds()`. SimulationConfig keeps `world_width` and
@@ -138,7 +94,7 @@ private:
 //
 // Adding a map is adding a data directory and naming it in configuration -- no code at all:
 //
-//   new  maps/<name>/map.cfg            name, bounds, metadata
+//   new  maps/<name>/map.cfg            name, terrain (including bounds), metadata
 //   new  maps/<name>/static_bodies.csv  obstacles
 //   new  maps/<name>/markers.csv        spawn points and mode props
 //   edit match configuration            `[match] map=`
@@ -181,6 +137,12 @@ public:
                                             std::vector<PhysicsBody> static_bodies,
                                             std::vector<Marker> markers, MapMetadata metadata);
 
+  // The authored terrain factory. The bounds overload above explicitly delegates to solid ground
+  // for programmatic rectangles and accepted replay fixtures; map files must declare terrain.
+  [[nodiscard]] static MapDefinition create(std::string name, TerrainDefinition terrain,
+                                            std::vector<PhysicsBody> static_bodies,
+                                            std::vector<Marker> markers, MapMetadata metadata);
+
   // The degenerate map: an empty rectangle with no static bodies, no markers, and no metadata.
   // This is the value `GameSimulation::create(configuration, world)` synthesizes so every caller
   // written before maps existed stays expressible, and it is the map ADR 0003's accepted fixtures
@@ -196,8 +158,11 @@ public:
   [[nodiscard]] std::string_view name() const& noexcept { return name_; }
   [[nodiscard]] std::string_view name() const&& = delete;
 
-  [[nodiscard]] const ArenaBounds& bounds() const& noexcept { return bounds_; }
+  [[nodiscard]] const ArenaBounds& bounds() const& noexcept { return terrain_.bounds(); }
   [[nodiscard]] const ArenaBounds& bounds() const&& = delete;
+
+  [[nodiscard]] const TerrainDefinition& terrain() const& noexcept { return terrain_; }
+  [[nodiscard]] const TerrainDefinition& terrain() const&& = delete;
 
   [[nodiscard]] std::span<const PhysicsBody> static_bodies() const& noexcept {
     return static_bodies_;
@@ -218,12 +183,12 @@ public:
   friend bool operator==(const MapDefinition&, const MapDefinition&) = default;
 
 private:
-  MapDefinition(std::string name, ArenaBounds bounds, std::vector<PhysicsBody> static_bodies,
+  MapDefinition(std::string name, TerrainDefinition terrain, std::vector<PhysicsBody> static_bodies,
                 std::vector<Marker> markers, std::vector<Marker> spawn_points,
                 MapMetadata metadata) noexcept;
 
   std::string name_;
-  ArenaBounds bounds_;
+  TerrainDefinition terrain_;
   std::vector<PhysicsBody> static_bodies_;
   std::vector<Marker> markers_;
   // Materialized once, because every mode needs it and a per-tick filter would be a scan the

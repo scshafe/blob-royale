@@ -63,6 +63,12 @@ enum class SimulationValidationCode {
   kContactRuleTableDuplicateRuleName,
   kArenaBoundsScalarNotFinite,
   kArenaBoundsScalarOutOfRange,
+  kTerrainDefinitionInvalid,
+  kTerrainShapeLimitExceeded,
+  kTerrainGeometryOutOfBounds,
+  kTerrainGeometryPrecisionLost,
+  kTerrainBoundaryLimitExceeded,
+  kTerrainQueryRadiusInvalid,
   kMapNameInvalid,
   kMapStaticBodyNotStatic,
   kMapStaticBodyOutOfBounds,
@@ -189,6 +195,18 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.ARENA_BOUNDS_SCALAR_NOT_FINITE";
   case SimulationValidationCode::kArenaBoundsScalarOutOfRange:
     return "SIMULATION.ARENA_BOUNDS_SCALAR_OUT_OF_RANGE";
+  case SimulationValidationCode::kTerrainDefinitionInvalid:
+    return "SIMULATION.TERRAIN_DEFINITION_INVALID";
+  case SimulationValidationCode::kTerrainShapeLimitExceeded:
+    return "SIMULATION.TERRAIN_SHAPE_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kTerrainGeometryOutOfBounds:
+    return "SIMULATION.TERRAIN_GEOMETRY_OUT_OF_BOUNDS";
+  case SimulationValidationCode::kTerrainGeometryPrecisionLost:
+    return "SIMULATION.TERRAIN_GEOMETRY_PRECISION_LOST";
+  case SimulationValidationCode::kTerrainBoundaryLimitExceeded:
+    return "SIMULATION.TERRAIN_BOUNDARY_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kTerrainQueryRadiusInvalid:
+    return "SIMULATION.TERRAIN_QUERY_RADIUS_INVALID";
   case SimulationValidationCode::kMapNameInvalid:
     return "SIMULATION.MAP_NAME_INVALID";
   case SimulationValidationCode::kMapStaticBodyNotStatic:

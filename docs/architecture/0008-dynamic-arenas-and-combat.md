@@ -105,8 +105,10 @@ Hill maps normally use rectangle-minus-holes. Race maps use void by default and 
 corridor for the road; the road has one authoring owner in terrain. Race owns ordered checkpoints,
 progress, return locations, and standings, and references the named corridor instead of authoring
 another track. Map syntax must be explicit and strictly parsed, extending the existing loader and
-section-family machinery, not hiding shapes in free-form marker metadata. Existing maps receive an
-explicit solid-ground declaration in the coordinated input migration.
+section-family convention, not hiding shapes in free-form marker metadata. **Refined at Step 3,
+2026-09-10:** existing non-circuit maps receive an explicit solid-ground declaration; the circuit
+declares corridor-only ground. The strict map parser is extended directly because the existing
+server-configuration family machinery is private, not a reusable loader API.
 
 Canonical queries must provide point support, swept support intervals/first exit, nearest usable
 ground, and disc clearance. Implement actual union/subtraction semantics: an internal seam where
@@ -579,3 +581,47 @@ ids; boundaries and triggers use the body id and stable authored feature index. 
 pair-before-wall and x-before-y precedence at exact ties and puts termination before progress.
 This is a pure foundation, not adoption by the live kernel: ADR 0003's accepted tick and every
 accepted fixture remain unchanged. Step 4 reviews these choices; Step 5 still gates adoption.
+
+## Terrain foundation, 2026-09-10 (plan Step 3)
+
+`TerrainDefinition` is the one map-owned immutable value. A shared immutable storage allocation
+holds both its authored fields and its derived line/arc boundary cache; equality compares authored
+fields, and copying cannot separate content from cache. `ArenaBounds` is a pure module promotion
+with unchanged arithmetic and diagnostics. `MapDefinition::bounds()` references terrain's envelope.
+
+Point support is the closed envelope intersected with the positive union, subtracting open hole
+interiors. The effective road radius is `half_width + kPositionTolerance`; a hole's open radius
+is `max(0, radius - kPositionTolerance)`. Swept queries use the Step 2 roots and closed interval
+algebra, retaining singleton ground. A first exit names the supported boundary limit when outgoing
+motion becomes unsupported: starting on a rim and entering void exits at zero; ending on a rim
+at one does not exit. No temporal midpoint is required between nearly equal roots.
+
+`nearest_supported_point` is radius-zero recovery, returning the supplied point when supported
+and absence for empty ground. `disc_clearance` separately measures the distance to the Boolean
+terrain's exposed boundary, and `terrain_supports_disc` combines center support with that distance.
+An overlap's internal seam is not a boundary. The derived cache is compiled once analytically,
+without rasterization, angular probing, or a second root solver; inconsistent or unrepresentable
+arrangements fail with a named terrain validation error rather than publishing partial geometry.
+
+Boundary selection is analytic, but the returned witness is a supported binary64 coordinate.
+Translation can round a circle projection into void. Only after selecting the nearest feature,
+at most four coordinatewise `nextafter` corrections may move it toward the supported query point
+for clearance, or toward the cached supported side for interior-curve recovery. Recovery at an
+endpoint instead uses a symbolically compiled Boolean supported angular sector: one incident
+curve's normal can point into another hole. Four bounded ray targets preserve and validate the
+actual representable displacement's sector before testing canonical point support. This is not a
+complete search of nearby binary64 points or alternative sectors; exhausting the selected ray's
+budget fails visibly. The feature identity is retained, and a nearer feature is never skipped in
+favor of a farther one. Rim-only geometry must itself be representable. Reported distance is to
+the corrected witness; clearance correction cannot increase that computed distance. This is a
+bounded representable-witness policy, not an interval-certified exact-real error bound for the
+preceding root, projection, or square-root arithmetic, and does not change event-time rounding.
+
+Initial authoring bounds are 8 corridors, 32 total segments, 40 total points, and 32 holes. The
+retained boundary has at most 8,192 elements and temporary arrangement storage at most 60,000.
+Temporary accounting charges deterministic logical slots, including retained pre-deduplication
+slots, not standard-library-defined vector capacity or allocator overhead.
+These are explicit work/storage guards, not a performance certification; Step 4 measures them and
+Step 5 retains the native-evidence gate. The new production-map fuzz harness exercises these input
+boundaries. Race's distance loop is duplicated only for the staged, bit-identical promotion proof;
+Step 6 removes the old implementation by delegation, before any new publication owner appears.

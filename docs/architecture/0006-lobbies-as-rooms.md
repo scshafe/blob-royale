@@ -506,3 +506,14 @@ The historical native evidence above is retained as historical evidence; this co
 regenerates it nor certifies current native performance. The new continuous-motion prototype
 cases are separately labelled unwired/advisory, and neither their results nor a Mac-hosted
 emulated run satisfies the dynamic-arena plan's Step 5 native-evidence/human-review gate.
+
+### Historical input schema migration, 2026-09-10 (dynamic-arena plan Step 6)
+
+The strict configuration migration replaces the historical fixture's unused race-width key
+with its named `road` binding. The fixture is now a schema-only derivation of the source above,
+not a byte-for-byte copy. Its measured simulation, royale, and hazard values remain unchanged;
+the benchmark JSON and README identify the derivation. Historical review/baseline artifacts
+are retained as evidence of their original inputs, not rewritten to imply the migrated file
+was measured then. This does not certify native performance. ADR 0008's later owner
+clarification defers capacity selection and removes native evidence from the present human
+Step 5 design gate, while retaining it for Step 24 performance/release claims.

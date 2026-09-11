@@ -10,6 +10,7 @@
 #include "server_config.hpp"
 #include "shared/hazard_archetype.hpp"
 #include "simulation_config.hpp"
+#include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 
 #include "application_input_test_fixture.hpp"
@@ -205,7 +206,7 @@ TEST_CASE("application config loader creates the complete typed run request",
   const gameplay::RaceConfiguration& race =
       run_request.application_config().game_mode_configuration().race;
   CHECK(race.thrust_maximum() == 400.0);
-  CHECK(race.track_half_width() == 70.0);
+  CHECK(race.road() == "road");
   CHECK(race.checkpoint_radius() == 40.0);
   CHECK(race.respawn_delay_ticks() == 800);
   CHECK(race.finish_window_ticks() == 8'000);
@@ -961,8 +962,7 @@ TEST_CASE("the application passes authored race values through its validated sec
           "[unit][application][config][race]") {
   TemporaryApplicationInputWorkspace workspace;
   std::string configuration{test_fixture::kValidConfiguration};
-  configuration = test_fixture::replace_once(configuration, "track_half_width_world_units=70\n",
-                                             "track_half_width_world_units=80\n");
+  configuration = test_fixture::replace_once(configuration, "road=road\n", "road=alternate_road\n");
   configuration = test_fixture::replace_once(configuration, "checkpoint_radius_world_units=40\n",
                                              "checkpoint_radius_world_units=30\n");
   configuration = test_fixture::replace_once(configuration, "finish_window_seconds=20\n",
@@ -974,9 +974,58 @@ TEST_CASE("the application passes authored race values through its validated sec
                                                 .application_config()
                                                 .game_mode_configuration()
                                                 .race;
-  CHECK(race.track_half_width() == 80.0);
+  CHECK(race.road() == "alternate_road");
   CHECK(race.checkpoint_radius() == 30.0);
   CHECK(race.finish_window_ticks() == 200);
+}
+
+TEST_CASE("the race road key is required and the retired width key is always unknown",
+          "[unit][application][config][race][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string configuration{test_fixture::kValidConfiguration};
+  require_configuration_load_error(workspace,
+                                   test_fixture::replace_once(configuration, "road=road\n", ""),
+                                   ApplicationInputErrorCode::kConfigurationKeyMissing);
+  for (const std::string_view replacement :
+       {"track_half_width_world_units=70\n", "road=road\ntrack_half_width_world_units=70\n"}) {
+    require_configuration_load_error(
+        workspace, test_fixture::replace_once(configuration, "road=road\n", replacement),
+        ApplicationInputErrorCode::kConfigurationKeyUnknown);
+  }
+}
+
+TEST_CASE("the race road key keeps strict duplicate and empty-value rejection",
+          "[unit][application][config][race][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string configuration{test_fixture::kValidConfiguration};
+  require_configuration_load_error(
+      workspace,
+      test_fixture::replace_once(configuration, "road=road\n", "road=road\nroad=other\n"),
+      ApplicationInputErrorCode::kConfigurationKeyDuplicate);
+  require_configuration_load_error(
+      workspace, test_fixture::replace_once(configuration, "road=road\n", "road=\n"),
+      ApplicationInputErrorCode::kConfigurationValueInvalid);
+}
+
+TEST_CASE(
+    "the application delegates race road identity rejection to gameplay without normalization",
+    "[unit][application][config][race][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string& name :
+       {std::string{"Road"}, std::string{"road-name"}, std::string{"road.name"},
+        std::string(simulation::kMaximumKindNameLength + 1, 'r')}) {
+    CAPTURE(name);
+    const std::string configuration = test_fixture::replace_once(
+        std::string{test_fixture::kValidConfiguration}, "road=road\n", "road=" + name + "\n");
+    const auto config_path = workspace.write_file("invalid-road.cfg", configuration);
+    try {
+      static_cast<void>(test_fixture::load_application_config(config_path));
+      FAIL("an invalid road identity was accepted");
+    } catch (const gameplay::GameplayValidationError& error) {
+      CHECK(error.validation_code() == gameplay::GameplayValidationCode::kRaceRoadNameInvalid);
+      CHECK(error.context() == "race.road");
+    }
+  }
 }
 
 TEST_CASE("contested_hill_scores is spelled exactly true or false",

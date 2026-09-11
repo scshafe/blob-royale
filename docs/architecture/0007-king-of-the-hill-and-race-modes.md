@@ -831,3 +831,41 @@ trigger with a within-tick finish offset (Step 17). § "King of the hill": the m
 controllers may link (Step 8). The accepted hill and race replay expectations stand until each
 step and change only with written rationale; the decision and its `Accepted` status are unchanged
 today.
+
+## Amended 2026-09-10 (ADR 0008, plan Step 6): named race road
+
+§ "The course", § "Map requirements", and the race configuration table now select a named
+terrain corridor with required `[race] road` (the explicit defaults-only value is `road`).
+The former `[race] track_half_width_world_units` key and `track` marker geometry are retired.
+The map's corridor owns its ordered points and half-width, under the existing terrain limits
+of 8 corridors, 32 aggregate segments, 40 aggregate points, and dimensions at most 10^9 wu.
+The terrain factory, not race marker validation, rejects degenerate segments. A malformed road
+name fails configuration validation; a missing named road fails race map binding. Checkpoint
+radius remains positive and bounded at configuration intake, with radius <= road half-width
+checked after binding to the actual map.
+
+`RaceCourse` retains owning immutable terrain and its corridor identity, so courses created
+from temporary maps remain valid. Distance delegates to the canonical corridor query with
+the promoted arithmetic unchanged. Startup checkpoint/spawn admission still compares exact
+distance with the half-width; it does not substitute full Boolean terrain support or widen
+the old boundary with another tolerance.
+
+The race mode-state `track`/`track_half_width` fields remain a per-tick derived mirror of this
+same corridor until Step 8. Wire, racer-controller geometry, rendering, endpoint track-bound
+sampling, and checkpoint chronology are unchanged by this step. The full published mirrors,
+commands, and independently derived replay outcomes remain the acceptance contract.
+
+Replay maps now use the production map-directory format bundled beneath each replay. This
+removes the fixture's separate marker/map reader without a new production parser API. Map
+identity, bounds, marker order, and authored race geometry retain their previous values;
+required display metadata and explicit terrain are new authored map facts, not a claim that
+the old and new whole map objects are equal. The committed snapshot does not yet carry terrain
+or map metadata; that publication is the separate Step 7 contract.
+
+Step 6 verification on 2026-09-10 was advisory Mac/arm64-hosted Docker Linux/amd64:
+425/425 selected unit/fixture cases passed on each required lane, including unchanged committed
+replay expectations, and 55 fixed fuzz-corpus executions passed across seven harnesses. The
+diagnostic Debug benchmark retained all eight correctness records and delivery correctness;
+no release/native performance claim follows. The initial migration's misplaced CSV comments
+were relocated into `map.cfg` before the complete reruns; production CSV parsing was not widened.
+The plan records the complete commands, review, input audit, and correction history.

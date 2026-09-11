@@ -138,7 +138,7 @@ public:
                                             std::vector<Marker> markers, MapMetadata metadata);
 
   // The authored terrain factory. The bounds overload above explicitly delegates to solid ground
-  // for programmatic rectangles and accepted replay fixtures; map files must declare terrain.
+  // for programmatic rectangles; bundled replay maps use MapLoader's explicit terrain format.
   [[nodiscard]] static MapDefinition create(std::string name, TerrainDefinition terrain,
                                             std::vector<PhysicsBody> static_bodies,
                                             std::vector<Marker> markers, MapMetadata metadata);

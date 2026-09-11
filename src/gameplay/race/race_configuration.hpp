@@ -2,6 +2,8 @@
 #define BLOB_ROYALE_GAMEPLAY_RACE_RACE_CONFIGURATION_HPP
 
 #include <cstdint>
+#include <string>
+#include <string_view>
 
 namespace blob_royale::gameplay {
 
@@ -9,11 +11,11 @@ namespace blob_royale::gameplay {
 // the units systems consume. Every authored key is required; `defaults` is only the explicit
 // defaults-only factory path. Rules and proposed values are ADR 0007 section "Race".
 // related: ../shared/duration_ticks.hpp -- the shared seconds-to-ticks conversion.
-// related: race_course.hpp -- validates map geometry against these configured dimensions.
+// related: race_course.hpp -- binds the named terrain corridor and validates the gate radius.
 class RaceConfiguration final {
 public:
   static constexpr double kDefaultThrustMaximumWorldUnitsPerSecondSquared = 400.0;
-  static constexpr double kDefaultTrackHalfWidthWorldUnits = 70.0;
+  static constexpr std::string_view kDefaultRoad = "road";
   static constexpr double kDefaultCheckpointRadiusWorldUnits = 40.0;
   static constexpr double kDefaultRespawnDelaySeconds = 2.0;
   static constexpr double kDefaultFinishWindowSeconds = 20.0;
@@ -21,10 +23,10 @@ public:
   static constexpr double kDefaultCountdownSeconds = 5.0;
   static constexpr double kDefaultRestartDelaySeconds = 8.0;
 
-  // Authored seconds and world units, in the key order of ADR 0007's table.
+  // Authored identity, seconds and world units, in the declared key order.
   struct Section final {
     double thrust_max_world_units_per_second_squared;
-    double track_half_width_world_units;
+    std::string road;
     double checkpoint_radius_world_units;
     double respawn_delay_seconds;
     double finish_window_seconds;
@@ -35,12 +37,14 @@ public:
     friend bool operator==(const Section&, const Section&) = default;
   };
 
-  // Validates in authored key order. Throws GameplayValidationError for invalid thrust, a
-  // nonfinite/nonpositive width, radius or time limit, a radius above the half-width, or a
-  // negative/nonfinite/unrepresentable duration. Race scalar errors name `race.<key>`.
+  // Validates in authored key order. Throws GameplayValidationError for invalid thrust,
+  // RACE_ROAD_NAME_INVALID for a road outside the shared snake-case grammar/name limit, a
+  // nonfinite/nonpositive radius or time limit, or a negative/nonfinite/unrepresentable duration.
+  // Race errors name `race.<key>`. Corridor existence and radius-versus-width require the map
+  // and are validated only by RaceCourse; this value does not duplicate terrain dimensions.
   [[nodiscard]] static RaceConfiguration create(const Section& section);
   [[nodiscard]] static RaceConfiguration defaults();
-  [[nodiscard]] static Section default_section() noexcept;
+  [[nodiscard]] static Section default_section();
 
   RaceConfiguration(const RaceConfiguration&) = default;
   RaceConfiguration(RaceConfiguration&&) noexcept = default;
@@ -49,7 +53,8 @@ public:
   ~RaceConfiguration() = default;
 
   [[nodiscard]] double thrust_maximum() const noexcept { return thrust_maximum_; }
-  [[nodiscard]] double track_half_width() const noexcept { return track_half_width_; }
+  [[nodiscard]] std::string_view road() const& noexcept { return road_; }
+  [[nodiscard]] std::string_view road() const&& = delete;
   [[nodiscard]] double checkpoint_radius() const noexcept { return checkpoint_radius_; }
   [[nodiscard]] std::uint64_t respawn_delay_ticks() const noexcept { return respawn_delay_ticks_; }
   [[nodiscard]] std::uint64_t finish_window_ticks() const noexcept { return finish_window_ticks_; }
@@ -60,13 +65,13 @@ public:
   friend bool operator==(const RaceConfiguration&, const RaceConfiguration&) = default;
 
 private:
-  RaceConfiguration(double thrust_maximum, double track_half_width, double checkpoint_radius,
+  RaceConfiguration(double thrust_maximum, std::string road, double checkpoint_radius,
                     std::uint64_t respawn_delay_ticks, std::uint64_t finish_window_ticks,
                     std::uint64_t time_limit_ticks, std::uint64_t countdown_ticks,
-                    std::uint64_t restart_delay_ticks) noexcept;
+                    std::uint64_t restart_delay_ticks);
 
   double thrust_maximum_;
-  double track_half_width_;
+  std::string road_;
   double checkpoint_radius_;
   std::uint64_t respawn_delay_ticks_;
   std::uint64_t finish_window_ticks_;

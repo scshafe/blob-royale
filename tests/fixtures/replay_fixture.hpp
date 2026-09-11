@@ -31,36 +31,41 @@ namespace gameplay = blob_royale::gameplay;
 // a match is reproducible from that tuple, so that tuple is what a test, a bug report, and a replay
 // viewer all carry. A replay fixture is a directory under `tests/fixtures/replays/`:
 //
-//   match.ini     [match] mode, seed, tick_count, lobby_seat_count
-//                 [map] name, width_world_units, height_world_units
+//   match.ini     [match] mode, map, seed, tick_count, lobby_seat_count
 //                 [simulation] player_radius_world_units, ticks_per_second, spatial_grid_columns,
 //                              spatial_grid_rows, drag_per_second
 //                 the one section of the mode `[match] mode` names: [royale] with the six keys of
 //                 `docs/architecture/0005-royale-mode.md` § "Mode configuration", or
-//                 [king_of_the_hill] with the eleven keys or [race] with the eight keys of
-//                 ADR 0007's mode tables. A fixture carries
-//                 its own mode's section and no other, because a key no reader asked for is a
-//                 rejection.
-//   markers.csv   marker_kind,position_x_world_units,position_y_world_units
+//                 [king_of_the_hill] with the eleven keys or [race] with its eight keys, including
+//                 `road` naming the terrain corridor instead of a duplicate width. A fixture
+//                 carries its own mode's section and no other, because a key no reader asked for is
+//                 a rejection.
+//   maps/<map>/map.cfg            the canonical MapLoader map, bounds, and terrain sections
+//   maps/<map>/markers.csv        marker_kind,position_x_world_units,position_y_world_units,team_id
+//   maps/<map>/static_bodies.csv  position_x_world_units,position_y_world_units,collision_layer,
+//                                collision_mask (the header alone declares no static bodies)
 //   commands.csv  tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,
 //                 seat_index,seat_count,npc_kind
 //
-// **A line whose first character is `#` is a comment**, in every one of the three files, and may
+// **A line whose first character is `#` is a comment**, in `match.ini` and `commands.csv`, and may
 // appear anywhere including above a header row. It exists because a fixture has to be able to state
 // a derivation: "the `start_match` is at tick 2 because tick 1 is when the fourth seat fills" is
 // the difference between a number a reader can check and a number a reader has to trust. The rule
 // is full-line only, so `#` inside a value is still an ordinary character and no column can be
 // truncated by one.
 //
-// The map travels **with** the replay rather than being named in `maps/`, because `maps/` and its
-// loader arrive in plan Step 25 and a fixture that cannot be run is not a fixture. `[map]` and
-// `markers.csv` are the same two things a map directory holds, so Step 25's loader replaces this
-// reader without changing a single fixture's numbers.
+// The map travels **with** the replay: `[match] map` is one map-name leaf beneath that replay's
+// fixed `maps/` directory, never an absolute path or traversal and never a reference to the live
+// repository maps. `application::MapLoader` is the sole map reader; its canonical authoring,
+// comment, validation, and error contracts apply unchanged. Race geometry is the named terrain
+// corridor, not `track` marker rows. Non-race maps explicitly declare solid ground. Required map
+// display metadata and race terrain were added during the Step 6 authoring migration; the accepted
+// snapshots do not publish them, and commands, entity allocation, and numeric geometry stay fixed.
 //
 // **Every reader here is strict and fails closed**: an unknown section, an unknown key, a missing
 // key, a duplicate key, a header that is not exactly the expected one, a wrong column count, a
 // non-numeric value, an unknown command kind, and a payload column that is filled for a kind that
-// does not use it are each a rejection naming the file, the line, and the cause. A fixture that
+// does not use it are each a rejection naming the input and the cause. A fixture that
 // silently parsed differently than it reads would be worse than no fixture at all.
 //
 // **The reservation policy is reproduced here** because a replay has no runtime to hand it one:
@@ -74,9 +79,9 @@ namespace gameplay = blob_royale::gameplay;
 // related: race_replay_fixture_tests.cpp -- the race's suite on the same format.
 // related: game_mode_configuration.hpp -- the validated sections this hands the mode registry.
 
-// A rejection from the replay reader. It is not a `SimulationValidationError` or a
-// `GameplayValidationError` because a malformed fixture is a defect in the test data rather than in
-// either library, and conflating the two would let a broken fixture pass as a caught rejection.
+// A rejection from the replay-owned match/command grammar or map-reference boundary. Production
+// MapLoader errors retain ApplicationInputError or SimulationValidationError, and validated mode,
+// command, and configuration factories retain their domain errors; none is caught or relabelled.
 class ReplayFixtureError final : public std::runtime_error {
 public:
   explicit ReplayFixtureError(const std::string& message) : std::runtime_error(message) {}
@@ -90,8 +95,9 @@ public:
   static constexpr std::uint64_t kSystemCreatedEntityHeadroom =
       simulation::kSystemCreatedEntityHeadroom;
 
-  // Reads and validates one replay directory. Throws ReplayFixtureError naming the file and the
-  // cause for every malformed input.
+  // Reads and validates one replay directory. Throws ReplayFixtureError for replay-owned grammar
+  // and map-reference errors; ApplicationInputError, SimulationValidationError, and
+  // GameplayValidationError propagate from the canonical readers/factories that own those rules.
   [[nodiscard]] static ReplayFixture load(const std::filesystem::path& replay_directory);
 
   // Reads the fixture of this name under `tests/fixtures/replays/`.

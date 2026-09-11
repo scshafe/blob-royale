@@ -1,7 +1,4 @@
 marker_kind,position_x_world_units,position_y_world_units,team_id
-track,160,480,
-track,720,480,
-track,720,160,
 checkpoint,360,480,
 checkpoint,720,480,
 checkpoint,720,200,

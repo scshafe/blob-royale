@@ -3,15 +3,14 @@
 The shipped point-to-point race course from ADR 0007's Race section. It uses the accepted
 960 by 640 world, a named terrain corridor `road` with half-width 70, and
 `[race] checkpoint_radius_world_units=40`. `map.cfg` owns the terrain width and centreline.
-The existing race-specific `track` markers and `track_half_width_world_units=70` remain during
-the dynamic-arena migration until the race consumer moves to that terrain declaration; neither is
-read by the terrain loader. Set `[match] mode=race`, `map=circuit-960x640`, and
-use a lobby of at most four seats when selecting this course.
+Set `[race] road=road`, `[match] mode=race`, and `map=circuit-960x640`, with a lobby of at most
+four seats. The race course binds that named corridor; checkpoints and starting-grid positions
+remain markers. The published race track fields are temporarily derived from the same terrain.
 
 | File | Contents |
 |---|---|
 | `map.cfg` | Directory-matching name, display name, world bounds, and the `road` terrain corridor. |
-| `markers.csv` | Three centreline nodes, three ordered gates, and four starting-grid positions. |
+| `markers.csv` | Three ordered gates and four starting-grid positions. |
 | `static_bodies.csv` | Two static obstacles on the players' collision layer. |
 
 Every coordinate is a literal derived below. Let `W=960`, `H=640`, the half-width `h=70`,

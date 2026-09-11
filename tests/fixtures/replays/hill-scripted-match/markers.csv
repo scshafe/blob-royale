@@ -1,9 +1,0 @@
-# The two spawn points are the two stops of the hill's tour, 320 wu apart, so player 1 begins on
-# the hill and player 2 waits at the far stop for it to arrive. The travel of 32 ticks makes every
-# glide fraction k/32 exact in binary64 and every centre x = 400 + 10k exact, so the ticks below
-# are derived rather than observed.
-marker_kind,position_x_world_units,position_y_world_units
-spawn,400,320
-spawn,720,320
-hill,400,320
-hill,720,320

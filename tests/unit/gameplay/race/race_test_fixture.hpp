@@ -13,6 +13,8 @@
 
 namespace blob_royale::testing {
 
+inline constexpr double kRaceTestRoadHalfWidth = 70.0;
+
 // canonical: race_test_fixture -- named course, balance, and initial field for race unit tests.
 // A straight centreline from (100,320) to (800,320), four grid positions at x=100,200,300,400,
 // and by default gates at x=300,600. Gate positions are arguments so ordering/overlap tests vary
@@ -22,11 +24,6 @@ namespace blob_royale::testing {
     const std::vector<simulation::Vector2>& checkpoints = {
         simulation::Vector2::create(300.0, 320.0), simulation::Vector2::create(600.0, 320.0)}) {
   std::vector<simulation::MapDefinition::Marker> markers;
-  for (const simulation::Vector2& position :
-       {simulation::Vector2::create(100.0, 320.0), simulation::Vector2::create(800.0, 320.0)}) {
-    markers.push_back(simulation::MapDefinition::Marker::create("track", position, std::nullopt,
-                                                                simulation::MapMetadata::none()));
-  }
   for (const simulation::Vector2& position : checkpoints) {
     markers.push_back(simulation::MapDefinition::Marker::create(
         "checkpoint", position, std::nullopt, simulation::MapMetadata::none()));
@@ -35,8 +32,14 @@ namespace blob_royale::testing {
     markers.push_back(simulation::MapDefinition::Marker::spawn(
         simulation::Vector2::create(100.0 * static_cast<double>(index + 1), 320.0)));
   }
-  return simulation::MapDefinition::create(name, simulation::ArenaBounds::create(960.0, 640.0), {},
-                                           std::move(markers), simulation::MapMetadata::none());
+  const auto terrain = simulation::TerrainDefinition::create(
+      simulation::ArenaBounds::create(960.0, 640.0), simulation::TerrainGround::kCorridors,
+      {simulation::TerrainCorridor::create(
+          "road", kRaceTestRoadHalfWidth,
+          {simulation::Vector2::create(100.0, 320.0), simulation::Vector2::create(800.0, 320.0)})},
+      {});
+  return simulation::MapDefinition::create(name, terrain, {}, std::move(markers),
+                                           simulation::MapMetadata::none());
 }
 
 // Proposed race balance with a zero countdown, so a started lobby commits running on tick 2.

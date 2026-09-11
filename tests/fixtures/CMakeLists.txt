@@ -4,6 +4,7 @@ add_executable(blob_royale_fixture_tests
   map_fixture_tests.cpp
   race_replay_fixture_tests.cpp
   replay_fixture.cpp
+  replay_map_fixture_tests.cpp
   royale_replay_fixture_tests.cpp
   scenario_fixture_tests.cpp
 )

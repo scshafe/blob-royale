@@ -62,7 +62,7 @@ enum class ConfigField : std::size_t {
   kKingOfTheHillCountdownSeconds,
   kKingOfTheHillRestartDelaySeconds,
   kRaceThrustMaximum,
-  kRaceTrackHalfWidth,
+  kRaceRoad,
   kRaceCheckpointRadius,
   kRaceRespawnDelaySeconds,
   kRaceFinishWindowSeconds,
@@ -133,7 +133,7 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"king_of_the_hill", "countdown_seconds"},
          {"king_of_the_hill", "restart_delay_seconds"},
          {"race", "thrust_max_world_units_per_second_squared"},
-         {"race", "track_half_width_world_units"},
+         {"race", "road"},
          {"race", "checkpoint_radius_world_units"},
          {"race", "respawn_delay_seconds"},
          {"race", "finish_window_seconds"},
@@ -813,8 +813,7 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       gameplay::RaceConfiguration::create(gameplay::RaceConfiguration::Section{
           .thrust_max_world_units_per_second_squared =
               parse_double_config_value(document, ConfigField::kRaceThrustMaximum),
-          .track_half_width_world_units =
-              parse_double_config_value(document, ConfigField::kRaceTrackHalfWidth),
+          .road = std::string{document.value(ConfigField::kRaceRoad)},
           .checkpoint_radius_world_units =
               parse_double_config_value(document, ConfigField::kRaceCheckpointRadius),
           .respawn_delay_seconds =

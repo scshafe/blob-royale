@@ -286,8 +286,8 @@ mode-owned production implementation, not the total cross-domain cost.
 
 ## `race`
 
-The course joins ordered `track` markers into a corridor and uses ordered `checkpoint` markers as
-gates, with the last gate as the finish. `checkpoint_progress` takes at most one gate per tick and
+The course binds `[race] road` to a named terrain corridor and uses ordered `checkpoint` markers
+as gates, with the last gate as the finish. `checkpoint_progress` takes at most one gate per tick and
 `track_bounds` then emits an elimination for an off-road centre. The lifecycle systems run in this
 order: `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn`, `course_publisher`; the engine evaluates the objective afterwards. The mode uses
@@ -295,16 +295,20 @@ shared steering and lethal-hazard contact, and accepts the same nine command kin
 
 `RaceMode::validate_map` builds and validates one `RaceCourse` before `systems()` reads it. The
 registry factory has configuration but no map, so the existing map-bearing declaration is the
-binding point. Every system receives its own immutable course value, and an unbound mode raises
-`GAMEPLAY.RACE_COURSE_UNBOUND` instead of constructing incomplete systems. Validation requires at
-least two distinct consecutive track nodes, a checkpoint, a spawn marker, and checkpoint/spawn
-centres inside the corridor. It does not require every point of a gate disc to be on the road;
+binding point. Every system receives an immutable course value retaining the terrain and its
+selected corridor identity; temporary map destruction leaves those views valid. An unbound mode
+raises `GAMEPLAY.RACE_COURSE_UNBOUND` instead of constructing incomplete systems. Terrain owns
+node/shape validation; race requires the named road, a checkpoint, a spawn marker, and checkpoint/
+spawn centres satisfying the old exact distance <= width convention. It does not require every
+point of a gate disc to be on the road or apply the full terrain support/holes predicate;
 progress can advance and an off-road elimination can occur on the same tick.
 
-The configuration factory bounds half-width and checkpoint radius to `(0, 10^12]`, with radius
-also no greater than half-width. These are the simulation's publication bounds, enforced before a
-course reaches the encoder, and equality at the ceiling is accepted. Duration conversion and
-default balance values are unchanged.
+The configuration factory validates the road name and bounds checkpoint radius to `(0, 10^12]`.
+Binding checks that radius is no greater than the selected terrain half-width, whose terrain
+authoring bound is `(0, 10^9]`. Equality with the selected width is accepted. `course_publisher`
+temporarily derives the existing race track/width wire fields from that same corridor; Step 8
+removes this mirror after clients receive terrain. Duration conversion and default balance
+values are unchanged.
 
 A fallen racer keeps its entity, controller, and `RaceProgress`. With zero gates taken it returns
 through `GridSpawnPolicy`; after a gate it returns to that checkpoint through the public

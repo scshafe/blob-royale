@@ -37,14 +37,12 @@ struct Field final {
   std::string_view key;
 };
 
-constexpr std::array<Field, 3> kPositiveScalars = {{
-    {&Section::track_half_width_world_units, "track_half_width_world_units"},
+constexpr std::array<Field, 2> kPositiveScalars = {{
     {&Section::checkpoint_radius_world_units, "checkpoint_radius_world_units"},
     {&Section::time_limit_seconds, "time_limit_seconds"},
 }};
 
-constexpr std::array<Field, 2> kPublishedDimensions = {{
-    {&Section::track_half_width_world_units, "track_half_width_world_units"},
+constexpr std::array<Field, 1> kPublishedDimensions = {{
     {&Section::checkpoint_radius_world_units, "checkpoint_radius_world_units"},
 }};
 
@@ -61,7 +59,7 @@ TEST_CASE("the proposed [race] section converts to the accepted tick counts",
           "[unit][gameplay][race][configuration]") {
   const gameplay::RaceConfiguration configuration = gameplay::RaceConfiguration::defaults();
   CHECK(configuration.thrust_maximum() == 400.0);
-  CHECK(configuration.track_half_width() == 70.0);
+  CHECK(configuration.road() == "road");
   CHECK(configuration.checkpoint_radius() == 40.0);
   CHECK(configuration.respawn_delay_ticks() == 800);
   CHECK(configuration.finish_window_ticks() == 8'000);
@@ -103,33 +101,29 @@ TEST_CASE("race dimensions and the time limit reject every nonfinite value",
   }
 }
 
-TEST_CASE("the race checkpoint radius may equal the half-width but never exceed it",
-          "[unit][gameplay][race][configuration][validation]") {
+TEST_CASE("race configuration defers checkpoint radius versus road width to map binding",
+          "[unit][gameplay][race][configuration]") {
   Section section = gameplay::RaceConfiguration::default_section();
-  section.checkpoint_radius_world_units = section.track_half_width_world_units;
-  CHECK(gameplay::RaceConfiguration::create(section).checkpoint_radius() == 70.0);
-  section.checkpoint_radius_world_units += 0.001;
-  const Rejection rejection = rejection_of(section);
-  CHECK(rejection.code == gameplay::GameplayValidationCode::kRaceScalarOutOfRange);
-  CHECK(rejection.context == "race.checkpoint_radius_world_units");
+  section.road = "narrow_or_wide_in_the_map";
+  section.checkpoint_radius_world_units = 70.001;
+  const auto configuration = gameplay::RaceConfiguration::create(section);
+  CHECK(configuration.road() == section.road);
+  CHECK(configuration.checkpoint_radius() == 70.001);
 }
 
-TEST_CASE("race dimensions accept the exact published world scalar ceiling",
+TEST_CASE("race checkpoint radius accepts the exact published world scalar ceiling",
           "[unit][gameplay][race][configuration][boundary]") {
   Section section = gameplay::RaceConfiguration::default_section();
-  section.track_half_width_world_units = simulation::kMaximumPhysicalComponentMagnitude;
   section.checkpoint_radius_world_units = simulation::kMaximumPhysicalComponentMagnitude;
   const gameplay::RaceConfiguration configuration = gameplay::RaceConfiguration::create(section);
-  CHECK(configuration.track_half_width() == simulation::kMaximumPhysicalComponentMagnitude);
   CHECK(configuration.checkpoint_radius() == simulation::kMaximumPhysicalComponentMagnitude);
 }
 
-TEST_CASE("race dimensions above the published ceiling fail at their configuration keys",
+TEST_CASE("race checkpoint radius above the published ceiling fails at its configuration key",
           "[unit][gameplay][race][configuration][validation][boundary]") {
   for (const Field& field : kPublishedDimensions) {
     CAPTURE(field.key);
     Section section = gameplay::RaceConfiguration::default_section();
-    section.track_half_width_world_units = simulation::kMaximumPhysicalComponentMagnitude;
     section.checkpoint_radius_world_units = simulation::kMaximumPhysicalComponentMagnitude;
     section.*field.member = simulation::kMaximumPhysicalComponentMagnitude + 1.0;
     const Rejection rejection = rejection_of(section);
@@ -184,4 +178,45 @@ TEST_CASE("race validation reports the first invalid key in the authored order",
   section.respawn_delay_seconds = -1.0;
   section.finish_window_seconds = -1.0;
   CHECK(rejection_of(section).context == "race.respawn_delay_seconds");
+}
+
+TEST_CASE("race road owns a valid snake-case identity independently of the input section",
+          "[unit][gameplay][race][configuration]") {
+  for (const std::string& name :
+       {std::string{"alternate_road_2"}, std::string(simulation::kMaximumKindNameLength, 'r')}) {
+    Section section = gameplay::RaceConfiguration::default_section();
+    section.road = name;
+    const auto configuration = gameplay::RaceConfiguration::create(section);
+    section.road = "changed_after_creation";
+    CHECK(configuration.road() == name);
+  }
+}
+
+TEST_CASE("race road rejects malformed and overlong identities with its named domain error",
+          "[unit][gameplay][race][configuration][validation]") {
+  for (const std::string& name :
+       {std::string{}, std::string{"Road"}, std::string{"1road"}, std::string{"_road"},
+        std::string{"two-roads"}, std::string{"two roads"}, std::string{"road.name"},
+        std::string{"road\0suffix", 11},
+        std::string(simulation::kMaximumKindNameLength + 1, 'r')}) {
+    CAPTURE(name);
+    Section section = gameplay::RaceConfiguration::default_section();
+    section.road = name;
+    const auto rejection = rejection_of(section);
+    CHECK(rejection.code == gameplay::GameplayValidationCode::kRaceRoadNameInvalid);
+    CHECK(rejection.context == "race.road");
+  }
+}
+
+TEST_CASE("race road validation follows thrust and precedes checkpoint radius",
+          "[unit][gameplay][race][configuration][validation]") {
+  Section section = gameplay::RaceConfiguration::default_section();
+  section.thrust_max_world_units_per_second_squared = -1.0;
+  section.road = "";
+  section.checkpoint_radius_world_units = -1.0;
+  CHECK(rejection_of(section).code == gameplay::GameplayValidationCode::kThrustMaximumOutOfRange);
+  section.thrust_max_world_units_per_second_squared = 400.0;
+  CHECK(rejection_of(section).code == gameplay::GameplayValidationCode::kRaceRoadNameInvalid);
+  section.road = "road";
+  CHECK(rejection_of(section).context == "race.checkpoint_radius_world_units");
 }

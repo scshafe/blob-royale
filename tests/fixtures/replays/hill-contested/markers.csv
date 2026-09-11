@@ -1,6 +1,0 @@
-# Both spawn points are inside the one hill (radius 90 around (480, 320)) and 80 wu apart, so the
-# two players hold it together from their first running tick without touching.
-marker_kind,position_x_world_units,position_y_world_units
-spawn,480,320
-spawn,560,320
-hill,480,320

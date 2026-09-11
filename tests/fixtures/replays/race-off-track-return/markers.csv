@@ -1,9 +1,0 @@
-# A straight centreline at y=320, a grid at its start, and gates ten, sixty and ninety wu
-# forward. The distant later gates keep the downward excursion strictly at progress one.
-marker_kind,position_x_world_units,position_y_world_units
-spawn,100,320
-track,100,320
-track,200,320
-checkpoint,110,320
-checkpoint,160,320
-checkpoint,190,320

@@ -35,16 +35,16 @@ TEST_CASE("the track corridor includes its boundary and tolerance but eliminates
           "[unit][gameplay][race][bounds]") {
   const auto configuration = testing::race_test_configuration();
   const testing::TickHarness harness{simulation::TickSequence::create(1), testing::race_test_map()};
-  const auto system = gameplay::TrackBoundsSystem::create(
-      gameplay::RaceCourse::create(harness.map(), configuration));
+  const auto course = gameplay::RaceCourse::create(harness.map(), configuration);
+  const auto system = gameplay::TrackBoundsSystem::create(course);
   for (const double offset : {0.0, simulation::kPositionTolerance / 2.0}) {
     simulation::GameWorld world = testing::race_test_world(
-        {simulation::Vector2::create(300.0, 320.0 + configuration.track_half_width() + offset)});
+        {simulation::Vector2::create(300.0, 320.0 + course.track_half_width() + offset)});
     system->apply(world, harness.context());
     CHECK(eliminated_in(world).empty());
   }
   simulation::GameWorld outside = testing::race_test_world(
-      {simulation::Vector2::create(300.0, 321.0 + configuration.track_half_width())});
+      {simulation::Vector2::create(300.0, 321.0 + course.track_half_width())});
   system->apply(outside, harness.context());
   CHECK(eliminated_in(outside) ==
         std::vector<simulation::EntityId>{simulation::EntityId::create(1)});

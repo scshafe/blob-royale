@@ -4,11 +4,13 @@
 #include "shared/duration_ticks.hpp"
 #include "shared/thrust_steering_system.hpp"
 #include "simulation_limits.hpp"
+#include "snake_case_identity.hpp"
 
 #include <cmath>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace blob_royale::gameplay {
 namespace {
@@ -20,7 +22,7 @@ namespace {
 void require_finite_and_positive(const double value, const std::string_view key) {
   if (!std::isfinite(value)) {
     throw GameplayValidationError(GameplayValidationCode::kRaceScalarNotFinite, context_of(key),
-                                  "every [race] value must be a finite number");
+                                  "every numeric [race] value must be a finite number");
   }
   if (value <= 0.0) {
     throw GameplayValidationError(GameplayValidationCode::kRaceScalarOutOfRange, context_of(key),
@@ -32,25 +34,18 @@ void require_finite_and_positive(const double value, const std::string_view key)
 
 RaceConfiguration RaceConfiguration::create(const Section& section) {
   require_valid_thrust_maximum(section.thrust_max_world_units_per_second_squared);
-  require_finite_and_positive(section.track_half_width_world_units, "track_half_width_world_units");
-  // Both dimensions are published on every frame; reject an unencodable course at startup.
-  if (section.track_half_width_world_units > simulation::kMaximumPhysicalComponentMagnitude) {
-    throw GameplayValidationError(
-        GameplayValidationCode::kRaceScalarOutOfRange, context_of("track_half_width_world_units"),
-        "track_half_width_world_units exceeds the published world scalar bound");
+  if (!simulation::is_wire_kind_name(section.road)) {
+    throw GameplayValidationError(GameplayValidationCode::kRaceRoadNameInvalid, context_of("road"),
+                                  "road must be a snake_case terrain corridor identity within "
+                                  "the accepted kind-name length");
   }
+  // Gate radius remains published on every frame; the bound road supplies its width separately.
   require_finite_and_positive(section.checkpoint_radius_world_units,
                               "checkpoint_radius_world_units");
   if (section.checkpoint_radius_world_units > simulation::kMaximumPhysicalComponentMagnitude) {
     throw GameplayValidationError(
         GameplayValidationCode::kRaceScalarOutOfRange, context_of("checkpoint_radius_world_units"),
         "checkpoint_radius_world_units exceeds the published world scalar bound");
-  }
-  if (section.checkpoint_radius_world_units > section.track_half_width_world_units) {
-    throw GameplayValidationError(GameplayValidationCode::kRaceScalarOutOfRange,
-                                  context_of("checkpoint_radius_world_units"),
-                                  "checkpoint_radius_world_units must be at most "
-                                  "track_half_width_world_units");
   }
   // Named locals preserve validation order across compilers; argument evaluation order would not.
   const std::uint64_t respawn_delay_ticks =
@@ -64,15 +59,15 @@ RaceConfiguration RaceConfiguration::create(const Section& section) {
       duration_ticks(section.countdown_seconds, context_of("countdown_seconds"));
   const std::uint64_t restart_delay_ticks =
       duration_ticks(section.restart_delay_seconds, context_of("restart_delay_seconds"));
-  return RaceConfiguration(
-      section.thrust_max_world_units_per_second_squared, section.track_half_width_world_units,
-      section.checkpoint_radius_world_units, respawn_delay_ticks, finish_window_ticks,
-      time_limit_ticks, countdown_ticks, restart_delay_ticks);
+  return RaceConfiguration(section.thrust_max_world_units_per_second_squared, section.road,
+                           section.checkpoint_radius_world_units, respawn_delay_ticks,
+                           finish_window_ticks, time_limit_ticks, countdown_ticks,
+                           restart_delay_ticks);
 }
 
-RaceConfiguration::Section RaceConfiguration::default_section() noexcept {
+RaceConfiguration::Section RaceConfiguration::default_section() {
   return Section{kDefaultThrustMaximumWorldUnitsPerSecondSquared,
-                 kDefaultTrackHalfWidthWorldUnits,
+                 std::string{kDefaultRoad},
                  kDefaultCheckpointRadiusWorldUnits,
                  kDefaultRespawnDelaySeconds,
                  kDefaultFinishWindowSeconds,
@@ -83,14 +78,14 @@ RaceConfiguration::Section RaceConfiguration::default_section() noexcept {
 
 RaceConfiguration RaceConfiguration::defaults() { return create(default_section()); }
 
-RaceConfiguration::RaceConfiguration(const double thrust_maximum, const double track_half_width,
+RaceConfiguration::RaceConfiguration(const double thrust_maximum, std::string road,
                                      const double checkpoint_radius,
                                      const std::uint64_t respawn_delay_ticks,
                                      const std::uint64_t finish_window_ticks,
                                      const std::uint64_t time_limit_ticks,
                                      const std::uint64_t countdown_ticks,
-                                     const std::uint64_t restart_delay_ticks) noexcept
-    : thrust_maximum_(thrust_maximum), track_half_width_(track_half_width),
+                                     const std::uint64_t restart_delay_ticks)
+    : thrust_maximum_(thrust_maximum), road_(std::move(road)),
       checkpoint_radius_(checkpoint_radius), respawn_delay_ticks_(respawn_delay_ticks),
       finish_window_ticks_(finish_window_ticks), time_limit_ticks_(time_limit_ticks),
       countdown_ticks_(countdown_ticks), restart_delay_ticks_(restart_delay_ticks) {}

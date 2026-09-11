@@ -522,7 +522,7 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("restart_delay_seconds=8\n");
   configuration.append("\n[race]\n");
   configuration.append("thrust_max_world_units_per_second_squared=400\n");
-  configuration.append("track_half_width_world_units=70\n");
+  configuration.append("road=road\n");
   configuration.append("checkpoint_radius_world_units=40\n");
   configuration.append("respawn_delay_seconds=2\n");
   configuration.append("finish_window_seconds=20\n");

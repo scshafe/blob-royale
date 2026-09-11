@@ -20,6 +20,7 @@
 #include "input_batch.hpp"
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "king_of_the_hill/king_of_the_hill_mode.hpp"
+#include "map_loader.hpp"
 #include "race/race_mode.hpp"
 #include "royale/royale_mode.hpp"
 #include "seat_roster.hpp"
@@ -241,8 +242,6 @@ private:
   std::set<std::string> read_keys_;
 };
 
-constexpr std::string_view kMarkerHeader =
-    "marker_kind,position_x_world_units,position_y_world_units";
 // Nine columns since the lobby commands landed. The three new ones are empty for every kind that
 // does not use them, which is the same rule the six original columns already obeyed: a row cannot
 // carry a value the reader silently drops.
@@ -250,34 +249,6 @@ constexpr std::string_view kCommandHeader = "tick_sequence,entity_id,command_kin
                                             "direction_x,direction_y,seat_index,seat_count,"
                                             "npc_kind";
 constexpr std::size_t kCommandColumnCount = 9;
-
-[[nodiscard]] std::vector<simulation::MapDefinition::Marker>
-read_markers(const std::filesystem::path& path) {
-  const std::vector<std::string> lines = split_lines(read_replay_file(path));
-  const std::size_t header_index = first_content_line(lines);
-  if (header_index >= lines.size() || lines[header_index] != kMarkerHeader) {
-    throw ReplayFixtureError(path.string() + ": the first row must be exactly '" +
-                             std::string(kMarkerHeader) + "'");
-  }
-  std::vector<simulation::MapDefinition::Marker> markers;
-  for (std::size_t index = header_index + 1; index < lines.size(); ++index) {
-    if (is_skipped(lines[index])) {
-      continue;
-    }
-    const std::string where = path.string() + ":" + std::to_string(index + 1);
-    const std::vector<std::string> columns = split_columns(lines[index]);
-    if (columns.size() != 3) {
-      throw ReplayFixtureError(where + ": expected 3 columns, found " +
-                               std::to_string(columns.size()));
-    }
-    const simulation::Vector2 position =
-        simulation::Vector2::create(parse_double(columns[1], where + " position_x_world_units"),
-                                    parse_double(columns[2], where + " position_y_world_units"));
-    markers.push_back(simulation::MapDefinition::Marker::create(columns[0], position, std::nullopt,
-                                                                simulation::MapMetadata::none()));
-  }
-  return markers;
-}
 
 // One command row. The payload columns a kind does not use must be empty, so a row cannot carry a
 // value that is silently dropped.
@@ -464,11 +435,19 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
   const std::uint64_t tick_count = match.count("match", "tick_count");
   const std::uint64_t lobby_seat_count = match.count("match", "lobby_seat_count");
 
-  simulation::MapDefinition map = simulation::MapDefinition::create(
-      match.value("map", "name"),
-      simulation::ArenaBounds::create(match.number("map", "width_world_units"),
-                                      match.number("map", "height_world_units")),
-      {}, read_markers(replay_directory / "markers.csv"), simulation::MapMetadata::none());
+  const std::string& map_name = match.value("match", "map");
+  const std::filesystem::path map_reference{map_name};
+  // A replay carries its map under one fixed local directory. Reject path references before the
+  // production loader reads anything; its map-content validation remains the only parser.
+  if (map_name.empty() || map_name == "." || map_name == ".." ||
+      map_name.find_first_of("/\\") != std::string::npos || map_reference.has_root_path() ||
+      map_reference.has_parent_path() || map_reference.filename() != map_reference) {
+    throw ReplayFixtureError(match_path.string() +
+                             ": [match] map must be one map-name leaf under the replay's maps "
+                             "directory, not an absolute path or traversal");
+  }
+  simulation::MapDefinition map =
+      application::MapLoader::load(replay_directory / "maps" / map_reference);
 
   // Read into named locals in declared order rather than as arguments, because the order in which
   // function arguments are evaluated is unspecified in C++: a fixture with two malformed values
@@ -515,7 +494,7 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
   } else if (mode_name == gameplay::RaceMode::kModeName) {
     const gameplay::RaceConfiguration::Section race_section{
         match.number("race", "thrust_max_world_units_per_second_squared"),
-        match.number("race", "track_half_width_world_units"),
+        match.value("race", "road"),
         match.number("race", "checkpoint_radius_world_units"),
         match.number("race", "respawn_delay_seconds"),
         match.number("race", "finish_window_seconds"),

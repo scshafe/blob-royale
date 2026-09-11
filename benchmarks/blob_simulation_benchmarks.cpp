@@ -980,10 +980,12 @@ private:
 
   json::object reference_configuration;
   reference_configuration.emplace("configuration", match.configuration_path);
-  reference_configuration.emplace("source_kind", "frozen_historical_deployment");
+  reference_configuration.emplace("source_kind", "schema_migrated_historical_deployment");
   reference_configuration.emplace("source_commit", kRoyaleReferenceSourceCommit);
   reference_configuration.emplace("source_path", kRoyaleReferenceSourcePath);
   reference_configuration.emplace("source_commit_scope", "configuration_only");
+  reference_configuration.emplace("schema_migration", "2026-09-10_race_width_to_named_road");
+  reference_configuration.emplace("measured_royale_inputs_unchanged", true);
   reference_configuration.emplace("map_source", "current_repository_maps");
   reference_configuration.emplace("maps_directory", inputs.maps_directory.string());
   reference_configuration.emplace("represents_current_deployment", false);

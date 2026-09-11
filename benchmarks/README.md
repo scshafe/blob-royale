@@ -41,8 +41,11 @@ budget against this historical workload: **a mean step of at most 250 µs and a 
 at eight seats.
 
 The runner passes `--royale-reference-config benchmarks/fixtures/royale-roster.cfg` and
-`--maps-directory maps`. The fixture preserves the bytes of
-`a9e0104ca25724ac4660a4fc9031620b8a852d40:deploy/ubuntu-pc/blob-royale.cfg` after a provenance comment.
+`--maps-directory maps`. The fixture is derived from
+`a9e0104ca25724ac4660a4fc9031620b8a852d40:deploy/ubuntu-pc/blob-royale.cfg`. The 2026-09-10
+Step 6 strict-schema migration replaces the unused `[race] track_half_width_world_units` key with
+`road=road`; it is no longer a byte-for-byte historical configuration. Measured royale inputs
+retain their historical values, and the provenance comment and JSON identify the derivation.
 That commit identifies the **configuration only**; `MapLoader` still loads the named
 `arena-960x640` from the current repository's `maps/`, not a historical map checkout. The
 production `ApplicationConfigLoader` reads the reference `[simulation]`, `[royale]`, and

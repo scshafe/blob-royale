@@ -132,6 +132,10 @@ TEST_CASE(
       std::filesystem::path{BLOB_ROYALE_MAPS_DIRECTORY} / "circuit-960x640");
   const gameplay::RaceConfiguration configuration = gameplay::RaceConfiguration::defaults();
   const gameplay::RaceCourse course = gameplay::RaceCourse::create(map, configuration);
+  const auto* road = map.terrain().find_corridor(configuration.road());
+  REQUIRE(road != nullptr);
+  CHECK(course.track().data() == road->points().data());
+  CHECK(course.track_half_width() == road->half_width());
   CHECK(map.name() == "circuit-960x640");
   REQUIRE(map.metadata().find("display_name") != nullptr);
   CHECK(*map.metadata().find("display_name") == "Circuit 960x640");
@@ -153,7 +157,10 @@ TEST_CASE(
       std::vector<simulation::Vector2>(course.checkpoints().begin(), course.checkpoints().end()) ==
       std::vector<simulation::Vector2>{first_gate, bend, finish});
   REQUIRE(map.spawn_points().size() == 4);
-  CHECK(map.markers().size() == 10);
+  CHECK(map.markers().size() == 7);
+  for (const auto& marker : map.markers()) {
+    CHECK(marker.kind != "track");
+  }
   for (std::size_t index = 0; index < map.spawn_points().size(); ++index) {
     const double x = start.x() + static_cast<double>(index / 2) * course.track_half_width();
     const double y = start.y() + (index % 2 == 0 ? -0.5 : 0.5) * course.track_half_width();

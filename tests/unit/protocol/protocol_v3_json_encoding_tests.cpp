@@ -1,3 +1,4 @@
+#include "fixtures/hill_motion_encoding_fixture.hpp"
 #include "protocol_v3_test_fixture.hpp"
 
 #include "component_encoding_registry.hpp"
@@ -714,6 +715,71 @@ TEST_CASE("Race progress preserves zero and is never synthesized for an entity w
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
   CHECK(absent.find("race_progress") == std::string::npos);
+}
+
+TEST_CASE("Hill motion publication strips private schedule and encodes only committed velocity",
+          "[unit][protocol][v3][encoding][hill_motion]") {
+  for (const auto& input : protocol::hill_motion_fixture::kVelocityCases) {
+    CAPTURE(input.name);
+    const auto snapshot = protocol::hill_motion_fixture::snapshot(input);
+    const auto motions = snapshot.components<simulation::HillMotion>();
+    REQUIRE(motions.size() == 1);
+    CHECK(motions.front().value.velocity == simulation::Vector2::create(input.x, input.y));
+    CHECK_FALSE(motions.front().value.schedule.has_value());
+    const std::string encoded = protocol::encode_snapshot_message_v3(
+        snapshot, fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+        fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+    const auto document = boost::json::parse(encoded);
+    const auto& components = document.as_object()
+                                 .at("data")
+                                 .as_object()
+                                 .at("entities")
+                                 .as_array()
+                                 .front()
+                                 .as_object()
+                                 .at("components")
+                                 .as_object();
+    REQUIRE(components.size() == 2);
+    const auto& motion = components.at("hill_motion").as_object();
+    REQUIRE(motion.size() == 1);
+    const auto& velocity = motion.at("velocity").as_object();
+    REQUIRE(velocity.size() == 2);
+    CHECK(velocity.at("x").to_number<double>() == input.x);
+    CHECK(velocity.at("y").to_number<double>() == input.y);
+    CHECK(encoded.find("schedule") == std::string::npos);
+    CHECK(encoded.find("next_retarget_tick") == std::string::npos);
+    CHECK(encoded.find("random_stream") == std::string::npos);
+    require_members_in_order(
+        encoded, {R"("hill":)", R"("hill_motion":)", R"("velocity":)", R"("x":)", R"("y":)"});
+    CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
+  }
+}
+
+TEST_CASE("Hill motion matches its positive example and is absent from marker-tour publication",
+          "[unit][protocol][v3][encoding][hill_motion][golden]") {
+  const auto encoded = protocol::encode_snapshot_message_v3(
+      protocol::hill_motion_fixture::snapshot(protocol::hill_motion_fixture::kGoldenVelocity),
+      fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+  const auto document = boost::json::parse(encoded);
+  const auto& motion = document.as_object()
+                           .at("data")
+                           .as_object()
+                           .at("entities")
+                           .as_array()
+                           .front()
+                           .as_object()
+                           .at("components")
+                           .as_object()
+                           .at("hill_motion");
+  CHECK(motion ==
+        boost::json::parse(fixture::read_v3_golden_example("hill-motion-component.json")));
+  const auto marker_tour = protocol::encode_snapshot_message_v3(
+      fixture::hill_mode_snapshot(protocol::hill_motion_fixture::kRadius,
+                                  protocol::hill_motion_fixture::kPointsToWin),
+      fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+      fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+  CHECK(marker_tour.find("hill_motion") == std::string::npos);
 }
 
 TEST_CASE("Hill publication preserves the exact configured radius and score ceilings",

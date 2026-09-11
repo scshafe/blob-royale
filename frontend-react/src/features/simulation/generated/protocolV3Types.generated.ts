@@ -368,6 +368,7 @@ interface MutableBlobRoyaleProtocolV3EntitySnapshot {
   components: {
     controllable?: MutableBlobRoyaleProtocolV3ControllableComponent;
     hill?: MutableBlobRoyaleProtocolV3HillComponent;
+    hill_motion?: MutableBlobRoyaleProtocolV3HillMotionComponent;
     hill_presence?: MutableBlobRoyaleProtocolV3HillPresenceComponent;
     lethal_on_contact?: MutableBlobRoyaleProtocolV3LethalOnContactComponent;
     lifetime?: MutableBlobRoyaleProtocolV3LifetimeComponent;
@@ -389,7 +390,7 @@ interface MutableBlobRoyaleProtocolV3ControllableComponent {
   display_name: string;
 }
 /**
- * The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This component is the only place the hill is published.
+ * The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This is the hill's only center/radius publication; random-roaming hills additionally publish current velocity through hill_motion.
  */
 interface MutableBlobRoyaleProtocolV3HillComponent {
   center: MutableVector2;
@@ -398,6 +399,12 @@ interface MutableBlobRoyaleProtocolV3HillComponent {
 interface MutableVector2 {
   x: number;
   y: number;
+}
+/**
+ * Committed random-roaming hill velocity in wu/s. Only random_roam hills carry this component; hill remains the sole center/radius publication. Velocity may be zero or below the sampled minimum after an outer-center-boundary axis is canceled. Retarget tick, stream identity, and all future schedule state are private and never published.
+ */
+interface MutableBlobRoyaleProtocolV3HillMotionComponent {
+  velocity: MutableVector2;
 }
 /**
  * How many consecutive committed ticks an entity has held the hill toward its next point. An absent component reads as zero; the bound it counts toward is the king_of_the_hill mode-state block's point_interval_ticks.
@@ -790,6 +797,8 @@ export type BlobRoyaleProtocolV3ControllableComponent =
 export type BlobRoyaleProtocolV3HillComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3HillComponent>;
 export type Vector2 = DeepReadonly<MutableVector2>;
+export type BlobRoyaleProtocolV3HillMotionComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV3HillMotionComponent>;
 export type BlobRoyaleProtocolV3HillPresenceComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3HillPresenceComponent>;
 export type BlobRoyaleProtocolV3LethalOnContactComponent =

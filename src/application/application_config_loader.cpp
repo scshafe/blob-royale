@@ -3,6 +3,7 @@
 #include "application_input_error.hpp"
 #include "application_text_file_reader.hpp"
 #include "game_mode_configuration.hpp"
+#include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "lobbies_configuration.hpp"
 #include "match_configuration.hpp"
 #include "movement_tuning.hpp"
@@ -62,6 +63,11 @@ enum class ConfigField : std::size_t {
   kKingOfTheHillRespawnDelaySeconds,
   kKingOfTheHillCountdownSeconds,
   kKingOfTheHillRestartDelaySeconds,
+  kKingOfTheHillMotion,
+  kKingOfTheHillSpeedMinimum,
+  kKingOfTheHillSpeedMaximum,
+  kKingOfTheHillRetargetMinimumSeconds,
+  kKingOfTheHillRetargetMaximumSeconds,
   kRaceRoad,
   kRaceCheckpointRadius,
   kRaceRespawnDelaySeconds,
@@ -133,6 +139,11 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"king_of_the_hill", "respawn_delay_seconds"},
          {"king_of_the_hill", "countdown_seconds"},
          {"king_of_the_hill", "restart_delay_seconds"},
+         {"king_of_the_hill", "hill_motion"},
+         {"king_of_the_hill", "hill_speed_minimum"},
+         {"king_of_the_hill", "hill_speed_maximum"},
+         {"king_of_the_hill", "hill_retarget_minimum_seconds"},
+         {"king_of_the_hill", "hill_retarget_maximum_seconds"},
          {"race", "road"},
          {"race", "checkpoint_radius_world_units"},
          {"race", "respawn_delay_seconds"},
@@ -814,7 +825,17 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
           .countdown_seconds =
               parse_double_config_value(document, ConfigField::kKingOfTheHillCountdownSeconds),
           .restart_delay_seconds =
-              parse_double_config_value(document, ConfigField::kKingOfTheHillRestartDelaySeconds)}),
+              parse_double_config_value(document, ConfigField::kKingOfTheHillRestartDelaySeconds),
+          .hill_motion = gameplay::KingOfTheHillConfiguration::parse_motion_policy(
+              document.value(ConfigField::kKingOfTheHillMotion)),
+          .hill_speed_minimum =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillSpeedMinimum),
+          .hill_speed_maximum =
+              parse_double_config_value(document, ConfigField::kKingOfTheHillSpeedMaximum),
+          .hill_retarget_minimum_seconds = parse_double_config_value(
+              document, ConfigField::kKingOfTheHillRetargetMinimumSeconds),
+          .hill_retarget_maximum_seconds = parse_double_config_value(
+              document, ConfigField::kKingOfTheHillRetargetMaximumSeconds)}),
       gameplay::RaceConfiguration::create(gameplay::RaceConfiguration::Section{
           .road = std::string{document.value(ConfigField::kRaceRoad)},
           .checkpoint_radius_world_units =

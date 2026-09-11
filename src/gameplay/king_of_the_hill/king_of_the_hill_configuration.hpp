@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_GAMEPLAY_KING_OF_THE_HILL_KING_OF_THE_HILL_CONFIGURATION_HPP
 
 #include <cstdint>
+#include <string_view>
 
 namespace blob_royale::gameplay {
 
@@ -13,19 +14,21 @@ namespace blob_royale::gameplay {
 // validated value to the mode factory; the mode holds it and hands it to the systems it builds,
 // which is the only way configuration reaches a tick.
 //
-// **Every key is required, no key has a silent default, and every value must be finite**
+// **Every key is required, no key has a silent default, and every numeric value must be finite**
 // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill" § "Mode
 // configuration"). `Section` is the authored form -- seconds, world units, a whole number of
-// points, and one boolean -- and this class is what a system holds: every duration is already a
-// tick count, and nothing below the factory can see a second.
+// points, one boolean, and a closed motion policy -- and this class is what a system holds: every
+// duration is already a tick count, and nothing below the factory can see a second.
 //
 // Balance values are configuration. Changing a number here needs no ADR amendment; changing a
 // *rule* -- the hill's tour, the scoring table, the objective's order -- does.
 // related: king_of_the_hill_mode.hpp -- the mode that holds one of these.
-// related: ../shared/duration_ticks.hpp -- the one conversion the seven durations go through.
+// related: ../shared/duration_ticks.hpp -- the one conversion the authored durations go through.
 // related: ../gameplay_validation_error.hpp -- the `GAMEPLAY.KING_OF_THE_HILL_*` rejections.
 class KingOfTheHillConfiguration final {
 public:
+  enum class HillMotionPolicy { kMarkerTour, kRandomRoam };
+
   // The proposed values of ADR 0007's table. They are the mode's shipped balance until a playtest
   // says otherwise, and they are what `GameModeRegistry::create(mode_name)` -- the defaults-only
   // overload a test or a diagnostic uses -- builds.
@@ -39,6 +42,15 @@ public:
   static constexpr double kDefaultRespawnDelaySeconds = 2.0;
   static constexpr double kDefaultCountdownSeconds = 5.0;
   static constexpr double kDefaultRestartDelaySeconds = 8.0;
+  static constexpr double kDefaultHillSpeedMinimum = 20.0;
+  static constexpr double kDefaultHillSpeedMaximum = 70.0;
+  static constexpr double kDefaultHillRetargetMinimumSeconds = 0.35;
+  static constexpr double kDefaultHillRetargetMaximumSeconds = 1.2;
+  // The floor preserves dominant-axis motion at the maximum map extent at the fixed clock.
+  // Speed is the sampled scalar; the realized vector norm is naturally floating-point rounded.
+  static constexpr double kMinimumHillSpeed = 0x1p-10;
+  static constexpr double kMaximumHillSpeed = 1'000'000.0;
+  static constexpr double kMaximumHillRetargetSeconds = 3'600.0;
 
   // The `[king_of_the_hill]` section as authored, one member per key. Units are in the names
   // because the value alone cannot carry them.
@@ -53,6 +65,11 @@ public:
     double respawn_delay_seconds;
     double countdown_seconds;
     double restart_delay_seconds;
+    HillMotionPolicy hill_motion;
+    double hill_speed_minimum;
+    double hill_speed_maximum;
+    double hill_retarget_minimum_seconds;
+    double hill_retarget_maximum_seconds;
 
     friend bool operator==(const Section&, const Section&) = default;
   };
@@ -67,7 +84,12 @@ public:
   // plus travel converting to at least one tick, because a tour whose every stop is instantaneous
   // has no position to hold; `points_to_win` at least one; and the time limit finite and strictly
   // positive, because a match that may never end is not the game.
+  // Both motion policies require finite, ordered scalar speeds in [2^-10, 1000000] wu/s and
+  // positive retarget seconds at most 3600, ordered before and after conversion to positive ticks.
   [[nodiscard]] static KingOfTheHillConfiguration create(const Section& section);
+
+  // Parses the closed authored vocabulary; unknown text raises the mode's motion-policy error.
+  [[nodiscard]] static HillMotionPolicy parse_motion_policy(std::string_view value);
 
   // The proposed section above, already validated.
   [[nodiscard]] static KingOfTheHillConfiguration defaults();
@@ -99,6 +121,15 @@ public:
   [[nodiscard]] std::uint64_t respawn_delay_ticks() const noexcept { return respawn_delay_ticks_; }
   [[nodiscard]] std::uint64_t countdown_ticks() const noexcept { return countdown_ticks_; }
   [[nodiscard]] std::uint64_t restart_delay_ticks() const noexcept { return restart_delay_ticks_; }
+  [[nodiscard]] HillMotionPolicy motion_policy() const noexcept { return motion_policy_; }
+  [[nodiscard]] double hill_speed_minimum() const noexcept { return hill_speed_minimum_; }
+  [[nodiscard]] double hill_speed_maximum() const noexcept { return hill_speed_maximum_; }
+  [[nodiscard]] std::uint64_t hill_retarget_minimum_ticks() const noexcept {
+    return hill_retarget_minimum_ticks_;
+  }
+  [[nodiscard]] std::uint64_t hill_retarget_maximum_ticks() const noexcept {
+    return hill_retarget_maximum_ticks_;
+  }
 
   friend bool operator==(const KingOfTheHillConfiguration&,
                          const KingOfTheHillConfiguration&) = default;
@@ -108,8 +139,10 @@ private:
                              std::uint64_t hill_travel_ticks, std::uint64_t point_interval_ticks,
                              std::uint64_t points_to_win, bool contested_hill_scores,
                              std::uint64_t time_limit_ticks, std::uint64_t respawn_delay_ticks,
-                             std::uint64_t countdown_ticks,
-                             std::uint64_t restart_delay_ticks) noexcept;
+                             std::uint64_t countdown_ticks, std::uint64_t restart_delay_ticks,
+                             HillMotionPolicy motion_policy, double hill_speed_minimum,
+                             double hill_speed_maximum, std::uint64_t hill_retarget_minimum_ticks,
+                             std::uint64_t hill_retarget_maximum_ticks) noexcept;
 
   double hill_radius_;
   std::uint64_t hill_dwell_ticks_;
@@ -121,6 +154,11 @@ private:
   std::uint64_t respawn_delay_ticks_;
   std::uint64_t countdown_ticks_;
   std::uint64_t restart_delay_ticks_;
+  HillMotionPolicy motion_policy_;
+  double hill_speed_minimum_;
+  double hill_speed_maximum_;
+  std::uint64_t hill_retarget_minimum_ticks_;
+  std::uint64_t hill_retarget_maximum_ticks_;
 };
 
 } // namespace blob_royale::gameplay

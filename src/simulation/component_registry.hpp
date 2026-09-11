@@ -4,6 +4,7 @@
 #include "component_list.hpp"
 #include "components/controllable_component.hpp"
 #include "components/hill_component.hpp"
+#include "components/hill_motion_component.hpp"
 #include "components/hill_presence_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
@@ -52,7 +53,7 @@ namespace blob_royale::simulation {
 // (`components/race_progress_component.hpp`).
 using ComponentRegistry =
     ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
-                  LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress>;
+                  LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion>;
 
 } // namespace blob_royale::simulation
 

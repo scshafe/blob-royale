@@ -4,6 +4,7 @@
 #include "component_encoding.hpp"
 #include "components/controllable_component_encoding.hpp"
 #include "components/hill_component_encoding.hpp"
+#include "components/hill_motion_component_encoding.hpp"
 #include "components/hill_presence_component_encoding.hpp"
 #include "components/lethal_on_contact_component_encoding.hpp"
 #include "components/lifetime_component_encoding.hpp"

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/hill-motion-component.schema.json",
+  "title": "Blob Royale protocol v3 hill motion component",
+  "description": "Committed random-roaming hill velocity in wu/s. Only random_roam hills carry this component; hill remains the sole center/radius publication. Velocity may be zero or below the sampled minimum after an outer-center-boundary axis is canceled. Retarget tick, stream identity, and all future schedule state are private and never published.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["velocity"],
+  "properties": {
+    "velocity": {
+      "$ref": "common.schema.json#/$defs/vector2"
+    }
+  },
+  "$comment": "Added with authoritative random hill roaming in development Step 12 of protocol 3.0."
+}

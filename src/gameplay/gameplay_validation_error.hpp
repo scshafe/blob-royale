@@ -61,6 +61,9 @@ enum class GameplayValidationCode {
   kKingOfTheHillMapWithoutSpawnPoint,
   kKingOfTheHillHillEntityUnreserved,
   kKingOfTheHillHillAbsent,
+  kKingOfTheHillMotionPolicyInvalid,
+  kKingOfTheHillMotionStateInvalid,
+  kKingOfTheHillRetargetTickOverflow,
   kRaceMapRoadMissing,
   kRaceMapWithoutCheckpoint,
   kRaceMapCheckpointOutsideCorridor,
@@ -131,6 +134,12 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.KING_OF_THE_HILL_HILL_ENTITY_UNRESERVED";
   case GameplayValidationCode::kKingOfTheHillHillAbsent:
     return "GAMEPLAY.KING_OF_THE_HILL_HILL_ABSENT";
+  case GameplayValidationCode::kKingOfTheHillMotionPolicyInvalid:
+    return "GAMEPLAY.KING_OF_THE_HILL_MOTION_POLICY_INVALID";
+  case GameplayValidationCode::kKingOfTheHillMotionStateInvalid:
+    return "GAMEPLAY.KING_OF_THE_HILL_MOTION_STATE_INVALID";
+  case GameplayValidationCode::kKingOfTheHillRetargetTickOverflow:
+    return "GAMEPLAY.KING_OF_THE_HILL_RETARGET_TICK_OVERFLOW";
   case GameplayValidationCode::kRaceMapRoadMissing:
     return "GAMEPLAY.RACE_MAP_ROAD_MISSING";
   case GameplayValidationCode::kRaceMapWithoutCheckpoint:

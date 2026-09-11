@@ -491,7 +491,13 @@ ReplayFixture ReplayFixture::load(const std::filesystem::path& replay_directory)
         match.number("king_of_the_hill", "time_limit_seconds"),
         match.number("king_of_the_hill", "respawn_delay_seconds"),
         match.number("king_of_the_hill", "countdown_seconds"),
-        match.number("king_of_the_hill", "restart_delay_seconds")};
+        match.number("king_of_the_hill", "restart_delay_seconds"),
+        gameplay::KingOfTheHillConfiguration::parse_motion_policy(
+            match.value("king_of_the_hill", "hill_motion")),
+        match.number("king_of_the_hill", "hill_speed_minimum"),
+        match.number("king_of_the_hill", "hill_speed_maximum"),
+        match.number("king_of_the_hill", "hill_retarget_minimum_seconds"),
+        match.number("king_of_the_hill", "hill_retarget_maximum_seconds")};
     mode_configuration.king_of_the_hill =
         gameplay::KingOfTheHillConfiguration::create(hill_section);
   } else if (mode_name == gameplay::RaceMode::kModeName) {

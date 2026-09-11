@@ -305,6 +305,7 @@ export const protocolV3Schemas = {
         enum: [
           'controllable',
           'hill',
+          'hill_motion',
           'hill_presence',
           'lethal_on_contact',
           'lifetime',
@@ -548,6 +549,9 @@ export const protocolV3Schemas = {
           hill: {
             $ref: 'hill-component.schema.json',
           },
+          hill_motion: {
+            $ref: 'hill-motion-component.schema.json',
+          },
           hill_presence: {
             $ref: 'hill-presence-component.schema.json',
           },
@@ -624,7 +628,7 @@ export const protocolV3Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/hill-component.schema.json',
     title: 'Blob Royale protocol v3 hill component',
     description:
-      'The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This component is the only place the hill is published.',
+      "The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This is the hill's only center/radius publication; random-roaming hills additionally publish current velocity through hill_motion.",
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
@@ -638,6 +642,24 @@ export const protocolV3Schemas = {
       },
     },
     $comment: 'Added in 2.5.',
+  },
+  hillMotionComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/hill-motion-component.schema.json',
+    title: 'Blob Royale protocol v3 hill motion component',
+    description:
+      'Committed random-roaming hill velocity in wu/s. Only random_roam hills carry this component; hill remains the sole center/radius publication. Velocity may be zero or below the sampled minimum after an outer-center-boundary axis is canceled. Retarget tick, stream identity, and all future schedule state are private and never published.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['velocity'],
+    properties: {
+      velocity: {
+        $ref: 'common.schema.json#/$defs/vector2',
+      },
+    },
+    $comment:
+      'Added with authoritative random hill roaming in development Step 12 of protocol 3.0.',
   },
   hillPresenceComponent: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',

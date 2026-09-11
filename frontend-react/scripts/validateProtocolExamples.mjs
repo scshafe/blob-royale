@@ -62,6 +62,7 @@ const protocolVersions = [
     version: 'v3',
     expectedStatus: 'Accepted',
     exampleSchemas: new Map([
+      ['hill-motion-component.json', 'hill-motion-component.schema.json'],
       [
         'set-movement-tuning-command.json',
         'set-movement-tuning-command.schema.json',

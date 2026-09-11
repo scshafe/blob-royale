@@ -22,6 +22,9 @@
         "hill": {
           "$ref": "hill-component.schema.json"
         },
+        "hill_motion": {
+          "$ref": "hill-motion-component.schema.json"
+        },
         "hill_presence": {
           "$ref": "hill-presence-component.schema.json"
         },

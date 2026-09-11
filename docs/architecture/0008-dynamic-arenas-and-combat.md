@@ -113,7 +113,9 @@ server-configuration family machinery is private, not a reusable loader API.
 Canonical queries must provide point support, swept support intervals/first exit, nearest usable
 ground, and disc clearance. Implement actual union/subtraction semantics: an internal seam where
 two road capsules overlap is not a cliff. Reuse these answers for falling, spawn/return placement,
-hill clearance, and bot planning. Do not independently reproduce the predicate in each consumer.
+and bot planning. ~~Hill motion also requires ground clearance~~ — superseded by the owner's
+2026-09-11 terrain-independent hill clarification below. Do not independently reproduce the
+predicate in each consumer.
 
 **Boundary convention:** retain race's supported closed road edge and existing named position
 tolerance. Exact hole rims are supported; entering the hole interior beyond that tolerance is
@@ -121,7 +123,8 @@ void. Freeze the interval endpoint rules in geometry tests, including road bends
 tangencies, and a segment which crosses a narrow hole and lands on ground again.
 
 Players fall when their centres leave support; this is not a wall to bounce off and not vertical
-gravity. A radius-aware clearance query is separately used for safe seating and hill motion.
+gravity. A radius-aware clearance query is separately used for safe seating, not to constrain
+the roaming hill's route (owner clarification, 2026-09-11).
 Shield never protects against lack of ground, and charge never teleports or jumps over it.
 
 Ground attachment is an explicit body capability. Players are ground-bound. Existing crossing
@@ -241,13 +244,33 @@ Extend the existing hill motion policy with `marker_tour` and `random_roam`. Kee
 for authored courses and deterministic fixtures. Both write the same published `Hill` circle;
 scoring and rendering do not branch on how it moved.
 
-Random roam has positive minimum/maximum speed and bounded direction/speed retarget intervals.
-Provisional values: 20–70 wu/s, a new target every 0.35–1.2 seconds. It moves every running tick,
-holds a selected velocity between retargets, and reflects through shared clearance geometry at
-legal boundaries. There is no dwell, teleport, per-frame browser randomness, or zero-speed stall.
-The hill disc must remain over reachable ground with authored clearance; reject impossible roam
-regions at startup. Test corner and narrow-region behavior, rather than repeatedly guessing new
-headings until one happens to fit.
+Random roam has positive minimum/maximum sampled scalar speed and bounded direction/speed
+retarget intervals. Initial values: 20–70 wu/s, a new target every 0.35–1.2 seconds.
+~~It moves every running tick and holds a selected velocity between retargets.~~ Boundary
+cancellation may reduce or zero actual velocity; otherwise the selected velocity persists.
+~~It reflects through shared clearance geometry at
+legal boundaries, and its disc must remain over reachable ground with authored clearance.~~
+**Superseded by the owner, 2026-09-11:** the hill itself does not bounce. Its route may cross
+restricted/dangerous cliff areas, holes, and other unsupported terrain; it is a moving capture
+zone, not a ground-bound physical body. The owner also chose no spawn-reachability restriction:
+locally safe regions need not connect to a player's spawn. This does not restore the removed
+requirement that the whole hill remain over safe terrain during movement.
+
+The hill does not create ground or protect a player from the terrain underneath it. Existing
+player support/fall rules and scoring ownership remain separate. There is no authored dwell,
+teleport, or per-frame browser randomness. ~~There is no zero-speed stall.~~ Boundary rests are
+intentional. Swept disc containment, terrain reflection, and spawn-connectivity validation are
+not prerequisites for hill motion.
+
+**Outer-map decision, 2026-09-11:** cancel outward displacement and velocity, without forced
+inward steering or bouncing. Bounds constrain the center to the exact closed rectangle; retain
+ADR 0007's permission for the circle to overhang. Compute an unbounded displacement and proposed
+endpoint through the existing canonical motion functions. Per axis, a strict overshoot retains
+the starting coordinate and zeros that velocity component; exact boundary arrival commits the
+coordinate and zeros outward velocity. Preserve the other axis without renormalization. No
+epsilon, radius inset, reflection, early retarget, or extra random draw is used. Canceling a
+whole axis step may stop the center short of the edge. Normal scheduled retargets continue even
+at rest, and repeated outward selections may be canceled; no bounded escape time is guaranteed.
 
 Store velocity, random stream state/identity, and next-retarget tick in committed world state.
 Reuse the canonical deterministic generator and written draw order, without platform-dependent
@@ -256,9 +279,23 @@ hill motion and hazard spawning so adding a hill draw does not reshuffle hazard 
 zero extra draws for the tour policy. Publish only current public motion, not future random
 targets/RNG state that would give bots privileged predictions.
 
+Step 12's concrete sampler uses a rational quarter-circle parameter, quadrant rotation, and
+written square-root normalization. Draw order is parameter, quadrant, scalar speed, retarget
+interval; equal ranges still draw, and bounded-integer rejection stays visible in draw counts.
+There is no uniform-angle claim. Scalar speed intake is `[2^-10, 1,000,000]` wu/s (the lower
+bound keeps a dominant-axis step representable at the maximum map extent); realized vector
+norms are binary64-rounded. Retarget ranges convert to positive ordered ticks, at most one
+hour. These engineering limits are not a native capacity claim. Existing authored configurations
+explicitly retain `marker_tour`, which has no `HillMotion` component or extra random draws.
+
 Lobby/countdown holds the initial position; running moves; ended freezes. Explicitly reset the
 non-participant hill's motion state for a new round. Advance motion before scoring so points,
 published geometry, and the browser agree about the current hill.
+
+These phase names describe the phase observed by the movement system. The engine's lifecycle
+transition runs afterward: a countdown-to-running transition snapshot still holds the marker,
+and the next tick first samples and advances. Likewise an ended-to-lobby transition snapshot
+remains frozen until the next movement pass observes lobby and resets. No lifecycle order changes.
 
 ## Charge, shield, and stun
 
@@ -440,7 +477,10 @@ architecture. No state may be independently authored or simulated in both places
 Automated acceptance must include:
 
 - Same seed/input produces identical hill motion and outcomes; separate random streams; failed
-  ticks roll back motion and RNG; no unreachable hill, stalls, reset leakage, or score/render drift.
+  ticks roll back motion and RNG; no reset leakage or score/render drift. ~~No stalls.~~
+  Boundary cancellation permits rest while ordinary scheduled retargeting continues. Prove permitted
+  hill travel across dangerous/disconnected terrain without changing player support or creating
+  safe ground. The former prohibition on unreachable hills is superseded on 2026-09-11.
 - Swept player/player, player/static and hazard contact; zero-time/corner piles; bounded-work
   rejection; no collision or gate after falling; chronological multiple gates and finish ties.
 - Solid floor, overlapping road capsules, holes, edge tolerances, actual bounced paths, safe

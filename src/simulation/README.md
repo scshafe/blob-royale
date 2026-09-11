@@ -29,9 +29,10 @@ that change which ids a store holds. The tick has only ever needed the values.
 
 `component_registry.hpp` is the closed, ordered list of kinds:
 `ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
-LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress>`, where `Zone` and `ZoneExposure`
+LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion>`, where `Zone` and `ZoneExposure`
 are royale's, `Hill` and `HillPresence` describe hill scoring, and `RaceProgress` counts ordered
-gates; `LethalOnContact` and `RespawnTimer` support shared mechanics. Because it is a type list,
+gates; `HillMotion` carries roaming velocity and private scheduling, while `LethalOnContact` and
+`RespawnTimer` support shared mechanics. Because it is a type list,
 three behaviors are **generated rather than maintained** — structural world equality,
 `destroy_entity` erasing from every store, and snapshot
 publication of every kind — so a new kind cannot forget to participate in any of them.
@@ -328,6 +329,11 @@ declares it publishes** (`component_publication.hpp`): `Controllable::commands_t
 tick-local live input and is stripped here, so a snapshot never discloses a player's input for the
 tick it is rendering. Snapshot creation happens only after a complete tick and retains canonical
 entity ordering. Older snapshots never change when the simulation advances.
+
+`ComponentPublication<HillMotion>` strips its optional next-retarget tick and stream identity,
+leaving only current velocity. The component belongs to the non-physical hill entity only under
+`random_roam`; marker tours retain their original component set. Generator state stays exclusively
+in `RandomStreams`, so motion and draw state share the normal whole-world commit/rollback.
 
 `RandomStreams` owns a fixed array of committed generators, addressed through the closed ordered
 registry in `random_stream_registry.hpp`. Stable ordinals are `hazards = 0` and `hill = 1`.

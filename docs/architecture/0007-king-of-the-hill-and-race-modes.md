@@ -904,3 +904,20 @@ existing owners. Shared seating clears prior-body steering intent on returns, in
 replacement, without erasing commands already recorded for the new body. Match tuning survives
 round reset. Unchanged replay bits under explicit inactive fixture ceilings remain required;
 normal movement limits are not a new clamp on external velocity or approval of the physics gate.
+
+## Amendment: terrain-independent hill roaming, 2026-09-11 (plan Step 12)
+
+The existing hill movement seam gains an explicitly authored `random_roam` alternative to
+`marker_tour`. The tour equation and accepted fixture outcomes remain unchanged. Roaming owns
+current velocity plus a private next-retarget schedule on the same non-participant hill entity,
+using the world's named hill random stream. Only velocity is public; `Hill` remains the sole
+capture/render geometry and the three mode-state denominators remain unchanged.
+
+The owner permits the hill to cross dangerous terrain and disconnected regions without bouncing.
+The existing closed-map center convention and circle overhang remain. At an outer boundary,
+cancel outward displacement and velocity independently per axis, retaining parallel movement.
+Strict overshoot keeps the prior coordinate; exact arrival commits the boundary coordinate.
+No inward steering, radius inset, reflection, or early retarget is introduced. Boundary rest is
+permitted; the ordinary retarget schedule continues without guaranteeing a maximum escape time.
+The hill never supplies floor or alters player support/fall rules. ADR 0008 records the full
+sampling, numeric, publication, and round-reset contract.

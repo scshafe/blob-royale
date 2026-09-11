@@ -1,7 +1,27 @@
 # Hill roaming boundary preflight, 2026-09-11
 
-Status: source-reviewed design gap; no Step 12 implementation or geometry proof is claimed.
-The owner questions below are pending. Step 5 and Phase C remain separate.
+Status: **superseded as a hill-roaming prerequisite by the owner on 2026-09-11**. No Step 12
+implementation or geometry proof is claimed. Step 5 and Phase C remain separate.
+
+## Owner correction, 2026-09-11
+
+The hill itself must not bounce and may move over restricted/dangerous cliff areas. The owner
+also selected any locally safe region rather than requiring access from a spawn. Read together,
+these choices remove terrain containment along the route and spawn-connectivity constraints;
+the second answer does not reinstate an always-safe hill-disc requirement.
+
+The review below analyzed the former ground-contained/reflected-hill contract. Its conditional
+geometry findings remain historical analysis, but **do not implement its proposed swept-disc,
+reflection, or roam-region admission prerequisite for the hill**. A hill is a moving capture
+zone; it does not supply safe terrain underneath players. ADR 0008 and the execution plan now
+carry the corrected contract. The owner has also resolved the outer-map boundary: cancel
+outward velocity and position change, preserve tangential motion, and do not steer inward or
+bounce. The plan/ADR specify center bounds, whole-axis overshoot cancellation, exact-arrival
+cancellation, and permitted boundary rests with ordinary scheduled retargeting. No routing
+question remains. All recommendations and pending questions below belong to the superseded
+contract, not the current execution instructions.
+
+## Historical review under the superseded containment contract
 
 ## Finding
 

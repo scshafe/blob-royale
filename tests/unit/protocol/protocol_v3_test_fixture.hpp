@@ -11,6 +11,7 @@
 #include "command_kind_mask.hpp"
 #include "components/controllable_component.hpp"
 #include "components/hill_component.hpp"
+#include "components/hill_motion_component.hpp"
 #include "components/race_progress_component.hpp"
 #include "components/zone_component.hpp"
 #include "components/zone_exposure_component.hpp"
@@ -403,11 +404,16 @@ race_progress_snapshot(const std::uint64_t next_checkpoint) {
 
 // Published hill values committed by the idle engine, with no gameplay dependency in this fixture.
 [[nodiscard]] inline simulation::WorldSnapshot
-hill_mode_snapshot(const double hill_radius, const std::uint64_t points_to_win) {
+hill_mode_snapshot(const double hill_radius, const std::uint64_t points_to_win,
+                   const std::optional<simulation::HillMotion> motion = std::nullopt) {
   simulation::GameWorld world = simulation::GameWorld::create({});
   world.mutable_store<simulation::Hill>().insert_or_assign(
       simulation::EntityId::create(kPlayerEntityId),
       simulation::Hill{simulation::Vector2::create(480.0, 320.0), hill_radius});
+  if (motion.has_value()) {
+    world.mutable_store<simulation::HillMotion>().insert_or_assign(
+        simulation::EntityId::create(kPlayerEntityId), *motion);
+  }
   world.mutable_match().mode_state = simulation::KingOfTheHillModeState{points_to_win, 400, 96'000};
   simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
       simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world));

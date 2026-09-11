@@ -34,10 +34,11 @@ src/gameplay/
     next_free_spawn_point_policy.hpp  the next free point, in every phase but the wipe tick
     respawn_system.*            an elimination erases the body and starts a `RespawnTimer`
     match_reset_system.*        the restart wipe of every participant, on the lobby tick after ended
-  king_of_the_hill/             a hill that tours the map, scored by holding it (ADR 0007)
+  king_of_the_hill/             a touring or randomly roaming capture zone (ADRs 0007/0008)
     king_of_the_hill_configuration.*  the validated `[king_of_the_hill]` section, in the units systems read
     king_of_the_hill_mode.*     the seven declarations
     hill_geometry.*             where the hill is, as a pure function of the map's `hill` markers and one integer
+    hill_roaming.*              deterministic heading/speed/retarget sampling and outer-axis cancellation
     hill_movement_system.*      creates the hill entity once and writes its `Hill` each tick
     hill_scoring_system.*       presence toward the next point, and the point itself
     hill_objective.*            ending by points or by the clock, as three total predicates
@@ -126,6 +127,15 @@ defaulted ignores the argument, which is what `GameModeRegistry::create(mode_nam
 defaults-only overload a test or a diagnostic uses — is for.
 
 Four implementations are registered: `sandbox`, `royale`, `king_of_the_hill`, and `race`.
+
+Hill motion is selected through the existing `HillMovementSystem`, not a second scoring path.
+`marker_tour` keeps its original arithmetic and zero hill-stream draws. `random_roam` commits
+`HillMotion` velocity and a private schedule; its pure sampler reads only the world's named hill
+generator. The center may cross interior cliffs/holes, but outward-axis displacement and velocity
+are canceled at the closed outer map bounds. This permits edge sliding or rest, without bouncing,
+forced steering, or creating ground. The ordinary retarget schedule continues at rest. Scoring and
+rendering still read only `Hill`. See ADR 0008 § "Continuously roaming hill" for numeric and lifecycle
+contracts, and `king_of_the_hill/README.md` for the implementation ownership.
 
 The application loader requires every mode's section, regardless of the selected mode. Its full
 configuration inventory includes standalone `.cfg` files, inline unit-test strings, and

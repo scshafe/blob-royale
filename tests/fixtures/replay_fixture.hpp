@@ -36,7 +36,7 @@ namespace gameplay = blob_royale::gameplay;
 //                              spatial_grid_rows, drag_per_second
 //                 the one section of the mode `[match] mode` names: [royale] with the six keys of
 //                 `docs/architecture/0005-royale-mode.md` § "Mode configuration", or
-//                 [king_of_the_hill] with the eleven keys or [race] with its eight keys, including
+//                 [king_of_the_hill] or [race] with all of that section's required keys, including
 //                 `road` naming the terrain corridor instead of a duplicate width. A fixture
 //                 carries its own mode's section and no other, because a key no reader asked for is
 //                 a rejection.

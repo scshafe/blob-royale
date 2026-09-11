@@ -2,6 +2,9 @@ add_executable(blob_gameplay_unit_tests
   game_mode_registry_tests.cpp
   king_of_the_hill/hill_geometry_tests.cpp
   king_of_the_hill/hill_movement_system_tests.cpp
+  king_of_the_hill/hill_roam_configuration_tests.cpp
+  king_of_the_hill/hill_roam_movement_system_tests.cpp
+  king_of_the_hill/hill_roaming_tests.cpp
   king_of_the_hill/hill_objective_tests.cpp
   king_of_the_hill/hill_rules_publisher_system_tests.cpp
   king_of_the_hill/hill_return_timing_tests.cpp

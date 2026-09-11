@@ -151,6 +151,7 @@
       "enum": [
         "controllable",
         "hill",
+        "hill_motion",
         "hill_presence",
         "lethal_on_contact",
         "lifetime",

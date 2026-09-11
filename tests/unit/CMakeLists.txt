@@ -14,6 +14,7 @@ add_executable(blob_simulation_unit_tests
   simulation/deterministic_random_tests.cpp
   simulation/entity_id_reservation_tests.cpp
   simulation/game_simulation_tests.cpp
+  simulation/hill_motion_component_tests.cpp
   simulation/input_batch_tests.cpp
   simulation/lobby_command_tests.cpp
   simulation/map_definition_tests.cpp

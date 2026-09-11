@@ -511,6 +511,11 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("restart_delay_seconds=8\n");
   // Every mode section is required even when this fixture runs sandbox or royale.
   configuration.append("\n[king_of_the_hill]\n");
+  configuration.append("hill_motion=marker_tour\n");
+  configuration.append("hill_speed_minimum=20\n");
+  configuration.append("hill_speed_maximum=70\n");
+  configuration.append("hill_retarget_minimum_seconds=0.35\n");
+  configuration.append("hill_retarget_maximum_seconds=1.2\n");
   configuration.append("hill_radius_world_units=90\n");
   configuration.append("hill_dwell_seconds=12\n");
   configuration.append("hill_travel_seconds=4\n");

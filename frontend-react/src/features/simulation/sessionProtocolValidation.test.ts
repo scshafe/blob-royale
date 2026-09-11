@@ -8,6 +8,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationApiError } from './SimulationApiError';
 import {
+  acceptedHillMotionComponents,
+  hillMotionSnapshotDocument,
+  malformedHillMotionComponents,
+} from './fixtures/hillMotionFrames';
+import {
   lobbyDirectoryMessageExample,
   raceModeStateExample,
   sessionCommandEnvelopeExample,
@@ -78,6 +83,41 @@ function silenceProtocolWarnings() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('hill motion protocol', () => {
+  it.each(acceptedHillMotionComponents)(
+    'accepts $name without exposing schedule',
+    ({ value }) => {
+      const snapshot = validateSessionSnapshotMessage(
+        hillMotionSnapshotDocument(value),
+        welcomeSequence,
+      );
+      const motion = snapshot.data.entities.find(
+        (entity) => entity.components.hill_motion !== undefined,
+      )?.components.hill_motion;
+      expect(motion).toEqual(value);
+      expect(Object.keys(motion ?? {})).toEqual(['velocity']);
+      expect(Object.isFrozen(motion)).toBe(true);
+      expect(Object.isFrozen(motion?.velocity)).toBe(true);
+      expect(snapshot.data.match.mode_state).toEqual(
+        hillMotionSnapshotDocument(value).data.match.mode_state,
+      );
+    },
+  );
+
+  it.each(malformedHillMotionComponents)(
+    'rejects $name rather than clipping or ignoring it',
+    ({ value }) => {
+      silenceProtocolWarnings();
+      expect(() =>
+        validateSessionSnapshotMessage(
+          hillMotionSnapshotDocument(value),
+          welcomeSequence,
+        ),
+      ).toThrow(SimulationApiError);
+    },
+  );
 });
 
 describe('movement tuning protocol', () => {

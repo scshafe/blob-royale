@@ -25,7 +25,8 @@ namespace blob_royale::simulation {
 //
 // The projection takes and returns by value so a stripping specialization discards the state
 // instead of copying it: publishing a Controllable now costs no vector copy at all.
-// related: components/controllable_component.hpp -- the one specialization today.
+// related: components/controllable_component.hpp -- private input projection.
+// related: components/hill_motion_component.hpp -- private roaming schedule projection.
 // related: world_snapshot.hpp -- the only caller.
 template <typename Component> struct ComponentPublication {
   [[nodiscard]] static Component published(Component value) { return value; }

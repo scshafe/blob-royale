@@ -35,6 +35,10 @@ export const entityRendererRegistry = Object.freeze({
     drawControllableLabel,
   ),
   hill: entityRenderer('hill', ENTITY_RENDER_LAYERS.zone, drawHill),
+  hill_motion: nonVisualComponent(
+    'hill_motion',
+    'Committed velocity is observable state, not extra geometry; hill supplies the scoring circle.',
+  ),
   hill_presence: nonVisualComponent(
     'hill_presence',
     'Progress toward the next point belongs to the HUD, as a ring against the published interval.',

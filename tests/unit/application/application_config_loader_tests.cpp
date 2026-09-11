@@ -15,6 +15,7 @@
 #include "simulation_validation_error.hpp"
 
 #include "application_input_test_fixture.hpp"
+#include "fixtures/hill_motion_configuration_fixture.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -204,6 +205,12 @@ TEST_CASE("application config loader creates the complete typed run request",
   CHECK(hill.respawn_delay_ticks() == 800);
   CHECK(hill.countdown_ticks() == 2'000);
   CHECK(hill.restart_delay_ticks() == 3'200);
+  CHECK(hill.motion_policy() ==
+        gameplay::KingOfTheHillConfiguration::HillMotionPolicy::kMarkerTour);
+  CHECK(hill.hill_speed_minimum() == 20.0);
+  CHECK(hill.hill_speed_maximum() == 70.0);
+  CHECK(hill.hill_retarget_minimum_ticks() == 140);
+  CHECK(hill.hill_retarget_maximum_ticks() == 480);
 
   const gameplay::RaceConfiguration& race =
       run_request.application_config().game_mode_configuration().race;
@@ -217,6 +224,85 @@ TEST_CASE("application config loader creates the complete typed run request",
 
   // `[lobbies] count` is the one deployment-topology key: one room is the single-match server.
   CHECK(run_request.application_config().lobbies_configuration().count() == 1);
+}
+
+TEST_CASE(
+    "application config loader explicitly selects random roaming without changing other hill rules",
+    "[unit][application][config][hill_motion]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const auto authored = hill_motion_fixture::configuration_with(hill_motion_fixture::kRandomRoam);
+  const auto hill = load_game_mode_configuration(workspace, authored).king_of_the_hill;
+  auto expected = gameplay::KingOfTheHillConfiguration::default_section();
+  expected.hill_motion = gameplay::KingOfTheHillConfiguration::HillMotionPolicy::kRandomRoam;
+  CHECK(hill == gameplay::KingOfTheHillConfiguration::create(expected));
+}
+
+TEST_CASE("application config loader requires every hill motion key even for another selected mode",
+          "[unit][application][config][hill_motion][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view field : hill_motion_fixture::kRequiredFields) {
+    CAPTURE(field);
+    require_configuration_load_error(
+        workspace,
+        test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, field, ""),
+        ApplicationInputErrorCode::kConfigurationKeyMissing);
+  }
+}
+
+TEST_CASE("application config loader rejects unknown hill policy without marker-tour fallback",
+          "[unit][application][config][hill_motion][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view policy : hill_motion_fixture::kInvalidPolicies) {
+    CAPTURE(policy);
+    const auto authored = hill_motion_fixture::policy_configuration(policy);
+    try {
+      static_cast<void>(load_game_mode_configuration(workspace, authored));
+      FAIL("invalid hill policy was accepted");
+    } catch (const gameplay::GameplayValidationError& error) {
+      CHECK(error.validation_code() ==
+            gameplay::GameplayValidationCode::kKingOfTheHillMotionPolicyInvalid);
+      CHECK(error.context() == "king_of_the_hill.hill_motion");
+    }
+  }
+  require_configuration_load_error(
+      workspace, hill_motion_fixture::configuration_with(hill_motion_fixture::kEmptyPolicy),
+      ApplicationInputErrorCode::kConfigurationValueInvalid);
+}
+
+TEST_CASE("application config loader delegates hill roam bounds and rejects malformed numbers",
+          "[unit][application][config][hill_motion][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  for (const auto& input : hill_motion_fixture::kInvalidRanges) {
+    CAPTURE(input.replacement);
+    try {
+      static_cast<void>(
+          load_game_mode_configuration(workspace, hill_motion_fixture::configuration_with(input)));
+      FAIL("invalid hill motion range was accepted");
+    } catch (const gameplay::GameplayValidationError& error) {
+      CHECK(error.validation_code() ==
+            gameplay::GameplayValidationCode::kKingOfTheHillScalarOutOfRange);
+      CHECK(error.context() == input.context);
+    }
+  }
+  require_configuration_load_error(
+      workspace, hill_motion_fixture::configuration_with(hill_motion_fixture::kMalformedSpeed),
+      ApplicationInputErrorCode::kConfigurationValueInvalid);
+  test_fixture::require_domain_validation_error_code<gameplay::GameplayValidationError>(
+      [&] {
+        static_cast<void>(load_game_mode_configuration(
+            workspace,
+            hill_motion_fixture::configuration_with(hill_motion_fixture::kNonFiniteSpeed)));
+      },
+      gameplay::GameplayValidationCode::kKingOfTheHillScalarNotFinite);
+}
+
+TEST_CASE("application config loader preserves deterministic hill field error ordering",
+          "[unit][application][config][hill_motion][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const auto authored = hill_motion_fixture::ordered_invalid_configuration();
+  test_fixture::require_domain_validation_error_code<gameplay::GameplayValidationError>(
+      [&] { static_cast<void>(load_game_mode_configuration(workspace, authored)); },
+      gameplay::GameplayValidationCode::kKingOfTheHillMotionPolicyInvalid);
 }
 
 TEST_CASE("application config loader refuses a scenario with more than one lobby",
@@ -1009,7 +1095,7 @@ TEST_CASE("a configuration without the [king_of_the_hill] section is refused nam
           "[unit][application][config][king_of_the_hill][validation]") {
   // The section is required whatever `[match] mode` names, exactly as `[royale]` is, so switching
   // a deployment to the hill is one edit that cannot fail on a section nobody wrote. Removing the
-  // whole section is refused as its eleven missing keys, which is how a fixed section's absence
+  // whole section is refused as its missing required keys, which is how a fixed section's absence
   // has always been reported.
   TemporaryApplicationInputWorkspace workspace;
   std::string configuration{test_fixture::kValidConfiguration};

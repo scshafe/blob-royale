@@ -1,7 +1,9 @@
+#include "hill_motion_replay_fixture.hpp"
 #include "replay_fixture.hpp"
 
 // Reuse the existing isolated filesystem fixture instead of another temporary-directory owner.
 #include "../unit/application/application_input_test_fixture.hpp"
+#include "gameplay_validation_error.hpp"
 #include "map_loader.hpp"
 #include "terrain_definition.hpp"
 
@@ -97,4 +99,48 @@ TEST_CASE("replay map references reject absolute and nonleaf paths before map lo
     CHECK_THROWS_WITH(testing::ReplayFixture::load(path.parent_path()),
                       Catch::Matchers::ContainsSubstring("map must be one map-name leaf"));
   }
+}
+
+TEST_CASE("every accepted hill replay explicitly retains marker tour and its roam configuration",
+          "[fixtures][replay][hill_motion][authoring]") {
+  for (const auto name : testing::hill_motion_fixture::kLegacyReplays) {
+    CAPTURE(name);
+    const auto fixture = testing::ReplayFixture::named(name);
+    CHECK(fixture.king_of_the_hill().motion_policy() ==
+          blob_royale::gameplay::KingOfTheHillConfiguration::HillMotionPolicy::kMarkerTour);
+    CHECK(fixture.king_of_the_hill().hill_speed_minimum() == 20.0);
+    CHECK(fixture.king_of_the_hill().hill_speed_maximum() == 70.0);
+    CHECK(fixture.king_of_the_hill().hill_retarget_minimum_ticks() == 140);
+    CHECK(fixture.king_of_the_hill().hill_retarget_maximum_ticks() == 480);
+  }
+}
+
+TEST_CASE("hill replay reader requires explicit motion keys and refuses an unknown policy",
+          "[fixtures][replay][hill_motion][validation]") {
+  application::test_fixture::TemporaryApplicationInputWorkspace workspace;
+  const auto copy = testing::hill_motion_fixture::copy_scripted_replay(workspace);
+  for (const std::string_view field : application::hill_motion_fixture::kRequiredFields) {
+    CAPTURE(field);
+    static_cast<void>(
+        workspace.write_file(testing::hill_motion_fixture::kCopiedMatch,
+                             application::test_fixture::replace_once(copy.match, field, "")));
+    CHECK_THROWS_AS(testing::ReplayFixture::load(copy.directory), testing::ReplayFixtureError);
+    CHECK_THROWS_WITH(testing::ReplayFixture::load(copy.directory),
+                      Catch::Matchers::ContainsSubstring("is missing"));
+  }
+  const auto& invalid = application::hill_motion_fixture::kUnknownPolicy;
+  static_cast<void>(workspace.write_file(
+      testing::hill_motion_fixture::kCopiedMatch,
+      application::test_fixture::replace_once(copy.match, invalid.field, invalid.replacement)));
+  application::test_fixture::require_domain_validation_error_code<
+      blob_royale::gameplay::GameplayValidationError>(
+      [&] { static_cast<void>(testing::ReplayFixture::load(copy.directory)); },
+      blob_royale::gameplay::GameplayValidationCode::kKingOfTheHillMotionPolicyInvalid);
+
+  const auto& random = application::hill_motion_fixture::kRandomRoam;
+  static_cast<void>(workspace.write_file(
+      testing::hill_motion_fixture::kCopiedMatch,
+      application::test_fixture::replace_once(copy.match, random.field, random.replacement)));
+  CHECK(testing::ReplayFixture::load(copy.directory).king_of_the_hill().motion_policy() ==
+        blob_royale::gameplay::KingOfTheHillConfiguration::HillMotionPolicy::kRandomRoam);
 }

@@ -20,16 +20,17 @@ namespace blob_royale::simulation {
 // it buys structural `operator==`, erasure by `destroy_entity`, and snapshot participation, and the
 // third is the one that matters -- the circle a client draws is exactly the circle `hill_scoring`
 // tested against on the tick being rendered. The hill entity owns no `PhysicsBody` and no
-// `Controllable`, so it never collides, never integrates, is never a participant, and is never
-// wiped. `hill_movement` creates it once and rewrites this component every tick.
+// `Controllable`, so it never collides, never enters kernel integration, is never a participant,
+// and is never wiped. `hill_movement` creates it once and rewrites this component every tick.
 //
 // This is a `blob_simulation` value struct with no behavior. Everything the hill *does* -- touring
-// the map's `hill` markers and scoring the players inside it -- is `blob_gameplay` systems.
+// the map's `hill` markers or roaming independently of terrain, and scoring the players inside it
+// -- is `blob_gameplay` systems. The circle never creates floor or protects players from cliffs.
 // related: component_registry.hpp -- the closed list this kind is registered in.
 // related: components/hill_presence_component.hpp -- the per-entity counter against it.
 // related: ../../gameplay/king_of_the_hill/hill_movement_system.hpp -- the only writer.
 struct Hill final {
-  // World units. A pure function of the map's `hill` markers and the elapsed running ticks.
+  // World units. The configured motion policy's committed center; scoring and rendering agree.
   Vector2 center;
   // World units. A player centre no farther than this from `center`, within `kPositionTolerance`,
   // is inside.

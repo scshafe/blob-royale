@@ -35,7 +35,45 @@ void require_finite_and_positive(const double value, const std::string_view key)
   }
 }
 
+void require_hill_speed(const double value, const std::string_view key) {
+  require_finite(value, key);
+  if (value < KingOfTheHillConfiguration::kMinimumHillSpeed ||
+      value > KingOfTheHillConfiguration::kMaximumHillSpeed) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kKingOfTheHillScalarOutOfRange, context_of(key),
+        "hill speed must be within [2^-10, 1000000] world units per second");
+  }
+}
+
+[[nodiscard]] std::uint64_t hill_retarget_ticks(const double seconds, const std::string_view key) {
+  require_finite_and_positive(seconds, key);
+  if (seconds > KingOfTheHillConfiguration::kMaximumHillRetargetSeconds) {
+    throw GameplayValidationError(GameplayValidationCode::kKingOfTheHillScalarOutOfRange,
+                                  context_of(key), "hill retarget duration exceeds 3600 seconds");
+  }
+  const std::uint64_t ticks = duration_ticks(seconds, context_of(key));
+  if (ticks == 0) {
+    throw GameplayValidationError(GameplayValidationCode::kKingOfTheHillScalarOutOfRange,
+                                  context_of(key),
+                                  "hill retarget duration must convert to at least one tick");
+  }
+  return ticks;
+}
+
 } // namespace
+
+KingOfTheHillConfiguration::HillMotionPolicy
+KingOfTheHillConfiguration::parse_motion_policy(const std::string_view value) {
+  if (value == "marker_tour") {
+    return HillMotionPolicy::kMarkerTour;
+  }
+  if (value == "random_roam") {
+    return HillMotionPolicy::kRandomRoam;
+  }
+  throw GameplayValidationError(
+      GameplayValidationCode::kKingOfTheHillMotionPolicyInvalid, context_of("hill_motion"),
+      "hill_motion must be marker_tour or random_roam; received " + std::string(value));
+}
 
 KingOfTheHillConfiguration KingOfTheHillConfiguration::create(const Section& section) {
   require_finite_and_positive(section.hill_radius_world_units, "hill_radius_world_units");
@@ -84,18 +122,53 @@ KingOfTheHillConfiguration KingOfTheHillConfiguration::create(const Section& sec
       duration_ticks(section.countdown_seconds, context_of("countdown_seconds"));
   const std::uint64_t restart_delay_ticks =
       duration_ticks(section.restart_delay_seconds, context_of("restart_delay_seconds"));
-  return KingOfTheHillConfiguration(section.hill_radius_world_units, hill_dwell_ticks,
-                                    hill_travel_ticks, point_interval_ticks, section.points_to_win,
-                                    section.contested_hill_scores, time_limit_ticks,
-                                    respawn_delay_ticks, countdown_ticks, restart_delay_ticks);
+  if (section.hill_motion != HillMotionPolicy::kMarkerTour &&
+      section.hill_motion != HillMotionPolicy::kRandomRoam) {
+    throw GameplayValidationError(GameplayValidationCode::kKingOfTheHillMotionPolicyInvalid,
+                                  context_of("hill_motion"),
+                                  "hill motion policy is not registered");
+  }
+  require_hill_speed(section.hill_speed_minimum, "hill_speed_minimum");
+  require_hill_speed(section.hill_speed_maximum, "hill_speed_maximum");
+  if (section.hill_speed_maximum < section.hill_speed_minimum) {
+    throw GameplayValidationError(GameplayValidationCode::kKingOfTheHillScalarOutOfRange,
+                                  context_of("hill_speed_maximum"),
+                                  "hill speed maximum must not be below its minimum");
+  }
+  const std::uint64_t retarget_minimum_ticks =
+      hill_retarget_ticks(section.hill_retarget_minimum_seconds, "hill_retarget_minimum_seconds");
+  const std::uint64_t retarget_maximum_ticks =
+      hill_retarget_ticks(section.hill_retarget_maximum_seconds, "hill_retarget_maximum_seconds");
+  if (section.hill_retarget_maximum_seconds < section.hill_retarget_minimum_seconds ||
+      retarget_maximum_ticks < retarget_minimum_ticks) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kKingOfTheHillScalarOutOfRange,
+        context_of("hill_retarget_maximum_seconds"),
+        "hill retarget maximum must not be below its minimum in seconds or ticks");
+  }
+  return KingOfTheHillConfiguration(
+      section.hill_radius_world_units, hill_dwell_ticks, hill_travel_ticks, point_interval_ticks,
+      section.points_to_win, section.contested_hill_scores, time_limit_ticks, respawn_delay_ticks,
+      countdown_ticks, restart_delay_ticks, section.hill_motion, section.hill_speed_minimum,
+      section.hill_speed_maximum, retarget_minimum_ticks, retarget_maximum_ticks);
 }
 
 KingOfTheHillConfiguration::Section KingOfTheHillConfiguration::default_section() noexcept {
-  return Section{kDefaultHillRadiusWorldUnits, kDefaultHillDwellSeconds,
-                 kDefaultHillTravelSeconds,    kDefaultPointIntervalSeconds,
-                 kDefaultPointsToWin,          kDefaultContestedHillScores,
-                 kDefaultTimeLimitSeconds,     kDefaultRespawnDelaySeconds,
-                 kDefaultCountdownSeconds,     kDefaultRestartDelaySeconds};
+  return Section{kDefaultHillRadiusWorldUnits,
+                 kDefaultHillDwellSeconds,
+                 kDefaultHillTravelSeconds,
+                 kDefaultPointIntervalSeconds,
+                 kDefaultPointsToWin,
+                 kDefaultContestedHillScores,
+                 kDefaultTimeLimitSeconds,
+                 kDefaultRespawnDelaySeconds,
+                 kDefaultCountdownSeconds,
+                 kDefaultRestartDelaySeconds,
+                 HillMotionPolicy::kMarkerTour,
+                 kDefaultHillSpeedMinimum,
+                 kDefaultHillSpeedMaximum,
+                 kDefaultHillRetargetMinimumSeconds,
+                 kDefaultHillRetargetMaximumSeconds};
 }
 
 KingOfTheHillConfiguration KingOfTheHillConfiguration::defaults() {
@@ -107,11 +180,18 @@ KingOfTheHillConfiguration::KingOfTheHillConfiguration(
     const std::uint64_t hill_travel_ticks, const std::uint64_t point_interval_ticks,
     const std::uint64_t points_to_win, const bool contested_hill_scores,
     const std::uint64_t time_limit_ticks, const std::uint64_t respawn_delay_ticks,
-    const std::uint64_t countdown_ticks, const std::uint64_t restart_delay_ticks) noexcept
+    const std::uint64_t countdown_ticks, const std::uint64_t restart_delay_ticks,
+    const HillMotionPolicy motion_policy, const double hill_speed_minimum,
+    const double hill_speed_maximum, const std::uint64_t hill_retarget_minimum_ticks,
+    const std::uint64_t hill_retarget_maximum_ticks) noexcept
     : hill_radius_(hill_radius), hill_dwell_ticks_(hill_dwell_ticks),
       hill_travel_ticks_(hill_travel_ticks), point_interval_ticks_(point_interval_ticks),
       points_to_win_(points_to_win), contested_hill_scores_(contested_hill_scores),
       time_limit_ticks_(time_limit_ticks), respawn_delay_ticks_(respawn_delay_ticks),
-      countdown_ticks_(countdown_ticks), restart_delay_ticks_(restart_delay_ticks) {}
+      countdown_ticks_(countdown_ticks), restart_delay_ticks_(restart_delay_ticks),
+      motion_policy_(motion_policy), hill_speed_minimum_(hill_speed_minimum),
+      hill_speed_maximum_(hill_speed_maximum),
+      hill_retarget_minimum_ticks_(hill_retarget_minimum_ticks),
+      hill_retarget_maximum_ticks_(hill_retarget_maximum_ticks) {}
 
 } // namespace blob_royale::gameplay

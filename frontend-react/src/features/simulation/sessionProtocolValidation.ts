@@ -320,6 +320,21 @@ function assertSnapshotEntityInvariants(
       assertNoNegativeZero(zone.center.y, 'zone.center.y', entity.entity_id);
       assertNoNegativeZero(zone.radius, 'zone.radius', entity.entity_id);
     }
+
+    const hillMotion = entity.components.hill_motion;
+    if (hillMotion !== undefined) {
+      // JSON Schema treats -0 as zero; match the canonical Vector2 publication invariant here.
+      assertNoNegativeZero(
+        hillMotion.velocity.x,
+        'hill_motion.velocity.x',
+        entity.entity_id,
+      );
+      assertNoNegativeZero(
+        hillMotion.velocity.y,
+        'hill_motion.velocity.y',
+        entity.entity_id,
+      );
+    }
   }
 }
 

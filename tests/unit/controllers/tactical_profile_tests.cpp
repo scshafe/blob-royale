@@ -37,11 +37,18 @@ constexpr double kRiskTolerance = 0.5;
 constexpr std::uint64_t kPredictionHorizonTicks = 40;
 constexpr double kChargeScreenDiagonalFraction = 0.75;
 constexpr std::uint64_t kShieldAnticipationTicks = 24;
+// The four personality settings, every one of them distinct from every other number above so that
+// a `create` that copied one member into another's field would fail the retention case rather than
+// compare equal to itself.
+constexpr double kRoadCautionFraction = 0.375;
+constexpr double kArrivalBrakeFraction = 0.6875;
+constexpr double kExposurePreference = 0.3125;
+constexpr double kMinimumOpening = 0.1875;
 
-// The fixture owns the four Step 15 settings; this file authors the five the pipeline and this
-// step's combat added, so a case here proves a rule of `create` rather than a fixture value. One
-// case at the end separately proves the fixture authors them, which is where a caller left behind
-// by a new setting surfaces.
+// The fixture owns the four Step 15 settings; this file authors the nine the pipeline, this step's
+// combat and the named personalities added, so a case here proves a rule of `create` rather than a
+// fixture value. One case at the end separately proves the fixture authors them, which is where a
+// caller left behind by a new setting surfaces.
 [[nodiscard]] controllers::TacticalProfile::Section authored_section() {
   auto section = fixture::immediate_section();
   section.objective_weights = kWeights;
@@ -49,6 +56,10 @@ constexpr std::uint64_t kShieldAnticipationTicks = 24;
   section.prediction_horizon_ticks = kPredictionHorizonTicks;
   section.charge_screen_diagonal_fraction = kChargeScreenDiagonalFraction;
   section.shield_anticipation_ticks = kShieldAnticipationTicks;
+  section.road_caution_fraction = kRoadCautionFraction;
+  section.arrival_brake_fraction = kArrivalBrakeFraction;
+  section.exposure_preference = kExposurePreference;
+  section.minimum_opening = kMinimumOpening;
   return section;
 }
 
@@ -104,6 +115,10 @@ TEST_CASE("Tactical profile retains every authored setting and bounded identity"
   CHECK(profile.prediction_horizon_ticks() == kPredictionHorizonTicks);
   CHECK(profile.charge_screen_diagonal_fraction() == kChargeScreenDiagonalFraction);
   CHECK(profile.shield_anticipation_ticks() == kShieldAnticipationTicks);
+  CHECK(profile.road_caution_fraction() == kRoadCautionFraction);
+  CHECK(profile.arrival_brake_fraction() == kArrivalBrakeFraction);
+  CHECK(profile.exposure_preference() == kExposurePreference);
+  CHECK(profile.minimum_opening() == kMinimumOpening);
   CHECK(profile == controllers::TacticalProfile::create(section));
   for (const auto invalid : fixture::kInvalidNames) {
     auto changed = section;
@@ -305,13 +320,85 @@ TEST_CASE("Tactical profile admits both combat endpoints and refuses past either
         key_context("shield_anticipation_ticks"));
 }
 
+TEST_CASE("Tactical profile refuses a zero road caution and admits every other personality zero",
+          "[unit][controllers][tactical_profile]") {
+  // **`road_caution_fraction` is the one fraction in this family whose zero is refused**, and the
+  // asymmetry is the point of the case. The race provider recovers when
+  // `nearest.distance > fraction * road->half_width()`, so a zero recovers unless the body is
+  // exactly on the centreline: it *inverts* race behaviour rather than switching it off. Its domain
+  // is `RacerController`'s own pair, exclusive at the bottom and inclusive at the top, so the
+  // smallest legal value is a denormal rather than a written constant -- there is no low endpoint
+  // to admit, only an excluded one to refuse.
+  auto section = authored_section();
+  section.road_caution_fraction = controllers::kMaximumRacerCautionFraction;
+  CHECK_NOTHROW(controllers::TacticalProfile::create(section));
+  section.road_caution_fraction = std::numeric_limits<double>::denorm_min();
+  CHECK_NOTHROW(controllers::TacticalProfile::create(section));
+  // Both spellings of the excluded endpoint. A negative zero is an authored zero and not a distinct
+  // value, exactly as the degenerate-weight rule already reads it.
+  for (const double refused : {0.0, -0.0}) {
+    auto changed = authored_section();
+    changed.road_caution_fraction = refused;
+    CHECK(
+        require_rejection(
+            changed, controllers::ControllersValidationCode::kTacticalProfileRoadCautionInvalid) ==
+        key_context("road_caution_fraction"));
+  }
+  for (const double invalid : fixture::kInvalidProbabilities) {
+    auto changed = authored_section();
+    changed.road_caution_fraction = invalid;
+    CHECK(
+        require_rejection(
+            changed, controllers::ControllersValidationCode::kTacticalProfileRoadCautionInvalid) ==
+        key_context("road_caution_fraction"));
+  }
+  // **The other three are inclusive at both ends, and their zeros are the answers that reproduce
+  // the behaviour before they existed**: no arrival brake, so an arrived bot coasts; no exposure
+  // preference, so every opening stays one; no opening floor, so every fight is admitted. Each is
+  // read back exactly, because a clamped-away endpoint would be a profile that cannot author the
+  // neutral value the shipped `steady` section relies on.
+  section = authored_section();
+  for (const double brake : {0.0, controllers::kMaximumTacticalArrivalBrakeFraction}) {
+    section.arrival_brake_fraction = brake;
+    for (const double preference : {0.0, controllers::kMaximumTacticalExposurePreference}) {
+      section.exposure_preference = preference;
+      for (const double opening : {0.0, controllers::kMaximumTacticalMinimumOpening}) {
+        section.minimum_opening = opening;
+        const auto profile = controllers::TacticalProfile::create(section);
+        CHECK(profile.arrival_brake_fraction() == brake);
+        CHECK(profile.exposure_preference() == preference);
+        CHECK(profile.minimum_opening() == opening);
+      }
+    }
+  }
+  for (const double invalid : fixture::kInvalidProbabilities) {
+    auto brake = authored_section();
+    brake.arrival_brake_fraction = invalid;
+    CHECK(require_rejection(
+              brake, controllers::ControllersValidationCode::kTacticalProfileArrivalBrakeInvalid) ==
+          key_context("arrival_brake_fraction"));
+    auto preference = authored_section();
+    preference.exposure_preference = invalid;
+    CHECK(require_rejection(
+              preference,
+              controllers::ControllersValidationCode::kTacticalProfileExposurePreferenceInvalid) ==
+          key_context("exposure_preference"));
+    auto opening = authored_section();
+    opening.minimum_opening = invalid;
+    CHECK(require_rejection(
+              opening,
+              controllers::ControllersValidationCode::kTacticalProfileMinimumOpeningInvalid) ==
+          key_context("minimum_opening"));
+  }
+}
+
 TEST_CASE("Tactical profile reports the first declared key when several are invalid",
           "[unit][controllers][tactical_profile]") {
   // Declared key order is the configuration family's order: seek probability, reaction delay, aim
   // error, target persistence, the five objective weights in kind order, risk tolerance, horizon,
-  // charge screen, shield anticipation. The two combat keys are last because they were appended
-  // rather than interleaved, which is what keeps an existing multi-defect section blaming the same
-  // key it blamed before Step 22b.
+  // charge screen, shield anticipation, and then the four personality keys. Every group has been
+  // appended rather than interleaved, which is what keeps an existing multi-defect section blaming
+  // the same key it blamed before Step 22b and before this step.
   // Every case below spoils a later key too, so only the ordering can decide which is reported.
   auto section = authored_section();
   section.objective_seek_probability = 1.01;
@@ -321,6 +408,10 @@ TEST_CASE("Tactical profile reports the first declared key when several are inva
   section.prediction_horizon_ticks = controllers::kMaximumTacticalPredictionHorizonTicks + 1;
   section.charge_screen_diagonal_fraction = 1.01;
   section.shield_anticipation_ticks = controllers::kMaximumTacticalShieldAnticipationTicks + 1;
+  section.road_caution_fraction = 0.0;
+  section.arrival_brake_fraction = 1.01;
+  section.exposure_preference = 1.01;
+  section.minimum_opening = 1.01;
   require_rejection(section,
                     controllers::ControllersValidationCode::kTacticalProfileProbabilityInvalid);
   section.objective_seek_probability = 1.0;
@@ -369,6 +460,28 @@ TEST_CASE("Tactical profile reports the first declared key when several are inva
             section,
             controllers::ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid) ==
         key_context("shield_anticipation_ticks"));
+  section.shield_anticipation_ticks = 0;
+  // The four personality keys close the chain in the order they were appended, so a section that is
+  // wrong in all four still blames the road caution -- which is the one whose zero a positional
+  // construction site produces, and therefore the one an author most needs named first.
+  CHECK(require_rejection(
+            section, controllers::ControllersValidationCode::kTacticalProfileRoadCautionInvalid) ==
+        key_context("road_caution_fraction"));
+  section.road_caution_fraction = kRoadCautionFraction;
+  CHECK(require_rejection(
+            section, controllers::ControllersValidationCode::kTacticalProfileArrivalBrakeInvalid) ==
+        key_context("arrival_brake_fraction"));
+  section.arrival_brake_fraction = 0.0;
+  CHECK(require_rejection(
+            section,
+            controllers::ControllersValidationCode::kTacticalProfileExposurePreferenceInvalid) ==
+        key_context("exposure_preference"));
+  section.exposure_preference = 0.0;
+  CHECK(
+      require_rejection(
+          section, controllers::ControllersValidationCode::kTacticalProfileMinimumOpeningInvalid) ==
+      key_context("minimum_opening"));
+  section.minimum_opening = 0.0;
   // An invalid name outranks every setting, exactly as it did before these keys existed.
   section.profile_name = "Upper";
   require_rejection(section, controllers::ControllersValidationCode::kTacticalProfileNameInvalid);
@@ -394,4 +507,21 @@ TEST_CASE("Tactical profile fixture sections author every family key",
   CHECK(immediate.shield_anticipation_ticks > 0);
   CHECK(configured.charge_screen_diagonal_fraction > 0.0);
   CHECK(configured.shield_anticipation_ticks > 0);
+  // **The three personality settings whose inert value is the *wanted* value are asserted to be
+  // exactly zero**, which is the opposite assertion to the two above and for the opposite reason.
+  // Zero is what reproduces the behaviour every case written before this step observes: no arrival
+  // brake, so `kArrived` still coasts; no exposure preference, so every candidate's opening is one
+  // and every utility score is the one Step 22a wrote; no opening floor, so the shove provider
+  // yields every fight Step 22b's cases expect. A fixture that authored any of them positive would
+  // move all three at once, silently, in a file that owns none of those cases.
+  //
+  // `road_caution_fraction` needs no assertion in either direction: `create` above already refused
+  // the only value that could have been left behind here, which is the whole reason its domain
+  // excludes zero.
+  CHECK(immediate.arrival_brake_fraction == 0.0);
+  CHECK(immediate.exposure_preference == 0.0);
+  CHECK(immediate.minimum_opening == 0.0);
+  CHECK(configured.arrival_brake_fraction == 0.0);
+  CHECK(configured.exposure_preference == 0.0);
+  CHECK(configured.minimum_opening == 0.0);
 }

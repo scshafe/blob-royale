@@ -3,7 +3,10 @@
 #include "commands/shield_command.hpp"
 #include "components/charge_component.hpp"
 #include "components/hill_component.hpp"
+#include "components/hill_motion_component.hpp"
 #include "components/shield_component.hpp"
+#include "components/stun_component.hpp"
+#include "controllers_limits.hpp"
 #include "controllers_validation_error.hpp"
 #include "fixed_delta.hpp"
 #include "fixtures/tactical_observation_fixture.hpp"
@@ -14,13 +17,17 @@
 #include "input_batch.hpp"
 #include "map_definition.hpp"
 #include "simulation_config.hpp"
+#include "simulation_limits.hpp"
 #include "tactical_controller.hpp"
 #include "terrain_definition.hpp"
+#include "tick_window.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -69,6 +76,86 @@ combat(const double shove_weight, const double charge_screen, const std::uint64_
   section.shield_anticipation_ticks = shield_ticks;
   return section;
 }
+// The same idea once more for the arrival brake, which is the one personality setting no policy
+// carries: it is decided in the controller, on the arrived branch, so a case authors it on the
+// profile and changes nothing else.
+[[nodiscard]] controllers::TacticalProfile::Section braking(const double fraction) {
+  auto section = combat(1.0, 0.5, 0);
+  section.arrival_brake_fraction = fraction;
+  return section;
+}
+
+// **The four shipped personalities, authored exactly as `config/blob-royale.cfg` authors them and
+// with one deliberate difference: they all carry the fixture's name.** `tactical_seed_for` mixes a
+// profile name's length and every one of its bytes, so four differently named profiles already draw
+// different streams and any divergence between them would be a proof about the seed rather than
+// about the numbers. Holding the name still is what makes the comparison below a proof that a
+// personality *is* its numbers -- which is the whole claim, because no decision in
+// `blob_controllers` branches on a profile's identity.
+[[nodiscard]] controllers::TacticalProfile::Section keeper_section() {
+  return {std::string{profile_fixture::kName},
+          1.0,
+          40,
+          0.02,
+          400,
+          {1.0, 0.5, 0.25, 0.5, 0.0},
+          0.25,
+          120,
+          1.0,
+          28,
+          0.75,
+          1.0,
+          0.0,
+          1.0};
+}
+[[nodiscard]] controllers::TacticalProfile::Section bully_section() {
+  return {std::string{profile_fixture::kName},
+          1.0,
+          60,
+          0.05,
+          200,
+          {0.5, 0.5, 0.375, 0.5, 1.0},
+          0.5,
+          80,
+          0.25,
+          21,
+          0.9,
+          0.0,
+          0.0,
+          0.0};
+}
+[[nodiscard]] controllers::TacticalProfile::Section opportunist_section() {
+  return {std::string{profile_fixture::kName},
+          1.0,
+          20,
+          0.03,
+          100,
+          {0.5, 0.625, 0.5, 0.625, 0.75},
+          0.625,
+          80,
+          0.375,
+          24,
+          0.8,
+          0.0,
+          1.0,
+          0.5};
+}
+[[nodiscard]] controllers::TacticalProfile::Section cautious_racer_section() {
+  return {std::string{profile_fixture::kName},
+          1.0,
+          100,
+          0.01,
+          600,
+          {0.25, 0.5, 1.0, 1.0, 0.125},
+          0.125,
+          200,
+          0.5,
+          32,
+          0.6,
+          0.0,
+          0.5,
+          0.75};
+}
 [[nodiscard]] std::vector<simulation::Command> decide(controllers::Controller& controller,
                                                       const frame_fixture::Frame& frame) {
   return controller.decide(frame_fixture::observation(frame));
@@ -93,6 +180,20 @@ void require_go(const std::vector<simulation::Command>& commands) {
 void require_same_bits(const simulation::Vector2& actual, const simulation::Vector2& expected) {
   CHECK(std::bit_cast<std::uint64_t>(actual.x()) == std::bit_cast<std::uint64_t>(expected.x()));
   CHECK(std::bit_cast<std::uint64_t>(actual.y()) == std::bit_cast<std::uint64_t>(expected.y()));
+}
+
+// **The third movement helper, and the reason there has to be a third.** `require_zero` demands
+// exactly `(0, 0)` and `require_go` demands a unit magnitude within 1e-15, so between them they
+// describe every thrust this file could emit before the arrival brake existed and *none* of the
+// ones it emits now: a brake is a real subunit command, which `normalized_thrust_intent` admits
+// because it is a magnitude clamp and not a normaliser, and which `ChaserController` already ships
+// as `unit * aggression_weight`. Loosening either of the two above to accept one would have
+// weakened every movement assertion in this file at once, so the subunit case comes through here
+// instead -- and at the strictest tolerance of the three, because a deadbeat law's whole claim is
+// that two toolchains compute the same binary64.
+void require_thrust_bits(const std::vector<simulation::Command>& commands,
+                         const simulation::Vector2& expected) {
+  require_same_bits(thrust(commands).direction, expected);
 }
 
 // **The sibling of `thrust()`, not a loosening of it.** `thrust()` REQUIREs exactly one command and
@@ -124,6 +225,21 @@ inline constexpr double kSelfRadius = 30.0;
 inline constexpr double kOpponentRadius = 30.0;
 inline constexpr std::uint64_t kFirstOpponent = 100;
 inline constexpr std::uint64_t kSecondOpponent = 101;
+inline constexpr std::uint64_t kThirdOpponent = 102;
+inline constexpr std::uint64_t kAbilityActivationTick = 1;
+inline constexpr std::uint64_t kExposureStunDurationTicks = 200;
+inline constexpr std::uint64_t kSpentCooldownTicks = 400;
+
+// One opponent's published escapes, as the components the exposure quality reads. Only the three
+// that mean something outside a mode are authored here: `ZoneExposure` exists under royale alone
+// and `HillPresence` under king of the hill alone, and the arithmetic of all five is proven where
+// the quality is built, in `tactical_objective_candidates_tests.cpp`. What this file needs is two
+// opponents a profile can tell apart, which three terms already give.
+struct OpponentExposure final {
+  bool stunned{false};
+  bool shield_spent{false};
+  bool charge_spent{false};
+};
 
 struct CombatOpponent final {
   std::uint64_t entity;
@@ -131,19 +247,33 @@ struct CombatOpponent final {
   double y;
   double velocity_x{0.0};
   double velocity_y{0.0};
+  OpponentExposure exposure{};
 };
 
 struct CombatFrame final {
+  // The bot's own published position, which every case written before the arrival brake leaves at
+  // the fixed (200, 320) of the picture above. A brake case moves it onto the hill, because arrival
+  // is where the brake lives and the hill is the only kind it reads.
+  double self_x{200.0};
+  double self_y{320.0};
   double self_velocity_x{0.0};
   double self_velocity_y{0.0};
+  double hill_x{600.0};
+  double hill_y{100.0};
+  double hill_radius{20.0};
+  // Published `HillMotion`, seeded only when it is nonzero so that every existing case keeps a hill
+  // that publishes no motion at all and a candidate that carries a structural zero.
+  double hill_velocity_x{0.0};
+  double hill_velocity_y{0.0};
   std::vector<CombatOpponent> opponents{};
   std::vector<simulation::TerrainHole> holes{};
   std::optional<simulation::Shield> shield{};
   std::optional<simulation::Charge> charge{};
-  // Committed ticks to advance before observing, which the two cooldown cases need because
+  // Committed ticks to advance before observing, which every cooldown case needs because
   // `Shield::activate` and `Charge::activate` refuse tick zero -- the loaded initial state, never a
-  // tick a pulse was admitted on. Nothing is authored to depend on where a step leaves a body: a
-  // body at rest does not move at all, and the one moving body that is stepped only closes further.
+  // tick a pulse was admitted on -- and which a case with a reaction delay needs to reach a tick
+  // past that delay. Nothing is authored to depend on where a step leaves a body: every stepped
+  // body here is at rest and does not move at all, except one that only closes further.
   std::uint64_t steps{0};
 };
 
@@ -165,7 +295,9 @@ struct CombatFrame final {
   const auto self = simulation::EntityId::create(frame_fixture::kEntity);
   std::vector<simulation::GameWorld::EntitySeed> seeds;
   seeds.push_back(simulation::GameWorld::EntitySeed::create(
-      self, combat_body(200.0, 320.0, frame.self_velocity_x, frame.self_velocity_y, kSelfRadius),
+      self,
+      combat_body(frame.self_x, frame.self_y, frame.self_velocity_x, frame.self_velocity_y,
+                  kSelfRadius),
       simulation::ControllerId::create(frame_fixture::kController)));
   for (const auto& opponent : frame.opponents) {
     // Two-argument seeding gives an entity its own controller id, which is its entity id, so every
@@ -181,9 +313,37 @@ struct CombatFrame final {
   match.phase = simulation::MatchPhase::kRunning;
   match.previous_phase = simulation::MatchPhase::kRunning;
   match.mode_state = simulation::KingOfTheHillModeState{};
+  const auto hill = simulation::EntityId::create(frame_fixture::kFirstObjective);
   world.mutable_store<simulation::Hill>().insert_or_assign(
-      simulation::EntityId::create(frame_fixture::kFirstObjective),
-      simulation::Hill{simulation::Vector2::create(600.0, 100.0), 20.0});
+      hill,
+      simulation::Hill{simulation::Vector2::create(frame.hill_x, frame.hill_y), frame.hill_radius});
+  if (frame.hill_velocity_x != 0.0 || frame.hill_velocity_y != 0.0) {
+    world.mutable_store<simulation::HillMotion>().insert_or_assign(
+        hill, simulation::HillMotion{
+                  simulation::Vector2::create(frame.hill_velocity_x, frame.hill_velocity_y)});
+  }
+  // The opponents' published escapes. A stun window is plain published state with no activation
+  // rule, so it is authored from tick zero and needs no stepped world; the two ability windows do,
+  // because `Shield::activate` and `Charge::activate` refuse tick zero and a window opened at tick
+  // one still contains tick one. "Spent" is a cooldown that has not ended beside a protection that
+  // has, which is how `AbilitySystem` reads them and not bare presence.
+  for (const auto& opponent : frame.opponents) {
+    const auto entity = simulation::EntityId::create(opponent.entity);
+    const auto activation = simulation::TickSequence::create(kAbilityActivationTick);
+    if (opponent.exposure.stunned) {
+      world.mutable_store<simulation::Stun>().insert_or_assign(
+          entity, simulation::Stun{simulation::TickWindow::create(simulation::TickSequence::zero(),
+                                                                  kExposureStunDurationTicks)});
+    }
+    if (opponent.exposure.shield_spent) {
+      world.mutable_store<simulation::Shield>().insert_or_assign(
+          entity, simulation::Shield::activate(activation, 2, 1, kSpentCooldownTicks, 40));
+    }
+    if (opponent.exposure.charge_spent) {
+      world.mutable_store<simulation::Charge>().insert_or_assign(
+          entity, simulation::Charge::activate(activation, kSpentCooldownTicks));
+    }
+  }
   if (frame.shield) {
     world.mutable_store<simulation::Shield>().insert_or_assign(self, *frame.shield);
   }
@@ -215,6 +375,37 @@ struct CombatFrame final {
 }
 inline constexpr double kScreenInsideTheCorridor = 300.0;
 inline constexpr double kScreenBeyondTheOpponent = 560.0;
+
+// The published arena and the standoff a shove candidate's standing point sits at, in the same
+// subtraction/product/sqrt order `controller_steering.cpp` and the collector use, so a case that
+// stands the bot exactly on S stands it on the binary64 the provider computed.
+const double kDiagonal = std::sqrt((960.0 * 960.0) + (640.0 * 640.0));
+const double kShoveMargin = kDiagonal * controllers::kTacticalShoveStandoffDiagonalFraction;
+const double kShoveStandoff = kSelfRadius + kOpponentRadius + kShoveMargin;
+
+// The arrival brake law, re-derived here in the order `tactical_controller.cpp` writes it --
+// subtract, divide, scale, clamp -- and never collapsed into one premultiplied factor, because the
+// claim under test is that two toolchains reach the same binary64 and a reassociation is exactly
+// what would break it. The clamp is `std::clamp` rather than the controllers helper for the reason
+// the aim-error case re-derives its own rotation: an expectation that called production's own
+// function at the one line that matters would be a tautology.
+//
+// `held_ticks` is the committed time one thrust stays in force: the profile's reaction delay, or
+// the spacing between this controller's observations, whichever is longer. Every case below is a
+// controller's first decision, where that spacing is one tick.
+[[nodiscard]] simulation::Vector2
+expected_brake(const controllers::Observation& observation, const double objective_velocity_x,
+               const double objective_velocity_y, const double body_velocity_x,
+               const double body_velocity_y, const double fraction,
+               const std::uint64_t held_ticks) {
+  const double acceleration = observation.snapshot().match().movement().current.acceleration();
+  const double hold_seconds = static_cast<double>(held_ticks) * simulation::kFixedDeltaSeconds;
+  const double divisor = acceleration * hold_seconds;
+  const double closing_x = objective_velocity_x - body_velocity_x;
+  const double closing_y = objective_velocity_y - body_velocity_y;
+  return simulation::Vector2::create(std::clamp((closing_x / divisor) * fraction, -1.0, 1.0),
+                                     std::clamp((closing_y / divisor) * fraction, -1.0, 1.0));
+}
 } // namespace
 
 TEST_CASE("Tactical due choices consume endpoint draws and preserve unit strength rather than "
@@ -1002,7 +1193,12 @@ TEST_CASE("Tactical shove weight and not the seed chooses between an opponent an
   // candidate, so until the opponent-derived provider existed a weight was a common factor over the
   // whole set and could not reorder anything. Here the set holds two kinds: the standing point
   // behind the opponent, 212 units away, and the hill at 456. At equal weights the nearer one wins;
-  // at a zero shove weight its preference term is zero and the hill wins instead.
+  // at a zero shove weight there is no shove candidate at all and the hill is what is left.
+  //
+  // **The zero is a provider-level skip and not a selection-level veto**, which is what the
+  // screened counts below now say: the racer's set is one candidate short rather than holding one
+  // it can never prefer. The outcome is the same hill, and deliberately so -- a skip changes what
+  // the set contains and never what a zero weight means for the four mode kinds.
   CombatFrame world;
   world.opponents = {{kFirstOpponent, 400.0, 320.0}};
   world.holes = charge_terrain(kScreenInsideTheCorridor);
@@ -1025,11 +1221,357 @@ TEST_CASE("Tactical shove weight and not the seed chooses between an opponent an
   CHECK(racer->target_key() ==
         controllers::TacticalObjectiveKey{controllers::TacticalObjectiveKind::kHill,
                                           frame_fixture::kFirstObjective});
-  // Two kinds in one screened set, which is the condition that makes the weight mean anything.
+  // Two kinds in one screened set for the profile that weights both, which is the condition that
+  // makes a weight mean anything -- and one kind for the profile that skipped the provider, which
+  // is the condition that makes the skip observable at all.
   CHECK(bully->objective_work().screened_candidate_count == 2);
-  CHECK(racer->objective_work().screened_candidate_count == 2);
-  // A zero weight is a preference of zero and never a veto: the racer still decides, still steers,
-  // and still reports a pursuing branch rather than a fallback.
+  CHECK(bully->objective_work().raw_candidate_count == 2);
+  CHECK(racer->objective_work().screened_candidate_count == 1);
+  CHECK(racer->objective_work().raw_candidate_count == 1);
+  // A skipped provider is not a fallback: the racer still decides, still steers, and still reports
+  // a pursuing branch. It also never reaches a charge, because there is no shove candidate to aim
+  // one at, which is the second thing the skip saves.
   CHECK(racer->decision_reason() == Reason::kPursuing);
   CHECK(bully->decision_reason() == Reason::kChargeGroundEndsFirst);
+}
+
+TEST_CASE("Tactical arrival brake nulls a relative velocity without overshoot and a zero fraction "
+          "coasts bit for bit",
+          "[unit][controllers][tactical][arrival]") {
+  // The bot stands exactly on the published hill centre, so it is arrived by any radius and the
+  // approach branch is unreachable: every thrust below is the whole of what `kArrived` emits.
+  const auto standing = [](const double self_velocity_x, const double self_velocity_y,
+                           const double hill_velocity_x) {
+    CombatFrame world;
+    world.self_x = 480.0;
+    world.self_y = 320.0;
+    world.hill_x = 480.0;
+    world.hill_y = 320.0;
+    world.hill_radius = 60.0;
+    world.self_velocity_x = self_velocity_x;
+    world.self_velocity_y = self_velocity_y;
+    world.hill_velocity_x = hill_velocity_x;
+    return world;
+  };
+  const auto coast = simulation::Vector2::create(0.0, 0.0);
+
+  // **At rest it emits exactly (0, 0), and there is no deadband anywhere.** The law divides the
+  // velocity *vector* componentwise by a positive scalar and never by its own magnitude, so no 0/0
+  // can arise, no component can be NaN, and `Vector2::create` has nothing to refuse on the terminal
+  // state of every successful capture -- a throw there would be caught by `ControllerHost` and
+  // would leave this controller repeating the same pass forever.
+  {
+    auto controller = bot(braking(1.0));
+    const auto commands = controller->decide(combat_observation(standing(0.0, 0.0, 0.0)));
+    CHECK(controller->decision_reason() == Reason::kArrived);
+    require_zero(commands);
+    require_thrust_bits(commands, coast);
+    CHECK(controller->draw_count() == 0);
+  }
+  // **Relative, and not absolute.** A bot already matching the hill's own published motion has
+  // nothing to null and emits that same exact coast at a full brake fraction.
+  {
+    auto controller = bot(braking(1.0));
+    const auto commands = controller->decide(combat_observation(standing(100.0, 0.0, 100.0)));
+    CHECK(controller->decision_reason() == Reason::kArrived);
+    require_thrust_bits(commands, coast);
+  }
+  // A real subunit command, which is what the third helper exists for and what
+  // `normalized_thrust_intent` already admits: it is a magnitude clamp and not a normaliser, and
+  // `ChaserController` has shipped `unit * aggression_weight` since long before this.
+  {
+    const auto observation = combat_observation(standing(0.75, -0.25, 0.25));
+    auto controller = bot(braking(0.5));
+    const auto commands = controller->decide(observation);
+    CHECK(controller->decision_reason() == Reason::kArrived);
+    const auto expected = expected_brake(observation, 0.25, 0.0, 0.75, -0.25, 0.5, 1);
+    require_thrust_bits(commands, expected);
+    const double magnitude =
+        std::sqrt((expected.x() * expected.x()) + (expected.y() * expected.y()));
+    CHECK(magnitude > 0.0);
+    CHECK(magnitude < 1.0);
+    // It brakes *against* the closing velocity in both components, which is the one direction that
+    // removes speed and the only sign the law can get wrong.
+    CHECK(expected.x() < 0.0);
+    CHECK(expected.y() > 0.0);
+  }
+  // **It cannot overshoot.** The unscaled quotient is exactly the thrust that nulls the relative
+  // velocity over one command hold in the drag-free case, so where more than full thrust would be
+  // needed the componentwise clamp caps it at full thrust rather than asking for more. Drag only
+  // removes further speed, so a nonzero drag makes this undershoot, and an undershoot corrects
+  // itself on the next pass.
+  {
+    const auto observation =
+        combat_observation(standing(simulation::kDefaultNormalTopSpeed, 0.0, 0.0));
+    auto controller = bot(braking(1.0));
+    require_thrust_bits(controller->decide(observation), simulation::Vector2::create(-1.0, 0.0));
+  }
+  // **A zero fraction is the Step 22b coast, bit for bit**, and it is asserted on the world that
+  // would otherwise produce the largest brake this law can ask for -- a still world cannot tell a
+  // coast from a brake with nothing left to null. This is what keeps every shipped `kArrived`
+  // assertion and both browser fixtures' motionless pins unchanged.
+  {
+    const auto world =
+        standing(simulation::kDefaultNormalTopSpeed, -simulation::kDefaultNormalTopSpeed, 0.0);
+    auto coasting = bot(braking(0.0));
+    const auto commands = coasting->decide(combat_observation(world));
+    CHECK(coasting->decision_reason() == Reason::kArrived);
+    require_zero(commands);
+    require_thrust_bits(commands, coast);
+    // The shared fixture authors the same zero, which is why every arrived case in this file that
+    // was written before the brake existed still coasts by rule rather than by luck.
+    auto shared = bot();
+    require_thrust_bits(shared->decide(combat_observation(world)), coast);
+  }
+  // **`kHill` only, and the kind is what gates it rather than the objective's velocity.** A bot
+  // standing exactly on a shove candidate's standing point is arrived on a `kShoveSetup` and coasts
+  // at a full brake fraction however fast it is moving. The zone is why the brake is not general: a
+  // `kZone` candidate's arrival radius is the zone's own, `zone_full_radius` is the arena
+  // half-diagonal, and the shipped configuration authors `mode=royale` -- so a zone brake would be
+  // a permanent parking brake on every bot in it. `kShoveSetup` is deferred, not impossible.
+  {
+    CombatFrame world;
+    world.self_x = 400.0;
+    world.self_y = 320.0 - kShoveStandoff;
+    world.self_velocity_x = simulation::kDefaultNormalTopSpeed;
+    world.holes = {pit("standoff_pit", 400.0, 400.0, 30.0)};
+    world.opponents = {{kFirstOpponent, 400.0, 320.0}};
+    auto controller = bot(braking(1.0));
+    const auto commands = controller->decide(combat_observation(world));
+    CHECK(controller->target_key() ==
+          controllers::TacticalObjectiveKey{controllers::TacticalObjectiveKind::kShoveSetup,
+                                            kFirstOpponent});
+    // Standing on it, which is what makes this the arrived branch and not the approach.
+    CHECK(controller->target() == simulation::Vector2::create(400.0, 320.0 - kShoveStandoff));
+    require_thrust_bits(commands, coast);
+    // The movement branch was the arrived one; the reason names the ability this pass also refused,
+    // because a velocity across the commanded ray is exactly what the alignment gate exists for.
+    CHECK(controller->decision_reason() == Reason::kChargeMisaligned);
+  }
+}
+
+TEST_CASE("Tactical four authored personalities decide four different objectives on one identical "
+          "observation",
+          "[unit][controllers][tactical][utility][personality]") {
+  // **The step's headline claim, as one comparison rather than four assertions.** Four profiles,
+  // one world, one observation, and one shared profile *name* -- so `tactical_seed_for` mixes the
+  // same bytes for all four, every one of them draws the identical stream, and the only thing left
+  // that can separate their decisions is the authored numbers. That is what "a personality is
+  // numbers and never a code path" has to mean to be provable at all.
+  //
+  // The picture, all of it inside a 960x640 arena with the bot near the south wall:
+  //
+  //   bot        (480, 100)                the shared self, at rest
+  //   hill       (480,  40), radius 20     60 away, and escape-blocked: the arena edge is 100 out
+  //                                        along the approach and the shortest authored horizon
+  //                                        reaches 120
+  //   east       (652, 100)                nothing published against it: no exposure at all
+  //   west       (258, 100)                stunned
+  //   north      (480, 564)                stunned, shield spent, charge spent
+  //
+  // Each opponent has its own hazard directly beyond it, so each standing point sits between the
+  // bot and that opponent and the three are at three clearly different distances -- east nearest,
+  // then west, then north.
+  const auto world_at = [](const std::uint64_t steps) {
+    CombatFrame world;
+    world.self_x = 480.0;
+    world.self_y = 100.0;
+    world.hill_x = 480.0;
+    world.hill_y = 40.0;
+    world.hill_radius = 20.0;
+    world.steps = steps;
+    // Every bot here carries a charge on cooldown, so no pass can emit an ability beside its thrust
+    // and the movement decision is what is being compared rather than the ability path beside it.
+    world.charge = simulation::Charge::activate(
+        simulation::TickSequence::create(kAbilityActivationTick), kSpentCooldownTicks);
+    world.holes = {pit("hazard_east", 760.0, 100.0, 8.0), pit("hazard_west", 150.0, 100.0, 8.0),
+                   pit("hazard_north", 480.0, 604.0, 8.0)};
+    world.opponents = {{kFirstOpponent, 652.0, 100.0},
+                       {kSecondOpponent, 258.0, 100.0, 0.0, 0.0, {.stunned = true}},
+                       {kThirdOpponent,
+                        480.0,
+                        564.0,
+                        0.0,
+                        0.0,
+                        {.stunned = true, .shield_spent = true, .charge_spent = true}}};
+    return world;
+  };
+  // Each personality authors its own reaction delay, from the opportunist's twenty ticks to the
+  // cautious racer's hundred, and a controller's first eligible pass *opens* that window rather
+  // than deciding through it. So the four are brought to their first decision on one earlier
+  // observation of the same world and then handed the one identical observation this case is
+  // about, at a tick past the longest authored delay.
+  const auto warm_up = combat_observation(world_at(1));
+  const auto decisive = combat_observation(world_at(105));
+
+  auto keeper = bot(keeper_section());
+  auto bully = bot(bully_section());
+  auto opportunist = bot(opportunist_section());
+  auto cautious = bot(cautious_racer_section());
+  for (auto* const controller : {keeper.get(), bully.get(), opportunist.get(), cautious.get()}) {
+    CHECK(controller->decide(warm_up).empty());
+    CHECK(controller->decision_reason() == Reason::kAwaitingReaction);
+  }
+  require_go(keeper->decide(decisive));
+  require_go(bully->decide(decisive));
+  require_go(opportunist->decide(decisive));
+  require_go(cautious->decide(decisive));
+
+  using Key = controllers::TacticalObjectiveKey;
+  using Kind = controllers::TacticalObjectiveKind;
+  REQUIRE(keeper->target_key().has_value());
+  REQUIRE(bully->target_key().has_value());
+  REQUIRE(opportunist->target_key().has_value());
+  REQUIRE(cautious->target_key().has_value());
+  const std::array<Key, 4> chosen{*keeper->target_key(), *bully->target_key(),
+                                  *opportunist->target_key(), *cautious->target_key()};
+  for (std::size_t left = 0; left < chosen.size(); ++left) {
+    for (std::size_t right = left + 1; right < chosen.size(); ++right) {
+      INFO(left << " against " << right);
+      CHECK_FALSE(chosen[left] == chosen[right]);
+    }
+  }
+  // Keeper weights the shove kind at zero, so the opponent provider never ran and the hill is the
+  // only thing it could have chosen -- "defend a stable interior", literally.
+  CHECK(chosen[0] == Key{Kind::kHill, frame_fixture::kFirstObjective});
+  // Bully scores no exposure and floors nothing, so all three fights are on offer and it takes the
+  // nearest. This is precisely what separates it from the opportunist below.
+  CHECK(chosen[1] == Key{Kind::kShoveSetup, kFirstOpponent});
+  // Opportunist scores exposure in full and floors at a half, so the bare east opponent is not a
+  // fight it will take at all, and between the two that are left the most exposed wins over the
+  // nearer one.
+  CHECK(chosen[2] == Key{Kind::kShoveSetup, kThirdOpponent});
+  // The cautious racer reads the same two openings through a half preference and a higher floor,
+  // which compresses them -- so the nearer fight wins where the opportunist took the richer one.
+  // Its shove weight is a deliberate eighth rather than a zero: "avoid expensive fights" is not
+  // "never fight", and the floor is what decides which ones are cheap.
+  CHECK(chosen[3] == Key{Kind::kShoveSetup, kSecondOpponent});
+
+  // The set each was choosing from, which is where the two provider-level rules become visible:
+  // keeper's zero weight skipped the opponent scan outright, and the two profiles that score
+  // exposure dropped the one opponent with nothing published against it.
+  CHECK(keeper->objective_work().screened_candidate_count == 1);
+  CHECK(bully->objective_work().screened_candidate_count == 4);
+  CHECK(opportunist->objective_work().screened_candidate_count == 3);
+  CHECK(cautious->objective_work().screened_candidate_count == 3);
+  // Keeper never reaches a charge: a hill candidate is no body to aim a burst at, so the movement
+  // branch's reason stands, and it is the risk-taking one because the hill's approach runs at the
+  // arena edge. The other three are refused by the cooldown this world publishes.
+  CHECK(keeper->decision_reason() == Reason::kPursuingUnderRisk);
+  CHECK(bully->decision_reason() == Reason::kChargeUnavailable);
+  CHECK(opportunist->decision_reason() == Reason::kChargeUnavailable);
+  CHECK(cautious->decision_reason() == Reason::kChargeUnavailable);
+
+  // **Same name, same identity, same seed, same stream.** Every divergence above is an authored
+  // number, and none of it is `tactical_seed_for`.
+  CHECK(keeper->profile().name() == bully->profile().name());
+  CHECK(keeper->profile().name() == opportunist->profile().name());
+  CHECK(keeper->profile().name() == cautious->profile().name());
+  CHECK(keeper->current_seed() == bully->current_seed());
+  CHECK(keeper->current_seed() == opportunist->current_seed());
+  CHECK(keeper->current_seed() == cautious->current_seed());
+  // **The draw count is unchanged by everything this step added.** Two per deciding pass -- the
+  // seek and the aim Step 15 put there, in that order -- and nothing at all on the warm-up, on the
+  // brake, on the exposure quality, on the opening floor or on the skipped provider.
+  CHECK(keeper->draw_count() == 2);
+  CHECK(bully->draw_count() == 2);
+  CHECK(opportunist->draw_count() == 2);
+  CHECK(cautious->draw_count() == 2);
+}
+
+TEST_CASE("Tactical minimum opening abandons a fight whose opening closed and re-arms the reaction "
+          "window",
+          "[unit][controllers][tactical][shove][exposure]") {
+  // One opponent, its hazard behind it, and the screen pit inside the corridor so the charge is
+  // refused and every deciding pass emits exactly one command. The only thing that moves between
+  // the two decisions is the opponent's published stun, which is the whole of its exposure here.
+  const auto world_at = [](const std::uint64_t steps, const bool stunned) {
+    CombatFrame world;
+    world.steps = steps;
+    world.holes = charge_terrain(kScreenInsideTheCorridor);
+    world.opponents = {{kFirstOpponent, 400.0, 320.0, 0.0, 0.0, {.stunned = stunned}}};
+    return world;
+  };
+  auto section = combat(1.0, 0.5, 0);
+  section.reaction_delay_ticks = 2;
+  section.objective_weights.hill = 0.25;
+  section.exposure_preference = 1.0;
+  section.minimum_opening = 0.25;
+  auto controller = bot(section);
+  CHECK(controller->decide(combat_observation(world_at(1, true))).empty());
+  CHECK(controller->decision_reason() == Reason::kAwaitingReaction);
+  // A stunned opponent's opening is the stun weight alone, which clears the floor, so the fight is
+  // taken and leased over the hill this profile weights at a quarter.
+  require_go(controller->decide(combat_observation(world_at(3, true))));
+  CHECK(controller->target_key() ==
+        controllers::TacticalObjectiveKey{controllers::TacticalObjectiveKind::kShoveSetup,
+                                          kFirstOpponent});
+  CHECK(controller->target_hold() == Hold::kAcquired);
+  CHECK(controller->decision_reason() == Reason::kChargeGroundEndsFirst);
+  CHECK(controller->objective_work().screened_candidate_count == 2);
+  CHECK(controller->draw_count() == 2);
+  // **The opening closed, and the candidate is absent rather than unselectable.** The leased key is
+  // no longer published, so this takes the same `kLost` path a disappearing objective takes: the
+  // lease is released, the held input is cancelled with an explicit zero, and the reaction window
+  // is re-armed from this tick rather than from the acquisition. It costs no draw, because the pass
+  // returns before the seek.
+  const auto abandoned = controller->decide(combat_observation(world_at(5, false)));
+  require_zero(abandoned);
+  CHECK_FALSE(controller->target_key());
+  CHECK(controller->target_hold() == Hold::kLost);
+  CHECK(controller->decision_reason() == Reason::kAwaitingReaction);
+  REQUIRE(controller->reaction_window().has_value());
+  CHECK(controller->reaction_window()->activation_tick().value() == 5);
+  CHECK(controller->reaction_window()->expiry_tick().value() == 7);
+  CHECK(controller->objective_work().screened_candidate_count == 1);
+  CHECK(controller->draw_count() == 2);
+  // The hill is still there, so the next decision acquires it: abandoning a fight leaves a bot
+  // choosing again, never inert.
+  require_go(controller->decide(combat_observation(world_at(7, false))));
+  CHECK(controller->target_key()->kind == controllers::TacticalObjectiveKind::kHill);
+  CHECK(controller->target_hold() == Hold::kAcquired);
+  CHECK(controller->decision_reason() == Reason::kPursuing);
+  CHECK(controller->draw_count() == 4);
+}
+
+TEST_CASE("Tactical a zero exposure preference decides identically whatever an opponent has spent",
+          "[unit][controllers][tactical][shove][exposure]") {
+  // **This is what protects both browser fixtures.** They author `exposure_preference=0`, so their
+  // bots have to decide exactly as they did before the opening existed -- not nearly, and not to a
+  // tolerance. Two worlds differing in nothing but one opponent's published escapes, a profile that
+  // scores none of them, and the same command down to the last bit.
+  const auto world_with = [](const bool exposed) {
+    CombatFrame world;
+    world.steps = 5;
+    world.holes = charge_terrain(kScreenInsideTheCorridor);
+    world.opponents = {{kFirstOpponent,
+                        400.0,
+                        320.0,
+                        0.0,
+                        0.0,
+                        {.stunned = exposed, .shield_spent = exposed, .charge_spent = exposed}}};
+    return world;
+  };
+  auto against_exposed = bot(combat(1.0, 0.5, 0));
+  auto against_bare = bot(combat(1.0, 0.5, 0));
+  const auto exposed_commands = against_exposed->decide(combat_observation(world_with(true)));
+  const auto bare_commands = against_bare->decide(combat_observation(world_with(false)));
+  require_same_bits(thrust(exposed_commands).direction, thrust(bare_commands).direction);
+  CHECK(against_exposed->target_key() == against_bare->target_key());
+  CHECK(against_exposed->decision_reason() == against_bare->decision_reason());
+  CHECK(against_exposed->draw_count() == against_bare->draw_count());
+  // **And the same two worlds do separate a profile that scores exposure**, which is what makes the
+  // paragraph above a property of the authored zero rather than of a world where nothing was at
+  // stake. Its hill weight is a quarter, so the fight it will take is worth more than the hill and
+  // the fight it will not take is worth nothing at all.
+  auto scoring = combat(1.0, 0.5, 0);
+  scoring.objective_weights.hill = 0.25;
+  scoring.exposure_preference = 1.0;
+  auto takes_it = bot(scoring);
+  auto leaves_it = bot(scoring);
+  require_go(takes_it->decide(combat_observation(world_with(true))));
+  require_go(leaves_it->decide(combat_observation(world_with(false))));
+  CHECK(takes_it->target_key()->kind == controllers::TacticalObjectiveKind::kShoveSetup);
+  CHECK(leaves_it->target_key()->kind == controllers::TacticalObjectiveKind::kHill);
+  CHECK(takes_it->draw_count() == leaves_it->draw_count());
 }

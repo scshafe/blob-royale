@@ -1,19 +1,27 @@
+#include "components/charge_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
+#include "components/hill_presence_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/race_progress_component.hpp"
+#include "components/shield_component.hpp"
+#include "components/stun_component.hpp"
+#include "components/zone_exposure_component.hpp"
 #include "controller_observation_queries.hpp"
 #include "controllers_limits.hpp"
 #include "controllers_validation_error.hpp"
+#include "fixed_delta.hpp"
 #include "fixtures/tactical_observation_fixture.hpp"
 #include "game_simulation.hpp"
 #include "game_simulation_setup.hpp"
 #include "game_world.hpp"
+#include "input_batch.hpp"
 #include "map_definition.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "tactical_objective_candidates.hpp"
 #include "terrain_definition.hpp"
+#include "tick_window.hpp"
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
@@ -23,6 +31,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace controllers = blob_royale::controllers;
@@ -119,6 +128,7 @@ moving_hill_candidates(const controllers::Observation& observation,
 inline constexpr double kSelfRadius = 30.0;
 inline constexpr double kOpponentRadius = 30.0;
 inline constexpr std::uint64_t kFirstOpponent = 100;
+inline constexpr std::uint64_t kSecondOpponent = 101;
 inline constexpr std::uint64_t kNearOpponent = 200;
 inline constexpr std::uint64_t kHazardEntity = 300;
 
@@ -129,6 +139,35 @@ const double kDiagonal = std::sqrt((960.0 * 960.0) + (640.0 * 640.0));
 const double kShoveMargin = kDiagonal * controllers::kTacticalShoveStandoffDiagonalFraction;
 const double kShoveStandoff = kSelfRadius + kOpponentRadius + kShoveMargin;
 
+// **A spent ability cannot be expressed at tick zero**: `Shield::activate` and `Charge::activate`
+// both refuse a zero activation as the loaded initial state, and a window opened at tick one still
+// contains tick one, so "the protection has ended and the cooldown has not" is only reachable from
+// a stepped world. A stun window carries no such rule -- it is plain published state -- so it is
+// authored from tick zero and is the one term a case can read without stepping at all. Only the
+// single-opponent case steps, which is deliberate: the two cases below seat two opponents at one
+// published position to make their candidates exactly equidistant, and stepping bodies that share
+// a point would ask the solver to separate them.
+inline constexpr std::uint64_t kExposureActivationTick = 1;
+inline constexpr std::uint64_t kExposureObservedTick = 5;
+inline constexpr std::uint64_t kExposureStunDurationTicks = 40;
+inline constexpr std::uint64_t kSpentShieldDurationTicks = 2;
+inline constexpr std::uint64_t kProtectingShieldDurationTicks = 200;
+inline constexpr std::uint64_t kSpentCooldownTicks = 400;
+inline constexpr std::uint64_t kParryStunDurationTicks = 40;
+
+// One opponent's five published escapes, authored as the components the quality actually looks for
+// rather than as a number it is told. `shield_protecting` is the sixth flag and the one that is not
+// a term: a guarded body is the *least* exposed thing on the map, so it exists to prove that the
+// shield term reads spentness the way `AbilitySystem` does and not bare presence.
+struct OpponentExposure final {
+  bool stunned{false};
+  bool shield_spent{false};
+  bool shield_protecting{false};
+  bool charge_spent{false};
+  bool outside_zone{false};
+  bool holding_hill{false};
+};
+
 struct CombatOpponent final {
   std::uint64_t entity;
   double x;
@@ -136,6 +175,7 @@ struct CombatOpponent final {
   double velocity_x{0.0};
   double velocity_y{0.0};
   double radius{kOpponentRadius};
+  OpponentExposure exposure{};
 };
 
 struct CombatFrame final {
@@ -156,6 +196,10 @@ struct CombatFrame final {
   double hill_velocity_x{0.0};
   bool race_progress{true};
   std::uint64_t checkpoint{1};
+  // Committed ticks to advance before observing. Zero -- the loaded initial state -- is what every
+  // case written before the exposure quality uses, and stepping is needed only where an ability
+  // window has to have ended.
+  std::uint64_t steps{0};
 };
 
 [[nodiscard]] simulation::PhysicsBody combat_body(const double x, const double y,
@@ -206,6 +250,43 @@ struct CombatFrame final {
       }
     }
   }
+  // The exposure components, written straight into the stores the quality reads. Nothing derives
+  // them: `ZoneExposure` and `HillPresence` are erasure-based presence flags whose owning systems
+  // do not run behind `engine_defaults`, and the two ability windows are the published values
+  // `AbilitySystem` would have left, so authoring them here is authoring the same public state a
+  // running mode would have published.
+  for (const auto& opponent : frame.opponents) {
+    const auto entity = simulation::EntityId::create(opponent.entity);
+    const auto activation = simulation::TickSequence::create(kExposureActivationTick);
+    if (opponent.exposure.stunned) {
+      world.mutable_store<simulation::Stun>().insert_or_assign(
+          entity, simulation::Stun{simulation::TickWindow::create(simulation::TickSequence::zero(),
+                                                                  kExposureStunDurationTicks)});
+    }
+    if (opponent.exposure.shield_spent) {
+      world.mutable_store<simulation::Shield>().insert_or_assign(
+          entity, simulation::Shield::activate(activation, kSpentShieldDurationTicks, 1,
+                                               kSpentCooldownTicks, kParryStunDurationTicks));
+    }
+    if (opponent.exposure.shield_protecting) {
+      world.mutable_store<simulation::Shield>().insert_or_assign(
+          entity, simulation::Shield::activate(activation, kProtectingShieldDurationTicks,
+                                               kParryStunDurationTicks, kSpentCooldownTicks,
+                                               kParryStunDurationTicks));
+    }
+    if (opponent.exposure.charge_spent) {
+      world.mutable_store<simulation::Charge>().insert_or_assign(
+          entity, simulation::Charge::activate(activation, kSpentCooldownTicks));
+    }
+    if (opponent.exposure.outside_zone) {
+      world.mutable_store<simulation::ZoneExposure>().insert_or_assign(entity,
+                                                                       simulation::ZoneExposure{3});
+    }
+    if (opponent.exposure.holding_hill) {
+      world.mutable_store<simulation::HillPresence>().insert_or_assign(entity,
+                                                                       simulation::HillPresence{4});
+    }
+  }
   if (frame.lethal) {
     const auto hazard = simulation::EntityId::create(kHazardEntity);
     world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
@@ -222,6 +303,10 @@ struct CombatFrame final {
   auto game = simulation::GameSimulation::create(
       simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16), std::move(world),
       simulation::GameSimulationSetup::engine_defaults().with_map(std::move(map)));
+  for (std::uint64_t tick = 0; tick < frame.steps; ++tick) {
+    static_cast<void>(
+        game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty()));
+  }
   return controllers::Observation::create(
       std::make_shared<const simulation::WorldSnapshot>(game.snapshot()),
       simulation::ControllerId::create(fixture::kController));
@@ -273,6 +358,40 @@ shove_subjects(const controllers::TacticalObjectiveCandidates& result) {
   value.charge_screen_diagonal_fraction = charge_screen;
   value.shield_anticipation_ticks = shield_ticks;
   return value;
+}
+
+// The two knobs that read a candidate's opening, moved together and with nothing else moved. Every
+// other field keeps the value a default-constructed policy has, which is the value that reproduces
+// the behaviour before this step -- including `road_caution_fraction`, the one member of the policy
+// that does not default to zero.
+[[nodiscard]] controllers::TacticalObjectivePolicy opening_policy(const double preference,
+                                                                  const double opening_floor) {
+  auto value = policy(1.0, 0.0, 0);
+  value.exposure_preference = preference;
+  value.minimum_opening = opening_floor;
+  return value;
+}
+
+// The world every exposure case shares: no hill, one hazard the standing point is derived from, and
+// the loaded initial tick. The opponents are the caller's.
+[[nodiscard]] CombatFrame exposed_frame(std::vector<CombatOpponent> opponents) {
+  CombatFrame frame;
+  frame.hills = 0;
+  frame.holes = {hole("standoff_pit", 400.0, 400.0, 30.0)};
+  frame.opponents = std::move(opponents);
+  return frame;
+}
+
+// The opening one lone shove candidate carries under one authored preference, with no floor so that
+// nothing is dropped and the quality itself is what is read. This is the one exposure world that is
+// stepped, because it is the one with a single body and therefore nothing for the solver to do.
+[[nodiscard]] double lone_opening(const OpponentExposure& exposure, const double preference) {
+  auto frame = exposed_frame({{kFirstOpponent, 400.0, 320.0, 0.0, 0.0, kOpponentRadius, exposure}});
+  frame.steps = kExposureObservedTick;
+  const auto result = combat_candidates(combat_observation(frame), opening_policy(preference, 0.0));
+  REQUIRE(result.candidates.size() == 1);
+  REQUIRE(result.candidates.front().key.kind == controllers::TacticalObjectiveKind::kShoveSetup);
+  return result.candidates.front().opening;
 }
 } // namespace
 
@@ -401,6 +520,34 @@ TEST_CASE("Tactical utility keeps its written multiply subtract add order and it
   const auto full_risk = policy(0.8, 1.0, 0);
   CHECK(controllers::tactical_candidate_score(blocked, full_risk, false) ==
         controllers::tactical_candidate_score(clear, full_risk, false));
+  // **The opening is the third factor and its default is one, so every score above is the score
+  // this rule computed before the opening existed.** That default is not a style choice: the other
+  // members of `TacticalObjectiveCandidate` default to zero and false, `scored()` initialises only
+  // six of them, and the four mode kinds have no opponent to be exposed -- so an `opening{}` would
+  // have multiplied every hill, zone, gate and recovery preference by zero, silently, because the
+  // aggregate is well formed with either initializer and no compiler can tell them apart.
+  CHECK(clear.opening == 1.0);
+  CHECK(blocked.opening == 1.0);
+  // The four-member aggregate initialization every provider uses, written out here so the default
+  // is proven at the shape that actually builds candidates in production and not only through
+  // `scored()`.
+  const controllers::TacticalObjectiveCandidate bare{{controllers::TacticalObjectiveKind::kHill, 9},
+                                                     simulation::Vector2::create(0.0, 0.0),
+                                                     0.0,
+                                                     0.0};
+  CHECK(bare.opening == 1.0);
+  CHECK(bare.objective_velocity_x == 0.0);
+  CHECK(bare.objective_velocity_y == 0.0);
+  // A half opening halves the preference term and leaves the penalty and the bonus where they are,
+  // which is what keeps the product inside the unit interval the penalty already lives in.
+  auto narrow = clear;
+  narrow.opening = 0.5;
+  CHECK(controllers::tactical_candidate_score(narrow, tolerant, false) ==
+        ((0.8 * (1.0 - 0.5) * 0.5) - 0.0) + 0.0);
+  auto narrow_blocked = blocked;
+  narrow_blocked.opening = 0.5;
+  CHECK(controllers::tactical_candidate_score(narrow_blocked, tolerant, false) ==
+        ((0.8 * (1.0 - 0.5) * 0.5) - (1.0 - 0.25)) + 0.0);
 }
 
 TEST_CASE("Tactical selection takes the maximum and breaks exact ties on the stable kind ordinal",
@@ -410,7 +557,13 @@ TEST_CASE("Tactical selection takes the maximum and breaks exact ties on the sta
       scored(controllers::TacticalObjectiveKind::kHill, 7, 0.9, false),
       scored(controllers::TacticalObjectiveKind::kHill, 8, 0.1, false)};
   CHECK(controllers::tactical_select_candidate(set, even, std::nullopt) == 1);
-  CHECK(controllers::tactical_select_candidate({}, even, std::nullopt) == 0);
+  // **The empty optional is reachable for an empty set and for nothing else**, which is the whole
+  // of what the return type now promises. Before it, this line read `== 0` against a
+  // `candidates.size()` sentinel that was also a legal index, so it asserted the same thing an
+  // out-of-range answer would have; a caller could index with it and read inside the reserved but
+  // unfilled tail of the vector without a sanitizer noticing.
+  CHECK_FALSE(controllers::tactical_select_candidate({}, even, std::nullopt).has_value());
+  CHECK(controllers::tactical_select_candidate(set, even, std::nullopt).has_value());
   // Held targets win a comparison they would otherwise lose, by exactly the bonus and no more.
   const auto held = controllers::TacticalObjectiveKey{controllers::TacticalObjectiveKind::kHill, 7};
   set[0].normalized_distance = 0.2;
@@ -432,9 +585,9 @@ TEST_CASE("Tactical selection takes the maximum and breaks exact ties on the sta
   std::vector<controllers::TacticalObjectiveCandidate> tied{
       scored(controllers::TacticalObjectiveKind::kZone, 4, 0.5, false),
       scored(controllers::TacticalObjectiveKind::kHill, 3, 0.5, false)};
-  const auto first = tied[controllers::tactical_select_candidate(tied, even, std::nullopt)].key;
+  const auto first = tied[*controllers::tactical_select_candidate(tied, even, std::nullopt)].key;
   std::ranges::reverse(tied);
-  const auto second = tied[controllers::tactical_select_candidate(tied, even, std::nullopt)].key;
+  const auto second = tied[*controllers::tactical_select_candidate(tied, even, std::nullopt)].key;
   CHECK(first == second);
   CHECK(first.kind == controllers::TacticalObjectiveKind::kHill);
 }
@@ -487,11 +640,32 @@ TEST_CASE("Tactical hill intercept extrapolates the published committed velocity
   CHECK(predicted.candidates.front().target == simulation::Vector2::create(610.0, 320.0));
   CHECK(predicted.candidates.front().squared_distance == 410.0 * 410.0);
   CHECK(predicted.work.prediction_step_count == 2);
+  CHECK(predicted.candidates.front().objective_velocity_x == 40.0);
+  CHECK(predicted.candidates.front().objective_velocity_y == 0.0);
   // A zero horizon holds the published centre, so every stationary-hill behaviour is unchanged.
   const auto held = moving_hill_candidates(observation, policy(1.0, 1.0, 0));
   REQUIRE(held.candidates.size() == 1);
   CHECK(held.candidates.front().target == simulation::Vector2::create(600.0, 320.0));
   CHECK(held.work.prediction_step_count == 0);
+  // **The motion is carried whether or not it is predicted over**, because the arrival brake reads
+  // it at a zero horizon too and this is the one place the store is already consulted. Carrying it
+  // is what keeps every later reader from rebuilding an `EntityId` out of `key.subject`, which is a
+  // throw for any subject outside the published range and therefore a permanently inert bot.
+  CHECK(held.candidates.front().objective_velocity_x == 40.0);
+  CHECK(held.candidates.front().objective_velocity_y == 0.0);
+  // Structural zeros everywhere else: a hill that publishes no `HillMotion`, and the two kinds
+  // whose objectives are authored terrain that publishes motion of no kind at all.
+  fixture::Frame still;
+  const auto stationary = candidates(still, policy(1.0, 1.0, 100));
+  REQUIRE(stationary.candidates.size() == 1);
+  CHECK(stationary.candidates.front().objective_velocity_x == 0.0);
+  CHECK(stationary.candidates.front().objective_velocity_y == 0.0);
+  still.mode = fixture::Mode::kRace;
+  const auto gate = candidates(still, policy(1.0, 1.0, 100));
+  REQUIRE(gate.candidates.size() == 1);
+  CHECK(gate.candidates.front().key.kind == controllers::TacticalObjectiveKind::kRaceGate);
+  CHECK(gate.candidates.front().objective_velocity_x == 0.0);
+  CHECK(gate.candidates.front().objective_velocity_y == 0.0);
 }
 
 TEST_CASE("Tactical bounded work reaches its derived ceiling and never passes it",
@@ -824,4 +998,215 @@ TEST_CASE("Tactical shove opponent lookup is the one owner of which body a candi
                                                          kFirstOpponent, 0.0, false)) == nullptr);
   CHECK(controllers::tactical_shove_opponent_body(observation.snapshot(),
                                                   shove_key(kNearOpponent)) == nullptr);
+}
+
+TEST_CASE("Tactical exposure is a fixed-order weighted sum of five published booleans",
+          "[unit][controllers][tactical_objectives][shove][exposure]") {
+  // **Every term is a boolean and nothing here divides by anything.** The natural ratio spellings
+  // -- exposure ticks over the elimination grace, presence ticks over the point interval, cooldown
+  // remaining over an authored cooldown -- each divide by a denominator this codebase documents as
+  // legally zero, and two of those denominators live in `mode_state`, which this provider is
+  // documented never to read. Reading the wrong variant arm throws `std::bad_variant_access`,
+  // `ControllerHost` catches it, and `TacticalController` assigns its state only after
+  // `decide_next` returns -- so the bot would repeat the throwing pass forever rather than make one
+  // bad decision. The five components below need no denominator at all.
+  CHECK(lone_opening({.stunned = true}, 1.0) == controllers::kTacticalExposureStunWeight);
+  CHECK(lone_opening({.shield_spent = true}, 1.0) ==
+        controllers::kTacticalExposureShieldSpentWeight);
+  CHECK(lone_opening({.charge_spent = true}, 1.0) ==
+        controllers::kTacticalExposureChargeSpentWeight);
+  CHECK(lone_opening({.outside_zone = true}, 1.0) ==
+        controllers::kTacticalExposureOutsideZoneWeight);
+  CHECK(lone_opening({.holding_hill = true}, 1.0) == controllers::kTacticalExposureHillHoldWeight);
+  // **Spent, not merely present.** A shield's cooldown starts at its activation, so bare presence
+  // would score a body that is protected *right now* as the most exposed thing on the map. The same
+  // component, inside its protection window rather than past it, contributes nothing.
+  CHECK(lone_opening({.shield_protecting = true}, 1.0) == 0.0);
+  // Nothing published is no exposure, and everything published is exactly the top of the interval:
+  // the five weights are negative powers of two, so the sum is exact under any association.
+  CHECK(lone_opening({}, 1.0) == 0.0);
+  CHECK(lone_opening({.stunned = true,
+                      .shield_spent = true,
+                      .charge_spent = true,
+                      .outside_zone = true,
+                      .holding_hill = true},
+                     1.0) == 1.0);
+  // **A zero preference leaves every opening at exactly one**, which is the value every candidate
+  // of every other kind carries and the value that reproduces the score before exposure existed.
+  // It is asserted against both ends of the quality, because an implementation that multiplied
+  // rather than interpolated would agree with this on the exposed opponent and disagree on the
+  // bare one.
+  CHECK(lone_opening({}, 0.0) == 1.0);
+  CHECK(lone_opening({.stunned = true,
+                      .shield_spent = true,
+                      .charge_spent = true,
+                      .outside_zone = true,
+                      .holding_hill = true},
+                     0.0) == 1.0);
+  // Between the ends it interpolates, in the written order: `exposure * preference + (1 -
+  // preference)`, which is one at a zero preference and the quality itself at a full one.
+  CHECK(lone_opening({.stunned = true}, 0.5) ==
+        (controllers::kTacticalExposureStunWeight * 0.5) + 0.5);
+  CHECK(lone_opening({}, 0.5) == 0.5);
+  // **A mode candidate is untouched by any of it**, because the four mode kinds have no opponent to
+  // be exposed and the collector could not have answered the question for them. This is the
+  // assertion that would fail if `opening` ever defaulted to zero.
+  CombatFrame moded;
+  moded.holes = {hole("standoff_pit", 400.0, 400.0, 30.0)};
+  moded.opponents = {{kFirstOpponent, 400.0, 320.0}};
+  const auto mixed = combat_candidates(combat_observation(moded), opening_policy(1.0, 0.0));
+  REQUIRE(mixed.candidates.size() == 2);
+  CHECK(mixed.candidates.front().key.kind == controllers::TacticalObjectiveKind::kHill);
+  CHECK(mixed.candidates.front().opening == 1.0);
+}
+
+TEST_CASE("Tactical exposure reorders two equidistant shove candidates and only exposure does",
+          "[unit][controllers][tactical_objectives][shove][exposure]") {
+  // Two opponents at one published position, which is the only way to make two shove candidates
+  // *exactly* equidistant: both standing points come out of the same hazard through the same
+  // arithmetic, so every screened field but the subject and the opening is bit for bit identical
+  // and the opening is the only thing left that can decide.
+  const auto frame = exposed_frame(
+      {{kFirstOpponent, 400.0, 320.0},
+       {kSecondOpponent, 400.0, 320.0, 0.0, 0.0, kOpponentRadius, {.stunned = true}}});
+  const auto observation = combat_observation(frame);
+  const auto indifferent = combat_candidates(observation, opening_policy(0.0, 0.0));
+  REQUIRE(indifferent.candidates.size() == 2);
+  CHECK(indifferent.candidates[0].squared_distance == indifferent.candidates[1].squared_distance);
+  CHECK(indifferent.candidates[0].target == indifferent.candidates[1].target);
+  CHECK(indifferent.candidates[0].opening == 1.0);
+  CHECK(indifferent.candidates[1].opening == 1.0);
+  const auto tied = controllers::tactical_select_candidate(indifferent.candidates,
+                                                           opening_policy(0.0, 0.0), std::nullopt);
+  REQUIRE(tied.has_value());
+  CHECK(indifferent.candidates[*tied].key.subject == kFirstOpponent);
+
+  // The same two candidates under a profile that scores exposure. Nothing about the world moved.
+  const auto preferring = combat_candidates(observation, opening_policy(1.0, 0.0));
+  REQUIRE(preferring.candidates.size() == 2);
+  CHECK(preferring.candidates[0].opening == 0.0);
+  CHECK(preferring.candidates[1].opening == controllers::kTacticalExposureStunWeight);
+  const auto exposed = controllers::tactical_select_candidate(
+      preferring.candidates, opening_policy(1.0, 0.0), std::nullopt);
+  REQUIRE(exposed.has_value());
+  CHECK(preferring.candidates[*exposed].key.subject == kSecondOpponent);
+  // **This is the reordering the multiplication exists for**, and it is only visible with the kind
+  // held constant: with one kind in the set the weight is a common factor and reorders nothing, so
+  // exposure had to enter a factor the kind cannot supply.
+  CHECK(preferring.candidates[0].key.kind == preferring.candidates[1].key.kind);
+}
+
+TEST_CASE("Tactical minimum opening drops a low-value fight rather than yielding an unselectable "
+          "candidate",
+          "[unit][controllers][tactical_objectives][shove][exposure]") {
+  const auto frame = exposed_frame(
+      {{kFirstOpponent, 400.0, 320.0},
+       {kSecondOpponent, 400.0, 320.0, 0.0, 0.0, kOpponentRadius, {.stunned = true}}});
+  const auto observation = combat_observation(frame);
+  // A zero floor admits every fight, which is what a profile that fights whoever is nearest
+  // authors and what every case written before this step effectively had.
+  CHECK(combat_candidates(observation, opening_policy(1.0, 0.0)).candidates.size() == 2);
+  // **The drop happens in the provider and not in selection**, so the bare opponent produces no
+  // candidate at all rather than one nothing can prefer: the raw count falls with the screened one.
+  const auto floored = combat_candidates(observation, opening_policy(1.0, 0.25));
+  REQUIRE(floored.candidates.size() == 1);
+  CHECK(floored.candidates.front().key.subject == kSecondOpponent);
+  CHECK(floored.work.raw_candidate_count == 1);
+  CHECK(floored.work.screened_candidate_count == 1);
+  // The floor is a floor and not a strict threshold: an opening exactly equal to it is taken.
+  const double stun = controllers::kTacticalExposureStunWeight;
+  CHECK(combat_candidates(observation, opening_policy(1.0, stun)).candidates.size() == 1);
+  CHECK(combat_candidates(
+            observation,
+            opening_policy(1.0, std::nextafter(stun, std::numeric_limits<double>::infinity())))
+            .candidates.empty());
+  // Both fights refused is an empty set and not a failure, and the selector answers it with the
+  // empty optional rather than with an index the caller could use.
+  const auto refused = combat_candidates(observation, opening_policy(1.0, 1.0));
+  CHECK(refused.candidates.empty());
+  CHECK(refused.work.raw_candidate_count == 0);
+  CHECK(refused.disposition == controllers::TacticalObjectiveDisposition::kReady);
+  CHECK_FALSE(controllers::tactical_select_candidate(refused.candidates, opening_policy(1.0, 1.0),
+                                                     std::nullopt)
+                  .has_value());
+  // A profile that scores no exposure carries an opening of one on every candidate, so the same
+  // full floor refuses nothing at all -- the floor reads the profile's own opening and not the
+  // quality behind it.
+  CHECK(combat_candidates(observation, opening_policy(0.0, 1.0)).candidates.size() == 2);
+}
+
+TEST_CASE("Tactical a zero shove weight skips the opponent provider outright",
+          "[unit][controllers][tactical_objectives][shove][utility]") {
+  // **A provider-level skip and not a selection-level veto**, which is the difference that makes it
+  // safe: the profile produces no shove candidate rather than an unselectable one, so there is no
+  // all-vetoed case to answer, no new reason code, and no change to what a zero weight means for
+  // the four mode kinds.
+  CombatFrame frame;
+  frame.holes = {hole("standoff_pit", 400.0, 400.0, 30.0)};
+  frame.opponents = {{kFirstOpponent, 400.0, 320.0}};
+  const auto observation = combat_observation(frame);
+  const auto shove_ordinal =
+      controllers::tactical_objective_kind_ordinal(controllers::TacticalObjectiveKind::kShoveSetup);
+  auto faint = policy(1.0, 0.0, 0);
+  faint.objective_weights[shove_ordinal] = std::numeric_limits<double>::denorm_min();
+  const auto kept = combat_candidates(observation, faint);
+  CHECK(kept.candidates.size() == 2);
+  CHECK(kept.work.raw_candidate_count == 2);
+  // The smallest positive weight still runs the provider: the skip is authored zero and nothing
+  // else, exactly as the degenerate-weight rejection one file over rejects an omission rather than
+  // a faint preference.
+  auto skipping = policy(1.0, 0.0, 0);
+  skipping.objective_weights[shove_ordinal] = 0.0;
+  const auto skipped = combat_candidates(observation, skipping);
+  REQUIRE(skipped.candidates.size() == 1);
+  CHECK(skipped.candidates.front().key.kind == controllers::TacticalObjectiveKind::kHill);
+  CHECK(skipped.work.raw_candidate_count == 1);
+  CHECK(skipped.work.screened_candidate_count == 1);
+  const auto chosen =
+      controllers::tactical_select_candidate(skipped.candidates, skipping, std::nullopt);
+  REQUIRE(chosen.has_value());
+  CHECK(skipped.candidates[*chosen].key.kind == controllers::TacticalObjectiveKind::kHill);
+  // A negative zero is an authored zero and not a distinct weight, which is the reading the
+  // degenerate-set rule already takes.
+  skipping.objective_weights[shove_ordinal] = -0.0;
+  CHECK(combat_candidates(observation, skipping).candidates.size() == 1);
+}
+
+TEST_CASE("Tactical race recovery reads the profile caution and its floor is the gate radius over "
+          "the road half width",
+          "[unit][controllers][tactical_objectives][race]") {
+  // **The floor is not a written number, it is a ratio of two published ones**: the recovery
+  // threshold is `fraction * half_width`, and any fraction below `gate_radius / half_width` puts
+  // that threshold inside the gate -- so a bot standing on a gate, off the centreline but within
+  // the gate's own radius, is pulled off the objective it has already reached. The shipped
+  // `cautious_racer` authors 0.6 against the 0.5714 this ratio comes to on `circuit-960x640`; this
+  // fixture's road is 80 wide and its gates are 20, so the same floor here is exactly a quarter.
+  fixture::Frame frame;
+  frame.mode = fixture::Mode::kRace;
+  frame.checkpoint = 1;
+  frame.x = 600.0;
+  frame.y = 340.0;
+  const double gate_radius = fixture::race_course().checkpoint_radius;
+  const double half_width = 80.0; // `race_terrain()`'s `selected_lane`.
+  const double caution_floor = gate_radius / half_width;
+  auto standing = policy(1.0, 0.0, 0);
+  standing.road_caution_fraction = caution_floor;
+  const auto on_the_gate = candidates(frame, standing);
+  REQUIRE(on_the_gate.candidates.size() == 1);
+  CHECK(on_the_gate.candidates.front().key.kind == controllers::TacticalObjectiveKind::kRaceGate);
+  CHECK(on_the_gate.candidates.front().arrival_radius == gate_radius);
+  // Arrived, which is the whole claim: the bot is standing on the gate and has nowhere to go.
+  CHECK(on_the_gate.candidates.front().squared_distance == gate_radius * gate_radius);
+  // One representable step below the floor inverts it. Nothing else about the world moved.
+  auto below = standing;
+  below.road_caution_fraction = std::nextafter(caution_floor, 0.0);
+  const auto pulled_off = candidates(frame, below);
+  REQUIRE(pulled_off.candidates.size() == 1);
+  CHECK(pulled_off.candidates.front().key.kind ==
+        controllers::TacticalObjectiveKind::kRaceRecovery);
+  CHECK(pulled_off.candidates.front().arrival_radius == 0.0);
+  // A policy nobody filled in races exactly as it did before this key existed, which is why this is
+  // the one member of `TacticalObjectivePolicy` that does not default to zero.
+  CHECK(controllers::TacticalObjectivePolicy{}.road_caution_fraction ==
+        controllers::kDefaultRacerCautionFraction);
 }

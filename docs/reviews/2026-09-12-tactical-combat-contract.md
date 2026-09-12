@@ -369,12 +369,27 @@ git diff --check
 `run-benchmarks-linux` is dropped and that is now verified rather than inherited: no file under
 `benchmarks/` contains a `[bot_profile]` section, and no replay fixture seats a tactical bot, so no
 accepted golden and no benchmark hash can move. `unit.application` carries the configuration
-fixture; `fixtures` carries `deployment_fixture_tests.cpp`, which parses the shipped configuration
-and is the only C++ lane that sees `config/blob-royale.cfg`; `verify-fuzz-regressions` carries five
+fixture; `fixtures` carries `deployment_fixture_tests.cpp`, which parses the **deployment**
+configuration (see the dated correction below); `verify-fuzz-regressions` carries five
 `[bot_profile]` documents; `verify-browser-e2e` is mandatory because both e2e fixtures author
 sections and three new required keys stop both servers starting. `unit.gameplay` is inherited from
 22a's shape rather than earned — nothing here touches gameplay — and is kept as cheap insurance.
 `verify-web` likewise. Say both plainly rather than implying a dependency.
+
+**Correction, 2026-09-12 (Step 22c).** The sentence above originally read "`fixtures` carries
+`deployment_fixture_tests.cpp`, which parses the shipped configuration and is the only C++ lane that
+sees `config/blob-royale.cfg`". **That was false, and Step 22b's three new keys shipped on it.**
+`deployment_fixture_tests.cpp` loads `BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY`, which
+`tests/fixtures/CMakeLists.txt` defines as `deploy/ubuntu-pc` — a configuration that declares no
+`[bot_profile]` section at all. Nothing in the tree parsed `config/blob-royale.cfg`: it was
+referenced only by `scripts/verify-linux` and `scripts/assemble-release-linux`, so the `steady`
+section since Step 15, Step 22a's six keys and Step 22b's three all shipped with **zero automated
+parse coverage**. Root verified by hand after Step 22b that the shipped configuration loads and the
+server reaches `running`, so nothing was broken by this step — but that is a one-off check and not a
+gate. Step 22c closes the hole with a second `fixtures`-lane case, behind
+`BLOB_ROYALE_SHIPPED_CONFIGURATION_FIXTURE_DIRECTORY`, that loads `config/blob-royale.cfg` through
+`ApplicationConfigLoader` and asserts the catalogue holds exactly its five profile names. Nothing
+else in this document is amended: it remains the record of what Step 22b was specified to do.
 
 Prove: a shove candidate is produced, screened and selected on a published opponent; the target is S
 and not the opponent; `escape_blocked` keeps one meaning; per-provider budgets hold and the merged

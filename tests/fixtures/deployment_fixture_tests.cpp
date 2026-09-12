@@ -1,18 +1,23 @@
 #include "application_config.hpp"
 #include "application_config_loader.hpp"
+#include "bot_profile_name.hpp"
 #include "game_mode_registry.hpp"
 #include "map_loader.hpp"
 #include "match_startup_validation.hpp"
 #include "server_config.hpp"
 #include "shared/hazard_archetype.hpp"
+#include "tactical_objective_candidates.hpp"
+#include "tactical_profile.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <span>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -29,6 +34,25 @@ using blob_royale::application::ApplicationConfigLoader;
 [[nodiscard]] ApplicationConfigLoader::Result load_deployment_inputs() {
   const std::filesystem::path deployment_directory{BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY};
   const std::string configuration_path = (deployment_directory / "blob-royale.cfg").string();
+  const std::array<const char*, 3> arguments = {"blob-royale", "--config",
+                                                configuration_path.c_str()};
+  return ApplicationConfigLoader::load(static_cast<int>(arguments.size()), arguments.data());
+}
+
+// Loads the SHIPPED `config/blob-royale.cfg` through the same production parser, in the same shape
+// `scripts/verify-linux` launches it: the configuration alone, no scenario.
+//
+// **Nothing else in this tree parses that file.** The fixture above loads `deploy/ubuntu-pc`, which
+// declares no `[bot_profile]` section at all; the two browser fixtures pin their own configurations
+// and their own two profiles; and the shipped one was referenced only by `scripts/verify-linux` and
+// `scripts/assemble-release-linux`, neither of which is a C++ gate. Every `[bot_profile.steady]`
+// key since Step 15, and every one of the four named personalities beside it, therefore shipped
+// with no automated parse coverage whatsoever -- a hand check at the time of writing, not a gate.
+// This is the gate.
+[[nodiscard]] ApplicationConfigLoader::Result load_shipped_configuration() {
+  const std::filesystem::path configuration_directory{
+      BLOB_ROYALE_SHIPPED_CONFIGURATION_FIXTURE_DIRECTORY};
+  const std::string configuration_path = (configuration_directory / "blob-royale.cfg").string();
   const std::array<const char*, 3> arguments = {"blob-royale", "--config",
                                                 configuration_path.c_str()};
   return ApplicationConfigLoader::load(static_cast<int>(arguments.size()), arguments.data());
@@ -187,4 +211,62 @@ TEST_CASE("the deployed hazard table is the one intended and fits the snapshot e
   CHECK(application_config.lobbies_configuration().count() == 4);
   CHECK_NOTHROW(blob_royale::application::require_lobby_fits_map(
       *mode, application_config.match_configuration().lobby_seat_count(), map));
+}
+
+TEST_CASE("the shipped configuration parses and carries exactly the five authored profiles",
+          "[fixtures][deployment][tactical]") {
+  // The names are pinned in the order the file declares them, because the loader preserves that
+  // order and a roster line names a profile by exactly this text. A renamed section is not a
+  // cosmetic edit either: `tactical_seed_identity.hpp` mixes a profile name's length and every one
+  // of its bytes into the per-bot seed, so a rename changes that bot's draws without changing one
+  // authored number.
+  const ApplicationConfigLoader::Result result = load_shipped_configuration();
+  REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
+  const blob_royale::application::ApplicationConfig& application_config =
+      std::get<ApplicationConfigLoader::RunRequest>(result).application_config();
+  const std::span<const blob_royale::controllers::TacticalProfile> profiles =
+      application_config.tactical_profiles().profiles();
+  constexpr std::array<std::string_view, 5> expected_names{"steady", "keeper", "bully",
+                                                           "opportunist", "cautious_racer"};
+  REQUIRE(profiles.size() == expected_names.size());
+  for (std::size_t index = 0; index < expected_names.size(); ++index) {
+    INFO(expected_names[index]);
+    CHECK(profiles[index].name() == expected_names[index]);
+    CHECK(application_config.tactical_profiles().find(profiles[index].name()) == &profiles[index]);
+  }
+  // Two rules the shipped vectors keep that no bound can enforce, checked here because this is the
+  // only place that sees the shipped vectors at all. Recovery is never weighted below the gate,
+  // because a profile that prefers the gate to the recovery it is offered instead steers at the
+  // gate from off the road and never comes back; and `objective_weight_shove_setup` is the one key
+  // any profile may author at zero, because a zero there skips the opponent provider outright
+  // rather than leaving a candidate nothing can prefer.
+  using Kind = blob_royale::controllers::TacticalObjectiveKind;
+  for (const blob_royale::controllers::TacticalProfile& profile : profiles) {
+    INFO(profile.name().value());
+    CHECK(profile.objective_weight(Kind::kRaceRecovery) >=
+          profile.objective_weight(Kind::kRaceGate));
+    CHECK(profile.objective_weight(Kind::kHill) > 0.0);
+    CHECK(profile.objective_weight(Kind::kZone) > 0.0);
+    CHECK(profile.objective_weight(Kind::kRaceGate) > 0.0);
+    CHECK(profile.objective_weight(Kind::kRaceRecovery) > 0.0);
+    // Strictly positive by domain, so a section that lost the key would have failed the load above
+    // rather than reached this line with a silently inverted racer.
+    CHECK(profile.road_caution_fraction() > 0.0);
+  }
+  // The neutral reference and the one profile that brakes, named rather than derived: `steady`
+  // reproduces the pre-personality behaviour exactly and `keeper` is the only arrival brake and the
+  // only endorsed zero shove weight in the file.
+  const blob_royale::controllers::TacticalProfile* steady =
+      application_config.tactical_profiles().find(
+          blob_royale::simulation::BotProfileName::create("steady"));
+  REQUIRE(steady != nullptr);
+  CHECK(steady->arrival_brake_fraction() == 0.0);
+  CHECK(steady->exposure_preference() == 0.0);
+  CHECK(steady->minimum_opening() == 0.0);
+  const blob_royale::controllers::TacticalProfile* keeper =
+      application_config.tactical_profiles().find(
+          blob_royale::simulation::BotProfileName::create("keeper"));
+  REQUIRE(keeper != nullptr);
+  CHECK(keeper->arrival_brake_fraction() > 0.0);
+  CHECK(keeper->objective_weight(Kind::kShoveSetup) == 0.0);
 }

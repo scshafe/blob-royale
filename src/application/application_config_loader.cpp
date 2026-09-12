@@ -199,8 +199,9 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
 // naming the section it came from. Two copies of that grammar in one library would be the second
 // source of truth this concept exists to avoid.
 //
-// `[bot_profile.steady]` uses the same seam: its thirteen keys are closed, while names are authored
-// in configuration alone. Each domain validates its own collected values after this strict parse.
+// `[bot_profile.steady]` uses the same seam: its seventeen keys are closed, while names are
+// authored in configuration alone. Each domain validates its own collected values after this strict
+// parse.
 enum class ConfigSectionFamily : std::size_t {
   kHazard,
   kBotProfile,
@@ -231,6 +232,10 @@ enum class ConfigFamilyField : std::size_t {
   kBotProfilePredictionHorizonTicks,
   kBotProfileChargeScreenDiagonalFraction,
   kBotProfileShieldAnticipationTicks,
+  kBotProfileRoadCautionFraction,
+  kBotProfileArrivalBrakeFraction,
+  kBotProfileExposurePreference,
+  kBotProfileMinimumOpening,
   kCount,
 };
 
@@ -298,7 +303,11 @@ constexpr std::array<ConfigFamilyFieldSpec, static_cast<std::size_t>(ConfigFamil
          {ConfigSectionFamily::kBotProfile, "risk_tolerance"},
          {ConfigSectionFamily::kBotProfile, "prediction_horizon_ticks"},
          {ConfigSectionFamily::kBotProfile, "charge_screen_diagonal_fraction"},
-         {ConfigSectionFamily::kBotProfile, "shield_anticipation_ticks"}}};
+         {ConfigSectionFamily::kBotProfile, "shield_anticipation_ticks"},
+         {ConfigSectionFamily::kBotProfile, "road_caution_fraction"},
+         {ConfigSectionFamily::kBotProfile, "arrival_brake_fraction"},
+         {ConfigSectionFamily::kBotProfile, "exposure_preference"},
+         {ConfigSectionFamily::kBotProfile, "minimum_opening"}}};
 
 // One declared `[<family>.<instance>]` section: its family, its open name, and one slot per key of
 // the closed schema. The slots a sibling family owns stay empty, which costs a startup-only parse
@@ -811,7 +820,15 @@ parse_tactical_profiles(const StrictIniDocument& document) {
         .charge_screen_diagonal_fraction = parse_double_family_value(
             instance, ConfigFamilyField::kBotProfileChargeScreenDiagonalFraction),
         .shield_anticipation_ticks = parse_unsigned_family_value(
-            instance, ConfigFamilyField::kBotProfileShieldAnticipationTicks)}));
+            instance, ConfigFamilyField::kBotProfileShieldAnticipationTicks),
+        .road_caution_fraction =
+            parse_double_family_value(instance, ConfigFamilyField::kBotProfileRoadCautionFraction),
+        .arrival_brake_fraction =
+            parse_double_family_value(instance, ConfigFamilyField::kBotProfileArrivalBrakeFraction),
+        .exposure_preference =
+            parse_double_family_value(instance, ConfigFamilyField::kBotProfileExposurePreference),
+        .minimum_opening =
+            parse_double_family_value(instance, ConfigFamilyField::kBotProfileMinimumOpening)}));
   }
   return controllers::TacticalProfileCatalogue::create(std::move(profiles));
 }

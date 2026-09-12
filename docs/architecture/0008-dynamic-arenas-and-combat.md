@@ -1780,3 +1780,59 @@ term for one, and Cautious Racer's "avoid expensive fights" needs a zero weight 
 to score zero. None is a profile value, so none could ship as one. When they land, this document
 owes Opportunist's clause a correction too: "distracted" is not observable from published state,
 while "exposed" — an active stun, a shield on cooldown, a spent charge, zone exposure — is.
+
+## Amendment: the four named personalities, 2026-09-12 (plan Step 22c)
+
+Keeper, Bully, Opportunist and Cautious Racer ship as authored profiles of the one tactical
+pipeline. They differ only in numbers; no branch anywhere reads a profile's identity. This entry
+records where § "Tactical personalities without a class per mood" described something the
+implementation does not do, and it distinguishes two cases rather than blurring them: a clause the
+published-state boundary **forbids** is amended, and a clause this step simply **did not build**,
+though it could have, is recorded as deferred. Amending the second kind away would be moving the
+goalposts.
+
+**Amended — Opportunist does not prefer *distracted* targets, only exposed ones.** Nothing in the
+component registry encodes attention or a target, so "distracted" cannot be observed from published
+state and no authored caution recovers it. What ships is an exposure quality built from published
+booleans: an active stun, a shield whose protection has ended while its cooldown still runs, a charge on
+cooldown, standing outside the zone, and holding the hill. It folds
+into the preference term multiplicatively, so an `exposure_preference` of zero reproduces the
+previous score exactly and Opportunist is the one profile that authors it high. "Abandon low-value
+fights" is real and is the same mechanism seen from the other side: a `minimum_opening` threshold
+drops a candidate whose opening has closed, and a dropped candidate is indistinguishable from a
+vanished one, so the existing target-loss path releases the lease and re-arms the reaction window.
+
+**Deferred, not amended — Keeper does not yet defend a stable *interior*.** A hill candidate's
+arrival radius is the *full* published hill radius, so a bot reports arrived one world unit inside
+the rim, where it is trivially shoved out; and the arrival brake this step adds makes that worse
+rather than better, because it stops the bot where it first arrived. The value-keyed fix that stays
+inside this document's own rule is an `arrival_radius_fraction` scaling the published radius so a
+keeper arrives only near the centre. It is buildable from published state today and is named here as
+owed.
+
+**Deferred, not amended — Bully's charge screen is not an "acceptable recovery path".** The screen
+asks whether there is ground under the corridor the body is about to cross. It is never a claim the
+body can stop before leaving that corridor, and a recovery path is about getting back. Both the
+pre-burst braking distance and the arena bounds are published, so this too is buildable and simply
+was not built.
+
+**A limit worth stating because it reads as a bug.** Nothing makes a Bully *shove* with ordinary
+thrust: the only push in the game is the charge, so a Bully whose charge is on cooldown stands at its
+safe-side standing point doing nothing until the cooldown expires. Contact between two moving bodies
+still resolves through the ordinary composition, so a Bully is not inert — but it is not pushing,
+either, and the profile's name promises more than the mechanism delivers.
+
+**Two authoring rules the four vectors encode**, worth stating because violating either produces a
+bot that looks broken rather than badly tuned. A profile's race-recovery weight is never below its
+race-gate weight, because a profile that prefers the gate drives off the road to reach it. And no
+profile authors a zero weight on a kind its running mode produces, because the room chooses the mode
+and a profile cannot: a zero there is not a preference, it is a bot with nothing to do. The one
+endorsed zero is Keeper's shove weight, which skips the opponent-derived provider outright and is
+the honest spelling of "does not hunt".
+
+**The brake is Keeper's parameter, not the pipeline's behaviour.** An unconditional brake would mean
+every profile brakes and Keeper's clause would distinguish nothing, which is what "a profile names
+its parameters" forbids. It is therefore an `arrival_brake_fraction`, with zero reproducing the
+previous coast exactly. It applies to the hill and to no other objective: a zone candidate's arrival
+radius is the zone's own radius and a full zone is the arena half-diagonal, so a brake there would be
+a permanent parking brake on every bot in the default configuration.

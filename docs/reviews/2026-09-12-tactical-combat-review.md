@@ -51,8 +51,13 @@ that earned its cost:
 
 * **A zero-weight veto would have been an out-of-bounds read.** `tactical_select_candidate` returns
   `candidates.size()` for "no winner" and its one caller indexes without a size check, because the
-  empty case is handled earlier. A veto makes a *non-empty* set produce no winner — a container-
-  overflow abort on the sanitizer lane, reachable with a profile the tree deliberately blesses.
+  empty case is handled earlier. A veto makes a *non-empty* set produce no winner, reachable with a
+  profile the tree deliberately blesses. **Corrected by the Step 22c preflight:** this review
+  first called that a container-overflow abort on the sanitizer lane. It would not have been. The
+  candidate vector is `reserve`d at the raw merged count and filled only with screen survivors, so
+  whenever anything is screened out `capacity > size` and the read lands *inside* the live
+  allocation with no sanitizer report — then the lease copies a candidate whose `key.kind` is an
+  arbitrary byte, which indexes a five-element array on the next pass. Silent, and worse.
 * **An unconditional arrival brake would have left bots permanently inert.** Steering emits a bare
   unit direction, so `-v/|v|` at rest is 0/0; the clamp passes NaN through by design and
   `Vector2::create` throws; `ControllerHost` catches and `TacticalController` rolls state back

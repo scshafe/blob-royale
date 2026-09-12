@@ -73,6 +73,18 @@ private:
 // weights at zero. Nothing else in the tree closes that hole: the kind ordinal is a cast and the
 // kind count is a constant, and neither notices an appended enumerator.
 //
+// **Two rules the shipped vectors keep, and no bound here can enforce.** *Recovery is never
+// weighted below the gate*, because a profile that prefers the gate to the recovery it is offered
+// instead steers at the gate from off the road and never comes back. And *no profile authors a zero
+// weight on a kind its running mode produces*, because that kind's preference term is then zero on
+// every candidate the mode offers and the profile ranks the only objective it can pursue by
+// tie-break -- the inexpressiveness `CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHTS_DEGENERATE`
+// refuses for the whole set, arrived at one kind at a time. `objective_weight_shove_setup` is the
+// one exemption, and the only endorsed zero: it skips the opponent provider outright, so it
+// produces no candidate rather than an unpreferred one. Neither rule is checkable here -- a bound
+// cannot see which mode a profile will be seated in -- so both are the author's, and
+// `config/blob-royale.cfg` keeps them across all five shipped profiles.
+//
 // related: tactical_objective_candidates.hpp -- the kind enum, its ordinal, and the scoring rule
 // these weights feed. The dependency runs one way, profile -> kinds; that header must not include
 // this one, or the two become a cycle. A stage needing both belongs in a third module above them.
@@ -130,8 +142,8 @@ tactical_objective_weight_of(const TacticalObjectiveWeights& weights,
   return std::numeric_limits<double>::quiet_NaN();
 }
 
-// canonical: tactical_profile -- nine validated, active settings for one tactical algorithm,
-// authored as thirteen keys of one `[bot_profile.<name>]` section.
+// canonical: tactical_profile -- thirteen validated, active settings for one tactical algorithm,
+// authored as seventeen keys of one `[bot_profile.<name>]` section.
 //
 // Every setting here is read by behaviour landing in the same commit that adds it, which is ADR
 // 0008's legality test for a profile key: the ADR refuses an inert combat knob before its behaviour
@@ -193,6 +205,36 @@ tactical_objective_weight_of(const TacticalObjectiveWeights& weights,
 //   `blob_controllers` links only `blob_runtime` and `blob_simulation`, `AbilityConfiguration`
 //   lives in `blob_gameplay`, and writing `[abilities] shield_perfect_window_seconds` into a
 //   controller bound would be a second authoring home for a value an operator retunes.
+//
+// The four settings the named personalities added, each read by behaviour landing beside it:
+//
+// * `road_caution_fraction` -- **strictly positive, in `(0,1]`**, and the one fraction in this
+//   family whose zero is not an authored answer. The race provider recovers toward the centreline
+//   when `nearest.distance > fraction * road->half_width()`, so a zero recovers unless the body
+//   sits exactly on the line: it *inverts* race behaviour rather than switching it off. The domain
+//   is `RacerController`'s own -- `kMinimumRacerCautionFraction` exclusive through
+//   `kMaximumRacerCautionFraction` inclusive -- because it is the same knob against the same
+//   published half-width, and two domains for one meaning would be the second source of truth this
+//   header refuses elsewhere. Strict positivity is also what turns a positional `Section` site that
+//   value-initialized this trailing double into a loud `create` throw rather than a silently
+//   inverted racer: `AuthoredObjectiveWeight` protects the weights, and nothing protects a bare
+//   `double`.
+// * `arrival_brake_fraction` -- in `[0,1]`, how much of the thrust that would null the objective's
+//   relative motion over one command hold this profile spends once it has arrived. It is read on
+//   an arrived `kHill` candidate and on no other kind -- the collector states why, and why
+//   `kShoveSetup` is deferred rather than impossible. **Zero reproduces the coast bit for bit**,
+//   which is what keeps every shipped `kArrived` assertion and both browser fixtures' motionless
+//   pins unchanged. The arrived branch sits *outside* the seek
+//   draw, so `objective_seek_probability=0` is no protection against a brake and a fixture that
+//   must not move authors this key at zero too.
+// * `exposure_preference` -- in `[0,1]`, how much of a candidate's opening this profile lets scale
+//   its preference term. The opening enters multiplicatively rather than additively, which is what
+//   keeps every term of the score in the unit interval and keeps the escape penalty commensurate;
+//   **zero reproduces the previous score exactly**, leaving the multiplier at one for every
+//   candidate, a raw mode candidate included.
+// * `minimum_opening` -- in `[0,1]`, the opening below which this profile abandons a fight rather
+//   than holding its lease: ADR 0008's "abandon low-value fights" as a number. Zero accepts every
+//   opening and is what a profile that fights whoever is nearest authors.
 // related: tactical_profile_catalogue.hpp -- the bounded, name-unique set of these.
 class TacticalProfile final {
 public:
@@ -217,6 +259,10 @@ public:
     std::uint64_t prediction_horizon_ticks;
     double charge_screen_diagonal_fraction;
     std::uint64_t shield_anticipation_ticks;
+    double road_caution_fraction;
+    double arrival_brake_fraction;
+    double exposure_preference;
+    double minimum_opening;
     friend bool operator==(const Section&, const Section&) = default;
   };
 
@@ -252,6 +298,10 @@ public:
   [[nodiscard]] std::uint64_t shield_anticipation_ticks() const noexcept {
     return shield_anticipation_ticks_;
   }
+  [[nodiscard]] double road_caution_fraction() const noexcept { return road_caution_fraction_; }
+  [[nodiscard]] double arrival_brake_fraction() const noexcept { return arrival_brake_fraction_; }
+  [[nodiscard]] double exposure_preference() const noexcept { return exposure_preference_; }
+  [[nodiscard]] double minimum_opening() const noexcept { return minimum_opening_; }
   friend bool operator==(const TacticalProfile&, const TacticalProfile&) = default;
 
 private:
@@ -266,6 +316,10 @@ private:
   std::uint64_t prediction_horizon_ticks_;
   double charge_screen_diagonal_fraction_;
   std::uint64_t shield_anticipation_ticks_;
+  double road_caution_fraction_;
+  double arrival_brake_fraction_;
+  double exposure_preference_;
+  double minimum_opening_;
 };
 
 } // namespace blob_royale::controllers

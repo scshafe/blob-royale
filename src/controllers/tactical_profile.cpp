@@ -101,6 +101,41 @@ TacticalProfile TacticalProfile::create(const Section& section) {
         ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid,
         context + "shield_anticipation_ticks", "shield anticipation must be an integer in [0,40]");
   }
+  // **The one fraction in this family whose zero is refused, and the domain is `RacerController`'s
+  // rather than a new one.** The race provider recovers when
+  // `nearest.distance > fraction * road->half_width()`, so a zero recovers unless the body sits
+  // exactly on the centreline: it inverts race behaviour instead of disabling it. Refusing it is
+  // also what turns a positional `Section` site that value-initialized this trailing double into a
+  // named throw at the site that made it, which is the protection `AuthoredObjectiveWeight` gives
+  // the weights and nothing gives a bare `double`. `kMinimumProfileValues` in
+  // `tactical_profile_configuration_fixture.hpp` therefore cannot author a zero for this one key as
+  // it does for every other fraction, and authors the inclusive upper bound instead: the low end
+  // this key accepts is not zero, so a zero there would be testing the rejection, not the bound.
+  if (!std::isfinite(section.road_caution_fraction) ||
+      section.road_caution_fraction <= kMinimumRacerCautionFraction ||
+      section.road_caution_fraction > kMaximumRacerCautionFraction) {
+    throw ControllersValidationError(ControllersValidationCode::kTacticalProfileRoadCautionInvalid,
+                                     context + "road_caution_fraction",
+                                     "road caution must be finite in (0,1]");
+  }
+  if (!std::isfinite(section.arrival_brake_fraction) || section.arrival_brake_fraction < 0.0 ||
+      section.arrival_brake_fraction > kMaximumTacticalArrivalBrakeFraction) {
+    throw ControllersValidationError(ControllersValidationCode::kTacticalProfileArrivalBrakeInvalid,
+                                     context + "arrival_brake_fraction",
+                                     "arrival brake must be finite in [0,1]");
+  }
+  if (!std::isfinite(section.exposure_preference) || section.exposure_preference < 0.0 ||
+      section.exposure_preference > kMaximumTacticalExposurePreference) {
+    throw ControllersValidationError(
+        ControllersValidationCode::kTacticalProfileExposurePreferenceInvalid,
+        context + "exposure_preference", "exposure preference must be finite in [0,1]");
+  }
+  if (!std::isfinite(section.minimum_opening) || section.minimum_opening < 0.0 ||
+      section.minimum_opening > kMaximumTacticalMinimumOpening) {
+    throw ControllersValidationError(
+        ControllersValidationCode::kTacticalProfileMinimumOpeningInvalid,
+        context + "minimum_opening", "minimum opening must be finite in [0,1]");
+  }
   return TacticalProfile(simulation::BotProfileName::create(section.profile_name), section);
 }
 
@@ -111,6 +146,10 @@ TacticalProfile::TacticalProfile(simulation::BotProfileName name, const Section&
       objective_weights_(section.objective_weights), risk_tolerance_(section.risk_tolerance),
       prediction_horizon_ticks_(section.prediction_horizon_ticks),
       charge_screen_diagonal_fraction_(section.charge_screen_diagonal_fraction),
-      shield_anticipation_ticks_(section.shield_anticipation_ticks) {}
+      shield_anticipation_ticks_(section.shield_anticipation_ticks),
+      road_caution_fraction_(section.road_caution_fraction),
+      arrival_brake_fraction_(section.arrival_brake_fraction),
+      exposure_preference_(section.exposure_preference), minimum_opening_(section.minimum_opening) {
+}
 
 } // namespace blob_royale::controllers

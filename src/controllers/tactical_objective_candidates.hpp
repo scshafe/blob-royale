@@ -43,13 +43,22 @@ struct TacticalObjectiveKey final {
   friend auto operator<=>(const TacticalObjectiveKey&, const TacticalObjectiveKey&) = default;
 };
 
-// canonical: tactical_objective_candidate -- one objective and the two screening answers selection
-// reads. `squared_distance` stays the raw geometry the arrival test compares against a radius;
+// canonical: tactical_objective_candidate -- one objective, the two screening answers selection
+// reads, and the two answers only the provider that built it can give.
+// `squared_distance` stays the raw geometry the arrival test compares against a radius;
 // `normalized_distance` is that same distance divided by the published arena diagonal, so one
 // authored weight and one authored risk tolerance mean the same thing on this 960-unit fixture map
-// and on a ten-kilometre one. A raw provider candidate carries zero and false for both: only
-// `collect_tactical_objective_candidates` holds the terrain and the arena, so only it may answer
-// them, and a candidate that never reached screening is never selected from.
+// and on a ten-kilometre one. A raw provider candidate carries zero and false for the screening
+// pair: only `collect_tactical_objective_candidates` holds the terrain and the arena, so only it
+// may answer them, and a candidate that never reached screening is never selected from.
+//
+// **`opening` and the published motion run the other way, and that is the amendment.** The
+// ownership rule above used to be the whole rule; it is now half of one. The exposure a shove
+// candidate carries and the velocity a hill candidate is chasing are both answers *only the
+// provider* can give -- the collector holds the terrain and the arena but not the opponent the
+// nearest-N filter kept, nor the `HillMotion` the circle provider already looked up -- so screening
+// copies both through untouched and every other kind carries the neutral value the collector could
+// not have computed for it either.
 struct TacticalObjectiveCandidate final {
   TacticalObjectiveKey key;
   simulation::Vector2 target;
@@ -59,6 +68,29 @@ struct TacticalObjectiveCandidate final {
   double normalized_distance{};
   // Support ends along the horizon ray toward `target`; screening writes it. See the collector.
   bool escape_blocked{};
+  // How little the objective can answer a shove with, in [0,1], already interpolated by the
+  // profile's `exposure_preference`. **The default is one and must stay one**: it multiplies the
+  // preference term, the four mode kinds have no opponent to be exposed and the `candidate()`
+  // helper aggregate-initialises only the first four members, so a `double opening{}` would
+  // silently score every hill, zone, gate and recovery candidate at zero. That is
+  // `AuthoredObjectiveWeight`'s deleted default constructor one layer down, except that the
+  // compiler cannot catch this one -- the aggregate is well formed with either initializer.
+  double opening{1.0};
+  // The objective's own published velocity, flattened to scalars for the reason `ShoveOpponent`
+  // is: `simulation::Vector2` has no default constructor, and a member without a default member
+  // initializer would break the four-member aggregate initialization every provider uses.
+  //
+  // **The hill provider writes it and the arrival brake reads it, so nothing ever rebuilds an
+  // `EntityId` from `key.subject` to ask again.** `kMinimumEntityId` is 1, so a race gate index is
+  // a perfectly legal `EntityId` naming some foreign entity, and `EntityId::create` throws outside
+  // its range -- and a throw on the arrival path is the permanently inert bot the brake exists to
+  // avoid, because `ControllerHost` catches it and `TacticalController` never advances its state.
+  // kZone, kRaceGate and kRaceRecovery carry a structural zero: no zone, gate or recovery point in
+  // this tree publishes motion of any kind. kShoveSetup carries a *deferred* zero -- an opponent's
+  // velocity is published and `tactical_shove_opponent_body` already resolves it -- and the brake
+  // is kHill only, so writing it today would be data no reader has.
+  double objective_velocity_x{};
+  double objective_velocity_y{};
   friend bool operator==(const TacticalObjectiveCandidate&,
                          const TacticalObjectiveCandidate&) = default;
 };
@@ -77,6 +109,18 @@ struct TacticalObjectiveCandidate final {
 // The shove provider, the charge screen and the shield closing test are all reached with this value
 // and the observation and nothing else, so a setting one of them reads has to arrive here or be a
 // second argument list beside it.
+//
+// **And a *mode* provider now reads a profile number too, not only the combat screens.** `race()`
+// took its recovery threshold from the shared `kDefaultRacerCautionFraction` and carried
+// `[[maybe_unused]]` on its policy parameter; it reads `road_caution_fraction` from here instead,
+// so "the policy is what a provider is allowed to know about a profile" is now a rule the mode
+// table obeys as well as the combat path. What has not changed is the direction of the dependency:
+// this is still numbers without a profile.
+//
+// **Every field's default is the value that reproduces the behaviour before it existed**, which is
+// why `road_caution_fraction` is the one member here that does not default to zero. A zero road
+// caution does not disable recovery, it inverts it (`controllers_limits.hpp`), so a default-
+// constructed policy would drive a racer off the road rather than leave it where it was.
 struct TacticalObjectivePolicy final {
   // Indexed by `tactical_objective_kind_ordinal`. A weight scales the proximity term only.
   std::array<double, kTacticalObjectiveKindCount> objective_weights{};
@@ -94,6 +138,17 @@ struct TacticalObjectivePolicy final {
   // Committed ticks the shield closing test extrapolates published motion over. Zero anticipates
   // nothing at all and is a real authored answer, exactly as a zero `prediction_horizon_ticks` is.
   std::uint64_t shield_anticipation_ticks{};
+  // The race provider's recovery threshold, as a fraction of the published road half-width. It is
+  // strictly positive where a profile authors it, and it defaults to the same shared constant the
+  // provider used to name directly, so a policy nobody filled in races exactly as it did before.
+  double road_caution_fraction{kDefaultRacerCautionFraction};
+  // How far a shove candidate's opening is allowed to move it: zero leaves every opening at one
+  // and reproduces the score before this existed, one hands the exposure quality through verbatim.
+  double exposure_preference{};
+  // The opening a shove candidate must clear before the shove provider yields it at all. Zero
+  // admits every fight. This is a *provider* filter and never a selection veto, so a fight below
+  // it is an absent candidate rather than an unselectable one.
+  double minimum_opening{};
   friend bool operator==(const TacticalObjectivePolicy&, const TacticalObjectivePolicy&) = default;
 };
 
@@ -215,6 +270,17 @@ struct TacticalObjectiveCandidates final {
 // every schema".** A schema id is a string a row is matched against; there is no spelling of that
 // row meaning "all of them" that is not a sentinel a later reader would have to know about.
 //
+// **A zero `kShoveSetup` weight skips the shove provider outright, and that is a provider-level
+// skip and not a selection-level veto.** The difference is the whole of why it is safe: the
+// profile produces *no* shove candidate rather than an unselectable one, so there is no all-vetoed
+// case to invent a reason code for, no zero-thrust fallback branch, and no change at all to what a
+// zero weight means for the four mode kinds -- there it still means "I do not care about that
+// objective", scored at zero and outranked, exactly as before. It also saves the entire nearest-N
+// opponent scan and every hazard walk behind it for a profile that could never have acted on the
+// result. A general zero-weight veto in the selection stage would have bought none of that and
+// would have had to answer "what does a bot do when everything is vetoed?", which is a question
+// this pipeline does not otherwise have.
+//
 // **The unsupported-schema throw is unreachable, and the reason lives two layers away.** A sandbox
 // world publishes `NoModeState{}`, whose schema matches no row, so this function throws
 // `CONTROLLERS.TACTICAL_MODE_UNSUPPORTED`; `ControllerHost` catches it and continues, and
@@ -262,6 +328,63 @@ struct TacticalObjectiveCandidates final {
 // no shape kind, so a controller could not tell a lethal hole rim from the harmless outer wall --
 // which outer-map routing makes the one direction a shove accomplishes nothing in.
 //
+// ## The opening: five published booleans, a fixed order, and no division anywhere
+//
+// A shove candidate carries `opening`, which is how little the opponent can answer with. It is a
+// weighted sum of five booleans read in one written order,
+//
+//   exposure = stun + shield spent + charge spent + outside the zone + holding the hill
+//
+// each term the shared weight in `controllers_limits.hpp` or zero, and the opening the profile's
+// own interpolation of it,
+//
+//   opening = (exposure * exposure_preference) + (1 - exposure_preference)
+//
+// so a profile that authors no preference carries an opening of exactly one on every candidate and
+// scores exactly as it did before this existed.
+//
+// **Booleans, because every ratio-shaped quality here is a permanently inert bot.** The natural
+// spellings -- exposure ticks over `elimination_grace_ticks`, presence ticks over
+// `point_interval_ticks`, cooldown remaining over a shield cooldown -- each divide by a denominator
+// this codebase documents as legally zero, and two of those denominators live in `mode_state`,
+// which this provider is documented never to read. `std::get` on the wrong variant arm throws
+// `std::bad_variant_access`; `ControllerHost` catches it and continues; `TacticalController`
+// assigns its state only after `decide_next` returns, so `last_completed_tick` never advances and
+// the bot repeats the same throwing pass forever. The fix costs nothing, because `ZoneExposure` and
+// `HillPresence` are **erasure-based presence flags** -- the systems erase the entry rather than
+// storing a zero -- so "outside the zone" and "holding the hill" are already booleans that need no
+// denominator and no `mode_state` read at all.
+//
+// The two ability terms are the opponent's two published escapes, and each is read the way
+// `AbilitySystem` reads it rather than as bare presence. A shield counts as spent only when its
+// cooldown is still live *and* its protection has already ended: during protection the cooldown is
+// also live, and a guarded opponent is the least exposed thing on the map, so bare presence would
+// have inverted the term. A charge has no protection window and counts as spent on its cooldown
+// alone.
+//
+// **Two limits, recorded rather than left to be discovered.** First, `ZoneExposure` is published
+// only under royale and `HillPresence` only under king of the hill, so under race -- and under
+// every mode a later step adds -- the quality degenerates to the stun term and the two ability
+// cooldowns and can no longer tell two opponents apart by where they are standing. Its reachable
+// maximum falls with it, and nothing renormalises, because renormalising is division and division
+// is the failure above. Second, **nothing here is free**: each of the five terms is one linear scan
+// of one published component store, per kept opponent, so the quality is five scans wide and what
+// bounds it is the nearest-N filter that already bounds the provider and nothing else. The stun
+// term is the cheapest of the five to justify -- one store, one window, no mode behind it, and the
+// only term that still means something under a mode this file has never seen -- which is why it is
+// written first and weighted heaviest. It is not free either.
+//
+// **`minimum_opening` filters here, after the nearest-N filter, and the order is an honest
+// limit.** The floor is applied to each kept opponent's opening, before the hazard walk, so a
+// fight below it costs nothing further and produces no candidate. Running it *before* nearest-N
+// would close a real hole -- the filter can discard the most exposed opponent on distance before
+// the floor ever sees it -- but that cancellation needs 33 or more dynamic controllable bodies
+// against a filter width of `kMaximumTacticalShoveCandidateCount = 32`, and every fixture in this
+// tree seats three. Closing it costs either an O(P x S) rescan or a second N-way merge beside the
+// one `component_join.hpp` declares itself to be, a primitive whose own header records that every
+// prior private copy of it was an engine review finding. So the hole is written down instead of
+// paid for, and it stays written down until a roster in this tree is larger than the width.
+//
 // ## Bounded work
 //
 // **The budget is per provider.** `require_candidate_count` is applied to each provider's own raw
@@ -287,6 +410,8 @@ struct TacticalObjectiveCandidates final {
 // the scan is one allocation-free ascending pass and not an O(P*B) nested lookup.
 // related: ../simulation/terrain_queries.hpp -- the one owner of support geometry.
 // related: ../simulation/component_join.hpp -- the one ordered merge of two ascending stores.
+// related: ../simulation/components/zone_exposure_component.hpp -- the erasure rule that makes two
+// of the opening's five terms booleans instead of ratios.
 // related: tactical_controller.hpp -- the pipeline that scores what this returns.
 [[nodiscard]] TacticalObjectiveCandidates
 collect_tactical_objective_candidates(const Observation& observation,
@@ -416,7 +541,7 @@ tactical_charge_alignment_admits(const Observation& observation,
 
 // canonical: tactical_candidate_utility -- the one written scoring order every profile shares.
 //
-//   preference = weight(kind) * (1 - normalized_distance)
+//   preference = weight(kind) * (1 - normalized_distance) * opening
 //   penalty    = escape_blocked ? (1 - risk_tolerance) : 0
 //   score      = (preference - penalty) + held_bonus
 //
@@ -427,6 +552,15 @@ tactical_charge_alignment_admits(const Observation& observation,
 // short of to one it cannot, and a full-tolerance profile ignores the screen entirely. Nothing here
 // draws from the generator -- selection is deterministic, and the profile's seek and aim draws stay
 // exactly where Step 15 put them, in the same order, so no authored profile's stream moves.
+//
+// **The opening multiplies and is never a fourth additive term**, and that is not a taste
+// question. An additive exposure term destroys the commensurability the paragraph above rests on:
+// the escape penalty is at most 1.0, so any positive coefficient on an added exposure could outrank
+// it, and a maximally cautious profile could be made to prefer a cliff-blocked shove over a clean
+// gate -- the exact statement this file claims is provable rather than a tuning accident. A third
+// factor keeps the product inside [0,1] where the penalty already lives, and it still reorders two
+// same-kind candidates, which is the entire job: with one kind in the set the weight is a common
+// factor and reorders nothing, so exposure has to enter somewhere the *kind* is held constant.
 //
 // **A weight orders two kinds directly as soon as two kinds are in one set**, which the opponent-
 // derived provider is the first thing to arrange: before it, every shipped mode yielded at most one
@@ -452,12 +586,31 @@ tactical_charge_alignment_admits(const Observation& observation,
 // oscillation between two near-equal candidates without ever pinning a bot to a stale one.
 inline constexpr double kTacticalHeldTargetBonus = 0.125;
 
-// The index of the winning candidate, or `candidates.size()` for an empty set -- which the caller
+// The index of the winning candidate, or an empty optional for an empty set -- which the caller
 // has already handled as its own branch, because "nothing survived screening" is a different
 // decision from "this one won". The maximum score wins; an exact tie falls to
 // `tactical_candidate_precedes`, whose chain ends at the stable kind ordinal, so no selection can
 // depend on the order providers happened to push candidates in.
-[[nodiscard]] std::size_t
+//
+// **The optional replaced a `candidates.size()` sentinel, and it fixed a contract rather than a
+// crash.** There was no live out-of-bounds read to fix: the loop's first test short-circuited on
+// `best == candidates.size()`, so on any non-empty set the first iteration assigned index 0
+// unconditionally and the sentinel was unreachable. What was wrong was the *signature*, which
+// promised a value the one caller indexed with. The reason that mattered is what the promise would
+// have cost the first time anything made it reachable -- a zero-weight veto very nearly did. This
+// vector is `reserve`d at the raw merged count and then filled only with terrain-screen survivors,
+// so whenever anything is screened out `capacity > size` and index `size()` lands *inside* the live
+// allocation: a sanitizer reports nothing without container-overflow annotations. The lease would
+// then copy a candidate whose `key.kind` is an arbitrary byte, and the following pass would index a
+// `std::array<double, kTacticalObjectiveKindCount>` with it -- a second, unbounded read. Silent,
+// not caught.
+//
+// **A bare size check was rejected because it is a comment the next caller can ignore.** The
+// optional makes the compiler close the hole at every call site that does not exist yet, which is
+// the discipline this domain already applies one file over: `AuthoredObjectiveWeight`'s deleted
+// default constructor, and the `default`-less switches over the kind enum that turn a sixth kind
+// into a build failure rather than a silent zero.
+[[nodiscard]] std::optional<std::size_t>
 tactical_select_candidate(std::span<const TacticalObjectiveCandidate> candidates,
                           const TacticalObjectivePolicy& policy,
                           const std::optional<TacticalObjectiveKey>& held) noexcept;

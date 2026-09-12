@@ -1,12 +1,17 @@
 #include "tactical_objective_candidates.hpp"
 
 #include "component_join.hpp"
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
+#include "components/hill_presence_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/race_progress_component.hpp"
+#include "components/shield_component.hpp"
+#include "components/stun_component.hpp"
 #include "components/zone_component.hpp"
+#include "components/zone_exposure_component.hpp"
 #include "controller_observation_queries.hpp"
 #include "controller_steering.hpp"
 #include "controllers_limits.hpp"
@@ -73,25 +78,42 @@ template <typename Circle, TacticalObjectiveKind Kind>
   for (const auto& entry : entries) {
     require_radius(entry.value.radius, false);
     auto target = entry.value.center;
+    // Carried as two scalars rather than a `Vector2` for the reason `ShoveOpponent` below is, and
+    // zero for the zone in the same compiled-out way the intercept is: `zone_component.hpp`
+    // publishes no motion at all.
+    double motion_x = 0.0;
+    double motion_y = 0.0;
     if constexpr (std::is_same_v<Circle, simulation::Hill>) {
       const auto* motion = find_observed_component<simulation::HillMotion>(snapshot, entry.entity);
-      if (motion != nullptr && policy.prediction_horizon_ticks > 0) {
-        ++result.work.prediction_step_count;
-        target = tactical_predicted_center(entry.value.center, motion->velocity,
-                                           policy.prediction_horizon_ticks);
+      if (motion != nullptr) {
+        // Written whether or not it is predicted over. The arrival brake needs the hill's own
+        // published motion at a zero horizon too, and this is the one place it is already looked
+        // up -- so the candidate carries it, and no later reader has to rebuild an `EntityId` from
+        // `key.subject` to ask the store again.
+        motion_x = motion->velocity.x();
+        motion_y = motion->velocity.y();
+        if (policy.prediction_horizon_ticks > 0) {
+          ++result.work.prediction_step_count;
+          target = tactical_predicted_center(entry.value.center, motion->velocity,
+                                             policy.prediction_horizon_ticks);
+        }
       }
     }
-    result.candidates.push_back(
-        candidate({Kind, entry.entity.value()}, target, entry.value.radius, body));
+    auto built = candidate({Kind, entry.entity.value()}, target, entry.value.radius, body);
+    built.objective_velocity_x = motion_x;
+    built.objective_velocity_y = motion_y;
+    result.candidates.push_back(built);
   }
   return result;
 }
 
 // A race gate and a recovery point are authored terrain, not moving state, so this provider has
-// nothing to intercept and reads no horizon.
-[[nodiscard]] TacticalObjectiveCandidates
-race(const Observation& observation, const simulation::PhysicsBody& body,
-     [[maybe_unused]] const TacticalObjectivePolicy& policy) {
+// nothing to intercept and reads no horizon. It does read one profile number -- the recovery
+// threshold it used to take from the shared default -- which is why its policy parameter is no
+// longer `[[maybe_unused]]` and why the policy is not only the combat screens' argument.
+[[nodiscard]] TacticalObjectiveCandidates race(const Observation& observation,
+                                               const simulation::PhysicsBody& body,
+                                               const TacticalObjectivePolicy& policy) {
   if (!observation.entity()) {
     return {TacticalObjectiveDisposition::kWaiting, {}, {}};
   }
@@ -119,7 +141,7 @@ race(const Observation& observation, const simulation::PhysicsBody& body,
     return {TacticalObjectiveDisposition::kFinished, {}, {}};
   }
   const auto nearest = simulation::corridor_project_to_centreline(*road, body.position());
-  if (nearest.distance > kDefaultRacerCautionFraction * road->half_width()) {
+  if (nearest.distance > policy.road_caution_fraction * road->half_width()) {
     return {TacticalObjectiveDisposition::kReady,
             {candidate({TacticalObjectiveKind::kRaceRecovery, progress->next_checkpoint},
                        nearest.point, 0.0, body)},
@@ -299,6 +321,66 @@ void offer_hazard(ShoveHazard& best, const ShoveHazard& hazard) noexcept {
   return best;
 }
 
+// One published component of a kept opponent, found by the **raw** entity value the nearest-N
+// filter stored. Deliberately not `find_observed_component`: that takes an `EntityId`, and the only
+// route back to one from a stored integer is `EntityId::create`, which throws outside its range.
+// `tactical_shove_opponent_body` refuses the same rebuild for the same reason -- a throw here is
+// caught by `ControllerHost` and leaves `TacticalController` unadvanced, so the bot repeats the
+// throwing pass on every following pass instead of making one bad decision.
+template <typename Component>
+[[nodiscard]] const Component* find_published_component(const simulation::WorldSnapshot& snapshot,
+                                                        const std::uint64_t entity) noexcept {
+  for (const auto& entry : snapshot.components<Component>()) {
+    if (entry.entity.value() == entity) {
+      return &entry.value;
+    }
+  }
+  return nullptr;
+}
+
+// The exposure quality: five published booleans, summed in one written order with the shared
+// weights of `controllers_limits.hpp` and divided by nothing. The header states why every
+// ratio-shaped spelling of this is a permanently inert bot, and why the two mode components are
+// already booleans that need no `mode_state` read.
+[[nodiscard]] double shove_exposure(const simulation::WorldSnapshot& snapshot,
+                                    const std::uint64_t opponent,
+                                    const simulation::TickSequence now) noexcept {
+  double exposure = 0.0;
+  const auto* stun = find_published_component<simulation::Stun>(snapshot, opponent);
+  if (stun != nullptr && stun->window.contains(now)) {
+    exposure += kTacticalExposureStunWeight;
+  }
+  // Spent, not merely present. A shield's cooldown starts at its activation, so bare presence would
+  // score a body that is protected *right now* as the most exposed thing on the map; the two
+  // windows are read the way `AbilitySystem` reads them.
+  const auto* shield = find_published_component<simulation::Shield>(snapshot, opponent);
+  if (shield != nullptr && !shield->cooldown_window().expired(now) &&
+      !shield->shield_window().contains(now)) {
+    exposure += kTacticalExposureShieldSpentWeight;
+  }
+  // A charge carries no protection window, so its cooldown alone is the whole question.
+  const auto* charge = find_published_component<simulation::Charge>(snapshot, opponent);
+  if (charge != nullptr && !charge->cooldown_window().expired(now)) {
+    exposure += kTacticalExposureChargeSpentWeight;
+  }
+  // Erasure-based presence, both of them: the owning systems remove the entry rather than storing
+  // an explicit zero, so each is a boolean with no denominator behind it.
+  if (find_published_component<simulation::ZoneExposure>(snapshot, opponent) != nullptr) {
+    exposure += kTacticalExposureOutsideZoneWeight;
+  }
+  if (find_published_component<simulation::HillPresence>(snapshot, opponent) != nullptr) {
+    exposure += kTacticalExposureHillHoldWeight;
+  }
+  return exposure;
+}
+
+// The profile's own reading of that quality. A zero preference leaves the opening at exactly one,
+// which is the value every candidate of every other kind carries and the value that reproduces the
+// score before exposure existed; a full one hands the quality through verbatim.
+[[nodiscard]] double shove_opening(const double exposure, const double preference) noexcept {
+  return (exposure * preference) + (1.0 - preference);
+}
+
 // The unconditional provider: one shove candidate per nearby opponent that has somewhere to be
 // shoved. Its target is the safe-side standing point S and never the opponent; the header states
 // why at length, and a "simplification" to the opponent's position breaks `escape_blocked` and
@@ -307,10 +389,20 @@ void offer_hazard(ShoveHazard& best, const ShoveHazard& hazard) noexcept {
 // An opponent is a body carrying a `Controllable` whose `controller_id` is not this observation's.
 // Comparing the durable identity rather than the resolved `EntityId` costs no lookup, needs no
 // `Observation::entity()`, and also excludes a second body of the bot's own controller.
-[[nodiscard]] TacticalObjectiveCandidates
-shove_setup(const Observation& observation, const simulation::PhysicsBody& body,
-            [[maybe_unused]] const TacticalObjectivePolicy& policy) {
+[[nodiscard]] TacticalObjectiveCandidates shove_setup(const Observation& observation,
+                                                      const simulation::PhysicsBody& body,
+                                                      const TacticalObjectivePolicy& policy) {
+  // A profile weighting this kind at zero could never act on anything built below, so it skips the
+  // provider outright: no opponent scan, no hazard walk, and no unselectable candidate the
+  // selection stage would need an opinion about. The comparison is exact because the weight is an
+  // authored, validated number rather than a computed one.
+  if (policy
+          .objective_weights[tactical_objective_kind_ordinal(TacticalObjectiveKind::kShoveSetup)] ==
+      0.0) {
+    return {};
+  }
   const auto& snapshot = observation.snapshot();
+  const auto now = observation.tick_sequence();
   NearestOpponents nearest;
   simulation::for_each_entity_with_both(
       snapshot.components<simulation::PhysicsBody>(),
@@ -330,6 +422,18 @@ shove_setup(const Observation& observation, const simulation::PhysicsBody& body,
   result.candidates.reserve(nearest.count);
   for (std::size_t index = 0; index < nearest.count; ++index) {
     const auto& opponent = nearest.entries[index];
+    // The opening is answered here, after the nearest-N filter and before the hazard walk, so a
+    // fight the profile has already said is not worth taking costs nothing further. The header
+    // records the interaction with the filter as an honest limit: the filter can in principle drop
+    // the most exposed opponent on distance before this floor ever sees it, which needs a roster
+    // larger than `kMaximumTacticalShoveCandidateCount` and no fixture in this tree has one.
+    const double opening =
+        shove_opening(shove_exposure(snapshot, opponent.entity, now), policy.exposure_preference);
+    if (opening < policy.minimum_opening) {
+      // A low-value fight is an absent candidate, not a failure -- the same shape as the absent
+      // hazard below, and the same reason there is no reason code for either.
+      continue;
+    }
     // Both components came out of a published `Vector2`, so this cannot fail its own validation.
     const auto position = simulation::Vector2::create(opponent.x, opponent.y);
     const auto hazard = nearest_shove_hazard(observation, position);
@@ -350,8 +454,12 @@ shove_setup(const Observation& observation, const simulation::PhysicsBody& body,
     }
     // Arrival is the margin, not the standoff: a bot one margin from S on the opponent's side is
     // exactly `r_self + r_opponent` from the opponent, which is contact.
-    result.candidates.push_back(candidate({TacticalObjectiveKind::kShoveSetup, opponent.entity},
-                                          simulation::Vector2::create(x, y), margin, body));
+    auto built = candidate({TacticalObjectiveKind::kShoveSetup, opponent.entity},
+                           simulation::Vector2::create(x, y), margin, body);
+    // The one field only this provider can answer: the collector holds the terrain and the arena,
+    // but not the opponent this candidate is about.
+    built.opening = opening;
+    result.candidates.push_back(built);
   }
   return result;
 }
@@ -596,23 +704,29 @@ double tactical_candidate_score(const TacticalObjectiveCandidate& candidate,
   const double weight =
       policy.objective_weights[tactical_objective_kind_ordinal(candidate.key.kind)];
   const double proximity = 1.0 - candidate.normalized_distance;
-  const double preference = weight * proximity;
+  // Three factors, left to right, never reassociated and never an added fourth term: the header
+  // gives the commensurability argument that makes the multiplication the only correct shape.
+  const double preference = weight * proximity * candidate.opening;
   const double penalty = candidate.escape_blocked ? 1.0 - policy.risk_tolerance : 0.0;
   const double bonus = held ? kTacticalHeldTargetBonus : 0.0;
   return (preference - penalty) + bonus;
 }
 
-std::size_t tactical_select_candidate(const std::span<const TacticalObjectiveCandidate> candidates,
-                                      const TacticalObjectivePolicy& policy,
-                                      const std::optional<TacticalObjectiveKey>& held) noexcept {
-  std::size_t best = candidates.size();
+std::optional<std::size_t>
+tactical_select_candidate(const std::span<const TacticalObjectiveCandidate> candidates,
+                          const TacticalObjectivePolicy& policy,
+                          const std::optional<TacticalObjectiveKey>& held) noexcept {
+  // The empty optional is the same "no winner yet" the size sentinel was, in a type the caller
+  // cannot index with. The comparison order below is unchanged, so an identical set still selects
+  // the identical candidate bit for bit.
+  std::optional<std::size_t> best;
   double best_score = 0.0;
   for (std::size_t index = 0; index < candidates.size(); ++index) {
     const auto& value = candidates[index];
     const double score =
         tactical_candidate_score(value, policy, held.has_value() && *held == value.key);
-    if (best == candidates.size() || score > best_score ||
-        (score == best_score && tactical_candidate_precedes(value, candidates[best]))) {
+    if (!best.has_value() || score > best_score ||
+        (score == best_score && tactical_candidate_precedes(value, candidates[*best]))) {
       best = index;
       best_score = score;
     }

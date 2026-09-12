@@ -36,15 +36,46 @@ declaration(const std::string_view profile = kSteady, const std::string_view kin
 
 // Two whole sections, written positionally so that a new `TacticalProfile::Section` member is
 // visible here as a missing argument rather than as a value. The five weights cannot go short --
-// `AuthoredObjectiveWeight` has no default constructor -- but the two trailing combat scalars can,
-// and a value-initialized zero is legal for both, so they are authored rather than left off.
-// Nothing in reconciliation reads them; they are here to keep this fixture a complete section.
+// `AuthoredObjectiveWeight` has no default constructor -- but every trailing scalar can, and a
+// value-initialized zero is legal for all but one of them, so they are authored rather than left
+// off. Nothing in reconciliation reads any of them; they are here to keep this fixture a complete
+// section.
+//
+// **`road_caution_fraction` is the one a short list could not have hidden.** Its domain is `(0,1]`,
+// so a section that stopped one argument early would fail `TacticalProfile::create` with
+// `CONTROLLERS.TACTICAL_PROFILE_ROAD_CAUTION_INVALID` naming the key rather than seating two bots
+// with an inverted racer. The three personality settings after it are authored at zero, which is
+// the neutral answer for each and the value a short list would have produced anyway.
 [[nodiscard]] inline controllers::TacticalProfileCatalogue profiles() {
   return controllers::TacticalProfileCatalogue::create(
-      {controllers::TacticalProfile::create(
-           {std::string{kSteady}, 1, 80, 0.05, 400, {1.0, 1.0, 1.0, 1.0, 1.0}, 0.5, 80, 0.25, 8}),
-       controllers::TacticalProfile::create(
-           {std::string{kQuick}, 1, 0, 0, 0, {1.0, 1.0, 1.0, 1.0, 1.0}, 0.5, 0, 0.25, 8})});
+      {controllers::TacticalProfile::create({std::string{kSteady},
+                                             1,
+                                             80,
+                                             0.05,
+                                             400,
+                                             {1.0, 1.0, 1.0, 1.0, 1.0},
+                                             0.5,
+                                             80,
+                                             0.25,
+                                             8,
+                                             0.75,
+                                             0,
+                                             0,
+                                             0}),
+       controllers::TacticalProfile::create({std::string{kQuick},
+                                             1,
+                                             0,
+                                             0,
+                                             0,
+                                             {1.0, 1.0, 1.0, 1.0, 1.0},
+                                             0.5,
+                                             0,
+                                             0.25,
+                                             8,
+                                             0.75,
+                                             0,
+                                             0,
+                                             0})});
 }
 
 [[nodiscard]] inline simulation::NpcCatalogue catalogue() {

@@ -7,9 +7,11 @@
 #include "controller_observation_queries.hpp"
 #include "controller_steering.hpp"
 #include "controllers_validation_error.hpp"
+#include "simulation_limits.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <utility>
 
@@ -25,6 +27,15 @@ namespace {
 // same profile *name* with a different weight is a different policy and the same seed, so any
 // behaviour difference is attributable to the weight and not to `tactical_seed_for`, which mixes
 // the name's length and every one of its bytes.
+//
+// **A mode provider reads a profile number through this adapter now too, not only the combat
+// screens.** `road_caution_fraction` is the race provider's recovery threshold, so the policy is no
+// longer "the numbers screening reads"; it is every number a provider or a screen reads, which is
+// what `TacticalObjectivePolicy` already says it is and what `race()` no longer marks unused.
+//
+// `arrival_brake_fraction` is deliberately *not* copied here. The brake is decided in this class,
+// on the arrived branch, and no provider or screen reads it; putting it on the policy would be a
+// field carried to five call sites that ignore it.
 [[nodiscard]] TacticalObjectivePolicy policy_of(const TacticalProfile& profile) noexcept {
   TacticalObjectivePolicy policy;
   policy.objective_weights[tactical_objective_kind_ordinal(TacticalObjectiveKind::kHill)] =
@@ -41,7 +52,85 @@ namespace {
   policy.prediction_horizon_ticks = profile.prediction_horizon_ticks();
   policy.charge_screen_diagonal_fraction = profile.charge_screen_diagonal_fraction();
   policy.shield_anticipation_ticks = profile.shield_anticipation_ticks();
+  policy.road_caution_fraction = profile.road_caution_fraction();
+  policy.exposure_preference = profile.exposure_preference();
+  policy.minimum_opening = profile.minimum_opening();
   return policy;
+}
+
+// canonical: tactical_command_hold -- the committed seconds one thrust command stays in force,
+// which is the brake's denominator and the whole reason that law is deadbeat rather than a gain
+// somebody has to tune.
+//
+// This controller re-decides only when its reaction window expires and returns no command at all on
+// the passes in between, and `PhysicsBody::acceleration` persists until a later thrust replaces it,
+// so one command is held for the profile's own `reaction_delay_ticks` -- or for the snapshot
+// spacing this controller is actually observed at, whichever is longer, because no profile can
+// decide twice inside one published snapshot. That spacing is measured rather than read:
+// `snapshots_per_second` is a `welcome` field and not a snapshot field, so it is not the
+// observation's to hand over, while the tick difference below is the same number and is published.
+//
+// **Strictly positive by construction**, which is one of the three guards keeping the brake off a
+// NaN and therefore keeping a braking profile off the permanently-inert path a throw out of
+// `decide_next` would put it on: `accepts_observation` refuses a repeated or older tick, so the
+// difference is at least one committed tick. An absent `previous` is the first pass of a
+// zero-delay profile and nothing else, because any positive reaction delay spends that pass on
+// `kAwaitingReaction`.
+[[nodiscard]] double
+tactical_command_hold_seconds(const TacticalProfile& profile, const simulation::TickSequence now,
+                              const std::optional<simulation::TickSequence>& previous) noexcept {
+  const std::uint64_t observed_spacing = previous ? now.value() - previous->value() : 1;
+  const std::uint64_t held_ticks = std::max(profile.reaction_delay_ticks(), observed_spacing);
+  return static_cast<double>(held_ticks) * simulation::kFixedDeltaSeconds;
+}
+
+// canonical: tactical_arrival_brake -- the whole `kArrived` thrust: Step 22b's coast, or the
+// deadbeat hold-still command a profile that authored `arrival_brake_fraction` gets instead.
+//
+// One function with the coast inside it rather than a brake behind a caller's `if`, because each
+// guard that returns the coast -- a zero fraction, a kind whose objective publishes no motion, a
+// room whose acceleration is zero -- is a reason this pass has no brake to compute, and keeping
+// them in one place is what makes "zero reproduces the coast bit for bit" checkable in one read
+// rather than argued. The law itself, and why it has no NaN path, no deadband and no overshoot,
+// is in `tactical_controller.hpp`.
+//
+// Written in the law's own order -- negate, divide, scale, clamp -- and never reassociated into one
+// premultiplied scale, for the reason `tactical_candidate_score` gives about its own order: two
+// toolchains must produce the same binary64 command. The negation is spelled as the canonical
+// offset *from* this body's velocity *to* the objective's, which is `-v_relative` written as a
+// subtraction and leaves a matched velocity a positive zero rather than the `-0.0` a unary minus
+// on a zero component would leave.
+[[nodiscard]] simulation::Vector2
+tactical_arrival_brake(const Observation& observation, const simulation::PhysicsBody& body,
+                       const TacticalObjectiveCandidate& selected, const TacticalProfile& profile,
+                       const std::optional<simulation::TickSequence>& previous_decision) {
+  const auto coast = simulation::Vector2::create(0.0, 0.0);
+  const double fraction = profile.arrival_brake_fraction();
+  if (!(fraction > 0.0) || selected.key.kind != TacticalObjectiveKind::kHill) {
+    return coast;
+  }
+  // The published room-wide acceleration one thrust intent is scaled by every tick, which
+  // `simulation_limits.hpp` admits at zero: a room where a full intent produces no acceleration is
+  // a room where a brake produces none either, and the coast is the honest answer rather than the
+  // infinity the division would hand `Vector2::create`.
+  const double acceleration = observation.snapshot().match().movement().current.acceleration();
+  const double hold_seconds =
+      tactical_command_hold_seconds(profile, observation.tick_sequence(), previous_decision);
+  const double divisor = acceleration * hold_seconds;
+  if (!(divisor > 0.0)) {
+    return coast;
+  }
+  // The hill's own published velocity, carried on the candidate by the provider that already looked
+  // it up. Every other kind carries zero there and only `kHill` reaches this line, so this is never
+  // a second `HillMotion` scan and never an `EntityId` rebuilt from `key.subject`. The subtraction
+  // is written out rather than routed through `controller_target_offset`, whose origin/target
+  // vocabulary is positions and whose argument is a `Vector2` these two scalars are deliberately
+  // not; the arithmetic and its order are the same one it performs.
+  const double closing_x = selected.objective_velocity_x - body.velocity().x();
+  const double closing_y = selected.objective_velocity_y - body.velocity().y();
+  return simulation::Vector2::create(
+      clamp_controller_direction_component((closing_x / divisor) * fraction),
+      clamp_controller_direction_component((closing_y / divisor) * fraction));
 }
 
 // canonical: tactical_visible_ability_refusal -- this bot's own published ability windows, read in
@@ -238,7 +327,18 @@ std::vector<simulation::Command> TacticalController::decide_next(const Observati
     const std::optional<TacticalObjectiveKey> held =
         next.lease ? std::optional{next.lease->candidate.key} : std::nullopt;
     const auto chosen = tactical_select_candidate(objectives.candidates, policy, held);
-    const auto& winner = objectives.candidates[chosen];
+    if (!chosen.has_value()) {
+      // The selector's empty answer, answered rather than assumed away. It is unreachable behind
+      // the empty-set branch above -- which is exactly why the old `candidates.size()` sentinel
+      // could sit unhandled here -- and "selection chose nothing" is the same decision as
+      // "screening left nothing", so it takes that branch's reason verbatim instead of inventing a
+      // second name for one outcome. The lease is already released: an empty set is only reachable
+      // with a held key that is no longer published, which the lookup above has dropped.
+      next.reason = TacticalDecisionReason::kNoScreenedCandidate;
+      next.held_direction.reset();
+      return cancelled ? request_thrust(observation, zero) : std::vector<simulation::Command>{};
+    }
+    const auto& winner = objectives.candidates[*chosen];
     if (!held.has_value()) {
       next.hold = TacticalTargetHold::kAcquired;
     } else if (winner.key == *held) {
@@ -272,7 +372,13 @@ std::vector<simulation::Command> TacticalController::decide_next(const Observati
       next.reason = TacticalDecisionReason::kSeekDeclined;
     }
   } else {
+    // Arrived. A profile that authored no brake coasts exactly as it did before this step; one that
+    // did holds itself against the objective's own motion. Same branch, same reason, and no draw
+    // either way -- the seek draw sits in the not-arrived branch above and this one has never
+    // consumed randomness.
     next.reason = TacticalDecisionReason::kArrived;
+    direction =
+        tactical_arrival_brake(observation, *body, selected, profile_, next.last_completed_tick);
   }
   next.held_direction = direction;
   auto commands = request_thrust(observation, direction);

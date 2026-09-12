@@ -32,6 +32,26 @@ inline constexpr controllers::TacticalObjectiveWeights kEqualWeights{1.0, 1.0, 1
 inline constexpr double kChargeScreenDiagonalFraction = 0.5;
 inline constexpr std::uint64_t kShieldAnticipationTicks = 8;
 
+// The four personality settings, authored at the end that reproduces this fixture's behaviour
+// before they existed -- which is what keeps every case written against Step 22a and Step 22b
+// meaning exactly what it meant. **`road_caution_fraction` is the one that cannot be zero**, and
+// deliberately so: the race provider recovers when `nearest.distance > fraction * half_width`, so a
+// zero recovers unless the body sits exactly on the centreline and inverts race behaviour instead
+// of switching it off. `TacticalProfile::create` refuses it, which is what turns either positional
+// section below -- and every other positional site in the tree -- into a loud named throw if it is
+// ever left one argument short of `Section` rather than into a silently inverted racer.
+//
+// **The other three are zero on purpose and a case below asserts they are.** Zero is the authored
+// answer for each: no arrival brake, so `kArrived` coasts bit for bit as it did before; no exposure
+// preference, so every candidate's opening stays exactly one and every utility score is unchanged;
+// and no opening floor, so the shove provider yields every fight it did before. A fixture that
+// authored any of them positive would silently move every arrived, scoring and shove case in
+// `tactical_controller_tests.cpp` that was written before the personalities existed.
+inline constexpr double kRoadCautionFraction = 0.625;
+inline constexpr double kArrivalBrakeFraction = 0.0;
+inline constexpr double kExposurePreference = 0.0;
+inline constexpr double kMinimumOpening = 0.0;
+
 inline constexpr std::string_view kOtherName = "quick";
 inline constexpr controllers::TacticalSeedIdentity kIdentity{20260911, 2, 3};
 inline constexpr std::array<std::string_view, 6> kInvalidNames{"",    "Upper", "space name",
@@ -53,12 +73,27 @@ inline constexpr std::array<double, 5> kInvalidAimErrors{
           0.5,
           80,
           kChargeScreenDiagonalFraction,
-          kShieldAnticipationTicks};
+          kShieldAnticipationTicks,
+          kRoadCautionFraction,
+          kArrivalBrakeFraction,
+          kExposurePreference,
+          kMinimumOpening};
 }
 [[nodiscard]] inline controllers::TacticalProfile::Section immediate_section() {
-  return {
-      std::string{kName},      1.0, 0, 0.0, 5, kEqualWeights, 0.5, 0, kChargeScreenDiagonalFraction,
-      kShieldAnticipationTicks};
+  return {std::string{kName},
+          1.0,
+          0,
+          0.0,
+          5,
+          kEqualWeights,
+          0.5,
+          0,
+          kChargeScreenDiagonalFraction,
+          kShieldAnticipationTicks,
+          kRoadCautionFraction,
+          kArrivalBrakeFraction,
+          kExposurePreference,
+          kMinimumOpening};
 }
 [[nodiscard]] inline controllers::TacticalProfile profile() {
   return controllers::TacticalProfile::create(immediate_section());

@@ -83,15 +83,19 @@ TEST_CASE("authored tactical profiles preserve values order and independent fami
 
 TEST_CASE("each authored selection setting reaches the loaded profile under the key that names it",
           "[unit][application][config][tactical]") {
-  // The four settings Step 15 authored are covered above; these nine keys carry the five that a
-  // profile's *choice* of objective and its two combat pulses now read. Equality alone would pass
-  // while two weight keys fed each other's field, so this walks the kinds and reads each weight
-  // back through the accessor a selection stage uses, and asserts the authored values are distinct
-  // first -- against equal weights the walk would prove nothing.
+  // The four settings Step 15 authored are covered above; these thirteen keys carry the five that a
+  // profile's *choice* of objective reads, the two its combat pulses read, and the four its
+  // personality reads. Equality alone would pass while two weight keys fed each other's field, so
+  // this walks the kinds and reads each weight back through the accessor a selection stage uses,
+  // and asserts the authored values are distinct first -- against equal weights the walk would
+  // prove nothing.
   //
-  // The two combat scalars are read back individually for the same reason and one more: both are
-  // trailing members of `Section` that a designated initializer would value-initialize to a legal
-  // zero, so an expectation that omitted either would agree with a loader that dropped it.
+  // The six plain scalars are read back individually for the same reason and one more: every one of
+  // them is a trailing member of `Section` that a designated initializer would value-initialize to
+  // a zero the domain accepts, so an expectation that omitted any of them would agree with a loader
+  // that dropped it. `road_caution_fraction` is the single exception and is read back anyway: its
+  // domain refuses zero, so a dropped key is a startup failure rather than a silent default, but a
+  // key *crossed* with one of the other three is not -- and only reading it back catches that.
   TemporaryApplicationInputWorkspace workspace;
   const ApplicationConfig loaded = fixture::load(workspace, fixture::configuration());
   const auto profiles = loaded.tactical_profiles().profiles();
@@ -106,6 +110,19 @@ TEST_CASE("each authored selection setting reaches the loaded profile under the 
         fixture::kFirstProfileValues.shield_anticipation_ticks);
   CHECK(profiles[0].charge_screen_diagonal_fraction() > 0.0);
   CHECK(profiles[0].shield_anticipation_ticks() > 0);
+  CHECK(profiles[0].road_caution_fraction() == fixture::kFirstProfileValues.road_caution_fraction);
+  CHECK(profiles[0].arrival_brake_fraction() ==
+        fixture::kFirstProfileValues.arrival_brake_fraction);
+  CHECK(profiles[0].exposure_preference() == fixture::kFirstProfileValues.exposure_preference);
+  CHECK(profiles[0].minimum_opening() == fixture::kFirstProfileValues.minimum_opening);
+  // All four are positive here for the reason the two combat scalars are: three of them accept zero
+  // as a legal authored answer that switches the behaviour off, so a section that had lost one of
+  // them to a value-initialized zero would still load, still validate, and still compare equal to
+  // an expectation that had lost it the same way.
+  CHECK(profiles[0].road_caution_fraction() > 0.0);
+  CHECK(profiles[0].arrival_brake_fraction() > 0.0);
+  CHECK(profiles[0].exposure_preference() > 0.0);
+  CHECK(profiles[0].minimum_opening() > 0.0);
 
   std::vector<double> authored;
   for (std::size_t ordinal = 0; ordinal < controllers::kTacticalObjectiveKindCount; ++ordinal) {

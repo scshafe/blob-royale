@@ -43,7 +43,7 @@ Zero instances is legal and is what every configuration in this tree looked like
 instance-name *grammar* belongs to the value that publishes the name, exactly as `[match] mode` does:
 the loader refuses only an empty instance name, and `HazardArchetype::create` refuses one outside
 `common.schema.json#/$defs/kind_name`. Tactical profiles are the second customer:
-`[bot_profile.<name>]` uses the same parser, with thirteen required controller-owned values.
+`[bot_profile.<name>]` uses the same parser, with seventeen required controller-owned values.
 
 `TacticalProfileCatalogue` retains up to 16 unique profiles in declaration order. Step 15 required
 four keys: `objective_seek_probability` (finite 0..1), `reaction_delay_ticks` (integer 0..4000),
@@ -106,6 +106,36 @@ orders of magnitude of different things across the configurations already in thi
 family authors). Each is read by behaviour landing in the same commit, which is ADR 0008's legality
 test for a profile key, and each appends rather than interleaves.
 
+**Step 22c adds four more keys, carrying four settings, and the same closed family made it the same
+migration a third time over the same authored sections.** They are `road_caution_fraction`, the race
+provider's recovery threshold as a fraction of the published road half-width, promoted off the
+shared `kDefaultRacerCautionFraction` so a profile owns it; `arrival_brake_fraction` (finite 0..1),
+the share of the thrust that would null the objective's relative motion over one command hold that a
+profile spends once it has arrived; `exposure_preference` (finite 0..1), how far a shove candidate's
+published opening may scale its preference term; and `minimum_opening` (finite 0..1), the opening
+below which the shove provider yields no candidate at all. Each is read by behaviour landing in the
+same commit, each appends rather than interleaves, and none is a wire field — profile values stay
+server-side exactly as the other thirteen do.
+
+**`road_caution_fraction` is the one key in this family whose domain is half-open, `(0..1]`, and it
+is the only new parse-level asymmetry this step introduces.** Every other fraction here accepts
+zero as "off". This one cannot: the race provider recovers when
+`nearest.distance > fraction * road->half_width()`, so a zero recovers unless the body sits exactly
+on the centreline — it *inverts* race behaviour rather than disabling it. The key therefore adopts
+`controllers::RacerController`'s own already-validated domain rather than declaring a second pair,
+because it is the same knob against the same published half-width. That also means
+`kMinimumProfileValues` in `tests/unit/application/fixtures/tactical_profile_configuration_fixture.hpp`
+can no longer author `0` for this one key as it does for every other fraction: the low end this key
+accepts is not zero, so a zero there would be exercising the rejection rather than the bound.
+
+**The shipped `config/blob-royale.cfg` now declares five profiles, not one.** `steady` stays the
+neutral reference, authored at whichever end of each new key reproduces its previous behaviour, and
+`keeper`, `bully`, `opportunist` and `cautious_racer` are ADR 0008's four named personalities. They
+ship in that file **only**: `deploy/ubuntu-pc/blob-royale.cfg` declares no `[bot_profile]` section
+at all, and the tactical-profiles browser spec pins its own fixture's exact two-element list three
+ways. Both e2e fixtures still had to gain all four new keys in all four of their existing sections,
+or neither server starts.
+
 **There is deliberately no `aggression` key**, so both pinned rejections above stay verbatim: the
 `aggression=0.05` `ParserFailure` row and the inert-combat seed's `aggression=1` line.
 ADR 0008 lists aggression as a *concept* a profile configures, not a key name, and the concept is
@@ -114,16 +144,20 @@ rule, and its danger-appetite half is exactly what `risk_tolerance`'s one-signed
 forbid. Two authored numbers fighting over one term of the utility score is the defect that bound
 exists to prevent.
 
-No implicit profile or inactive combat setting is accepted. Domain validation adds six rejections:
+No implicit profile or inactive combat setting is accepted. Domain validation adds ten rejections:
 `CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHT_INVALID`, `..._RISK_TOLERANCE_INVALID`,
-`..._PREDICTION_HORIZON_INVALID`, `..._CHARGE_SCREEN_INVALID` and `..._SHIELD_ANTICIPATION_INVALID`
-name the failed key, while `..._OBJECTIVE_WEIGHTS_DEGENERATE` names the section — it rejects all
-five weights at zero, the one combination whose every value is legal alone but which makes selection
-inexpressive, collapsing every score onto the stable kind ordinal. That rule no longer has to double
-as a guard against a C++ construction site that omitted a weight:
+`..._PREDICTION_HORIZON_INVALID`, `..._CHARGE_SCREEN_INVALID`, `..._SHIELD_ANTICIPATION_INVALID`,
+`..._ROAD_CAUTION_INVALID`, `..._ARRIVAL_BRAKE_INVALID`, `..._EXPOSURE_PREFERENCE_INVALID` and
+`..._MINIMUM_OPENING_INVALID` name the failed key, while `..._OBJECTIVE_WEIGHTS_DEGENERATE` names
+the section — it rejects all five weights at zero, the one combination whose every value is legal
+alone but which makes selection inexpressive, collapsing every score onto the stable kind ordinal.
+That rule no longer has to double as a guard against a C++ construction site that omitted a weight:
 `controllers::TacticalObjectiveWeights` now holds `AuthoredObjectiveWeight` members with no default
 constructor, so an omission is a build failure at the site that made it rather than a zero this
-parser cannot see.
+parser cannot see. **`..._ROAD_CAUTION_INVALID` extends that protection to exactly one bare
+`double`**, and deliberately: four positional `TacticalProfile::Section` construction sites
+value-initialize a new trailing member to `0.0` and still compile, so for the one key whose zero is
+illegal a missed site is a named startup throw instead of a silently inverted racer.
 Roster terms are `tactical@<profile>:<count>`; plain `kind:count` keeps its meaning. Profiled
 choices are supported in hill, race, and royale, but rejected at Sandbox startup because that mode
 has no stable authored-seat identity.

@@ -75,6 +75,13 @@ inline constexpr double kMinimumHillSeekerWeight = 0.0;
 inline constexpr double kMaximumHillSeekerWeight = 1.0;
 
 // A racer's recovery threshold is a positive fraction of the published road half-width.
+//
+// **The minimum is exclusive, and a tactical profile's `road_caution_fraction` adopts this same
+// pair rather than declaring a second one.** It is the same knob: the race provider compares
+// `nearest.distance > fraction * road->half_width()`, so a zero does not disable recovery, it
+// *inverts* the behaviour into "recover unless exactly on the centreline". A knob whose zero means
+// the opposite of "off" is one knob with one domain, not two knobs that happen to agree, and a
+// second pair here would be the place the two silently drift apart.
 inline constexpr double kMinimumRacerCautionFraction = 0.0;
 inline constexpr double kMaximumRacerCautionFraction = 1.0;
 inline constexpr double kDefaultRacerCautionFraction = 0.75;
@@ -220,6 +227,74 @@ inline constexpr double kTacticalChargeAlignmentPerpendicularFraction = 0.5;
 static_assert(kTacticalChargeAlignmentPerpendicularFraction < 1.0,
               "at a perpendicular component equal to the published ceiling the resultant is at "
               "least 45 degrees off the commanded ray, so the gate must refuse below that");
+
+// The inclusive range of a profile's arrival brake, zero through this bound.
+//
+// The brake is `clamp_componentwise(-v_relative / (acceleration * hold_seconds) * fraction)`, and
+// the unscaled quotient is already exactly the thrust that nulls the relative velocity over one
+// command hold in the drag-free case. **A fraction above one would ask for more than the null**,
+// which is overshoot, and overshoot is the one unstable direction that law never takes: drag only
+// removes further speed, so any fraction at or below one undershoots and an undershoot corrects
+// itself on the next pass. Zero is an authored answer rather than a disabled feature -- it
+// reproduces the coasting `kArrived` branch bit for bit, which is what every existing arrived
+// assertion and both browser fixtures' motionless pins rest on.
+//
+// **No deadband accompanies this, and a deadband must never become a profile key.** The law
+// divides the relative velocity componentwise by a positive scalar and never by `|v|`, so there is
+// no 0/0, no NaN and no throw on the terminal state of every successful arrival; as the relative
+// velocity goes to zero the commanded direction goes smoothly to `(0, 0)`, which is exactly the
+// exact `(0, 0)` the arrived tests already demand. A deadband would be a second authored number
+// whose only effect is to switch a stability guard off, which is why
+// `kTacticalChargeAlignmentPerpendicularFraction` above is stated here and authored nowhere and
+// why this one is not stated at all.
+inline constexpr double kMaximumTacticalArrivalBrakeFraction = 1.0;
+
+// The inclusive ranges of the two knobs that read the per-candidate opening, zero through these
+// bounds.
+//
+// `exposure_preference` interpolates the opening a shove candidate carries between one -- the
+// exposure is irrelevant, which is what every candidate of every other kind carries structurally
+// -- and the exposure quality itself. `minimum_opening` is the floor that same opening must clear
+// before the shove provider yields a candidate at all. Both are fractions of a quality that is
+// already a weighted sum of booleans in the unit interval, so a value above one would multiply a
+// preference term past the range every other term of `tactical_candidate_score` shares, and this
+// file's whole commensurability argument rests on that range. Zero is the
+// authored answer for both, and for both it is the answer that changes nothing: a zero preference
+// leaves every opening at one, and a zero floor admits every fight.
+inline constexpr double kMaximumTacticalExposurePreference = 1.0;
+inline constexpr double kMaximumTacticalMinimumOpening = 1.0;
+
+// The five component weights of the exposure quality, in the one order its sum is taken in.
+//
+// **They are shared constants and deliberately not profile keys.** A profile authors *how much* it
+// prefers an exposed target and *how open* a fight has to be -- `exposure_preference` and
+// `minimum_opening` above -- but not what "exposed" means, because five per-profile weights would
+// be five combat knobs whose only joint effect is to let one profile disagree with every other
+// about which published windows count as an opening at all. That is the same reason
+// `kTacticalChargeAlignmentPerpendicularFraction` is not a key.
+//
+// **The stun term is worth as much as the other four together**, because it is the only one that
+// removes every answer at once: a stunned body cannot thrust away, cannot raise a shield and
+// cannot charge out for the whole of a published window, while each of the other four removes
+// exactly one answer or adds exactly one reason. The four are therefore equal to each other, and
+// there is no evidence in this tree for ranking them: nothing has measured a shove against a
+// charge-spent opponent versus one standing outside the zone.
+//
+// Every value is a negative power of two, so the sum is exact in binary under any association and
+// the static assertion below is a real check rather than a tolerance.
+inline constexpr double kTacticalExposureStunWeight = 0.5;
+inline constexpr double kTacticalExposureShieldSpentWeight = 0.125;
+inline constexpr double kTacticalExposureChargeSpentWeight = 0.125;
+inline constexpr double kTacticalExposureOutsideZoneWeight = 0.125;
+inline constexpr double kTacticalExposureHillHoldWeight = 0.125;
+
+static_assert(kTacticalExposureStunWeight + kTacticalExposureShieldSpentWeight +
+                      kTacticalExposureChargeSpentWeight + kTacticalExposureOutsideZoneWeight +
+                      kTacticalExposureHillHoldWeight ==
+                  1.0,
+              "the exposure quality scales a preference term every other term of the tactical "
+              "score is commensurate with, so its five booleans must sum to exactly the top of "
+              "the unit interval and never past it");
 
 } // namespace blob_royale::controllers
 

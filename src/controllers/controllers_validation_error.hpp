@@ -29,8 +29,12 @@ namespace blob_royale::controllers {
 // during a decision; accepted race maps cannot produce it.
 // `TACTICAL_PROFILE_OBJECTIVE_WEIGHTS_DEGENERATE` is the one code here that rejects a section whose
 // every value is individually in range: it names a *combination* that cannot express a preference,
-// and `tactical_profile.cpp` states why an authored one is always an omission. A decision failure
-// is isolated and
+// and `tactical_profile.cpp` states why an authored one is always an omission.
+// `TACTICAL_PROFILE_ROAD_CAUTION_INVALID` is the one tactical-profile code with a half-open domain:
+// its zero *inverts* the race recovery test rather than disabling it, so that key adopts the
+// `(0,1]` `RACER_CAUTION_FRACTION_OUT_OF_RANGE` already enforces two files over, and this code is
+// what a positional `Section` site that value-initialized the key to zero hits.
+// A decision failure is isolated and
 // counted by `ControllerHost`, not thrown out of, because a bot holds exactly the capabilities a
 // network session holds and neither may stop the match (`controller_host.hpp`). related:
 // controller_registry.hpp -- the unknown-kind rejection. related: controller_host.hpp -- the
@@ -62,6 +66,10 @@ enum class ControllersValidationCode {
   kTacticalProfilePredictionHorizonInvalid,
   kTacticalProfileChargeScreenInvalid,
   kTacticalProfileShieldAnticipationInvalid,
+  kTacticalProfileRoadCautionInvalid,
+  kTacticalProfileArrivalBrakeInvalid,
+  kTacticalProfileExposurePreferenceInvalid,
+  kTacticalProfileMinimumOpeningInvalid,
   kTacticalProfileCatalogueFull,
   kTacticalProfileNameDuplicate,
   kControllerCreationContextInvalid,
@@ -127,6 +135,14 @@ controllers_validation_code_name(const ControllersValidationCode code) noexcept 
     return "CONTROLLERS.TACTICAL_PROFILE_CHARGE_SCREEN_INVALID";
   case ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid:
     return "CONTROLLERS.TACTICAL_PROFILE_SHIELD_ANTICIPATION_INVALID";
+  case ControllersValidationCode::kTacticalProfileRoadCautionInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_ROAD_CAUTION_INVALID";
+  case ControllersValidationCode::kTacticalProfileArrivalBrakeInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_ARRIVAL_BRAKE_INVALID";
+  case ControllersValidationCode::kTacticalProfileExposurePreferenceInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_EXPOSURE_PREFERENCE_INVALID";
+  case ControllersValidationCode::kTacticalProfileMinimumOpeningInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_MINIMUM_OPENING_INVALID";
   case ControllersValidationCode::kTacticalProfileCatalogueFull:
     return "CONTROLLERS.TACTICAL_PROFILE_CATALOGUE_FULL";
   case ControllersValidationCode::kTacticalProfileNameDuplicate:

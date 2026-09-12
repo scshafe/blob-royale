@@ -53,6 +53,14 @@ inline constexpr std::string_view kFirstProfileHeader = "[bot_profile.porcelain_
 // screen distinct from every other fraction in its section -- `risk_tolerance` included, since the
 // two are both plain `[0,1]` doubles and a crossed pair would otherwise pass -- and an anticipation
 // window distinct from every other tick count in its section.
+//
+// The four personality keys are authored on those same terms again, and they matter more here than
+// anywhere else: all four are plain `double` members appended to the end of `Section`, so a loader
+// that fed any two of them each other's value, or dropped one entirely, would leave a section that
+// still parses and still validates. Every one of the eight numbers below is a distinct exact binary
+// fraction, no key repeats a value inside its own section, and no key holds the same value in both
+// sections -- which is what makes the round-trip comparison in
+// `tactical_profile_configuration_tests.cpp` a wiring proof rather than a size check.
 inline constexpr std::string_view kFirstProfileSection = "\n[bot_profile.porcelain_otter]\n"
                                                          "objective_seek_probability=1\n"
                                                          "reaction_delay_ticks=80\n"
@@ -66,7 +74,11 @@ inline constexpr std::string_view kFirstProfileSection = "\n[bot_profile.porcela
                                                          "risk_tolerance=0.4\n"
                                                          "prediction_horizon_ticks=64\n"
                                                          "charge_screen_diagonal_fraction=0.75\n"
-                                                         "shield_anticipation_ticks=12\n";
+                                                         "shield_anticipation_ticks=12\n"
+                                                         "road_caution_fraction=0.875\n"
+                                                         "arrival_brake_fraction=0.3125\n"
+                                                         "exposure_preference=0.15625\n"
+                                                         "minimum_opening=0.078125\n";
 inline constexpr std::string_view kSecondProfileSection = "\n[bot_profile.velvet_ibis]\n"
                                                           "objective_seek_probability=0.25\n"
                                                           "reaction_delay_ticks=23\n"
@@ -80,7 +92,11 @@ inline constexpr std::string_view kSecondProfileSection = "\n[bot_profile.velvet
                                                           "risk_tolerance=0.9\n"
                                                           "prediction_horizon_ticks=16\n"
                                                           "charge_screen_diagonal_fraction=0.375\n"
-                                                          "shield_anticipation_ticks=31\n";
+                                                          "shield_anticipation_ticks=31\n"
+                                                          "road_caution_fraction=0.6875\n"
+                                                          "arrival_brake_fraction=0.4375\n"
+                                                          "exposure_preference=0.21875\n"
+                                                          "minimum_opening=0.65625\n";
 inline constexpr std::string_view kHazardSection = "\n[hazard.porcelain_otter]\n"
                                                    "radius_world_units=10\n"
                                                    "mass=1\n"
@@ -122,8 +138,10 @@ objective_weight_lines(const controllers::TacticalObjectiveWeights& weights) {
 
 // **Every member is named and none is omitted.** A designated initializer value-initializes the
 // members it leaves out rather than refusing to compile, and zero is a legal authored value for
-// both trailing combat settings, so an omission here would be a section that loads, validates, and
-// silently disagrees with the text above it in exactly the field the text was added to prove.
+// both trailing combat settings and for three of the four personality settings, so an omission here
+// would be a section that loads, validates, and silently disagrees with the text above it in
+// exactly the field the text was added to prove. Only `road_caution_fraction` would be caught by
+// `create`, and only because its domain excludes zero.
 inline const controllers::TacticalProfile::Section kFirstProfileValues{
     .profile_name = "porcelain_otter",
     .objective_seek_probability = 1,
@@ -138,7 +156,11 @@ inline const controllers::TacticalProfile::Section kFirstProfileValues{
     .risk_tolerance = 0.4,
     .prediction_horizon_ticks = 64,
     .charge_screen_diagonal_fraction = 0.75,
-    .shield_anticipation_ticks = 12};
+    .shield_anticipation_ticks = 12,
+    .road_caution_fraction = 0.875,
+    .arrival_brake_fraction = 0.3125,
+    .exposure_preference = 0.15625,
+    .minimum_opening = 0.078125};
 inline const controllers::TacticalProfile::Section kSecondProfileValues{
     .profile_name = "velvet_ibis",
     .objective_seek_probability = 0.25,
@@ -150,7 +172,11 @@ inline const controllers::TacticalProfile::Section kSecondProfileValues{
     .risk_tolerance = 0.9,
     .prediction_horizon_ticks = 16,
     .charge_screen_diagonal_fraction = 0.375,
-    .shield_anticipation_ticks = 31};
+    .shield_anticipation_ticks = 31,
+    .road_caution_fraction = 0.6875,
+    .arrival_brake_fraction = 0.4375,
+    .exposure_preference = 0.21875,
+    .minimum_opening = 0.65625};
 
 // The two bound sections are written from the named limits rather than from copied numerals, so
 // the "accepts exact inclusive bounds without clamping" case keeps testing the bound after a limit
@@ -167,6 +193,16 @@ inline const controllers::TacticalProfile::Section kSecondProfileValues{
 // so refuses nothing, while its maximum is the strictest screen a profile can author; a zero
 // `shield_anticipation_ticks` anticipates nothing at all. Both zeros are real authored answers,
 // which is why they belong in the section that proves the inclusive low end is accepted.
+//
+// **`road_caution_fraction` is the one key the minimum section cannot author at zero**, and that is
+// the whole point of its domain rather than an inconvenience: its range is `RacerController`'s
+// `(0,1]`, so zero is a *rejection* and not the inclusive low end this case exists to prove is
+// accepted. Authoring it here would turn "accepts exact inclusive bounds without clamping" into a
+// second copy of the domain-failure case below. It therefore holds
+// `kMaximumRacerCautionFraction` in both bound sections; the low end it accepts is open, so there
+// is no smallest legal value to write, and the rejection of zero is proven where rejections live.
+// The other three personality settings are ordinary `[0,1]` fractions whose zero is a real authored
+// answer -- no brake, no exposure preference, no opening floor -- so all three sit at zero here.
 inline const controllers::TacticalObjectiveWeights kMinimumObjectiveWeights{
     .hill = controllers::kMaximumTacticalObjectiveWeight,
     .zone = 0.0,
@@ -184,7 +220,9 @@ inline const std::string kMinimumProfileSection =
                 "reaction_delay_ticks=0\naim_error=0\ntarget_persistence_ticks=0\n"} +
     objective_weight_lines(kMinimumObjectiveWeights) + "risk_tolerance=0\n" +
     "prediction_horizon_ticks=0\n" + "charge_screen_diagonal_fraction=0\n" +
-    "shield_anticipation_ticks=0\n";
+    "shield_anticipation_ticks=0\n" +
+    "road_caution_fraction=" + authored_decimal(controllers::kMaximumRacerCautionFraction) + "\n" +
+    "arrival_brake_fraction=0\n" + "exposure_preference=0\n" + "minimum_opening=0\n";
 inline const std::string kMaximumProfileSection =
     std::string{"\n[bot_profile.porcelain_otter]\nobjective_seek_probability=1\n"
                 "reaction_delay_ticks=4000\naim_error=0.25\ntarget_persistence_ticks=4000\n"} +
@@ -195,7 +233,13 @@ inline const std::string kMaximumProfileSection =
     "charge_screen_diagonal_fraction=" +
     authored_decimal(controllers::kMaximumTacticalChargeScreenDiagonalFraction) + "\n" +
     "shield_anticipation_ticks=" +
-    std::to_string(controllers::kMaximumTacticalShieldAnticipationTicks) + "\n";
+    std::to_string(controllers::kMaximumTacticalShieldAnticipationTicks) + "\n" +
+    "road_caution_fraction=" + authored_decimal(controllers::kMaximumRacerCautionFraction) + "\n" +
+    "arrival_brake_fraction=" +
+    authored_decimal(controllers::kMaximumTacticalArrivalBrakeFraction) + "\n" +
+    "exposure_preference=" + authored_decimal(controllers::kMaximumTacticalExposurePreference) +
+    "\n" + "minimum_opening=" + authored_decimal(controllers::kMaximumTacticalMinimumOpening) +
+    "\n";
 inline const controllers::TacticalProfile::Section kMinimumProfileValues{
     .profile_name = "porcelain_otter",
     .objective_seek_probability = 0,
@@ -206,7 +250,11 @@ inline const controllers::TacticalProfile::Section kMinimumProfileValues{
     .risk_tolerance = 0,
     .prediction_horizon_ticks = 0,
     .charge_screen_diagonal_fraction = 0,
-    .shield_anticipation_ticks = 0};
+    .shield_anticipation_ticks = 0,
+    .road_caution_fraction = controllers::kMaximumRacerCautionFraction,
+    .arrival_brake_fraction = 0,
+    .exposure_preference = 0,
+    .minimum_opening = 0};
 inline const controllers::TacticalProfile::Section kMaximumProfileValues{
     .profile_name = "porcelain_otter",
     .objective_seek_probability = 1,
@@ -217,7 +265,11 @@ inline const controllers::TacticalProfile::Section kMaximumProfileValues{
     .risk_tolerance = controllers::kMaximumTacticalRiskTolerance,
     .prediction_horizon_ticks = controllers::kMaximumTacticalPredictionHorizonTicks,
     .charge_screen_diagonal_fraction = controllers::kMaximumTacticalChargeScreenDiagonalFraction,
-    .shield_anticipation_ticks = controllers::kMaximumTacticalShieldAnticipationTicks};
+    .shield_anticipation_ticks = controllers::kMaximumTacticalShieldAnticipationTicks,
+    .road_caution_fraction = controllers::kMaximumRacerCautionFraction,
+    .arrival_brake_fraction = controllers::kMaximumTacticalArrivalBrakeFraction,
+    .exposure_preference = controllers::kMaximumTacticalExposurePreference,
+    .minimum_opening = controllers::kMaximumTacticalMinimumOpening};
 
 struct RequiredField final {
   std::string_view line;
@@ -245,7 +297,14 @@ inline constexpr std::array kRequiredFields{
     RequiredField{"charge_screen_diagonal_fraction=0.75\n",
                   "bot_profile.porcelain_otter.charge_screen_diagonal_fraction"},
     RequiredField{"shield_anticipation_ticks=12\n",
-                  "bot_profile.porcelain_otter.shield_anticipation_ticks"}};
+                  "bot_profile.porcelain_otter.shield_anticipation_ticks"},
+    RequiredField{"road_caution_fraction=0.875\n",
+                  "bot_profile.porcelain_otter.road_caution_fraction"},
+    RequiredField{"arrival_brake_fraction=0.3125\n",
+                  "bot_profile.porcelain_otter.arrival_brake_fraction"},
+    RequiredField{"exposure_preference=0.15625\n",
+                  "bot_profile.porcelain_otter.exposure_preference"},
+    RequiredField{"minimum_opening=0.078125\n", "bot_profile.porcelain_otter.minimum_opening"}};
 
 struct ParserFailure final {
   std::string_view original;
@@ -346,7 +405,31 @@ inline constexpr std::array kParserFailures{
     ParserFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=-1",
                   ApplicationInputErrorCode::kConfigurationValueInvalid},
     ParserFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=18446744073709551616",
-                  ApplicationInputErrorCode::kConfigurationValueOutOfRange}};
+                  ApplicationInputErrorCode::kConfigurationValueOutOfRange},
+    // The four personality keys, on the same terms again. The near-misses are the names ADR 0008's
+    // clauses invite a reader to type: the racer's own spelling of the caution knob, a brake named
+    // for the behaviour rather than for the fraction it is, the *concept* the exposure key
+    // implements rather than the key, and an opening in ticks rather than as a quality. All four
+    // must be refused by name, because a laxer parser that ignored them would leave the setting at
+    // whatever an aggregate initializer had zeroed it to -- which for three of the four is a legal
+    // value that silently disables the behaviour the section was edited to enable.
+    ParserFailure{"road_caution_fraction=0.875", "recovery_caution_fraction=0.875",
+                  ApplicationInputErrorCode::kConfigurationKeyUnknown},
+    ParserFailure{"arrival_brake_fraction=0.3125", "arrival_brake=0.3125",
+                  ApplicationInputErrorCode::kConfigurationKeyUnknown},
+    ParserFailure{"exposure_preference=0.15625", "prefer_exposed_targets=0.15625",
+                  ApplicationInputErrorCode::kConfigurationKeyUnknown},
+    ParserFailure{"minimum_opening=0.078125", "minimum_opening_ticks=0.078125",
+                  ApplicationInputErrorCode::kConfigurationKeyUnknown},
+    ParserFailure{"road_caution_fraction=0.875",
+                  "road_caution_fraction=0.875\nroad_caution_fraction=0.5",
+                  ApplicationInputErrorCode::kConfigurationKeyDuplicate},
+    ParserFailure{"arrival_brake_fraction=0.3125",
+                  "arrival_brake_fraction=", ApplicationInputErrorCode::kConfigurationValueInvalid},
+    ParserFailure{"exposure_preference=0.15625", "exposure_preference=true",
+                  ApplicationInputErrorCode::kConfigurationValueInvalid},
+    ParserFailure{"minimum_opening=0.078125", "minimum_opening=0.078125oops",
+                  ApplicationInputErrorCode::kConfigurationValueInvalid}};
 
 struct DomainFailure final {
   std::string_view original;
@@ -452,7 +535,45 @@ inline constexpr std::array kDomainFailures{
                   "bot_profile.porcelain_otter.shield_anticipation_ticks"},
     DomainFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=18446744073709551615",
                   controllers::ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid,
-                  "bot_profile.porcelain_otter.shield_anticipation_ticks"}};
+                  "bot_profile.porcelain_otter.shield_anticipation_ticks"},
+    // **The authored zero that is a rejection, and the only one in this family.** Every other
+    // fraction here accepts zero as a real answer; a zero road caution would compare
+    // `nearest.distance > 0 * half_width` and recover unless the body sits exactly on the
+    // centreline, which inverts race behaviour rather than disabling it. This row is also the
+    // tree's only automated notice that a positional `Section` site left one argument short --
+    // that site value-initializes this trailing double to zero and reaches exactly this code.
+    DomainFailure{"road_caution_fraction=0.875", "road_caution_fraction=0",
+                  controllers::ControllersValidationCode::kTacticalProfileRoadCautionInvalid,
+                  "bot_profile.porcelain_otter.road_caution_fraction"},
+    DomainFailure{"road_caution_fraction=0.875", "road_caution_fraction=-0.01",
+                  controllers::ControllersValidationCode::kTacticalProfileRoadCautionInvalid,
+                  "bot_profile.porcelain_otter.road_caution_fraction"},
+    DomainFailure{"road_caution_fraction=0.875", "road_caution_fraction=1.01",
+                  controllers::ControllersValidationCode::kTacticalProfileRoadCautionInvalid,
+                  "bot_profile.porcelain_otter.road_caution_fraction"},
+    DomainFailure{"road_caution_fraction=0.875", "road_caution_fraction=nan",
+                  controllers::ControllersValidationCode::kTacticalProfileRoadCautionInvalid,
+                  "bot_profile.porcelain_otter.road_caution_fraction"},
+    // The other three are ordinary finite `[0,1]` fractions, so each fails the way the weights and
+    // the charge screen do, and each is perturbed alone so the context names the key at fault.
+    DomainFailure{"arrival_brake_fraction=0.3125", "arrival_brake_fraction=1.01",
+                  controllers::ControllersValidationCode::kTacticalProfileArrivalBrakeInvalid,
+                  "bot_profile.porcelain_otter.arrival_brake_fraction"},
+    DomainFailure{"arrival_brake_fraction=0.3125", "arrival_brake_fraction=inf",
+                  controllers::ControllersValidationCode::kTacticalProfileArrivalBrakeInvalid,
+                  "bot_profile.porcelain_otter.arrival_brake_fraction"},
+    DomainFailure{"exposure_preference=0.15625", "exposure_preference=-0.01",
+                  controllers::ControllersValidationCode::kTacticalProfileExposurePreferenceInvalid,
+                  "bot_profile.porcelain_otter.exposure_preference"},
+    DomainFailure{"exposure_preference=0.15625", "exposure_preference=nan",
+                  controllers::ControllersValidationCode::kTacticalProfileExposurePreferenceInvalid,
+                  "bot_profile.porcelain_otter.exposure_preference"},
+    DomainFailure{"minimum_opening=0.078125", "minimum_opening=1.01",
+                  controllers::ControllersValidationCode::kTacticalProfileMinimumOpeningInvalid,
+                  "bot_profile.porcelain_otter.minimum_opening"},
+    DomainFailure{"minimum_opening=0.078125", "minimum_opening=-inf",
+                  controllers::ControllersValidationCode::kTacticalProfileMinimumOpeningInvalid,
+                  "bot_profile.porcelain_otter.minimum_opening"}};
 
 struct SelectionFailure final {
   std::string_view roster;

@@ -49,7 +49,10 @@ enum class TacticalDecisionReason : std::uint8_t {
   kObjectivesFinished,  // The provider says this bot is done, as a finished race is.
   kNoScreenedCandidate, // Terrain screening left nothing to choose between.
   kAwaitingReaction,    // The profile's reaction window has not expired yet.
-  kArrived,             // Inside the selected candidate's arrival radius: coast.
+  kArrived,             // Inside the selected candidate's arrival radius: coast, or brake against
+                        // the objective's own motion for a profile that authored one. One branch,
+                        // so one reason either way; the class comment's brake paragraphs say why a
+                        // braking arrival is deliberately not a value of its own.
   kSeekDeclined,        // The profile's seek draw declined this pass: a personality, not a fault.
   kPursuing,            // Thrusting toward the selected candidate.
   kPursuingUnderRisk,   // Pursuing a candidate whose approach failed escape screening. A profile
@@ -103,6 +106,89 @@ enum class TacticalTargetHold : std::uint8_t {
 // ray, and casts at most one further terrain ray for a charge it is considering. There is no
 // search, no replanning loop and no iteration over ticks: `objective_work()` publishes the
 // collector's counts and `kMaximumTacticalPredictionStepCount` is the ceiling they cannot pass.
+//
+// **The arrival brake is one division by a positive scalar, and every property it needs follows
+// from that shape.** A profile authoring `arrival_brake_fraction > 0` replaces the `kArrived` coast
+// with
+//
+//   clamp_componentwise( -v_relative / (published_acceleration * hold_seconds)
+//                        * arrival_brake_fraction )
+//
+// where `v_relative` is this body's published velocity minus the objective's own published motion.
+// **Zero authors the Step 22b coast back bit for bit**: the branch tests the fraction before it
+// computes anything, so a profile that does not brake takes the identical `(0, 0)` path it took
+// before this step, which is what keeps every shipped `kArrived` assertion and both browser
+// fixtures' motionless pins unchanged.
+//
+// * **The velocity *vector* is divided componentwise by a positive scalar, never by its own
+//   magnitude, so `0/0` cannot arise and no component can be NaN.** As `v_relative` goes to zero
+//   the brake goes smoothly to `(0, 0)`, which is exactly what an at-rest arrival must emit, so
+//   **no deadband is needed** -- and one must not become a profile key either, for the reason
+//   `controllers_limits.hpp` refused the charge alignment fraction as a key: a knob whose only
+//   effect is letting a profile switch off a safety property. A NaN here would not be a wrong
+//   number, it would be a permanently inert bot -- `Vector2::create` refuses it, `ControllerHost`
+//   catches the throw, and this class assigns its state only after `decide_next` returns, so the
+//   same pass would repeat forever. The two other ways the divisor could reach zero are closed the
+//   same way and never by an epsilon: `hold_seconds` is strictly positive by construction, and a
+//   published acceleration of zero -- which `simulation_limits.hpp` admits -- takes the coast,
+//   because a body that cannot thrust has no brake to spend.
+// * **It cannot overshoot, so it is stable at every drag without reading drag.** The law asks for
+//   exactly the thrust that nulls `v_relative` over one hold in the drag-free case, and the
+//   componentwise clamp caps it at full thrust where more than full thrust would be needed. Drag
+//   only removes *more* speed than that arithmetic accounted for, so a nonzero `drag_per_second` --
+//   which reaches no snapshot and cannot be read here -- makes the bot undershoot, and an
+//   undershoot is corrected by the next pass's smaller brake. Overshoot is the unstable direction
+//   and this law never takes it.
+// * **It calibrates against a speed the body can actually reach**, which a fraction of
+//   `normal_top_speed` does not. The reachable ceiling is `min(V, A / D)` and `D` is unpublished:
+//   at both browser fixtures' published ceiling of 10000 with acceleration 400 and drag 40 the
+//   terminal speed is 9 wu/s, so the drafted `min(1, |v_relative| / normal_top_speed)` would ask
+//   for a brake three orders of magnitude too small -- inert in exactly the configuration whose
+//   instability motivates a brake at all. That form is rejected on those numbers.
+//
+// **A subunit thrust is a real command and already ships**, so the brake needs no new command
+// shape, no wire change and no kernel seam. `normalized_thrust_intent` is a magnitude *clamp* and
+// not a normaliser, the held intent is re-scaled by the tuning's acceleration every tick and never
+// re-normalised, the wire bound is per-component, and `ChaserController` already emits
+// `unit * aggression_weight`.
+//
+// **`hold_seconds` is the committed time one thrust command stays in force**, which is what makes
+// the law deadbeat rather than a gain someone has to tune. This controller re-decides only when its
+// reaction window expires and returns no command at all on the passes in between, and
+// `PhysicsBody::acceleration` persists until a later thrust replaces it, so one command is held for
+// the profile's own `reaction_delay_ticks` -- or for the snapshot spacing this controller is
+// actually observed at, whichever is longer, because no profile can decide twice inside one
+// published snapshot. **That cadence is measured, not read.** `snapshots_per_second` is a `welcome`
+// field rather than a snapshot field and `Observation` does not carry it, while the tick spacing
+// between this controller's own accepted observations is the same number, published, and at least
+// one committed tick because `accepts_observation` refuses a repeated or older tick. Taking the
+// larger of the two can only lengthen the hold, which can only weaken the brake, which is the
+// undershoot direction the paragraph above calls self-correcting.
+//
+// **`kHill` only -- and the zone is the reason, not computability.** "Relative to the objective's
+// motion" is perfectly computable for `kShoveSetup`, whose subject is the opponent's `EntityId` and
+// whose body `tactical_shove_opponent_body` already resolves; that kind is **deferred**, not
+// impossible. What rules the zone out is its arrival radius: a `kZone` candidate's arrival radius
+// is the zone's own radius, `zone_full_radius` is the arena half-diagonal, and the checked-in
+// `config/blob-royale.cfg` authors `mode=royale` -- so **every bot in the shipped configuration is
+// inside its zone's arrival radius from the first running tick**, and a zone brake would be a
+// permanent parking brake on all of them. A gate and a recovery point are authored terrain with no
+// motion to be relative to.
+//
+// **The hill's motion is read off the candidate and never from `key.subject`.** The provider that
+// built the candidate already looked the published `HillMotion` up, so it carries that velocity
+// forward and this class performs no second lookup. Rebuilding an `EntityId` from `key.subject`
+// would be the permanently-inert failure the paragraphs above exist to prevent, one layer up:
+// `kMinimumEntityId` is 1, so a race gate index is a legal `EntityId` naming a foreign entity, and
+// `EntityId::create` *throws* outside the valid range.
+//
+// **A braking arrival stays `kArrived` and gains no reason code of its own.** A reason names the
+// branch a decision came out of, and this is one branch: the arrival test is unchanged and the
+// brake decides only what thrust that branch emits. A second value would be reachable only by a
+// profile that authored a positive fraction, which makes it a reason keyed on a personality rather
+// than on a branch -- the one thing a profile may never be -- and at rest the two are
+// indistinguishable by construction, because a brake with nothing left to null emits exactly the
+// coast's `(0, 0)`.
 //
 // **Combat is decided on the pursuing path, where a candidate has been selected, and never on the
 // seek draw.** That draw sits inside the not-arrived branch, so gating an ability on it would mean

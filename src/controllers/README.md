@@ -51,7 +51,7 @@ src/controllers/
   hill_seeker_controller.hpp/.cpp    thrust toward the hill's centre and hold there
   racer_controller.hpp/.cpp          seek ordered gates and recover toward the centreline
   tactical_controller.hpp/.cpp       one weighted decision pipeline for every authored profile
-  tactical_profile.hpp/.cpp          nine validated active settings and bounded profile identity
+  tactical_profile.hpp/.cpp          thirteen validated active settings and bounded profile identity
   tactical_profile_catalogue.hpp/.cpp  immutable ordered configured profiles
   tactical_objective_candidates.hpp/.cpp  objective providers, screening, combat screens, selection
   tactical_seed_identity.hpp/.cpp     authored identity and domain-separated per-running seed
@@ -261,14 +261,14 @@ at most 64 bytes. A catalogue may be empty or contain at most 16 unique names in
 `profiles()` exposes a const span; `find(name)` returns a borrowed pointer or explicit absence.
 Another personality is another value, never another tactical class or registry row.
 
-The application's strict section-family parser accepts **nine active settings, authored as thirteen
-required keys**. Step 15 shipped the first four; Step 22a added the three the decision pipeline
-reads; Step 22b added the two combat settings and the fifth objective weight the shove kind forces
-into existence. Every one of them is read by behaviour landing in the same commit that adds the key,
-which is ADR 0008's legality test for a profile setting. The five `objective_weight_*` keys are one
-setting — the per-kind weight vector — authored one key per name rather than one positional list, so
-a `.cfg` a human reads names the kind it is weighting and an omitted one is the parser's own
-`KEY_MISSING` naming that key.
+The application's strict section-family parser accepts **thirteen active settings, authored as
+seventeen required keys**. Step 15 shipped the first four; Step 22a added the three the decision
+pipeline reads; Step 22b added the two combat settings and the fifth objective weight the shove kind
+forces into existence; Step 22c added the four the named personalities need. Every one of them is
+read by behaviour landing in the same commit that adds the key, which is ADR 0008's legality test
+for a profile setting. The five `objective_weight_*` keys are one setting — the per-kind weight
+vector — authored one key per name rather than one positional list, so a `.cfg` a human reads names
+the kind it is weighting and an omitted one is the parser's own `KEY_MISSING` naming that key.
 
 | Setting | Accepted values | Meaning |
 |---|---|---|
@@ -285,6 +285,24 @@ a `.cfg` a human reads names the kind it is weighting and an omitted one is the 
 | `prediction_horizon_ticks` | integer `0..400` | Ticks escape screening and intercept look ahead |
 | `charge_screen_diagonal_fraction` | finite `0..1` | Charge screen ray length, in arena diagonals |
 | `shield_anticipation_ticks` | integer `0..40` | Ticks of lead on a predicted closing contact |
+| `road_caution_fraction` | finite **`(0..1]`** | Race recovery threshold, in road half-widths |
+| `arrival_brake_fraction` | finite `0..1` | Share of the null-the-motion thrust spent on arrival |
+| `exposure_preference` | finite `0..1` | How far a shove candidate's opening may scale its preference |
+| `minimum_opening` | finite `0..1` | Opening below which a fight is abandoned rather than held |
+
+**`road_caution_fraction` is the one fraction in the family whose zero is refused, and the asymmetry
+is deliberate rather than an inconsistency to tidy up.** The race provider recovers toward the
+centreline when `nearest.distance > fraction * road->half_width()`, so a zero does not switch
+recovery off — it recovers unless the body sits exactly on the line, which *inverts* race behaviour.
+A knob whose zero means the opposite of "off" has no legal zero, so this key adopts
+`RacerController`'s own domain (`kMinimumRacerCautionFraction` exclusive through
+`kMaximumRacerCautionFraction` inclusive) rather than declaring a second pair beside it: it is the
+same knob against the same published half-width, and two domains for one meaning is where the two
+silently drift apart. Strict positivity buys a second thing the other twelve settings get for free.
+Four positional `TacticalProfile::Section` construction sites value-initialize a new trailing
+`double` to `0.0` and still compile — `AuthoredObjectiveWeight`'s deleted default constructor
+protects the weight vector and nothing protects a bare `double` — so **for this key a missed
+construction site is a loud `TacticalProfile::create` throw instead of a silently inverted racer.**
 
 The five weight keys are declared in `TacticalObjectiveKind` ordinal order — hill, zone, race gate,
 race recovery, shove setup — in `kConfigFamilyFieldSpecs`, in `TacticalProfile::Section`, and in the
@@ -311,19 +329,26 @@ risk_tolerance=0.5
 prediction_horizon_ticks=80
 charge_screen_diagonal_fraction=0.25
 shield_anticipation_ticks=24
+road_caution_fraction=0.75
+arrival_brake_fraction=0
+exposure_preference=0
+minimum_opening=0
 ```
 
 These are authored example values, not defaults. Missing, repeated, unknown, malformed, nonfinite,
 or out-of-range input fails at startup; there is no clamping or inert combat setting.
 
-Six settings-level rejections are the pipeline's and this step's, all
+Ten settings-level rejections are the pipeline's and the two combat steps', all
 `CONTROLLERS.TACTICAL_PROFILE_*`: `OBJECTIVE_WEIGHT_INVALID`, `RISK_TOLERANCE_INVALID`,
-`PREDICTION_HORIZON_INVALID`, `CHARGE_SCREEN_INVALID` and `SHIELD_ANTICIPATION_INVALID` name the key
-that failed, and `OBJECTIVE_WEIGHTS_DEGENERATE` names the *section*, because no single key is at
-fault. That last one is the only rejection in this library of a combination whose every value is
-individually legal: a single zero weight is a real authored answer — "this profile does not care
-about that objective" — but **all five at zero is not**, because it makes selection inexpressive,
-collapsing every score onto the stable kind ordinal, which is a bot deciding by tie-break. A profile
+`PREDICTION_HORIZON_INVALID`, `CHARGE_SCREEN_INVALID`, `SHIELD_ANTICIPATION_INVALID`,
+`ROAD_CAUTION_INVALID`, `ARRIVAL_BRAKE_INVALID`, `EXPOSURE_PREFERENCE_INVALID` and
+`MINIMUM_OPENING_INVALID` name the key that failed, and `OBJECTIVE_WEIGHTS_DEGENERATE` names the
+*section*, because no single key is at fault. `ROAD_CAUTION_INVALID` is the only one of the nine
+key-named codes with a half-open domain, for the reason given above. The degenerate-weights code is
+the only rejection in this library of a combination whose every value is individually legal: a
+single zero weight is a real authored answer — "this profile does not care about that objective" —
+but **all five at zero is not**, because it makes selection inexpressive, collapsing every score
+onto the stable kind ordinal, which is a bot deciding by tie-break. A profile
 with genuinely no preference authors equal *positive* weights, which keeps distance ordering; that
 is what `config/blob-royale.cfg` ships.
 
@@ -376,13 +401,65 @@ Profiled startup rosters require the selected mode's actual `StartMatch` capabil
 hill, race, and royale. Sandbox has no stable authored-seat identity, so it rejects those rosters
 and advertises no profiled choices. Unused profile sections may still be configured there.
 
+## The four named personalities
+
+ADR 0008 § "Tactical personalities without a class per mood" names four. **Step 22c ships them as
+authored sections of `config/blob-royale.cfg` and as nothing else.** A branch keyed on a profile's
+*numeric value*, or on a *candidate kind*, is permitted; a branch keyed on a profile's **identity**
+is forbidden, and there is none. Five profiles now ship — `steady` is unchanged and remains the
+neutral reference, authored at whichever end of each new key reproduces its previous behaviour.
+
+| Profile | What it is | The settings that make it that |
+|---|---|---|
+| `keeper` | Takes one hill and stays on it; never hunts | `objective_weight_hill=1`, **`objective_weight_shove_setup=0`** (the one endorsed zero — it skips the opponent provider), **`arrival_brake_fraction=1.0`**, `minimum_opening=1.0` |
+| `bully` | Fights whoever is nearest | `objective_weight_shove_setup=1`, `exposure_preference=0` (nearest, not most exposed), `charge_screen_diagonal_fraction=0.25`, `minimum_opening=0` |
+| `opportunist` | The fastest reflexes, and the only profile that scores exposure | `reaction_delay_ticks=20`, **`exposure_preference=1.0`**, **`minimum_opening=0.5`**, `objective_weight_shove_setup=0.75` |
+| `cautious_racer` | Lowest risk tolerance; avoids *expensive* fights, not all of them | `risk_tolerance=0.125`, `objective_weight_race_gate=1`, `road_caution_fraction=0.6`, a deliberately **non-zero** `objective_weight_shove_setup=0.125` with `minimum_opening=0.75` |
+
+**Cautious Racer's shove weight is positive on purpose, and it is the reason there is no zero-weight
+veto anywhere in the selection stage.** Its ADR clause is "avoid *expensive* fights", not "never
+fight", so it authors a small positive preference and lets `minimum_opening` decide which fights are
+cheap. Only Keeper wants none at all, and Keeper gets that from a provider skip rather than from a
+veto — see "The shove provider" below.
+
+**Bully needed no new mechanism.** It is numbers alone over Step 22b's shipped behaviours, which is
+what makes it the control against which the other three's mechanisms are read. Its
+`charge_screen_diagonal_fraction=0.25` screens about 288 wu of the shipped map's 1154 wu diagonal,
+just past the 253 wu a from-rest burst needs to stop at that file's acceleration and zero drag —
+ADR 0008's "acceptable recovery path" written as the nearest number the published state supports.
+And Cautious Racer's `road_caution_fraction=0.6` sits above a real floor at 0.5714, the shipped
+`[race] checkpoint_radius_world_units` over the 70 wu half-width of `maps/circuit-960x640`: below
+it the recovery threshold falls *inside* the gate radius and pulls a bot off a gate it is standing
+in.
+
+**Two authoring rules every shipped vector keeps, and no bound in this library can enforce either.**
+A profile's race-recovery weight is never below its race-gate weight, because a profile preferring
+the gate steers at it from off the road and never comes back. And no profile authors a zero weight
+on a kind its running mode produces, because that kind's preference term is then zero on every
+candidate the mode can offer and the bot ranks its only objective by tie-break — the inexpressiveness
+`OBJECTIVE_WEIGHTS_DEGENERATE` refuses for the whole set, arrived at one kind at a time.
+`objective_weight_shove_setup` is the single exemption. A bound cannot see which mode a profile will
+be seated in, so both rules are the author's and `config/blob-royale.cfg` states them where the
+sections are.
+
+**A name is not inert, which is why the differentiation proof holds it constant.**
+`tactical_seed_for` mixes a profile name's length and every one of its bytes, so two differently
+*named* profiles already draw and steer differently before a single setting is consulted. A test
+showing that `keeper` and `bully` behave differently would therefore prove nothing about their
+numbers. The proof that counts holds the name fixed and varies only the vector.
+
 ## Tactical objectives and observation timing
 
 `tactical_objective_candidates` has **two provider tables**: one closed table keyed by public
 mode-state schema ID, of which exactly one row runs per pass, and one table of unconditional
 providers that run beside it under every schema. Hill and zone providers read published centers and
-radii. Race reads the exact published road binding and next checkpoint, using canonical centreline
-recovery strictly beyond the existing default racer caution fraction. Missing progress waits;
+radii, and the hill provider additionally carries the hill's published velocity forward on the
+candidate for the arrival brake to read. Race reads the exact published road binding and next
+checkpoint, using canonical centreline recovery strictly beyond the **profile's own**
+`road_caution_fraction` — Step 22c promoted that threshold off the shared
+`kDefaultRacerCautionFraction`, which is why `race()` no longer carries `[[maybe_unused]]` on its
+policy parameter and why `TacticalObjectivePolicy` is now every number a provider *or* a screen
+reads rather than only the combat screens' argument. Missing progress waits;
 finished progress coasts; invalid binding, progress, or geometry fails visibly. No provider reads
 private schedules, future ticks, or gameplay code. Candidate count is bounded at 32 **per provider**
 before filtering, and unsupported running schemas fail.
@@ -471,15 +548,121 @@ admission permits. Bodyless Controllable waits, while no entity uses the shared 
 Non-running observations clear tactical work and coast where a dynamic body exists. Active stun
 does no decision/RNG work, and generation change also cancels work across an entirely missed stun.
 
-Tactical go has unit-strength direction and coast is explicit zero. Distance and seek probability
-never scale acceleration. Each due, valid, non-arrived target consumes one seek draw, including at
-probability zero or one; go is chosen only when `draw < objective_seek_probability`. Go consumes
-one additional aim draw even for zero error. It normalizes the target offset, computes
+Tactical go has unit-strength direction and coast is explicit zero — with one exception Step 22c
+adds and the section below states: a profile that authored an arrival brake emits a **subunit**
+direction on the arrived branch, which is a magnitude the wire and the tick already admit. Distance
+and seek probability never scale acceleration. Each due, valid, non-arrived target consumes one seek
+draw, including at probability zero or one; go is chosen only when
+`draw < objective_seek_probability`. Go consumes one additional aim draw even for zero error. It
+normalizes the target offset, computes
 `e = ((draw * 2) - 1) * aim_error`, then `(ux - e*uy, uy + e*ux)`, and normalizes that pair with
 written square-root arithmetic and the canonical component clamp. No trigonometry is used. Missing,
 invalid, or arrived targets, bodyless state, non-running phases, and active stun consume no draws.
 
+## The arrival brake
+
+Arrival used to be one thing — coast, an explicit zero thrust. A profile authoring
+`arrival_brake_fraction > 0` gets a second thing on that same branch: **a deadbeat, division-free
+hold against the objective's own motion.**
+
+```
+brake = clamp_componentwise( -v_relative / (published_acceleration * hold_seconds)
+                             * arrival_brake_fraction )
+```
+
+**Zero reproduces Step 22b's coast bit for bit**, and the branch tests the fraction before it
+computes anything, so a non-braking profile takes the identical `(0, 0)` path it took before. That
+is what keeps every shipped `kArrived` assertion and both browser fixtures' motionless pins
+unchanged — the tactical-movement spec pins `coaster` to 1e-9 on position, velocity *and*
+acceleration — and it is why all four e2e sections author the key at zero explicitly: **the arrived
+branch sits *outside* the seek draw, so `objective_seek_probability=0` is no protection against a brake** —
+exactly what Step 22b found for the charge, one branch over.
+
+**No division by `|v|`, therefore no `0/0`, no NaN, and no deadband.** The velocity *vector* is
+divided componentwise by a positive scalar, so as `v_relative` goes to zero the commanded direction
+goes smoothly to `(0, 0)` — which is precisely the exact zero an at-rest arrival must emit and
+precisely what the existing arrived assertions already demand. That matters more than it reads: a
+NaN here would not be a wrong number, it would be a **permanently inert bot**. `Vector2::create`
+refuses a non-finite component, `ControllerHost` catches the throw, and `TacticalController` assigns
+its state only after `decide_next` returns, so `last_completed_tick` never advances and the same
+throwing pass repeats forever — in the terminal state of every successful hill capture. A deadband
+must not become a profile key for the same reason
+`kTacticalChargeAlignmentPerpendicularFraction` is not one: it would be a knob whose only effect is
+letting a profile switch a safety property off. The two other routes to a zero divisor are closed
+the same way and never with an epsilon — `hold_seconds` is strictly positive by construction, and a
+published acceleration of zero, which `simulation_limits.hpp` admits, takes the coast, because a
+body that cannot thrust has no brake to spend.
+
+**It cannot overshoot, so it is stable at every drag without reading drag.** The unscaled quotient
+is exactly the thrust that nulls the relative velocity over one command hold in the drag-free case,
+and the componentwise clamp caps it at full thrust where more would be needed. Drag only removes
+*more* speed than that arithmetic accounted for, so a nonzero `drag_per_second` — unpublished, and
+unreadable here — makes the bot undershoot, and an undershoot is corrected by the next pass's
+smaller brake. Overshoot is the unstable direction and this law never takes it, which is why the
+fraction's bound is 1.0: above one the law would ask for more than the null.
+
+**`hold_seconds` is what makes the law deadbeat rather than a gain someone has to tune**, and it is
+*measured* rather than read. This controller re-decides only when its reaction window expires and
+returns no command at all in between, and `PhysicsBody::acceleration` persists until a later thrust
+replaces it, so one command is held for the profile's `reaction_delay_ticks` or for the observed
+snapshot spacing, whichever is longer — no profile can decide twice inside one published snapshot.
+`snapshots_per_second` is a `welcome` field and not a snapshot field, so `Observation` does not
+carry it, while the tick difference between two accepted observations is the same number and *is*
+published; `accepts_observation` refuses a repeated or older tick, so that difference is at least
+one committed tick. Taking the larger of the two can only lengthen the hold, which can only weaken
+the brake, which is the self-correcting direction.
+
+**Calibrating against the published top speed was rejected on real numbers.** The drafted
+`min(1, |v_relative| / normal_top_speed)` measures against a ceiling the body cannot reach: the
+reachable one is `min(V, A / D)` and `D` is unpublished, so at both browser fixtures' published
+ceiling of 10000 with acceleration 400 and drag 40 the terminal speed is 9 wu/s and that form would
+ask for a brake three orders of magnitude too small — inert in exactly the configuration whose
+instability motivates a brake at all.
+
+**A subunit thrust is a real command and already ships**, so the brake needs no new command shape,
+no wire change and no kernel seam. `normalized_thrust_intent` is a magnitude *clamp* and not a
+normaliser — its own header says so in bold — the held intent is re-scaled by the tuning's
+acceleration every tick and never re-normalised, the wire bound is per-component, and
+`ChaserController` already emits `unit * aggression_weight`.
+
+**`kHill` only — and the zone is the reason, not computability.** "Relative to the objective's
+motion" is perfectly computable for `kShoveSetup`: that key's subject is the opponent's `EntityId`
+and `tactical_shove_opponent_body` already resolves the body. That kind is **deferred**, not
+impossible. What rules out the zone is its arrival radius: a `kZone` candidate's arrival radius is
+the zone's own radius, a full zone radius is the arena half-diagonal, and the checked-in
+`config/blob-royale.cfg` authors `mode=royale` — so **every bot in the shipped configuration is
+inside its zone's arrival radius from the first running tick**, and a zone brake would be a
+permanent parking brake on all of them. A gate and a recovery point are authored terrain with no
+motion to be relative to.
+
+**The hill's motion is read off the candidate and never rebuilt from `key.subject`.** The provider
+already looked the published `HillMotion` up for the intercept, so it writes the velocity onto the
+candidate whether or not the horizon predicts over it, and the brake reads it there. Rebuilding an
+`EntityId` from a key subject would reproduce the permanently-inert failure one layer up:
+`kMinimumEntityId` is 1, so a race checkpoint index is a perfectly legal `EntityId` naming some
+foreign entity, and `EntityId::create` *throws* outside its range. `tactical_shove_opponent_body`
+refuses the same rebuild for the same reason.
+
+**A braking arrival stays `kArrived` and gains no reason code of its own.** A reason names the
+branch a decision came out of, and this is one branch — the arrival test is unchanged and the brake
+decides only what thrust that branch emits. A second value would be reachable only by a profile that
+authored a positive fraction, which makes it a reason keyed on a *personality* rather than on a
+branch; and at rest the two are indistinguishable by construction, because a brake with nothing left
+to null emits exactly the coast's `(0, 0)`.
+
 ## The shove provider
+
+**A zero `objective_weight_shove_setup` skips this provider outright, and that is a provider-level
+skip and not a selection-level veto.** The difference is the whole of why it is safe. The profile
+produces *no* shove candidate rather than an unselectable one, so there is no all-vetoed case to
+invent a reason code for, no zero-thrust fallback branch, and **no change at all to what a zero
+weight means for the four mode kinds** — there it still means "I do not care about that objective",
+scored at zero and outranked, exactly as before. It also saves the entire nearest-N opponent scan
+and every hazard walk behind it for a profile that could never have acted on the result. A general
+zero-weight veto in the selection stage would have bought none of that and would have had to answer
+"what does a bot do when everything is vetoed?", a question this pipeline does not otherwise have.
+The comparison is exact rather than epsilon'd because the weight is an authored, validated number
+and never a computed one. Keeper is the one shipped profile that authors it.
 
 The unconditional provider turns each nearby opponent into one `kShoveSetup` candidate, and **its
 target is S, the safe-side standing point — never the opponent and never the hazard**:
@@ -542,6 +725,77 @@ neither states an order among equal elements, and this domain's contract is that
 select the same candidate bit for bit. Its width is `kMaximumTacticalShoveCandidateCount`, a
 compile-time constant equal to the per-provider budget and **never a profile key**, because an
 authored width would move a ceiling this domain says no authored input can move.
+
+### The opening: five published booleans, a fixed order, and no division anywhere
+
+A shove candidate carries `opening`, which is how little the opponent can answer a shove with. It is
+a weighted sum of five booleans read in one written order,
+
+```
+exposure = stun + shield spent + charge spent + outside the zone + holding the hill
+opening  = (exposure * exposure_preference) + (1 - exposure_preference)
+```
+
+each term the shared weight in `controllers_limits.hpp` or zero. **A profile that authors no
+preference carries an opening of exactly one on every candidate and scores exactly as it did before
+this existed**, which is the property that keeps four of the five shipped profiles bit-identical
+here.
+
+**Booleans, because every ratio-shaped spelling of this quality is a permanently inert bot.** The
+natural forms — exposure ticks over `elimination_grace_ticks`, presence ticks over
+`point_interval_ticks`, cooldown remaining over a shield cooldown — each divide by a denominator
+this codebase documents as legally zero, and two of those denominators live in `mode_state`, which
+the unconditional provider is documented never to read. `std::get` on the wrong variant arm throws
+`std::bad_variant_access`; `ControllerHost` catches and continues; `TacticalController` assigns its
+state only after `decide_next` returns, so the bot repeats the throwing pass forever. The fix costs
+nothing, because `ZoneExposure` and `HillPresence` are **erasure-based presence flags** — the owning
+systems remove the entry rather than storing a zero — so "outside the zone" and "holding the hill"
+are already booleans with no denominator and no `mode_state` read behind them.
+
+**The five weights are shared constants and deliberately not profile keys**, and the stun term is
+worth as much as the other four together. A profile authors *how much* it prefers an exposed target
+and *how open* a fight must be; it does not author what "exposed" means, because five per-profile
+weights would be five combat knobs whose only joint effect is letting one profile disagree with
+every other about which published windows count as an opening at all. Stun is weighted 0.5 because
+it is the only one of the five that removes every answer at once — a stunned body cannot thrust
+away, cannot raise a shield and cannot charge out for a whole published window — while each of the
+other four removes exactly one answer, so the four are equal at 0.125 and nothing in this tree has
+measured a ranking among them. Every value is a negative power of two, so the sum is exact in binary
+under any association and the `static_assert` that they total 1.0 is a real check rather than a
+tolerance.
+
+**The two ability terms are read the way `AbilitySystem` reads them, not as bare presence.** A
+shield counts as *spent* only when its cooldown is still live **and** its protection has already
+ended: the cooldown starts at activation, so bare presence would have scored a currently protected
+body as the most exposed thing on the map — the term would have inverted. A charge carries no
+protection window, so its cooldown alone is the whole question.
+
+**Two limits, recorded rather than left to be discovered.** First, `ZoneExposure` is published only
+under royale and `HillPresence` only under king of the hill, so under race — and under every mode a
+later step adds — the quality degenerates to the stun term plus the two ability cooldowns and can no
+longer tell two opponents apart by where they are standing. Its reachable maximum falls with it and
+nothing renormalises, because renormalising is division and division is the failure above. Second,
+**nothing here is free**: each of the five terms is one linear component-store scan per kept
+opponent, so the quality is five scans wide, and what bounds it is the nearest-N filter that already
+bounds the provider and nothing else. Only the stun term is cheap to justify — one store, one
+window, no mode behind it, and the one term that still means something under a mode this file has
+never seen — and it is not free either.
+
+**`minimum_opening` filters here, after the nearest-N filter, and the order is an honest limit.**
+The floor is applied to each kept opponent's opening before the hazard walk, so a fight the profile
+has already called low-value costs nothing further and yields no candidate. Running it *before*
+nearest-N would close a real hole — the filter can discard the most exposed opponent on distance
+before the floor ever sees it — but that cancellation needs 33 or more dynamic controllable bodies
+against a filter width of `kMaximumTacticalShoveCandidateCount = 32`, and **every fixture in this
+tree seats three.** Closing it costs either an O(P x S) rescan or a second N-way merge beside the one
+`component_join.hpp` declares itself to be, a primitive whose own header records that every prior
+private copy of it was an engine review finding. So the hole is written down instead of paid for,
+and it stays written down until a roster in this tree is larger than the width.
+
+**A dropped candidate is a vanished candidate, which is what buys "abandon low-value fights" for
+free.** A held key that no longer appears among the screened candidates already releases the lease,
+cancels held input and restarts reaction timing under `kLost`; a candidate the floor removed is
+indistinguishable from one whose opponent left, so no new reason code and no new path were needed.
 
 ## Charge and shield
 
@@ -663,7 +917,7 @@ the utility stage is what did not exist.
 `tactical_candidate_score` is the one written scoring order every profile shares:
 
 ```
-preference = weight(kind) * (1 - normalized_distance)
+preference = weight(kind) * (1 - normalized_distance) * opening
 penalty    = escape_blocked ? (1 - risk_tolerance) : 0
 score      = (preference - penalty) + held_bonus
 ```
@@ -676,11 +930,59 @@ which is what makes the penalty commensurate with the preference. Nothing here d
 generator: selection is deterministic, and the seek and aim draws stay exactly where Step 15 put
 them, in the same order, so no authored profile's stream moved.
 
+**The opening is a third *factor* and never a fourth additive term, and that is not a taste
+question.** An additive exposure term destroys the commensurability the paragraph above rests on:
+the escape penalty is at most 1.0, so any positive coefficient on an added exposure could outrank
+it, and a maximally cautious profile could be made to prefer a cliff-blocked shove over a clean
+gate — the exact statement this file claims is *provable* rather than a tuning accident. A third
+factor keeps the product inside `[0,1]` where the penalty already lives, and it still reorders two
+same-kind candidates, which is the entire job: with one kind in the set the weight is a common
+factor and reorders nothing, so exposure has to enter somewhere the *kind* is held constant.
+
+**The `opening` field defaults to `1.0`, and that default is load-bearing.**
+`TacticalObjectiveCandidate` gives its other members zero and false defaults, and the `candidate()`
+helper aggregate-initialises only the first four of them, so a `double opening{}` would multiply
+every hill, zone, gate and recovery candidate's preference by zero and silently make four kinds
+unselectable. That is `AuthoredObjectiveWeight`'s defect one layer down, except that **the compiler
+cannot catch this one** — the aggregate is well formed with either initializer — which is why a test
+pins a raw mode candidate's score as unchanged across the step.
+
+Exposure is also the first field that runs *against* the ownership rule this file used to state
+whole: "a raw provider candidate carries zero and false for both, because only
+`collect_tactical_objective_candidates` holds the terrain and the arena". That is now half of a
+rule. The collector holds the terrain and the arena but **not** the opponent the nearest-N filter
+kept, nor the `HillMotion` the circle provider already looked up, so `opening` and the objective's
+published velocity are answers only the *provider* can give; screening copies both through
+untouched, and every other kind carries the neutral value the collector could not have computed
+either.
+
 `tactical_select_candidate` takes the maximum, and an exact tie falls through to
 `tactical_candidate_precedes` — kept from Step 15, no longer the selector but now the *tail* of the
 chain. Its order is nearest first, then the key, whose first component is the stable kind ordinal;
 keys are unique within one screened set, so this is a strict total order and **no selection can
 depend on the order providers happened to push candidates in**.
+
+**It returns `std::optional<std::size_t>`, and that fixed a contract rather than a crash.** There
+was no live out-of-bounds read: the loop's first test short-circuited on `best == candidates.size()`,
+so on any non-empty set the first iteration assigned index 0 unconditionally and the sentinel was
+unreachable. What was wrong was the *signature*, which promised a value its one caller indexed with
+— and the reason that mattered is what the promise would have cost the first time anything made the
+sentinel reachable, which a drafted zero-weight veto very nearly did. The candidate vector is
+`reserve`d at the raw merged count and then filled only with terrain-screen survivors, so whenever
+anything is screened out `capacity > size` and index `size()` lands **inside the live allocation**:
+a sanitizer reports nothing without container-overflow annotations. The lease would then copy a
+candidate whose `key.kind` is an arbitrary byte, and the next pass would index a
+`std::array<double, kTacticalObjectiveKindCount>` with it — a second, unbounded read. Silent, not
+caught, and Step 22b's review and the plan's Step 22b bullet both called it a sanitizer abort.
+
+**A bare size check was rejected because it is a comment the next caller can ignore.** The optional
+makes the compiler close the hole at every call site that does not exist yet, which is the
+discipline this domain already applies one file over: `AuthoredObjectiveWeight`'s deleted default
+constructor, and the `default`-less switches over the kind enum that turn a sixth kind into a build
+failure rather than a silent zero. The one live caller answers the empty optional with
+`kNoScreenedCandidate` rather than a new reason code, because "selection chose nothing" and
+"screening left nothing" are one outcome and it is already unreachable behind the empty-set branch
+above it.
 
 **Hysteresis is the existing lease, given a bonus, not a second memory beside it.** While the
 persistence window is open no selection runs at all. At the moment it ends, the candidate it was
@@ -724,9 +1026,12 @@ drifts from the code the first time a branch moves.
 
 The movement reasons are `kNotDecided`, `kAwaitingBody`, `kNoControllableBody`, `kMatchNotRunning`,
 `kStunned`, `kObjectivesWaiting`, `kObjectivesFinished`, `kNoScreenedCandidate`,
-`kAwaitingReaction`, `kArrived`, `kSeekDeclined`, `kPursuing` and `kPursuingUnderRisk`. Step 22b
-appends a combat group of six: `kShieldAnticipated`, `kShieldUnavailable`, `kChargeMisaligned`,
-`kChargeGroundEndsFirst`, `kChargeUnavailable` and `kChargeCommitted`. The holds are `kNone`,
+`kAwaitingReaction`, `kArrived`, `kSeekDeclined`, `kPursuing` and `kPursuingUnderRisk`. **Step 22c
+appends none**, which is the point: an arrival that brakes is the same branch as an arrival that
+coasts, and a zero-opening fight is an absent candidate rather than a refused one, so neither
+mechanism earned a value. Step 22b appends a combat group of six: `kShieldAnticipated`,
+`kShieldUnavailable`, `kChargeMisaligned`, `kChargeGroundEndsFirst`, `kChargeUnavailable` and
+`kChargeCommitted`. The holds are `kNone`,
 `kAcquired`, `kRetainedInLease`, `kRetainedByBonus`, `kSwitched`, `kLost` and `kReleased`. Every
 value is reachable and the unit tests reach each one; for the combat six that is the coverage intent
 recorded under "Verification" below rather than a claim about a gate. `kPursuingUnderRisk` is the
@@ -857,11 +1162,42 @@ kConfigurationKeyUnknown}` in
 `tests/unit/application/fixtures/tactical_profile_configuration_fixture.hpp`, which asserts the key
 is refused by name. The seed is corpus coverage of that path, which is all it ever was.
 
-The four named personalities ADR 0008 sketches — Keeper, Bully, Opportunist, Cautious Racer — are
-**Step 22c's**, split out of 22b after a second read-only preflight round found that three of the
-four need shared mechanism rather than authored numbers. Step 22b, like 22a, added settings and not
-profiles, which is what keeps the tactical-profiles browser spec's exact published profile list
-unchanged.
+The four named personalities ADR 0008 sketches — Keeper, Bully, Opportunist, Cautious Racer — were
+split out of 22b after a second read-only preflight round found that three of the four need shared
+mechanism rather than authored numbers, and **Step 22c ships them**: see "The four named
+personalities" above. Step 22b, like 22a, added settings and not profiles, which is what keeps the
+tactical-profiles browser spec's exact published profile list unchanged; Step 22c adds four profiles
+to `config/blob-royale.cfg` and to nothing else, for the same reason — that spec pins its own
+fixture's two-element list three ways, and the deployment file declares no `[bot_profile]` section
+at all.
+
+## What Step 22c named but did not build
+
+Each of these is buildable from published state and simply was not built. They are recorded because
+each one reads as a bug to somebody who takes a profile's name at face value, and because amending
+an ADR clause away because it was not built is moving the goalposts.
+
+* **Keeper does not yet defend a stable *interior*.** A hill candidate's arrival radius is the
+  **full** published hill radius, so a bot reports arrived one world unit inside the rim — where it
+  is trivially shoved back out — and **the brake makes that worse rather than better**, because it
+  stops the bot exactly where it first arrived instead of letting it drift on toward the centre. The
+  value-keyed fix that stays inside ADR 0008's own rule is an `arrival_radius_fraction` scaling the
+  published radius, so a keeper reports arrived only near the centre. It is named as owed and is not
+  in this step.
+* **Bully's charge screen is not an "acceptable recovery path".** The screen asks whether there is
+  ground under the corridor the body is about to cross, and its own header says it is never a claim
+  the body can stop before leaving that corridor. A recovery path is about getting *back*, and
+  nothing models it. Both the pre-burst braking distance and the arena bounds are published, so this
+  too was buildable.
+* **Nothing makes a Bully shove with ordinary thrust.** The only push in the game is the charge, so
+  **a Bully whose charge is on cooldown stands at its safe-side standing point doing nothing** until
+  the cooldown expires. Contact between two moving bodies still resolves through the ordinary
+  composition, so it is not inert — but it is not pushing either, and the profile's name promises
+  more than the mechanism delivers.
+* **`minimum_opening` runs after the nearest-N filter**, so a roster of 33 or more dynamic
+  controllable bodies could in principle hide the most exposed opponent behind the distance filter.
+  The reasoning and the price of closing it are under "The opening" above; no fixture in this tree
+  seats more than three.
 
 **What Step 22b is, under the owner's decision.** ADR 0008 § "Owner decision: authored caution for
 bot combat, 2026-09-12" chose **authored caution over derived physics**: none of the four facts
@@ -877,12 +1213,16 @@ one by reaching for gameplay configuration inside a controller is undoing that d
 parry-cadence limit above stands under the decision either way.
 
 `risk_tolerance` and the objective weights are read by behaviour Step 22a shipped; the three
-settings above are read by behaviour Step 22b ships. A key read by nothing is precisely the inert
-knob the ADR refuses, and no step has authored one.
+combat settings are read by behaviour Step 22b ships; and Step 22c's four are each read by behaviour
+landing beside them — `road_caution_fraction` by the race provider's recovery threshold,
+`arrival_brake_fraction` by the arrived branch, and `exposure_preference` and `minimum_opening` by
+the shove provider's opening. A key read by nothing is precisely the inert knob the ADR refuses, and
+no step has authored one.
 
 Full findings: `docs/reviews/2026-09-12-tactical-combat-preflight.md`. The contracts these steps
-were built to: `docs/reviews/2026-09-12-tactical-pipeline-contract.md` (22a) and
-`docs/reviews/2026-09-12-tactical-combat-contract.md` (22b).
+were built to: `docs/reviews/2026-09-12-tactical-pipeline-contract.md` (22a),
+`docs/reviews/2026-09-12-tactical-combat-contract.md` (22b) and
+`docs/reviews/2026-09-12-tactical-personalities-contract.md` (22c).
 
 ## Determinism
 
@@ -947,18 +1287,52 @@ cooldown suppressing a pulse locally; every new reason code reached; and profile
 attributable to the shove weight in a candidate set that now genuinely holds two kinds — the first
 non-vacuous weight proof in the tree.
 
+Step 22c's coverage is the four personalities and the three mechanisms they needed: each of the four
+selecting differently from the other three on one identical observation, with the profile **name**
+held constant so `tactical_seed_for` cannot make the proof vacuous; `arrival_brake_fraction=0`
+bit-identical to Step 22b at `kArrived`, and the brake nulling a relative velocity without overshoot
+while emitting exactly `(0,0)` at rest; `exposure_preference=0` scoring identically to Step 22b with
+a raw mode candidate unchanged, and exposure reordering two equidistant shove candidates;
+`minimum_opening` dropping a closed opening and firing `kLost`, releasing the lease and re-arming
+the reaction window; a zero shove weight skipping the provider rather than producing an unselectable
+candidate; `tactical_select_candidate` returning an empty optional only where documented;
+`road_caution_fraction` at its floor keeping a bot on a gate it is standing in; and the shipped
+configuration parsing with exactly five profiles.
+
+**The brake needs a third thrust helper, and neither existing one can carry it.** `require_zero`
+demands exactly `(0,0)` and `require_go` demands unit magnitude within 1e-15, so a subunit brake
+satisfies neither; the new helper is built on `require_same_bits`, and **neither existing helper was
+loosened**, because loosening `require_go` would silently retire the normalisation assertion every
+pursuing case rests on.
+
 **The `thrust()` test helper cannot carry an ability case**, and that is worth knowing before the
 next one is written. It asserts `REQUIRE(commands.size() == 1)` and backs every `require_go` and
 `require_zero` in `tactical_controller_tests.cpp`. The existing fixtures publish no opponents, so
 nothing fires through it today; any new case that emits an ability must not route through it.
 
 **A `[bot_profile]` key change breaks four gates outside this library**, which is why Step 22a's
-Verify line is wider than Step 15's and Step 22b keeps the same shape: `unit.application`,
+Verify line is wider than Step 15's and 22b and 22c keep the same shape: `unit.application`,
 `verify-fuzz-regressions`, `verify-web` and `verify-browser-e2e` all parse an authored profile
-section, and `fixtures` carries the only C++ lane that reads `config/blob-royale.cfg`.
-`run-benchmarks-linux` is not in that line and its absence is verified rather than inherited: no
-file under `benchmarks/` carries a `[bot_profile]` section and no replay fixture seats a tactical
-bot. The implementation contracts are `docs/reviews/2026-09-11-tactical-profile-contract.md`
-(Step 15), `docs/reviews/2026-09-12-tactical-pipeline-contract.md` (Step 22a) and
-`docs/reviews/2026-09-12-tactical-combat-contract.md` (Step 22b); these test descriptions are
+section. `run-benchmarks-linux` is not in that line and its absence is verified rather than
+inherited: no file under `benchmarks/` carries a `[bot_profile]` section and no replay fixture seats
+a tactical bot.
+
+**Correction, 2026-09-12: this file previously said `fixtures` "carries the only C++ lane that reads
+`config/blob-royale.cfg`". That was false, and Step 22b's three keys shipped on it.** The lane's
+`deployment_fixture_tests.cpp` loads `BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY`, which
+`tests/fixtures/CMakeLists.txt` defines as `deploy/ubuntu-pc` — a file that declares no
+`[bot_profile]` section at all. Until Step 22c, **nothing in the tree parsed the shipped
+configuration**: it is referenced only by `scripts/verify-linux` and `scripts/assemble-release-linux`,
+so the `steady` section since Step 15, Step 22a's six keys and Step 22b's three all shipped with zero
+automated parse coverage. Root verified by hand after Step 22b that the shipped configuration loads
+and the server reaches `running`, so nothing was broken — but a one-off check is not a gate, and the
+four profiles this step authors would have been the largest untested block yet. Step 22c closes the
+hole with a second `fixtures`-lane case, behind
+`BLOB_ROYALE_SHIPPED_CONFIGURATION_FIXTURE_DIRECTORY`, that loads `config/blob-royale.cfg` through
+`ApplicationConfigLoader` and asserts the catalogue holds exactly the five profile names.
+
+The implementation contracts are `docs/reviews/2026-09-11-tactical-profile-contract.md`
+(Step 15), `docs/reviews/2026-09-12-tactical-pipeline-contract.md` (Step 22a),
+`docs/reviews/2026-09-12-tactical-combat-contract.md` (Step 22b) and
+`docs/reviews/2026-09-12-tactical-personalities-contract.md` (Step 22c); these test descriptions are
 coverage intent, not a claim that an unrun gate passed.

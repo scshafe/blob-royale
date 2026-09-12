@@ -1083,6 +1083,18 @@ bots alike rather than exposed to one and hidden from the other, so `Shield` dec
 reason — `shield` is a non-visual registration until Step 20 supplies its presentation. The
 session major stays `3.0` under the coordinated development release rule below.
 
+**Amended 2026-09-12 (plan Step 19):** `charge` publishes exactly `activation_tick` and
+`cooldown_expiry_tick`, in that encoder order, with the same complete set of artifacts in the same
+commit, and it is the second explicit **non-visual** renderer registration for the same stated
+reason. It is the smaller value on purpose: a one-shot activation has no active window and captures
+no effect parameter, so there is nothing else stored to publish, and "publish every stored value"
+produces two members rather than five. Both are absolute endpoints and neither is a countdown. One
+difference from `shield` is normative rather than incidental — because `charge_cooldown_seconds` is
+validated strictly positive, the schema, the encoder and the client all require
+`cooldown_expiry_tick > activation_tick` **strictly**, where shield's corresponding ordering is
+`<=` because a cancelled protection window may legitimately be empty. `Charge` likewise declares no
+`ComponentPublication` specialization, and the session major still stays `3.0`.
+
 **Versioning discipline.** Adding a component kind, a command kind, or a mode-state schema is a
 **protocol minor version** — `2.1`, `2.2` — and the `welcome` message states the server's exact
 version. A client **fails closed** on a kind or schema id it does not know: it reports the unknown
@@ -1121,6 +1133,14 @@ and they are checkable.
   `AbilityConfiguration` stores only tick counts, and `Shield` stores absolute `TickWindow`
   endpoints rather than a countdown, so nothing decrements per tick and no ability reads seconds at
   runtime. Perfect timing is judged by the server-accepted tick, never by a client timestamp.
+  **Amended again 2026-09-12 (plan Step 19):** `AbilityConfiguration` no longer stores *only* tick
+  counts — `charge_speed_fraction` and `charge_safety_envelope_speed` are validated doubles it keeps
+  as doubles. That is not a weakening of this rule, because neither is a duration: one is a
+  dimensionless multiple of a speed and the other is a speed in `wu/s`, and this bullet governs
+  *time*. Every authored duration is still converted once at load, `charge_cooldown_seconds`
+  included, no value in seconds survives startup, and `Charge` stores one absolute `TickWindow`
+  rather than a countdown. The narrower claim "this owner holds nothing but `std::uint64_t`" was a
+  true observation about a four-key section, never the obligation itself.
 * **Randomness only from `DeterministicRandom`, owned by `GameWorld`.** The generator is written out
   explicitly rather than taken from `<random>`, because standard engines are bit-specified but
   standard distributions are not:
@@ -1216,6 +1236,20 @@ authoritative per-site checklist; the wire half of it is real work and is not on
 further client-sendable edits that README names.
 `src/simulation/README.md` § "Extension points" states the same set.
 
+**Amended 2026-09-12 (plan Step 19), the same two rows measured a second time, on `Charge` and
+`ChargeCommand`.** Both came out at exactly the Step 18 cost, which is the useful result: the second
+published component and the second client-sendable command kind cost what the first did, so the
+measurement above is a rate rather than a one-off. Two additions to it, both on the wire half.
+First, a **published ordering invariant is a per-kind edit, not a shared one**: `charge` requires
+`cooldown_expiry_tick > activation_tick` strictly where `shield`'s corresponding pair is `<=`, so
+the schema, the encoder guard, and the client invariant check each carry that kind's own comparison.
+Second, and this is the one a careless reader loses, **every by-position index in
+`command_wire_kind.hpp` must be re-verified by hand when a client-sendable kind is added**:
+`kV3ClientCommandKindNames` is ascending, `"charge"` sorts before `"clear_seat"` and therefore
+*first*, so every existing kind's index shifts by one. The array grows 7 to 8 and
+`welcome-data.schema.json`'s `maxItems` follows it, as `shield` made it grow 6 to 7 and shift
+`start_match`. A kind that happened to sort last would have hidden this; `charge` does not.
+
 Engine review finding 5 removed one of the three files that row used to name: `recorded_entity_of`
 in `game_simulation.cpp` and `addressed_identity_of` in `input_batch.cpp` were one capability with
 two implementations, and they are now the single `addressed_identity_of` in `command_registry.hpp`.
@@ -1243,6 +1277,19 @@ rather than foresight.
 | Command kind | `command_kind` | A value type in the `Command` variant with validation and a consuming system | `command_registry.hpp` | `ThrustCommand`; `ShieldCommand`, the entity-addressed ability pulse consumed by the shared `ability` system (2026-09-12, plan Step 18) |
 | Controller | `controller` | The in-process form of the command-source role, in `blob_controllers`: `kind()`, `entity()`, non-blocking `decide(const Observation&)` | `controller_registry.hpp` and `[match] bots=` | seeded `WandererController`; an off-thread LLM-driven controller |
 | Entity renderer | `entity_renderer` | A draw function keyed by component kind, client side | the client's renderer registry | the `PhysicsBody` disc renderer; the `Zone` circle renderer |
+
+**Amended 2026-09-12 (plan Step 19).** Three of those rows now have a second *shipped* registration
+rather than a shipped one and a hypothetical one. `Charge` joins `Shield` under `entity_component`
+and is the deliberately smaller shape — one `TickWindow` and two published members against three
+windows and five — which is what makes the pair a real demonstration that the seam does not impose a
+size. `ChargeCommand` joins `ShieldCommand` under `command_kind`, entity-addressed and consumed by
+the same system. The `simulation_system` row is the one that did **not** grow, and that is the
+decision worth recording: charge added no system. It is admitted by the existing `ability` system,
+which now owns two abilities, because a second system would have had to re-derive the same
+eligibility from the same world and could not resolve a same-tick conflict between the two without a
+third place holding the priority. **The priority lives in that one system and is spelled
+`!shield_eligible`**: both eligibilities are computed before either write, shield wins a tie, and
+losing the tie consumes no charge cooldown. A seam left unused is as much a result as one exercised.
 
 The stress tests below are the validation of that inventory. Each one is answered with "new files
 plus registration" or names the missing seam honestly.
@@ -1620,3 +1667,54 @@ controller's existing whole-`Command` log. A refused pulse produces no per-reque
 published `Shield` windows are the only confirmation of a committed activation. The implementation
 contract is
 [`2026-09-12-shield-composition-contract.md`](../reviews/2026-09-12-shield-composition-contract.md).
+
+## Amended 2026-09-12: The one-shot charge and a system that owns two abilities (Step 19)
+
+`Charge` is registered as a body-bound component kind and published completely under the same
+coordinated v3.0 contract with **two** members, `activation_tick` and `cooldown_expiry_tick`, both
+absolute endpoints. It holds one `TickWindow` — the cooldown — because a one-shot activation has no
+active window and captures no effect parameter, and it publishes every value it stores for the same
+reason `Shield` does. Its published ordering is strict, `cooldown_expiry_tick > activation_tick`,
+because its authored cooldown is validated strictly positive; that is the one place a reader must
+not copy `shield`'s `<=`.
+
+`ChargeCommand` is registered as the **twelfth** `Command` kind, `CommandKind::kCharge = 1u << 11`
+with application rank 11 appended after shield's 10, so every existing bit and rank is preserved. It
+is entity-addressed and carries a `Vector2 direction` plus an optional `input_generation` with
+`ThrustCommand`'s exact semantics. Its wire payload is `{x, y, input_generation?}` — the generation
+**optional** like `set_thrust`'s, not required-and-nullable like `shield`'s, because this tree's
+recorded discriminator keys that choice on payload shape and charge has other required members.
+It pays every site `src/simulation/README.md` § "Extension points" lists, including the
+client-sendable three, and every by-position index in `command_wire_kind.hpp` was re-verified
+because `charge` sorts first in the ascending client-sendable array.
+
+**No new system.** The existing shared `kPreKernel` `ability` system consumes it, so that system now
+owns two abilities and the priority between them. Its `apply` evaluates the four gates common to
+both — running phase, non-zero tick, non-static body, canonical input lock — exactly once against
+the world at entry, reads `protection_active` into a local **before any write**, computes both
+eligibility booleans, and only then applies shield if eligible and charge if admissible and shield
+is not eligible. The conflict gate is `!shield_eligible` rather than "no `Shield` present", which is
+what makes an ineligible shield pulse provably unable to suppress an eligible charge; losing the tie
+consumes no charge cooldown. **The two abilities' application ranks are not that priority**, and
+reading them as one is the mistake this paragraph exists to prevent: rank 10 and rank 11 order how
+phase 0 *records* two commands, which is a de-duplication grouping, while the winner of a same-tick
+tie is decided at `kPreKernel` against the world at entry by the rule above. A future ability that
+took a lower rank would change nothing about who wins. The expiry sweep gained a second pass that
+erases a `Charge` whose cooldown has expired, ids collected before erasure, on the same reasoning
+the first pass records.
+
+`StatusSystem` needed **no change**. A burst already in flight keeps flying under a stun, which is
+what ADR 0008 § "Stun and input lifecycle" already required of every external impulse, and fresh
+activation is blocked with no new code by the canonical input lock plus the generation bump.
+
+**Refusals stay silent and the ability path stays throw-free.** Every inadmissible charge is a
+no-op — no cooldown, no queued activation, no event, no error, no receipt — and the direction
+helper returns `std::optional` and the safety envelope is checked in raw doubles precisely so that
+nothing in `AbilitySystem::apply` can throw for a world a client can reach. A throw there escapes
+`GameSimulation::step` and stops the runtime worker permanently, which would make one client's
+command a room kill.
+
+No fourth hook stage, fourth policy socket, ninth mode declaration, second pair equation, new event
+root, command-receipt channel, or `Controller` capability was added, and the protocol version did
+not move. The implementation contract is
+[`2026-09-12-charge-contract.md`](../reviews/2026-09-12-charge-contract.md).

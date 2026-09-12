@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_SIMULATION_COMMAND_REGISTRY_HPP
 #define BLOB_ROYALE_SIMULATION_COMMAND_REGISTRY_HPP
 
+#include "commands/charge_command.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
 #include "commands/join_command.hpp"
@@ -57,7 +58,7 @@ namespace blob_royale::simulation {
 // related: kind_registry.hpp -- the derivation that keeps the kind list honest.
 using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand,
                              ClearSeatCommand, SeatNpcCommand, StartMatchCommand, LeaveCommand,
-                             JoinCommand, SetMovementTuningCommand, ShieldCommand>;
+                             JoinCommand, SetMovementTuningCommand, ShieldCommand, ChargeCommand>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -85,6 +86,10 @@ enum class CommandKind : std::uint32_t {
   kJoin = 1u << 8,
   kSetMovementTuning = 1u << 9,
   kShield = 1u << 10,
+  // The second ability kind takes the next free bit for the reason the first one did: a mask is
+  // persisted in a mode's accepted set and transmitted in `welcome`, so a bit that moved would
+  // silently change what an already-written mask means (`commands/charge_command.hpp`).
+  kCharge = 1u << 11,
 };
 
 // canonical: command_kind_of_type -- the enumerator of one command value type.
@@ -135,6 +140,10 @@ template <> struct CommandKindOf<SetMovementTuningCommand> {
 
 template <> struct CommandKindOf<ShieldCommand> {
   static constexpr CommandKind value = CommandKind::kShield;
+};
+
+template <> struct CommandKindOf<ChargeCommand> {
+  static constexpr CommandKind value = CommandKind::kCharge;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through CommandKindOf.
@@ -214,6 +223,15 @@ template <> struct CommandKindName<ShieldCommand> {
   static constexpr std::string_view value = "shield";
 };
 
+// `charge` for the same reason `shield` is not `set_charge`: the wire name says `set_thrust`
+// because that command *replaces* a persistent intent a client has to reason about, and a charge
+// replaces nothing -- it is one whole act whose entire effect is applied on the tick it is admitted
+// (`commands/charge_command.hpp`). Carrying a direction does not change that; `set_thrust`'s prefix
+// is about persistence, not about payload.
+template <> struct CommandKindName<ChargeCommand> {
+  static constexpr std::string_view value = "charge";
+};
+
 // The declared wire name of one command kind, for encoders, diagnostics, and fixtures.
 template <typename CommandType>
 inline constexpr std::string_view command_kind_name = CommandKindName<CommandType>::value;
@@ -251,6 +269,8 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
     return command_kind_name<SetMovementTuningCommand>;
   case CommandKind::kShield:
     return command_kind_name<ShieldCommand>;
+  case CommandKind::kCharge:
+    return command_kind_name<ChargeCommand>;
   }
   return "command_kind_invalid";
 }
@@ -390,6 +410,15 @@ command_kind_application_rank(const CommandKind kind) noexcept {
   // pulse pressed by a session that is already gone.
   case CommandKind::kShield:
     return 10;
+  // A charge is recorded exactly as a shield pulse is, and for the same reasons, so it takes the
+  // next free rank after it rather than a place among the kinds that act on the world. The two
+  // ability kinds' relative order is not a priority: which one wins when both are pressed in one
+  // tick is decided at `kPreKernel` by the ability system's explicit conflict rule, over the world
+  // at entry, and never by which of them phase 0 recorded first
+  // (`docs/reviews/2026-09-12-charge-contract.md` § "Admission, the conflict rule, and the
+  // effect").
+  case CommandKind::kCharge:
+    return 11;
   }
   return static_cast<std::uint32_t>(kCommandKindCount);
 }

@@ -4,6 +4,7 @@
 #include "protocol_constants.hpp"
 #include "protocol_v3_constants.hpp"
 
+#include "commands/charge_command.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
@@ -163,6 +164,61 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
   return CommandDecodeResult::accepted(simulation::ShieldCommand{stamped_entity, generation});
 }
 
+// One closed `charge` payload: `{x, y, input_generation?}`, the exact shape `decode_set_thrust`
+// above accepts, down to the shared `unit_interval_scalar` bound on the components and the
+// optional generation.
+//
+// **It follows `set_thrust` rather than the `shield` immediately above it, and the reason is the
+// payload's shape rather than the command's family.** The comment on `decode_shield` states the
+// discriminator: a pulse's generation is required-and-nullable *because a pulse carries nothing
+// else*, so an omitted key would leave `{}` and make "I mean the initial generation" and "I forgot
+// the field" the same bytes. A charge always carries `x` and `y`, so that ambiguity cannot arise
+// here any more than it can on a thrust -- an omitted `input_generation` is unambiguously the
+// initial generation of an entity whose input has never been invalidated. Making charge match
+// shield on "the two ability commands are one vocabulary" grounds would invent a second, competing
+// rule over the top of the recorded one
+// (`docs/reviews/2026-09-12-charge-contract.md` § "The component and the command").
+//
+// The components are direction *intent* and nothing else. This decoder neither normalizes nor
+// clamps them, for the reason it does not clamp a thrust: the mode owns the transform, and doing
+// it here as well would apply it twice. `gameplay::unit_direction` is the one normalizer, and it
+// is what makes `{"x":0.5,"y":0}` a full-strength charge to the right rather than half a burst --
+// so a client cannot author its own gain by shortening the vector, and a zero or subnormal
+// direction is a silent refusal inside the tick rather than anything this boundary can see.
+[[nodiscard]] CommandDecodeResult decode_charge(const json::object& payload,
+                                                const simulation::EntityId stamped_entity) {
+  const json::value* const encoded_generation = payload.if_contains("input_generation");
+  if (payload.size() != (encoded_generation == nullptr ? 2U : 3U)) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const json::value* const encoded_x = payload.if_contains("x");
+  const json::value* const encoded_y = payload.if_contains("y");
+  if (encoded_x == nullptr || encoded_y == nullptr) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+
+  const std::optional<double> x = finite_number_of(*encoded_x);
+  const std::optional<double> y = finite_number_of(*encoded_y);
+  if (!x.has_value() || !y.has_value()) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  if (std::abs(*x) > kThrustComponentMaximumMagnitude ||
+      std::abs(*y) > kThrustComponentMaximumMagnitude) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+
+  std::optional<simulation::TickSequence> generation;
+  if (encoded_generation != nullptr) {
+    const auto value = bounded_unsigned_of(*encoded_generation, 1, kMaximumSafeInteger);
+    if (!value.has_value()) {
+      return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+    }
+    generation = simulation::TickSequence::create(*value);
+  }
+  return CommandDecodeResult::accepted(
+      simulation::ChargeCommand{stamped_entity, simulation::Vector2::create(*x, *y), generation});
+}
+
 // One `{seat_index}` payload, shared by `clear_seat` and `seat_npc`'s first member. The bound is
 // the
 // **protocol's** constant, not the live roster's size: the roster is world state and no boundary
@@ -318,6 +374,8 @@ decode_set_movement_tuning(const json::object& payload, const simulation::Contro
     return decode_set_thrust(payload, stamped_entity);
   case simulation::CommandKind::kShield:
     return decode_shield(payload, stamped_entity);
+  case simulation::CommandKind::kCharge:
+    return decode_charge(payload, stamped_entity);
   case simulation::CommandKind::kSetSeatCount:
     return decode_set_seat_count(payload, stamped_controller);
   case simulation::CommandKind::kClearSeat:

@@ -110,6 +110,32 @@ which read the frozen post-`kPreKernel` world. Race's ordering constraint is the
 `course_publisher` stays first so that the canonical input lock can see a published course, and the
 ability system is declared after it.
 
+**Amended 2026-09-12 (plan Step 19): a `kPreKernel` system now writes velocity, not only
+acceleration and components.** The same shared `ability` system applies the one-shot charge as an
+instantaneous **additive** velocity burst through `PhysicsBody::with_velocity`, before phase 1 has
+run. Three consequences are worth stating rather than leaving to be discovered.
+
+*The sentence above about steering is still exactly true of steering.* A steering system writes
+`PhysicsBody::acceleration` and nothing else, and the kernel still neither supplies nor validates
+its scale. What has changed is that "write body intent" was never the stage's rule — "read this
+tick's commands before anything has moved" is — and a burst applied here is integrated by phase 1
+in the ordinary way, with no charge-only substep, no second integrator, and no exemption from drag.
+
+*The burst is additive, so it composes rather than replaces.* Lateral velocity survives a charge,
+which is the property ADR 0008 requires of the move, and it is a property of the write rather than
+of a special case: the system reads `body.velocity()` **before** the write, because the join hands
+out a reference into the `PhysicsBody` store and the write mutates the referent even though
+`insert_or_assign` on an id the store already holds assigns in place — the same aliasing rule the
+steering system already records.
+
+*Within-stage order produces one accepted residual.* `AbilitySystem` is declared after
+`ThrustSteeringSystem`, so on an activation tick the propulsion limiter has already sized this
+tick's acceleration against the **pre-burst** velocity and the committed endpoint is
+`v_pre + burst + a·dt` — one tick of already-certified propulsion on top of the burst. That is
+accepted deliberately; § "Amended 2026-09-12: The one-shot charge (Step 19)" below states why the
+opposite order is worse. Nothing here weakens the ordering rule itself: within-stage order still
+comes from the mode's declared list, and all four modes declare the same one.
+
 1. **Apply stored acceleration and drag.** Visit players in ascending `EntityId` order, calculate
    accelerated velocity with semi-implicit Euler, then scale that velocity by
    `max(0, 1 - drag_per_second × drag_scale × dt)`, where `dt` is the same `kFixedDeltaSeconds` the
@@ -123,6 +149,21 @@ ability system is declared after it.
    non-negative, neither is bounded above, and the clamp at zero keeps the factor total when their
    product with `dt` exceeds one, so a large configured drag stops a body rather than reversing it.
    Positions do not change.
+   **Amended 2026-09-12 (plan Step 19): this phase is the only thing that ever reduces a speed the
+   kernel did not ask for, and in the shipped configuration it reduces nothing.**
+   `config/blob-royale.cfg`
+   authors `drag_per_second=0` — as does every replay fixture but `royale-drag-decay` — and at zero
+   the factor is exactly `1.0`, so an externally imparted speed persists indefinitely. **Nothing
+   anywhere clamps it.** The normal movement ceiling is a *propulsion* limit applied by a mode's
+   steering system to the acceleration it is about to store (ADR 0008 § "Normal movement and web
+   tuning": "do not clamp the whole velocity after every bounce"), the solver certifies impacts
+   rather than bounding speeds, and no phase re-reads a velocity to trim it. A charge burst, a
+   collision impulse, and a knockback are all the same kind of value to this contract: whatever put
+   the speed there owns bounding it. For charge that owner is the authored
+   `[abilities] charge_safety_envelope_speed`, checked before the burst is applied and not after —
+   which is why repeated charges at zero drag converge on that envelope instead of growing without
+   bound. A reader who assumes drag will eventually absorb an ability's output is reading the
+   deployment configuration, not this one.
 2–5. **Resolve continuous motion (amended 2026-09-11, Step 16).** Freeze the working world after
    phase 0 and `kPreKernel`; phase 1's accelerated/dragged subjects are separate values. The one
    `solve_continuous_motion` driver owns swept broad-phase candidates, certified touches/optional
@@ -773,3 +814,44 @@ no-wall-clock obligation.
 This records the contract change, not verification, native capacity, or release certification.
 The implementation contract is
 [`2026-09-12-shield-composition-contract.md`](../reviews/2026-09-12-shield-composition-contract.md).
+
+## Amended 2026-09-12: The one-shot charge (Step 19)
+
+**`kPreKernel` now writes velocity.** The shared `ability` system already wrote a component here;
+with the one-shot charge it also writes `PhysicsBody::velocity`, through `with_velocity`, as an
+instantaneous additive burst applied before phase 1 integrates. § "Canonical tick" carries the
+in-place statement of what that does and does not change. In summary: the write is additive so
+lateral motion survives; the pre-write velocity is read before the store is touched, because the
+join hands out a reference the write invalidates in place; phase 1 then integrates and damps the
+result in the ordinary way, with no charge-only substep, no second integrator, and no exemption
+from drag. The stage rule was never "kPreKernel writes only intent" — it is "read this tick's
+commands before anything has moved" — and that is unchanged.
+
+**Nothing clamps an externally imparted speed, and this contract says so on purpose.** The normal
+movement ceiling limits *propulsion*, applied by a mode's steering system to the acceleration it is
+about to store; no phase re-reads a velocity to trim it, and the solver certifies impacts rather
+than bounding speeds. At the shipped `drag_per_second=0` the phase 1 factor is exactly `1.0`, so a
+burst, a collision impulse, and a knockback all persist until something else changes them. The
+consequence for charge is stated where the arithmetic is: repeated activations are bounded by the
+authored `[abilities] charge_safety_envelope_speed`, checked in raw doubles **before** the burst is
+applied, and not by drag. Checking before rather than after is not a style preference — a `Vector2`
+component past `1e12` throws, that throw would escape `AbilitySystem::apply` and
+`GameSimulation::step`,
+and the runtime worker would then stop the simulation thread permanently. A rule that made one
+client's command able to end a match would be a worse failure than any speed.
+
+**One accepted ordering residual, recorded rather than removed.** All four modes declare
+`ability` after `thrust_steering` at this stage, so on an activation tick the propulsion limiter has
+already sized the tick's acceleration against the pre-burst velocity and the committed endpoint is
+`v_pre + burst + a·dt`. Reordering would be worse: with the ability system first, the limiter's
+`max(ceiling², v·v)` bound would be computed against the post-burst velocity and thrust could
+sustain a charged speed indefinitely, which is the larger violation of the propulsion rule above.
+From the following tick that same `max` term is what lets a charged body steer without amplifying
+or braking.
+
+No fourth hook stage, policy socket, mode declaration, second solver, or new event root is
+introduced, and `TickContext` gains nothing. The accepted discrete baseline is a frozen oracle over
+zero drag, empty input, and no-writing systems, so a mechanic that only ever runs on a recorded
+command does not reach it. This records the contract change,
+not verification, native capacity, or release certification. The implementation contract is
+[`2026-09-12-charge-contract.md`](../reviews/2026-09-12-charge-contract.md).

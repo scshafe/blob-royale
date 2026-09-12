@@ -19,6 +19,9 @@
         "contact_effect_admission": ["physics_body"]
       },
       "properties": {
+        "charge": {
+          "$ref": "charge-component.schema.json"
+        },
         "contact_effect_admission": {
           "$ref": "contact-effect-admission-component.schema.json"
         },

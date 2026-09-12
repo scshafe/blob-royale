@@ -67,6 +67,14 @@ ability system runs in every mode. The authored values are exactly
 `gameplay::AbilityConfiguration::defaults()`, so this migration authors what the fixture would
 otherwise inherit and changes no measured input; the ability system itself is a Step 18 workload
 change, not a fixture change.
+Step 19 adds charge's three keys to that same required section -- `charge_cooldown_seconds=1.2`,
+`charge_speed_fraction=0.75` and `charge_safety_envelope_speed=20000` -- and they too are exactly
+`gameplay::AbilityConfiguration::defaults()`, so this migration again authors what the fixture
+would otherwise inherit and changes no measured input. The fraction is dimensionless and
+multiplies the fixture's own 10000 wu/s ceiling, so a charge in this workload would be a 7500 wu/s
+additive burst; the royale case sends no `charge` command, so what the migration actually arms is
+the shared ability system's charge expiry pass, and that pass is a Step 19 workload change
+belonging to the step, not to this fixture.
 It is no longer a byte-for-byte historical configuration. Historical workload values remain,
 and the provenance comment and JSON identify these migrations. This migration is not a new
 timing baseline or a claim of native performance certification.

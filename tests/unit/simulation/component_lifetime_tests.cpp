@@ -16,6 +16,10 @@ TEST_CASE("component lifetimes distinguish body-bound counters from persistent e
   // follows body removal is what clears it on zero-delay return and round reset, and no ability
   // owner runs a cleanup pass of its own.
   STATIC_REQUIRE(simulation::ComponentLifetime<simulation::Shield>::bound_to_body);
+  // A charge cooldown is a per-body wait, so a body that is gone has no next activation to wait
+  // for. Both ability values answer the same way, which is what keeps the ability system out of the
+  // cleanup business entirely: it writes activations and removes expired ones, and nothing else.
+  STATIC_REQUIRE(simulation::ComponentLifetime<simulation::Charge>::bound_to_body);
   STATIC_REQUIRE_FALSE(simulation::ComponentLifetime<simulation::PhysicsBody>::bound_to_body);
   STATIC_REQUIRE_FALSE(simulation::ComponentLifetime<simulation::Controllable>::bound_to_body);
   STATIC_REQUIRE_FALSE(simulation::ComponentLifetime<simulation::Score>::bound_to_body);

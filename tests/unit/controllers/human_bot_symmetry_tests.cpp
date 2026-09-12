@@ -2,9 +2,11 @@
 #include "command_registry.hpp"
 #include "command_sink.hpp"
 #include "command_submission_result.hpp"
+#include "commands/charge_command.hpp"
 #include "commands/shield_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "component_store.hpp"
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/shield_component.hpp"
 #include "controller.hpp"
@@ -15,9 +17,12 @@
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "match_phase.hpp"
+#include "movement_tuning.hpp"
+#include "movement_tuning_state.hpp"
 #include "observation.hpp"
 #include "physics_body.hpp"
 #include "scripted_replay_controller.hpp"
+#include "shared/ability_configuration.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_runtime.hpp"
 #include "snapshot_publication.hpp"
@@ -38,6 +43,7 @@
 #include <vector>
 
 namespace controllers = blob_royale::controllers;
+namespace gameplay = blob_royale::gameplay;
 namespace runtime = blob_royale::runtime;
 namespace simulation = blob_royale::simulation;
 namespace testing = blob_royale::testing;
@@ -60,24 +66,34 @@ namespace testing = blob_royale::testing;
 //     what a human player cannot.
 //  4. A bot's command and a session's command are indistinguishable once submitted, and the
 //     committed world they produce is identical.
-//  5. The newest command a source can send -- a shield pulse -- obeys the same invariant end to
-//     end: the two sources produce indistinguishable `ShieldCommand` values, and **one** admission
-//     decides both of them, refusing and admitting them on the same ticks for the same reasons.
+//  5. The two ability commands a source can send -- a shield pulse and a charge -- obey the same
+//     invariant end to end: the two sources produce indistinguishable `ShieldCommand` and
+//     `ChargeCommand` values, and **one** admission decides both sources, refusing and admitting
+//     them on the same ticks for the same reasons.
 //
-// **The shield adds no controller capability.** `Controller` still holds exactly `request_body` and
-// `request_thrust`, and bot shield policy is a later step's work
+// **Neither ability adds a controller capability.** `Controller` still holds exactly `request_body`
+// and `request_thrust`, and bot ability policy is a later step's work
 // (`docs/reviews/2026-09-12-shield-composition-contract.md`: "`Controller::request_shield` -- NOT
-// added"). The bot half of the shield proofs below is therefore a `ScriptedReplayController`, whose
-// recorded log already carries whole `simulation::Command` values and so can emit a pulse today
-// with no controllers-domain change (`src/controllers/scripted_replay_controller.hpp`). An unused
-// `request_shield` would be vocabulary with nothing behind it, which is the reservation this tree
-// refuses.
+// added"; charge repeats that decision unchanged, and Step 22 is where a profile learns to time
+// one). The bot half of every ability proof below is therefore a `ScriptedReplayController`, whose
+// recorded log already carries whole `simulation::Command` values and so can emit either command
+// today with no controllers-domain change (`src/controllers/scripted_replay_controller.hpp`). An
+// unused `request_charge` would be vocabulary with nothing behind it, which is the reservation this
+// tree refuses.
 //
 // **A pulse is the sharpest available form of the invariant**, because it carries almost nothing to
 // differ in: no direction, no duration, no strength -- only the addressed entity and an activation
 // token (`src/simulation/commands/shield_command.hpp`). Whatever separates a bot's activation from
 // a player's therefore cannot be hiding in the command value, and the proofs below look for it in
 // the one place left: the admission that reads the world.
+//
+// **A charge carries exactly one more field, and it is the one worth testing.** Its direction is
+// the only member either ability lets a source author, so it is the only place a bot could have
+// been handed an authority a player was not -- and it is not strength: the admission recovers a
+// unit vector from it and multiplies the room's own gain, so a longer vector is not a bigger burst
+// (`docs/reviews/2026-09-12-charge-contract.md` § "Direction"). The charge proofs below fire both
+// sources along one deliberately subunit direction and then compare the committed velocities,
+// which is where an authored-strength regression would show up rather than in the command value.
 
 namespace {
 
@@ -121,6 +137,20 @@ shield_for(const simulation::EntityId entity,
       simulation::ShieldCommand{.entity = entity, .input_generation = generation}};
 }
 
+// One entity's charge, from either source. The direction is deliberately **subunit**: the admission
+// normalizes it rather than clamping it, so `0.5` along +x commits the *whole* burst, and a path
+// that had reached `normalized_thrust_intent` instead would commit half of it. Both sources are
+// handed the identical vector, so a difference in the committed velocity could only have come from
+// the identity behind the command.
+[[nodiscard]] simulation::Command
+charge_for(const simulation::EntityId entity,
+           const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::Command{
+      simulation::ChargeCommand{.entity = entity,
+                                .direction = simulation::Vector2::create(0.5, 0.0),
+                                .input_generation = generation}};
+}
+
 // A positive activation token neither seated entity was ever issued. Nothing has invalidated their
 // input, so both carry the absent initial generation and the admission's exact optional equality
 // refuses this one -- for either source, which is the point.
@@ -141,6 +171,30 @@ published_shield(const simulation::WorldSnapshot& snapshot, const simulation::En
     }
   }
   return std::nullopt;
+}
+
+// The committed charge, read the same way and for the same reason: a refused charge produces no
+// event, no error and no receipt, so presence here is the whole of the observable outcome, and a
+// `Charge` publishes every stored value to bot and browser alike.
+[[nodiscard]] std::optional<simulation::Charge>
+published_charge(const simulation::WorldSnapshot& snapshot, const simulation::EntityId entity) {
+  for (const simulation::ComponentStore<simulation::Charge>::Entry& entry :
+       snapshot.components<simulation::Charge>()) {
+    if (entry.entity == entity) {
+      return entry.value;
+    }
+  }
+  return std::nullopt;
+}
+
+// The burst the admission is required to commit for a body at rest: the authored dimensionless
+// fraction times the room's **current** normal ceiling, read from the snapshot under test rather
+// than written down, because the gain is defined to follow a retuned ceiling.
+[[nodiscard]] simulation::Vector2 expected_burst_of(const simulation::WorldSnapshot& snapshot) {
+  return simulation::Vector2::create(
+      gameplay::AbilityConfiguration::defaults().charge_speed_fraction() *
+          snapshot.match().movement().current.normal_top_speed(),
+      0.0);
 }
 
 // The phase the next tick's `kPreKernel` systems will read, which is the one the last tick
@@ -444,4 +498,115 @@ TEST_CASE("Active protection and a live cooldown refuse both sources until the a
   REQUIRE(second.has_value());
   CHECK(published_shield(returned, session_entity) == second);
   CHECK(second->activation_tick() == first->cooldown_window().expiry_tick());
+}
+
+TEST_CASE("A bot's charge and a session's charge are indistinguishable once submitted",
+          "[unit][controllers][symmetry][charge]") {
+  testing::ControllersFixture fixture(testing::controllers_map_of(4), 2);
+  const simulation::EntityId bot_entity = *fixture.entity_of(kBotController);
+  const simulation::EntityId session_entity = *fixture.entity_of(kSessionController);
+
+  // The fixture's seating tick left free play in `countdown`; one more commit reaches `running`,
+  // which is the only phase the ability admits either command in.
+  static_cast<void>(fixture.commit());
+  REQUIRE(committed_phase_of(fixture) == simulation::MatchPhase::kRunning);
+
+  fixture.host().add(controllers::ScriptedReplayController::create(
+      simulation::ControllerId::create(kBotController),
+      {controllers::ScriptedReplayController::Step{charge_for(bot_entity)}}));
+
+  const std::vector<simulation::Command> drained =
+      pulse_from_both(fixture, charge_for(session_entity));
+  const auto& from_bot = std::get<simulation::ChargeCommand>(drained[0]);
+  const auto& from_session = std::get<simulation::ChargeCommand>(drained[1]);
+
+  // Two `Command` values that differ only in the entity each names. A charge has exactly two other
+  // members -- the direction and the activation token -- and both sources carry the same value in
+  // both, so nothing in the value and nothing the mailbox recorded about it says which side sent
+  // it.
+  CHECK(simulation::command_kind_of(drained[0]) == simulation::command_kind_of(drained[1]));
+  CHECK(from_bot.direction == from_session.direction);
+  CHECK(from_bot.input_generation == from_session.input_generation);
+  CHECK(from_bot.entity == bot_entity);
+  CHECK(from_session.entity == session_entity);
+  CHECK(fixture.mailbox().statistics().accepted_command_count == 2);
+
+  // And the tick that consumes them commits one activation each, with the same cooldown window and
+  // the same burst. Both bodies entered the tick at rest and neither steered, so the committed
+  // velocity is the whole effect: the full gain along the recovered unit direction, from a subunit
+  // one, which is the normalization rather than the thrust clamp.
+  const simulation::WorldSnapshot snapshot = fixture.commit(drained);
+  const std::optional<simulation::Charge> bot_charge = published_charge(snapshot, bot_entity);
+  const std::optional<simulation::Charge> session_charge =
+      published_charge(snapshot, session_entity);
+  REQUIRE(bot_charge.has_value());
+  REQUIRE(session_charge.has_value());
+  CHECK(*bot_charge == *session_charge);
+  CHECK(bot_charge->activation_tick() == snapshot.tick_sequence());
+  CHECK(bot_charge->cooldown_window().activation_tick() == bot_charge->activation_tick());
+  CHECK(bot_charge->cooldown_window().expiry_tick() > bot_charge->activation_tick());
+
+  const simulation::Vector2 burst = expected_burst_of(snapshot);
+  REQUIRE(published_body(snapshot, bot_entity).has_value());
+  REQUIRE(published_body(snapshot, session_entity).has_value());
+  CHECK(published_body(snapshot, bot_entity)->velocity() == burst);
+  CHECK(published_body(snapshot, session_entity)->velocity() == burst);
+}
+
+TEST_CASE("A live charge cooldown refuses both sources and consumes nothing from either",
+          "[unit][controllers][symmetry][charge]") {
+  testing::ControllersFixture fixture(testing::controllers_map_of(4), 2);
+  const simulation::EntityId bot_entity = *fixture.entity_of(kBotController);
+  const simulation::EntityId session_entity = *fixture.entity_of(kSessionController);
+
+  // Three passes, three literal steps: the charge before the match is running, the activation, and
+  // the re-charge inside the cooldown that activation opened.
+  fixture.host().add(controllers::ScriptedReplayController::create(
+      simulation::ControllerId::create(kBotController),
+      {controllers::ScriptedReplayController::Step{charge_for(bot_entity)},
+       controllers::ScriptedReplayController::Step{charge_for(bot_entity)},
+       controllers::ScriptedReplayController::Step{charge_for(bot_entity)}}));
+
+  // Not running yet, so neither source's charge becomes an activation, and nothing is queued for
+  // the tick that *is* running: a refusal changes nothing at all, which for a charge means the
+  // bodies are still exactly at rest rather than carrying some reduced burst.
+  const simulation::Vector2 at_rest = simulation::Vector2::create(0.0, 0.0);
+  REQUIRE(committed_phase_of(fixture) == simulation::MatchPhase::kCountdown);
+  const simulation::WorldSnapshot before_running =
+      fixture.commit(pulse_from_both(fixture, charge_for(session_entity)));
+  CHECK_FALSE(published_charge(before_running, bot_entity).has_value());
+  CHECK_FALSE(published_charge(before_running, session_entity).has_value());
+  REQUIRE(before_running.match().phase() == simulation::MatchPhase::kRunning);
+  REQUIRE(published_body(before_running, bot_entity).has_value());
+  REQUIRE(published_body(before_running, session_entity).has_value());
+  CHECK(published_body(before_running, bot_entity)->velocity() == at_rest);
+  CHECK(published_body(before_running, session_entity)->velocity() == at_rest);
+
+  // The same two sources, the same running match: both admitted, identically, with the same burst.
+  const simulation::WorldSnapshot activated =
+      fixture.commit(pulse_from_both(fixture, charge_for(session_entity)));
+  const std::optional<simulation::Charge> first = published_charge(activated, bot_entity);
+  REQUIRE(first.has_value());
+  REQUIRE(published_charge(activated, session_entity) == first);
+  CHECK(first->activation_tick() == activated.tick_sequence());
+  const simulation::Vector2 burst = expected_burst_of(activated);
+  REQUIRE(published_body(activated, bot_entity).has_value());
+  REQUIRE(published_body(activated, session_entity).has_value());
+  CHECK(published_body(activated, bot_entity)->velocity() == burst);
+  CHECK(published_body(activated, session_entity)->velocity() == burst);
+
+  // The re-charge, inside the cooldown the first one opened. The gate answers both sources the same
+  // way, and the refusal costs nothing and adds nothing: the stored value is still the first
+  // activation -- no cooldown consumed and no second window opened -- and the velocity is the first
+  // burst rather than two of them. At zero drag nothing has taken any of it back either, so an
+  // unchanged velocity here is a real comparison and not a decayed one.
+  const simulation::WorldSnapshot refused =
+      fixture.commit(pulse_from_both(fixture, charge_for(session_entity)));
+  REQUIRE(first->cooldown_window().contains(refused.tick_sequence()));
+  CHECK(published_charge(refused, bot_entity) == first);
+  CHECK(published_charge(refused, session_entity) == first);
+  REQUIRE(published_body(refused, bot_entity).has_value());
+  REQUIRE(published_body(refused, session_entity).has_value());
+  CHECK(published_body(refused, bot_entity)->velocity() == burst);
+  CHECK(published_body(refused, session_entity)->velocity() == burst);
 }

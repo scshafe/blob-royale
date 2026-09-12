@@ -84,12 +84,15 @@ constexpr std::string_view kHazardSections = "\n"
                                              "contact_effect_policy=closing_impact\n";
 
 // The shipped `[abilities]` block exactly as `kValidConfiguration` authors it, so a test that
-// rewrites the whole section names it once instead of spelling four keys in four places.
+// rewrites the whole section names it once instead of spelling seven keys in seven places.
 constexpr std::string_view kAbilitiesSection = "[abilities]\n"
                                                "shield_duration_seconds=0.4\n"
                                                "shield_perfect_window_seconds=0.08\n"
                                                "shield_cooldown_seconds=0.9\n"
-                                               "parry_stun_duration_seconds=0.6\n";
+                                               "parry_stun_duration_seconds=0.6\n"
+                                               "charge_cooldown_seconds=1.2\n"
+                                               "charge_speed_fraction=0.75\n"
+                                               "charge_safety_envelope_speed=20000\n";
 
 [[nodiscard]] std::string configuration_with_hazards() {
   std::string configuration{test_fixture::kValidConfiguration};
@@ -479,15 +482,17 @@ TEST_CASE("sandbox return timing is required and uses shared duration validation
   }
 }
 
-TEST_CASE("authored shield timings reach every mode as converted tick counts",
+TEST_CASE("authored ability tuning reaches every mode as converted ticks and unconverted scalars",
           "[unit][application][config][abilities]") {
   // Authored away from the shipped numbers on purpose. `gameplay::AbilityConfiguration::defaults()`
-  // already returns 0.4/0.08/0.9/0.6, so a loader that dropped the section on the floor would still
-  // satisfy an assertion against them; only values nothing else could have produced prove the file
-  // was read. The zero cooldown is deliberate: the contract makes a cooldown shorter than the
-  // shield -- zero included -- legal, so the positive case has to prove the loader admits one
-  // rather than quietly clamping or refusing it. The mode loop is the same claim `[movement]`
-  // makes: this section belongs to no mode, so every `mode=` gets the same authored timings.
+  // already returns the seven shipped values, so a loader that dropped the section on the floor
+  // would still satisfy an assertion against them; only values nothing else could have produced
+  // prove the file was read. The zero *shield* cooldown is deliberate: the contract makes a shield
+  // cooldown shorter than the shield -- zero included -- legal, so the positive case has to prove
+  // the loader admits one rather than quietly clamping or refusing it. Charge's cooldown carries no
+  // such exemption and is therefore authored positive here; its refusal at zero is a validation
+  // case below. The mode loop is the same claim `[movement]` makes: this section belongs to no
+  // mode, so every `mode=` gets the same authored tuning.
   TemporaryApplicationInputWorkspace workspace;
   for (const std::string_view mode : {"sandbox", "royale", "king_of_the_hill", "race"}) {
     CAPTURE(mode);
@@ -498,28 +503,42 @@ TEST_CASE("authored shield timings reach every mode as converted tick counts",
                                                "shield_duration_seconds=0.5\n"
                                                "shield_perfect_window_seconds=0.1\n"
                                                "shield_cooldown_seconds=0\n"
-                                               "parry_stun_duration_seconds=0.25\n");
+                                               "parry_stun_duration_seconds=0.25\n"
+                                               "charge_cooldown_seconds=0.75\n"
+                                               "charge_speed_fraction=0.5\n"
+                                               "charge_safety_envelope_speed=9000\n");
     const auto loaded = load_game_mode_configuration(workspace, configuration);
     // At `simulation::kSimulationTicksPerSecond` = 400 the conversion is visible in the numbers
-    // themselves: seconds handed through unconverted could not read as 200/40/0/100.
+    // themselves: seconds handed through unconverted could not read as 200/40/0/100/300.
     CHECK(loaded.abilities.shield_duration_ticks() == 200);
     CHECK(loaded.abilities.shield_perfect_window_ticks() == 40);
     CHECK(loaded.abilities.shield_cooldown_ticks() == 0);
     CHECK(loaded.abilities.parry_stun_duration_ticks() == 100);
-    CHECK(loaded.abilities == gameplay::AbilityConfiguration::create(0.5, 0.1, 0.0, 0.25));
+    CHECK(loaded.abilities.charge_cooldown_ticks() == 300);
+    // The two keys that are not durations survive as the doubles they were authored as, and the
+    // comparison is exact because both authored values are binary-exact. This is the assertion that
+    // catches the tempting mistake: run either of them through the seconds path and they would read
+    // as 200 ticks and 3,600,000 ticks, a dimensionless multiple and a speed silently reinterpreted
+    // as times.
+    CHECK(loaded.abilities.charge_speed_fraction() == 0.5);
+    CHECK(loaded.abilities.charge_safety_envelope_speed() == 9000.0);
+    CHECK(loaded.abilities ==
+          gameplay::AbilityConfiguration::create(0.5, 0.1, 0.0, 0.25, 0.75, 0.5, 9000.0));
     // The authored abilities must not disturb the sections either side of them in the file.
     CHECK(loaded.movement == simulation::MovementTuning::create(400.0, 10000.0));
     CHECK(loaded.sandbox == gameplay::SandboxConfiguration::defaults());
   }
 }
 
-TEST_CASE("a configuration without the [abilities] section is refused naming all four keys",
+TEST_CASE("a configuration without the [abilities] section is refused naming all seven keys",
           "[unit][application][config][abilities][validation]") {
   // A missing required section is never reported as a missing section: `require_all_fields` runs
   // inside `StrictIniDocument::parse`, before the first value is parsed, so absence arrives as the
-  // section's missing keys. All four are asserted rather than one, because `ConfigField` and
+  // section's missing keys. All seven are asserted rather than one, because `ConfigField` and
   // `kConfigFieldSpecs` are index-parallel by construction and an enumerator inserted at a
-  // different index than its spec row would still name *a* key while mislabelling the rest.
+  // different index than its spec row would still name *a* key while mislabelling the rest. That
+  // is exactly the drift Step 19 could have introduced: three enumerators and three spec rows added
+  // to two hard-sized arrays in one commit.
   TemporaryApplicationInputWorkspace workspace;
   std::string configuration{test_fixture::kValidConfiguration};
   const std::size_t section_start = configuration.find("[abilities]\n");
@@ -537,34 +556,55 @@ TEST_CASE("a configuration without the [abilities] section is refused naming all
     const std::string_view reported{error.what()};
     for (const std::string_view key :
          {"abilities.shield_duration_seconds", "abilities.shield_perfect_window_seconds",
-          "abilities.shield_cooldown_seconds", "abilities.parry_stun_duration_seconds"}) {
+          "abilities.shield_cooldown_seconds", "abilities.parry_stun_duration_seconds",
+          "abilities.charge_cooldown_seconds", "abilities.charge_speed_fraction",
+          "abilities.charge_safety_envelope_speed"}) {
       CAPTURE(key);
       CHECK(reported.find(key) != std::string_view::npos);
     }
   }
 }
 
-TEST_CASE("the [abilities] section is closed and every authored timing is validated",
+TEST_CASE("the [abilities] section is closed and every authored ability value is validated",
           "[unit][application][config][abilities][validation]") {
   TemporaryApplicationInputWorkspace workspace;
-  // Closed like every other fixed section. `shield_charges` is the key Step 19's charge work will
-  // want, which is exactly why it must be refused today: no vocabulary is reserved ahead of the
-  // behavior that reads it.
-  require_configuration_load_error(
-      workspace,
-      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, "[abilities]\n",
-                                 "[abilities]\nshield_charges=2\n"),
-      ApplicationInputErrorCode::kConfigurationKeyUnknown);
-  require_configuration_load_error(
-      workspace,
-      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
-                                 "shield_cooldown_seconds=0.9\n",
-                                 "shield_cooldown_seconds=0.9\nshield_cooldown_seconds=0.4\n"),
-      ApplicationInputErrorCode::kConfigurationKeyDuplicate);
+  // Closed like every other fixed section, and closed against the two names a reader arriving from
+  // Step 18 or from ADR 0008 is most likely to try. `shield_charges` is the multi-charge shield
+  // nothing implements. `charge_speed_world_units_per_second` is the authored burst speed charge
+  // deliberately does not have: its gain is a dimensionless multiple of the room's *current*
+  // ceiling, so a second absolute speed here would be a second source of truth that stopped
+  // tracking a live tuning change. Neither name is reserved ahead of behavior that reads it.
+  for (const std::string_view unknown_key :
+       {"shield_charges=2\n", "charge_speed_world_units_per_second=450\n"}) {
+    CAPTURE(unknown_key);
+    require_configuration_load_error(
+        workspace,
+        test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, "[abilities]\n",
+                                   "[abilities]\n" + std::string(unknown_key)),
+        ApplicationInputErrorCode::kConfigurationKeyUnknown);
+  }
+  // A repeated key is refused whichever of the seven it is: the section gained three keys without
+  // gaining a "last one wins" rule for any of them.
+  for (const std::string_view duplicated :
+       {"shield_cooldown_seconds=0.9\n", "charge_cooldown_seconds=1.2\n"}) {
+    CAPTURE(duplicated);
+    require_configuration_load_error(
+        workspace,
+        test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, duplicated,
+                                   std::string(duplicated) + std::string(duplicated)),
+        ApplicationInputErrorCode::kConfigurationKeyDuplicate);
+  }
   require_configuration_load_error(
       workspace,
       test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
                                  "shield_duration_seconds=0.4\n", "shield_duration_seconds=\n"),
+      ApplicationInputErrorCode::kConfigurationValueInvalid);
+  // Refused by the file reader, before any ability rule sees it: a fraction is one complete decimal
+  // number and not a ratio, however naturally `3/4` reads as the value this key is shipped with.
+  require_configuration_load_error(
+      workspace,
+      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                 "charge_speed_fraction=0.75\n", "charge_speed_fraction=3/4\n"),
       ApplicationInputErrorCode::kConfigurationValueInvalid);
 
   // Rejections the shared seconds-to-ticks converter owns. The context is the full
@@ -583,7 +623,9 @@ TEST_CASE("the [abilities] section is closed and every authored timing is valida
       DurationRejection{"shield_cooldown_seconds=0.9", "shield_cooldown_seconds=-1",
                         "abilities.shield_cooldown_seconds"},
       DurationRejection{"parry_stun_duration_seconds=0.6", "parry_stun_duration_seconds=-2",
-                        "abilities.parry_stun_duration_seconds"}};
+                        "abilities.parry_stun_duration_seconds"},
+      DurationRejection{"charge_cooldown_seconds=1.2", "charge_cooldown_seconds=-0.5",
+                        "abilities.charge_cooldown_seconds"}};
   for (const auto& input : duration_rejections) {
     CAPTURE(input.replacement);
     try {
@@ -597,9 +639,26 @@ TEST_CASE("the [abilities] section is closed and every authored timing is valida
     }
   }
 
-  // The two rules the ability value adds after conversion. A shield, perfect window, or parry stun
-  // that rounds to zero ticks is not a very short effect but no effect at all, and a perfect window
-  // longer than the shield it opens is not an orderable pair; both are refused rather than clamped.
+  // The rules the ability value adds after conversion, and the two keys that never convert at all.
+  // A shield, perfect window or parry stun that rounds to zero ticks is not a very short effect but
+  // no effect at all, and a perfect window longer than the shield it opens is not an orderable
+  // pair; both are refused rather than clamped.
+  //
+  // The charge cooldown is in the not-positive list and the shield cooldown is not, which is the
+  // one asymmetry in this section and the one a reader will assume is a copy-paste slip. It is not:
+  // a shield activation is also gated by its own live protection window, so a zero shield cooldown
+  // still cannot re-fire inside a running shield, while charge is one-shot with no protection
+  // window at all and its cooldown is the only gate it has. Rounded to zero that gate admits an
+  // additive burst on every one of the four hundred ticks in a second.
+  //
+  // `charge_speed_fraction` and `charge_safety_envelope_speed` are not durations, so they are
+  // refused by the `GAMEPLAY.ABILITY_SCALAR_*` pair instead: non-finite, non-positive, or -- for
+  // the envelope, which has to stay inside the `Vector2` component domain because a burst that
+  // domain cannot represent is a thrown tick rather than a big one -- past that domain. The last
+  // row is the cross-key rule that bounds the fraction: `3 * kMaximumNormalTopSpeed` is 30,000 wu/s
+  // against the shipped 20,000 wu/s envelope, so a charge from rest would already be refused at the
+  // highest ceiling a room may tune to, and startup says so instead of shipping an ability that
+  // silently never fires.
   // Only the code and the fact that the section is charged are pinned here: which of the two keys a
   // cross-key rule blames belongs to the value's own contract and its own unit test, not to the
   // loader.
@@ -615,15 +674,29 @@ TEST_CASE("the [abilities] section is closed and every authored timing is valida
                        gameplay::GameplayValidationCode::kAbilityDurationNotPositive},
       AbilityRejection{"parry_stun_duration_seconds=0.6", "parry_stun_duration_seconds=0.001",
                        gameplay::GameplayValidationCode::kAbilityDurationNotPositive},
+      AbilityRejection{"charge_cooldown_seconds=1.2", "charge_cooldown_seconds=0.001",
+                       gameplay::GameplayValidationCode::kAbilityDurationNotPositive},
       AbilityRejection{"shield_perfect_window_seconds=0.08", "shield_perfect_window_seconds=0.5",
-                       gameplay::GameplayValidationCode::kAbilityPerfectWindowExceedsShield}};
+                       gameplay::GameplayValidationCode::kAbilityPerfectWindowExceedsShield},
+      AbilityRejection{"charge_speed_fraction=0.75", "charge_speed_fraction=inf",
+                       gameplay::GameplayValidationCode::kAbilityScalarNotFinite},
+      AbilityRejection{"charge_speed_fraction=0.75", "charge_speed_fraction=0",
+                       gameplay::GameplayValidationCode::kAbilityScalarOutOfRange},
+      AbilityRejection{"charge_safety_envelope_speed=20000", "charge_safety_envelope_speed=nan",
+                       gameplay::GameplayValidationCode::kAbilityScalarNotFinite},
+      AbilityRejection{"charge_safety_envelope_speed=20000", "charge_safety_envelope_speed=-1",
+                       gameplay::GameplayValidationCode::kAbilityScalarOutOfRange},
+      AbilityRejection{"charge_safety_envelope_speed=20000", "charge_safety_envelope_speed=2e12",
+                       gameplay::GameplayValidationCode::kAbilityScalarOutOfRange},
+      AbilityRejection{"charge_speed_fraction=0.75", "charge_speed_fraction=3",
+                       gameplay::GameplayValidationCode::kAbilityChargeBurstExceedsSafetyEnvelope}};
   for (const auto& input : ability_rejections) {
     CAPTURE(input.replacement);
     try {
       static_cast<void>(load_game_mode_configuration(
           workspace, test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
                                                 input.target, input.replacement)));
-      FAIL("an unusable ability timing was accepted");
+      FAIL("an unusable ability value was accepted");
     } catch (const gameplay::GameplayValidationError& error) {
       CHECK(error.validation_code() == input.code);
       CHECK(error.context().starts_with("abilities."));

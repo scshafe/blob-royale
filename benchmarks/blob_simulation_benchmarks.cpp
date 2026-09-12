@@ -994,7 +994,7 @@ private:
       "schema_migration",
       "2026-09-10_race_width_to_named_road;2026-09-11_shared_movement_400_10000;"
       "2026-09-11_contact_effect_policy_closing_impact;2026-09-11_required_sandbox_return_delay;"
-      "2026-09-12_required_abilities_shield_defaults");
+      "2026-09-12_required_abilities_shield_defaults;2026-09-12_required_abilities_charge_tuning");
   reference_configuration.emplace("measured_royale_inputs_unchanged", true);
   reference_configuration.emplace("map_source", "current_repository_maps");
   reference_configuration.emplace("maps_directory", inputs.maps_directory.string());

@@ -1,6 +1,7 @@
 #include "replay_fixture.hpp"
 
 #include "component_store.hpp"
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
@@ -11,8 +12,11 @@
 #include "match_phase.hpp"
 #include "mode_match_state_registry.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
+#include "movement_tuning.hpp"
+#include "movement_tuning_state.hpp"
 #include "physics_body.hpp"
 #include "royale/zone_shrink_system.hpp"
+#include "shared/ability_configuration.hpp"
 #include "shared/thrust_steering_system.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_tolerance.hpp"
@@ -144,6 +148,24 @@ placements_of(const simulation::WorldSnapshot& snapshot) {
     }
   }
   return std::nullopt;
+}
+
+// The published activation, which is the only proof a recorded charge row became a charge: a
+// refusal produces no event, no error and no receipt, so presence and absence of this value are
+// the whole of the observable outcome (`src/gameplay/shared/ability_system.hpp`).
+[[nodiscard]] std::optional<simulation::Charge> charge_of(const simulation::WorldSnapshot& snapshot,
+                                                          const simulation::EntityId entity) {
+  for (const simulation::ComponentStore<simulation::Charge>::Entry& entry :
+       snapshot.components<simulation::Charge>()) {
+    if (entry.entity == entity) {
+      return entry.value;
+    }
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] double speed_of(const simulation::Vector2& velocity) {
+  return std::sqrt((velocity.x() * velocity.x()) + (velocity.y() * velocity.y()));
 }
 
 } // namespace
@@ -608,6 +630,157 @@ TEST_CASE("a recorded shield pulse parries a closing attacker inside its perfect
   CHECK(guarding->shield_window().contains(simulation::TickSequence::create(fixture.tick_count())));
   CHECK_FALSE(
       guarding->perfect_window().contains(simulation::TickSequence::create(fixture.tick_count())));
+}
+
+TEST_CASE("a recorded charge adds its burst to a moving body and is refused inside its cooldown",
+          "[fixtures][replay][royale][charge]") {
+  // The replay-level half of human/bot/replay symmetry for the second ability. A `charge` row in
+  // `commands.csv` is an ordinary `ChargeCommand` in the tick's batch, so it reaches `ability`'s
+  // admission through the path a browser frame and a scripted controller reach it by, and nothing
+  // in the simulation can tell which produced it. The fixture's own header explains the geometry,
+  // the release that makes the arithmetic exact, and the timing.
+  const testing::ReplayFixture fixture = testing::ReplayFixture::named("royale-charge-burst");
+  const Snapshots snapshots = fixture.run();
+  REQUIRE(snapshots.size() == fixture.tick_count());
+
+  const simulation::EntityId charger = fixture.spawned_entity_id(1, 0);
+  const simulation::EntityId bystander = fixture.spawned_entity_id(1, 1);
+  REQUIRE(charger < bystander);
+
+  // The authored `charge_cooldown_seconds=1.2` through the one shared `duration_ticks` conversion:
+  // `round(1.2 * 400) = 480`. It is written out rather than read back from the configuration so
+  // that this line states the conversion a reader can check, in the way the parry above writes out
+  // 160, 32, 360 and 240; the *gain* below is derived instead, because a fraction of a live ceiling
+  // is not a constant this file could restate without also restating the ceiling.
+  constexpr std::uint64_t kChargeCooldownTicks = 480;
+  // The two ticks `commands.csv` records a `charge` row on: the admitted one, and the one deep
+  // inside the cooldown it opens.
+  constexpr std::uint64_t kRecordedChargeTick = 40;
+  constexpr std::uint64_t kRefusedChargeTick = 100;
+
+  // Locate the activation instead of reading the recorded tick, exactly as the parry above is
+  // located: the first tick on which the charger carries a `Charge` at all. Asserting the found
+  // tick afterwards is what makes the search worth doing -- an admission a tick early or a tick
+  // late would surface here rather than be assumed away by a hard-coded lookup.
+  std::optional<std::uint64_t> activation_tick;
+  for (std::uint64_t tick = 1; tick <= fixture.tick_count(); ++tick) {
+    if (charge_of(at_tick(snapshots, tick), charger).has_value()) {
+      activation_tick = tick;
+      break;
+    }
+  }
+  REQUIRE(activation_tick.has_value());
+  INFO("charge committed on tick " << *activation_tick);
+  CHECK(*activation_tick == kRecordedChargeTick);
+  REQUIRE(*activation_tick >= 2);
+
+  const std::optional<simulation::Charge> committed =
+      charge_of(at_tick(snapshots, *activation_tick), charger);
+  REQUIRE(committed.has_value());
+  // One window, dated the admitting tick, published as two absolute endpoints rather than as a
+  // countdown, so a client that buffered or received this frame late still reads the truth.
+  CHECK(committed->activation_tick() == simulation::TickSequence::create(*activation_tick));
+  CHECK(committed->cooldown_window().activation_tick() == committed->activation_tick());
+  CHECK(committed->cooldown_window().expiry_tick() ==
+        simulation::TickSequence::create(*activation_tick + kChargeCooldownTicks));
+  // Strictly after, not merely not-before. Charge is one-shot and has no protection window to gate
+  // a second activation behind, so a cooldown that rounded to zero ticks would admit a burst on
+  // every tick; the authored value is therefore validated positive and the endpoint ordering here
+  // is strict (`docs/reviews/2026-09-12-charge-contract.md` section "The component and the
+  // command").
+  CHECK(committed->cooldown_window().expiry_tick() > committed->activation_tick());
+  // Nothing was guarded before the pulse, which is what makes this tick the activation rather than
+  // the discovery of a charge the world already carried.
+  CHECK_FALSE(charge_of(at_tick(snapshots, *activation_tick - 1), charger).has_value());
+
+  // The bystander pressed nothing, so it carries no charge on any tick of the replay: admission is
+  // per entity, not per tick, and a system that had activated the join instead of the addressed
+  // body would fail here rather than anywhere else.
+  bool bystander_ever_charged = false;
+  for (std::uint64_t tick = 1; tick <= fixture.tick_count(); ++tick) {
+    bystander_ever_charged =
+        bystander_ever_charged || charge_of(at_tick(snapshots, tick), bystander).has_value();
+  }
+  CHECK_FALSE(bystander_ever_charged);
+
+  // The gain is derived and never written down: ADR 0008 sets it at "0.75 times the current normal
+  // movement ceiling", so the fraction comes from the `[abilities]` section this fixture actually
+  // ran with and the ceiling from the tuning the match published on the activating tick. A room
+  // that retuned its ceiling would move the burst with it, which is exactly why the authored value
+  // is a dimensionless multiple rather than a speed.
+  const double ceiling =
+      at_tick(snapshots, *activation_tick).match().movement().current.normal_top_speed();
+  CHECK(ceiling == fixture.movement().normal_top_speed());
+  const double burst = fixture.mode_configuration().abilities.charge_speed_fraction() * ceiling;
+  CHECK(burst > 0.0);
+
+  const std::optional<simulation::PhysicsBody> before =
+      body_of(at_tick(snapshots, *activation_tick - 1), charger);
+  const std::optional<simulation::PhysicsBody> after =
+      body_of(at_tick(snapshots, *activation_tick), charger);
+  REQUIRE(before.has_value());
+  REQUIRE(after.has_value());
+  // Neither comparison below is vacuous: the body was already moving on both axes when the burst
+  // landed, so "added to" and "replaced by" are distinguishable answers to the same question.
+  CHECK(before->velocity().x() > 0.0);
+  CHECK(before->velocity().y() > 0.0);
+  // **Additive along the charge, and exactly so.** The right-hand side repeats the engine's own
+  // single addition rather than recomputing an absolute speed, so this is a bit equality that
+  // survives the accumulated rounding of thirty accelerated ticks instead of a tolerance.
+  CHECK(after->velocity().x() == before->velocity().x() + burst);
+  // **And the lateral component is untouched.** This is the claim the fixture exists for: a charge
+  // that assigned the velocity, or that normalized the whole body onto its direction, would erase
+  // this component, and one that scaled the body would move it.
+  CHECK(after->velocity().y() == before->velocity().y());
+  // The burst is not propulsion and is not bounded by the propulsion ceiling: the body crosses it
+  // on the activating tick. From the next tick the thrust limiter's own `max(ceiling^2, v.v)` term
+  // is what lets a charged body steer without amplifying, which is the intended feel.
+  CHECK(speed_of(before->velocity()) < ceiling);
+  CHECK(speed_of(after->velocity()) > ceiling);
+
+  // The second recorded charge, inside the cooldown the first one opened. That is the gate under
+  // test, and the refusal is silent -- no cooldown consumed, no queued activation, no event, no
+  // error, no receipt -- so the only evidence a refusal leaves is that nothing changed.
+  REQUIRE(kRefusedChargeTick > *activation_tick);
+  REQUIRE(kRefusedChargeTick <= fixture.tick_count());
+  CHECK(
+      committed->cooldown_window().contains(simulation::TickSequence::create(kRefusedChargeTick)));
+  const std::optional<simulation::Charge> after_refusal =
+      charge_of(at_tick(snapshots, kRefusedChargeTick), charger);
+  REQUIRE(after_refusal.has_value());
+  CHECK(after_refusal->activation_tick() == committed->activation_tick());
+  CHECK(after_refusal->cooldown_window() == committed->cooldown_window());
+  const std::optional<simulation::PhysicsBody> before_refusal =
+      body_of(at_tick(snapshots, kRefusedChargeTick - 1), charger);
+  const std::optional<simulation::PhysicsBody> at_refusal =
+      body_of(at_tick(snapshots, kRefusedChargeTick), charger);
+  REQUIRE(before_refusal.has_value());
+  REQUIRE(at_refusal.has_value());
+  CHECK(at_refusal->velocity() == before_refusal->velocity());
+
+  // **The burst does not decay in this configuration.** `drag_per_second=0` makes phase 1's factor
+  // exactly 1.0, so the velocity the activation committed is still the velocity on the last tick
+  // of the replay. The safety envelope, not drag, is what bounds repeated charges, and a comment
+  // anywhere claiming otherwise would be false of every checked-in configuration.
+  const simulation::WorldSnapshot& last = at_tick(snapshots, fixture.tick_count());
+  const std::optional<simulation::PhysicsBody> held = body_of(last, charger);
+  REQUIRE(held.has_value());
+  CHECK(held->velocity() == after->velocity());
+
+  // The cooldown outlives the replay, so the component is still the one the activation wrote: only
+  // `AbilitySystem` removes a charge, and only once the cooldown has expired.
+  const std::optional<simulation::Charge> retained = charge_of(last, charger);
+  REQUIRE(retained.has_value());
+  CHECK(retained->activation_tick() == committed->activation_tick());
+  CHECK(retained->cooldown_window() == committed->cooldown_window());
+  CHECK(
+      retained->cooldown_window().contains(simulation::TickSequence::create(fixture.tick_count())));
+
+  // A charge is movement, not an elimination and not a weapon: both blobs finish the replay alive,
+  // seated and inside the zone.
+  CHECK(alive_count_of(last) == 2);
+  CHECK(carries_controllable(last, charger));
+  CHECK(carries_controllable(last, bystander));
 }
 
 TEST_CASE("the scripted multi-entity match runs a whole royale and ranks its losers",

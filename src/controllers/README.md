@@ -113,6 +113,22 @@ verb that uses `entity_id` alone and leaves every other payload column empty, wh
 never-invalidated case. The four diagnostic bots and tactical are unchanged, draw no differently,
 and observe shield exactly as any other reader does: through the published component.
 
+**Step 19 repeats that exactly: no controller sends a charge and `Controller` gained no
+`request_charge`.** Bot charge timing is Step 22's, and the plan's own words for it — "no knowingly
+suicidal charge" — are why a capability landing three steps early would be worse than none: a bot
+that could charge but had no policy for holes, hazards or the arena edge would be a bot that could
+kill itself. Human, bot and replay inputs share one admission path here too: a `ChargeCommand` from
+any source reaches the same shared `ability` system and the same phase, body, input-lock and
+generation checks, plus charge's own expired-cooldown, no-active-protection, normalizable-direction
+and safety-envelope gates, and the same shield-wins-the-tie rule. Symmetry is again provable without
+a capability through `ScriptedReplayController`'s whole-`Command` log; the `commands.csv` parser
+learned a `charge` verb that **reuses `thrust`'s two existing direction columns** rather than
+declaring a pair of its own, so no existing fixture grew a column. What the two verbs mean by those
+cells differs and the difference is not this domain's: `thrust` clamps the magnitude and keeps a
+subunit one, `charge` normalizes, so `1,0` and `2,0` are two different thrusts and the same charge,
+and `0,0` is a legal thrust release and a refused charge. A bot cannot author a stronger burst than
+a human can, for the same reason a client cannot — the strength never leaves the server.
+
 A controller with no live entity that wants one returns a single `SpawnCommand` naming its own
 `ControllerId` — the identical command a networked session sends after `welcome`. `Controller`
 owns that decision for every bot (`Controller::request_body`), including *when it may ask again*:

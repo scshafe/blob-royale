@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_TESTING_COMPONENT_LIFETIME_FIXTURE_HPP
 #define BLOB_ROYALE_TESTING_COMPONENT_LIFETIME_FIXTURE_HPP
 
+#include "components/charge_component.hpp"
 #include "components/contact_effect_admission_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
@@ -36,6 +37,8 @@ inline constexpr std::uint64_t kShieldDuration = 40;
 inline constexpr std::uint64_t kShieldPerfectDuration = 8;
 inline constexpr std::uint64_t kShieldCooldownDuration = 90;
 inline constexpr std::uint64_t kShieldParryStunDuration = 60;
+inline constexpr std::uint64_t kChargeActivation = 1;
+inline constexpr std::uint64_t kChargeCooldownDuration = 120;
 
 [[nodiscard]] inline simulation::EntityId entity(const std::uint64_t value) {
   return simulation::EntityId::create(value);
@@ -64,6 +67,11 @@ inline void attach_bound_components(simulation::GameWorld& world,
       target, simulation::Shield::activate(simulation::TickSequence::create(kShieldActivation),
                                            kShieldDuration, kShieldPerfectDuration,
                                            kShieldCooldownDuration, kShieldParryStunDuration));
+  // A charge cooldown outlives neither its body nor a round either, so the generic sweep tests must
+  // see one attached: without a value the body-bound branch would visit the kind and prove nothing.
+  world.mutable_store<simulation::Charge>().insert_or_assign(
+      target, simulation::Charge::activate(simulation::TickSequence::create(kChargeActivation),
+                                           kChargeCooldownDuration));
 }
 
 // Adjacent bodyless entries before, between, and after live entries expose index skipping. One

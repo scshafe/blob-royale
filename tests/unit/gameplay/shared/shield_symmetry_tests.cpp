@@ -2,8 +2,10 @@
 
 #include "arena_bounds.hpp"
 #include "command_registry.hpp"
+#include "commands/charge_command.hpp"
 #include "commands/shield_command.hpp"
 #include "component_store.hpp"
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
@@ -16,6 +18,8 @@
 #include "gameplay_test_fixture.hpp"
 #include "map_definition.hpp"
 #include "match_phase.hpp"
+#include "movement_tuning.hpp"
+#include "movement_tuning_state.hpp"
 #include "physics_body.hpp"
 #include "shared/ability_configuration.hpp"
 #include "simulation_limits.hpp"
@@ -37,8 +41,15 @@ namespace gameplay = blob_royale::gameplay;
 namespace simulation = blob_royale::simulation;
 namespace testing = blob_royale::testing;
 
-// canonical: shield_symmetry_tests -- one shield admission, whoever pressed and whichever game is
+// canonical: shield_symmetry_tests -- one ability admission, whoever pressed and whichever game is
 // being played.
+//
+// **The file is still named for the shield and now carries the charge too.** Step 19 added a
+// second ability to the *same* `AbilitySystem` rather than a second system, so the two pulses share
+// one join, one set of common gates and one tie-break; splitting the argument across two files
+// would state the shared half twice and leave neither file able to say "and the other pulse is
+// refused for the same reason". The name is Step 18's and root owns the CMake list that would have
+// to move with it, so it stays until someone renames both together.
 //
 // This file mirrors no single source, because the invariant is not a property of one class. Two
 // separate claims meet here and nowhere else:
@@ -49,12 +60,16 @@ namespace testing = blob_royale::testing;
 //     trace of provenance left in the world is `Controllable::controller_id`, which ADR 0004
 //     § "Controllers" says the tick stores and never branches on. `AbilitySystem` is the newest
 //     reader of that component, so the invariant needs re-proving against it rather than assuming.
-//  2. **Every mode that fields the ability admits the same pulse the same way.** Shield is declared
-//     by all four registered modes, which means four different pipelines, four different objectives
-//     and four different contact tables all reach one admission
+//  2. **Every mode that fields the ability admits the same pulse the same way.** Shield and charge
+//     are both declared by all four registered modes, which means four different pipelines, four
+//     different objectives and four different contact tables all reach one admission
 //     (`docs/reviews/2026-09-12-shield-composition-contract.md` § "Command, admission, and
 //     lifecycle": "All four gameplay modes declare the system and advertise shield only with its
-//     implementation").
+//     implementation"; `docs/reviews/2026-09-12-charge-contract.md` § "Publication and the rest of
+//     the wire rule" requires the same of `kCharge`). Charge makes that claim sharper than shield
+//     could: its gain is read from the room's *current* movement ceiling, so a mode that had
+//     acquired its own tuning would produce a different burst here rather than merely a different
+//     name.
 //
 // **Why this argument lives here and not with the controllers.**
 // `tests/unit/controllers/human_bot_symmetry_tests.cpp` owns the end-to-end half -- a hosted
@@ -117,6 +132,26 @@ shield_for(const std::uint64_t id, const std::optional<simulation::TickSequence>
       simulation::ShieldCommand{.entity = entity(id), .input_generation = generation}};
 }
 
+// One entity's charge, with the same defaults `shield_for` uses. The two ability commands differ
+// in exactly one member -- charge names a direction -- and that member is what the admission
+// normalizes rather than what it scales by (`src/gameplay/shared/locomotion.hpp`).
+[[nodiscard]] simulation::Command
+charge_for(const std::uint64_t id, const simulation::Vector2& direction,
+           const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::Command{simulation::ChargeCommand{
+      .entity = entity(id), .direction = direction, .input_generation = generation}};
+}
+
+// The direction every charge case below fires along, and it is deliberately **subunit**.
+// `unit_direction` normalizes where `normalized_thrust_intent` clamps, so an admission that reached
+// for the thrust helper by mistake would commit half the burst from this direction while producing
+// the identical answer from an axis-aligned unit vector. Choosing `0.5` costs nothing and makes
+// that substitution visible in every mode at once
+// (`docs/reviews/2026-09-12-charge-contract.md` § "Direction").
+[[nodiscard]] simulation::Vector2 charge_direction() {
+  return simulation::Vector2::create(0.5, 0.0);
+}
+
 // Two live dynamic bodies at rest on the road, seated to two different controllers. Everything
 // else about them is identical -- same shape, same velocity, same acceleration, same ground
 // attachment, same absent generation -- so any difference in what the admission does to them could
@@ -152,10 +187,44 @@ void record_pulses(simulation::GameWorld& world,
   }
 }
 
+// Records one charge for each entity, the way `record_pulses` records one shield for each. The
+// direction is a parameter because the zero direction is a refusal this file has to be able to
+// express, and the two identities always receive the *same* one: a burst that differed between
+// them could then only have come from the identity.
+void record_charges(simulation::GameWorld& world,
+                    const simulation::Vector2& direction = charge_direction(),
+                    const std::optional<simulation::TickSequence> generation = {}) {
+  for (const std::uint64_t id : {kFirstEntity, kSecondEntity}) {
+    world.mutable_store<simulation::Controllable>().mutable_find(entity(id))->commands_this_tick = {
+        charge_for(id, direction, generation)};
+  }
+}
+
 // The stored activation for one entity, or nullptr when the world holds none.
 [[nodiscard]] const simulation::Shield* stored_shield(const simulation::GameWorld& world,
                                                       const std::uint64_t id) {
   return world.store<simulation::Shield>().find(entity(id));
+}
+
+[[nodiscard]] const simulation::Charge* stored_charge(const simulation::GameWorld& world,
+                                                      const std::uint64_t id) {
+  return world.store<simulation::Charge>().find(entity(id));
+}
+
+// The body a direct-system case reads its whole effect from: charge writes a velocity and nothing
+// else, so this is the only place a burst -- or its absence after a refusal -- is visible.
+[[nodiscard]] const simulation::PhysicsBody* stored_body(const simulation::GameWorld& world,
+                                                         const std::uint64_t id) {
+  return world.store<simulation::PhysicsBody>().find(entity(id));
+}
+
+// The gain the admission is required to commit: a dimensionless fraction of the room's **current**
+// normal ceiling, read from the world under test rather than written down here, because a room may
+// retune that ceiling and the burst is defined to follow it (ADR 0008: "0.75 times the current
+// normal movement ceiling").
+[[nodiscard]] double expected_burst(const simulation::MovementTuningState& movement) {
+  return gameplay::AbilityConfiguration::defaults().charge_speed_fraction() *
+         movement.current.normal_top_speed();
 }
 
 // The published activation for one entity, which is the only proof a pulse became a shield: queue
@@ -165,6 +234,17 @@ void record_pulses(simulation::GameWorld& world,
 published_shield(const simulation::WorldSnapshot& snapshot, const std::uint64_t id) {
   for (const simulation::ComponentStore<simulation::Shield>::Entry& entry :
        snapshot.components<simulation::Shield>()) {
+    if (entry.entity == entity(id)) {
+      return entry.value;
+    }
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<simulation::Charge>
+published_charge(const simulation::WorldSnapshot& snapshot, const std::uint64_t id) {
+  for (const simulation::ComponentStore<simulation::Charge>::Entry& entry :
+       snapshot.components<simulation::Charge>()) {
     if (entry.entity == entity(id)) {
       return entry.value;
     }
@@ -215,6 +295,33 @@ published_shield(const simulation::WorldSnapshot& snapshot, const std::uint64_t 
 [[nodiscard]] simulation::WorldSnapshot step_with_pulses(simulation::GameSimulation& game) {
   game.step(testing::kGameplayFixedDelta,
             testing::gameplay_batch(game, {shield_for(kFirstEntity), shield_for(kSecondEntity)},
+                                    kFirstReservedEntityId, kReservedEntityIdCount));
+  return game.snapshot();
+}
+
+// The same tick carrying one charge per entity and **no shield**. Kept separate from
+// `step_with_pulses` rather than merged into it, because a tick carrying both is a tie the ability
+// system resolves in the shield's favour: a merged helper would silently turn every cross-mode
+// charge claim below into a claim about the tie-break instead (`shared/ability_system.hpp`).
+[[nodiscard]] simulation::WorldSnapshot step_with_charges(simulation::GameSimulation& game) {
+  game.step(testing::kGameplayFixedDelta,
+            testing::gameplay_batch(game,
+                                    {charge_for(kFirstEntity, charge_direction()),
+                                     charge_for(kSecondEntity, charge_direction())},
+                                    kFirstReservedEntityId, kReservedEntityIdCount));
+  return game.snapshot();
+}
+
+// One tick carrying both pulses for both entities, which is only ever used where **both** must be
+// refused. In a phase that admits nothing there is no tie to resolve, so this asks the sharper
+// question: does the phase gate stop the two abilities together, or only the one the mode's author
+// happened to think about?
+[[nodiscard]] simulation::WorldSnapshot step_with_both(simulation::GameSimulation& game) {
+  game.step(testing::kGameplayFixedDelta,
+            testing::gameplay_batch(game,
+                                    {shield_for(kFirstEntity), shield_for(kSecondEntity),
+                                     charge_for(kFirstEntity, charge_direction()),
+                                     charge_for(kSecondEntity, charge_direction())},
                                     kFirstReservedEntityId, kReservedEntityIdCount));
   return game.snapshot();
 }
@@ -328,6 +435,158 @@ TEST_CASE("Every gate that refuses one identity's pulse refuses the other's on t
   }
 }
 
+TEST_CASE("Charge admission answers the world and never the identity behind the pulse",
+          "[unit][gameplay][ability][charge][symmetry]") {
+  const auto ability = gameplay::AbilitySystem::create(gameplay::AbilityConfiguration::defaults());
+  const testing::TickHarness harness{tick(kAdmissionTick)};
+
+  auto ordered = seated_pair(kLowController, kHighController);
+  const double burst = expected_burst(ordered.match().movement);
+  record_charges(ordered);
+  ability->apply(ordered, harness.context());
+
+  const simulation::Charge* first = stored_charge(ordered, kFirstEntity);
+  const simulation::Charge* second = stored_charge(ordered, kSecondEntity);
+  REQUIRE(first != nullptr);
+  REQUIRE(second != nullptr);
+  // One activation each, and the two are the same value: a `Charge` records when the burst fired
+  // and when the next one may, and nothing at all about who fired it.
+  CHECK(*first == *second);
+  CHECK(first->activation_tick() == tick(kAdmissionTick));
+  CHECK(first->cooldown_window().activation_tick() == first->activation_tick());
+  // Strictly after: charge has no protection window to gate a second activation behind, so a
+  // cooldown of zero ticks would be an unbounded burst rate rather than a shorter wait, which is
+  // why its authored seconds are validated positive where the shield's are not.
+  CHECK(first->cooldown_window().expiry_tick() > first->activation_tick());
+
+  // The effect is the same for both, too, and this is where a per-identity difference would show
+  // up if the component somehow hid one: both bodies came in at rest on the same road, so the
+  // committed velocity **is** the whole burst. It is the full gain from a subunit direction, which
+  // is the normalization the charge contract requires rather than the thrust clamp.
+  const simulation::PhysicsBody* first_body = stored_body(ordered, kFirstEntity);
+  const simulation::PhysicsBody* second_body = stored_body(ordered, kSecondEntity);
+  REQUIRE(first_body != nullptr);
+  REQUIRE(second_body != nullptr);
+  CHECK(first_body->velocity() == simulation::Vector2::create(burst, 0.0));
+  CHECK(first_body->velocity() == second_body->velocity());
+
+  // Exchanging the two identities exchanges nothing, entity for entity: the strongest available
+  // form of "the tick never branches on `Controllable::controller_id`", now asserted over the
+  // component *and* over the velocity the ability wrote.
+  auto swapped = seated_pair(kHighController, kLowController);
+  record_charges(swapped);
+  ability->apply(swapped, harness.context());
+  const simulation::Charge* swapped_first = stored_charge(swapped, kFirstEntity);
+  const simulation::Charge* swapped_second = stored_charge(swapped, kSecondEntity);
+  REQUIRE(swapped_first != nullptr);
+  REQUIRE(swapped_second != nullptr);
+  CHECK(*swapped_first == *first);
+  CHECK(*swapped_second == *second);
+  REQUIRE(stored_body(swapped, kFirstEntity) != nullptr);
+  REQUIRE(stored_body(swapped, kSecondEntity) != nullptr);
+  CHECK(stored_body(swapped, kFirstEntity)->velocity() == first_body->velocity());
+  CHECK(stored_body(swapped, kSecondEntity)->velocity() == second_body->velocity());
+}
+
+TEST_CASE("Every gate that refuses one identity's charge refuses the other's on the same tick",
+          "[unit][gameplay][ability][charge][symmetry]") {
+  const auto ability = gameplay::AbilitySystem::create(gameplay::AbilityConfiguration::defaults());
+  const testing::TickHarness harness{tick(kAdmissionTick)};
+  const auto at_rest = simulation::Vector2::create(0.0, 0.0);
+
+  // A refused charge is a silent no-op, so each case below asserts **two** things: no component was
+  // stored, and no velocity moved. The second is the one that distinguishes a refusal from a burst
+  // whose bookkeeping was skipped, and both identities are checked for both.
+  const auto refuses_both = [&](simulation::GameWorld& world) {
+    CHECK(stored_charge(world, kFirstEntity) == nullptr);
+    CHECK(stored_charge(world, kSecondEntity) == nullptr);
+    REQUIRE(stored_body(world, kFirstEntity) != nullptr);
+    REQUIRE(stored_body(world, kSecondEntity) != nullptr);
+    CHECK(stored_body(world, kFirstEntity)->velocity() == at_rest);
+    CHECK(stored_body(world, kSecondEntity)->velocity() == at_rest);
+  };
+
+  // The three phases that are not `running`. Refused rather than held: the match machine is
+  // engine-owned, so a queued burst would fire on a tick no source chose.
+  for (const auto phase : {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown,
+                           simulation::MatchPhase::kEnded}) {
+    CAPTURE(phase);
+    auto world = seated_pair(kLowController, kHighController, phase);
+    record_charges(world);
+    ability->apply(world, harness.context());
+    refuses_both(world);
+  }
+
+  // Both entities had their input invalidated earlier and both charges carry the absent initial
+  // token. Exact optional equality refuses an absent generation against a present one -- the same
+  // stale-input rule steering and the shield obey -- and it refuses it for both identities.
+  {
+    auto world = seated_pair(kLowController, kHighController);
+    for (const std::uint64_t id : {kFirstEntity, kSecondEntity}) {
+      world.mutable_store<simulation::Controllable>().mutable_find(entity(id))->input_generation =
+          tick(kSeededActivationTick);
+    }
+    record_charges(world);
+    ability->apply(world, harness.context());
+    refuses_both(world);
+  }
+
+  // The canonical input lock, shared with steering and with the shield: a stunned entity cannot
+  // start a charge. The lock reads the world's `Stun` window and takes no argument naming a source.
+  {
+    auto world = seated_pair(kLowController, kHighController);
+    for (const std::uint64_t id : {kFirstEntity, kSecondEntity}) {
+      world.mutable_store<simulation::Stun>().insert_or_assign(
+          entity(id),
+          simulation::Stun{simulation::TickWindow::create(tick(kAdmissionTick), kOneTick)});
+    }
+    record_charges(world);
+    ability->apply(world, harness.context());
+    refuses_both(world);
+  }
+
+  // A direction no unit vector can be recovered from. Exact zero and the underflowed band beneath
+  // it are one refusal rather than two, and neither is a throw: `AbilitySystem::apply` may not
+  // throw for a world a client can reach, because that throw would stop the runtime worker and end
+  // the match for everybody in the room.
+  for (const auto direction :
+       {simulation::Vector2::create(0.0, 0.0), simulation::Vector2::create(1e-200, 0.0)}) {
+    CAPTURE(direction.x(), direction.y());
+    auto world = seated_pair(kLowController, kHighController);
+    record_charges(world, direction);
+    REQUIRE_NOTHROW(ability->apply(world, harness.context()));
+    refuses_both(world);
+  }
+
+  // A live cooldown, produced by the real path rather than by a seeded component: one admitted
+  // charge on the previous tick, then the same pulse again one tick later. The second is refused
+  // for both identities, and the refusal costs nothing and adds nothing -- the stored value is the
+  // first activation untouched and the velocity is the first burst, not two of them.
+  {
+    auto world = seated_pair(kLowController, kHighController);
+    const testing::TickHarness earlier{tick(kSeededActivationTick)};
+    record_charges(world);
+    ability->apply(world, earlier.context());
+    const simulation::Charge* admitted = stored_charge(world, kFirstEntity);
+    const simulation::PhysicsBody* moving = stored_body(world, kFirstEntity);
+    REQUIRE(admitted != nullptr);
+    REQUIRE(moving != nullptr);
+    const simulation::Charge first_activation = *admitted;
+    const simulation::Vector2 first_velocity = moving->velocity();
+    REQUIRE(first_activation.cooldown_window().contains(tick(kAdmissionTick)));
+
+    record_charges(world);
+    ability->apply(world, harness.context());
+    for (const std::uint64_t id : {kFirstEntity, kSecondEntity}) {
+      CAPTURE(id);
+      REQUIRE(stored_charge(world, id) != nullptr);
+      CHECK(*stored_charge(world, id) == first_activation);
+      REQUIRE(stored_body(world, id) != nullptr);
+      CHECK(stored_body(world, id)->velocity() == first_velocity);
+    }
+  }
+}
+
 TEST_CASE("Every registered mode admits the same running pulse from a live dynamic body",
           "[unit][gameplay][ability][shield][mode]") {
   // Derived from the registry rather than typed beside it, so a fifth game cannot be added without
@@ -371,23 +630,92 @@ TEST_CASE("Every registered mode admits the same running pulse from a live dynam
   CHECK(proven == expected);
 }
 
-TEST_CASE("No registered mode admits a pulse outside the running phase",
-          "[unit][gameplay][ability][shield][mode]") {
+TEST_CASE("Every registered mode admits the same running charge from a live dynamic body",
+          "[unit][gameplay][ability][charge][mode]") {
+  // Derived from the registry rather than typed beside it, exactly as the shield's cross-mode proof
+  // is, so a fifth game cannot appear beneath it without either answering the proof or failing the
+  // name list. ADR 0008's mode/state matrix enables the charge wherever a running body exists, and
+  // all four modes carry `kCharge` in their accepted masks because all four declare the one system
+  // that admits it.
+  std::vector<std::string_view> proven;
+  std::optional<simulation::Charge> shared;
+  std::optional<simulation::Vector2> shared_velocity;
+  for (const gameplay::GameModeRegistry::Registration& registration :
+       gameplay::GameModeRegistry::registrations()) {
+    CAPTURE(registration.name);
+    simulation::GameSimulation game =
+        mode_game(registration.name, simulation::MatchPhase::kRunning);
+    const simulation::WorldSnapshot snapshot = step_with_charges(game);
+
+    const std::optional<simulation::Charge> first = published_charge(snapshot, kFirstEntity);
+    const std::optional<simulation::Charge> second = published_charge(snapshot, kSecondEntity);
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK(*first == *second);
+    CHECK(first->activation_tick() == snapshot.tick_sequence());
+    // One window dated the activation, published as two absolute endpoints, and strictly ordered.
+    CHECK(first->cooldown_window().activation_tick() == first->activation_tick());
+    CHECK(first->cooldown_window().expiry_tick() > first->activation_tick());
+
+    // The burst itself, not merely the bookkeeping. Both bodies entered the tick at rest and the
+    // charge is the only command in it, so the published velocity is exactly the gain: the
+    // authored fraction of the ceiling **this mode's match** published, along the unit direction
+    // recovered from a subunit one. A mode that had acquired its own tuning, or an admission that
+    // clamped the direction instead of normalizing it, would produce a different vector here.
+    const double burst = expected_burst(snapshot.match().movement());
+    const std::optional<simulation::PhysicsBody> body =
+        testing::published_body(snapshot, kFirstEntity);
+    const std::optional<simulation::PhysicsBody> other =
+        testing::published_body(snapshot, kSecondEntity);
+    REQUIRE(body.has_value());
+    REQUIRE(other.has_value());
+    CHECK(body->velocity() == simulation::Vector2::create(burst, 0.0));
+    CHECK(other->velocity() == body->velocity());
+
+    // Every mode reads the same authored `[abilities]` section through its own owned copy and the
+    // same seeded movement tuning, so the charge a race produces is the charge a royale produces,
+    // down to the committed velocity.
+    if (shared.has_value()) {
+      CHECK(*first == *shared);
+      CHECK(body->velocity() == *shared_velocity);
+    } else {
+      shared = first;
+      shared_velocity = body->velocity();
+    }
+    proven.push_back(registration.name);
+  }
+  const std::vector<std::string_view> expected{"sandbox", "royale", "king_of_the_hill", "race"};
+  CHECK(proven == expected);
+}
+
+TEST_CASE("No registered mode admits either pulse outside the running phase",
+          "[unit][gameplay][ability][shield][charge][mode]") {
+  // Both abilities in one batch, which is safe here and only here: the tie-break between them
+  // exists to choose a winner among *eligible* pulses, and outside `running` neither is eligible,
+  // so a batch carrying both asks the sharper question. A mode that gated only the ability its
+  // author was thinking about would pass a shield-only sweep and fail this one.
+  const auto at_rest = simulation::Vector2::create(0.0, 0.0);
   for (const gameplay::GameModeRegistry::Registration& registration :
        gameplay::GameModeRegistry::registrations()) {
     for (const auto phase : {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown,
                              simulation::MatchPhase::kEnded}) {
       CAPTURE(registration.name, phase);
       simulation::GameSimulation game = mode_game(registration.name, phase);
-      const simulation::WorldSnapshot snapshot = step_with_pulses(game);
+      const simulation::WorldSnapshot snapshot = step_with_both(game);
       CHECK_FALSE(published_shield(snapshot, kFirstEntity).has_value());
       CHECK_FALSE(published_shield(snapshot, kSecondEntity).has_value());
+      CHECK_FALSE(published_charge(snapshot, kFirstEntity).has_value());
+      CHECK_FALSE(published_charge(snapshot, kSecondEntity).has_value());
       // Not a vacuous refusal: the same two bodies are still live and dynamic in the same world the
-      // running case above activates in, so the phase is the only thing that changed.
+      // running cases above activate in, so the phase is the only thing that changed. And they are
+      // still at rest, which is the charge's half of the same statement -- a refused burst leaves
+      // no velocity behind, because there is no smaller burst for a refusal to fall back to.
       REQUIRE(testing::published_body(snapshot, kFirstEntity).has_value());
       REQUIRE(testing::published_body(snapshot, kSecondEntity).has_value());
       CHECK_FALSE(testing::published_body(snapshot, kFirstEntity)->is_static());
       CHECK_FALSE(testing::published_body(snapshot, kSecondEntity)->is_static());
+      CHECK(testing::published_body(snapshot, kFirstEntity)->velocity() == at_rest);
+      CHECK(testing::published_body(snapshot, kSecondEntity)->velocity() == at_rest);
     }
   }
 }

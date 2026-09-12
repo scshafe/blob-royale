@@ -21,6 +21,7 @@ type MutableBlobRoyaleProtocolV3ClientCommandEnvelope = {
   [k: string]: unknown | undefined;
 } & {
   kind:
+    | 'charge'
     | 'clear_seat'
     | 'seat_npc'
     | 'set_movement_tuning'
@@ -368,6 +369,7 @@ interface MutableBlobRoyaleProtocolV3WorldSnapshotData {
 interface MutableBlobRoyaleProtocolV3EntitySnapshot {
   entity_id: number;
   components: {
+    charge?: MutableBlobRoyaleProtocolV3ChargeComponent;
     contact_effect_admission?: MutableBlobRoyaleProtocolV3ContactEffectAdmissionComponent;
     controllable?: MutableBlobRoyaleProtocolV3ControllableComponent;
     hill?: MutableBlobRoyaleProtocolV3HillComponent;
@@ -385,6 +387,19 @@ interface MutableBlobRoyaleProtocolV3EntitySnapshot {
     zone?: MutableBlobRoyaleProtocolV3ZoneComponent;
     zone_exposure?: MutableBlobRoyaleProtocolV3ZoneExposureComponent;
   };
+}
+/**
+ * Body-bound one-shot charge: the tick a burst was committed on and the first tick a new one may be committed. Charge publishes no active window because it has none. The burst is an instantaneous additive change to the body's velocity applied on activation_tick and thereafter owned by ordinary motion, so this component's presence means a cooldown is running, never that a charge is in flight, and its absence means only that no cooldown is running. The velocity itself is not republished here: physics_body already carries it, and a second copy would be a second source of truth. activation_tick is published as well as the expiry because a cooldown arc needs its denominator and the authored cooldown length is deliberately server-side; both members are absolute ticks rather than a countdown, so a frame a client buffered or received late still reads true. cooldown_expiry_tick is STRICTLY greater than activation_tick -- never equal, unlike every shield endpoint -- and that ordering needs semantic validation after JSON Schema, which cannot compare members. No shield member exists here; shield is a separate ability that owns its own published windows, and one body may carry both components at once.
+ */
+interface MutableBlobRoyaleProtocolV3ChargeComponent {
+  /**
+   * The committed tick the burst was applied on. Published so a reader can render elapsed cooldown: charge_cooldown_seconds never leaves the server, so cooldown_expiry_tick minus this value is the only denominator a client has.
+   */
+  activation_tick: number;
+  /**
+   * First tick at which a new charge may be admitted. Always strictly greater than activation_tick: the authored cooldown is validated strictly positive, so this window is never empty.
+   */
+  cooldown_expiry_tick: number;
 }
 /**
  * Body-bound nondefault source-object effect admission. any_touch includes certified grazes and stationary/overlapping contact; physical impulses still require a closing impact. Absence of this component means closing_impact. This does not change collision masks or make cliff support loss a body-rim contact.
@@ -588,11 +603,12 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
   mode: string;
   map: string;
   /**
-   * @maxItems 7
+   * @maxItems 8
    */
   accepted_command_kinds:
     | []
     | [
+        | 'charge'
         | 'clear_seat'
         | 'seat_npc'
         | 'set_movement_tuning'
@@ -603,6 +619,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
       ]
     | [
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -612,35 +629,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-      ]
-    | [
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -652,6 +641,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
       ]
     | [
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -661,6 +651,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -670,62 +661,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-      ]
-    | [
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -737,6 +673,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
       ]
     | [
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -746,6 +683,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -755,6 +693,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -764,24 +703,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'shield'
-          | 'start_match'
-        ),
-        (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -793,6 +715,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
       ]
     | [
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -802,6 +725,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -811,6 +735,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -820,6 +745,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -829,6 +755,19 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -838,6 +777,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -847,6 +787,191 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'start_match'
         ),
         (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'charge'
           | 'clear_seat'
           | 'seat_npc'
           | 'set_movement_tuning'
@@ -1107,6 +1232,8 @@ export type BlobRoyaleProtocolV3WorldSnapshotData =
   DeepReadonly<MutableBlobRoyaleProtocolV3WorldSnapshotData>;
 export type BlobRoyaleProtocolV3EntitySnapshot =
   DeepReadonly<MutableBlobRoyaleProtocolV3EntitySnapshot>;
+export type BlobRoyaleProtocolV3ChargeComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV3ChargeComponent>;
 export type BlobRoyaleProtocolV3ContactEffectAdmissionComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3ContactEffectAdmissionComponent>;
 export type BlobRoyaleProtocolV3ControllableComponent =

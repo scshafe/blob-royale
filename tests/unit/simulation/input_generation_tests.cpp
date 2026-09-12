@@ -1,3 +1,4 @@
+#include "commands/charge_command.hpp"
 #include "commands/shield_command.hpp"
 #include "component_publication.hpp"
 #include "components/controllable_component.hpp"
@@ -21,6 +22,13 @@ namespace {
 [[nodiscard]] simulation::ShieldCommand
 shield_pulse(const std::optional<simulation::TickSequence> generation = {}) {
   return {simulation::EntityId::create(fixture::kEntity), generation};
+}
+
+// The charge twin. It reuses the fixture's direction, which is what makes the comparison below a
+// comparison of tokens alone: the only thing that differs between these charges is the generation.
+[[nodiscard]] simulation::ChargeCommand
+charge_command(const std::optional<simulation::TickSequence> generation = {}) {
+  return {simulation::EntityId::create(fixture::kEntity), fixture::direction(), generation};
 }
 
 } // namespace
@@ -82,6 +90,45 @@ TEST_CASE("last submitted shield still wins regardless of its generation",
       {latest, stale}, simulation::CommandKindMask::all(), simulation::EntityIdReservation::none());
   REQUIRE(batch.commands().size() == fixture::kOneTick);
   CHECK(std::get<simulation::ShieldCommand>(batch.commands().front()) == stale);
+}
+
+TEST_CASE("charge intake preserves absence and positive generations but rejects present zero",
+          "[unit][simulation][input_batch][input_generation][charge]") {
+  // A third kind carrying the identical token, and the identical three legal shapes: absence is the
+  // never-invalidated entity, a positive tick echoes the generation the world published, and a
+  // present zero is a token no entity was ever given. The direction is beside the point here --
+  // intake judges the token the same way whether or not the command also carries a heading.
+  for (const auto generation :
+       {std::optional<simulation::TickSequence>{}, std::optional{fixture::tick()},
+        std::optional{fixture::tick(simulation::TickSequence::kMaximumValue)}}) {
+    const auto command = charge_command(generation);
+    const auto batch = simulation::InputBatch::create({command}, simulation::CommandKindMask::all(),
+                                                      simulation::EntityIdReservation::none());
+    REQUIRE(batch.commands().size() == fixture::kOneTick);
+    CHECK(std::get<simulation::ChargeCommand>(batch.commands().front()) == command);
+  }
+  try {
+    static_cast<void>(simulation::InputBatch::create(
+        {charge_command(simulation::TickSequence::zero())}, simulation::CommandKindMask::all(),
+        simulation::EntityIdReservation::none()));
+    FAIL("a present zero generation was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.code() == "SIMULATION.INPUT_BATCH_INPUT_GENERATION_ZERO");
+    CHECK(error.context() == "input_batch.commands.charge.input_generation");
+  }
+}
+
+TEST_CASE("last submitted charge still wins regardless of its generation",
+          "[unit][simulation][input_batch][input_generation][charge]") {
+  // Intake does not judge a generation against the world -- it has none -- so a stale charge
+  // supersedes a current one exactly as a stale thrust or shield does. Refusing to activate on a
+  // stale token is the ability system's job at kPreKernel, and it is a silent no-op there.
+  const auto latest = charge_command(fixture::tick());
+  const auto stale = charge_command();
+  const auto batch = simulation::InputBatch::create(
+      {latest, stale}, simulation::CommandKindMask::all(), simulation::EntityIdReservation::none());
+  REQUIRE(batch.commands().size() == fixture::kOneTick);
+  CHECK(std::get<simulation::ChargeCommand>(batch.commands().front()) == stale);
 }
 
 TEST_CASE("last submitted thrust still wins regardless of its generation",

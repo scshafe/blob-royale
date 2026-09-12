@@ -38,8 +38,8 @@ namespace blob_royale::gameplay {
 //                           elimination_grace_publisher at kLifecycle
 //   contact_rules()         guarded_pair, then the built-in rows it makes unreachable
 //   motion_triggers()       ground-bound support loss while running
-//   accepted_command_kinds  spawn, despawn, join, leave, thrust, shield, movement tuning, four
-//                           lobby kinds
+//   accepted_command_kinds  spawn, despawn, join, leave, thrust, shield, charge, movement tuning,
+//                           four lobby kinds
 //   spawn_policy()          RotatingRingSpawnPolicy
 //   objective()             RoyaleObjective
 //   validate_map()          an arena whose `R_full` is strictly greater than the configured
@@ -136,11 +136,19 @@ public:
     return simulation::ContactRuleTable::with_rows_above_built_in({guarded_pair_contact_rule()});
   }
 
-  // Eleven kinds: the three lifecycle kinds every mode needs, the two entity-addressed player
-  // commands (`thrust` and `shield`), seated movement tuning, the four that operate the pre-match
-  // lobby, and the server-issued `join`. `shield` is advertised here only because this mode also
-  // declares the `ability` system that admits it: the wire rule is that no command is offered in
-  // `welcome` before its handler exists.
+  // Twelve kinds: the three lifecycle kinds every mode needs, the three entity-addressed player
+  // commands (`thrust`, `shield` and `charge`), seated movement tuning, the four that operate the
+  // pre-match lobby, and the server-issued `join`. Both abilities are advertised here only because
+  // this mode declares the `ability` system that admits **both** of them: the wire rule is that no
+  // command is offered in `welcome` before its handler exists, and charge earns its entry by
+  // reaching that same admission rather than by a second system this mode would have to declare
+  // (`shared/ability_system.hpp`, `docs/reviews/2026-09-12-charge-contract.md` § "Admission, the
+  // conflict rule, and the effect").
+  //
+  // **The mask says nothing about the conflict between them.** A mode declares which decisions its
+  // game admits, not which one wins when two arrive on one tick; that tie is resolved inside the
+  // single system that sees both pulses, because a mask that tried to express it would be a second
+  // place holding a priority the system already owns.
   //
   // **The four lobby kinds are declared by the mode rather than by the engine**, even though the
   // roster they write is engine state, because the mask is what a mode uses to say which decisions
@@ -152,10 +160,10 @@ public:
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
          simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-         simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
-         simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-         simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-         simulation::CommandKind::kJoin});
+         simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
+         simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+         simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kJoin});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

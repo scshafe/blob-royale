@@ -23,10 +23,13 @@ src/gameplay/
     thrust_steering_system.*    held intent and current match tuning become stored acceleration
     input_lock.*               canonical active-stun admission predicate for self-propulsion
     status_system.*            absolute stun windows, input invalidation, shield cancellation, expiry
-    locomotion.*               canonical normalization, scaling, and finite-step propulsion cap
+    locomotion.*               the thrust magnitude clamp, the fixed-gain unit normalization,
+                               scaling, and the finite-step propulsion cap
     duration_ticks.*            the one conversion from an authored duration to tick counts
-    ability_configuration.*     one validated `[abilities]` section, in the tick counts a system reads
-    ability_system.*            admits shield pulses and erases fully expired shields at PreKernel
+    ability_configuration.*     one validated `[abilities]` section, in the tick counts and scalars
+                                a system reads
+    ability_system.*            admits shield and charge pulses, resolves the conflict between them,
+                                and erases both expired components at PreKernel
     hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
     hazard_spawn_system.*       schedules crossing births with pre-draw reservation/capacity checks
     create_crossing_hazard.*    canonical birth, lifetime, marker, and per-instance effect policy
@@ -174,10 +177,31 @@ an active shield. It reaches every mode through `GameModeConfiguration::abilitie
 parser rejects unread keys and does not read the section, so replays inherit
 `GameModeConfiguration::defaults()`, exactly as they do for `[sandbox]`.
 
+Charge added three more keys to that same section and is the first thing in it that is not a
+duration: `charge_cooldown_seconds=1.2`, `charge_speed_fraction=0.75`, and
+`charge_safety_envelope_speed=20000`. The cooldown goes through `duration_ticks` like the other
+four — 480 ticks — but is validated **strictly positive**, which the shield's cooldown is not, and
+the reason is written into `ability_configuration.hpp` rather than left to be inferred: shield
+admission has a second gate, because a new pulse also requires the prior protection to have ended,
+and a one-shot charge has no protection window, so a cooldown rounding to zero ticks would admit a
+burst on every tick. The other two are validated doubles held as doubles — a dimensionless multiple
+of the **current** normal ceiling read from match state, and a speed in `wu/s` bounded above by
+`kMaximumPhysicalComponentMagnitude` — with `GAMEPLAY.ABILITY_SCALAR_NOT_FINITE` and
+`GAMEPLAY.ABILITY_SCALAR_OUT_OF_RANGE`. One cross-key rule joins them,
+`charge_speed_fraction × kMaximumNormalTopSpeed <= charge_safety_envelope_speed`, refused with
+`GAMEPLAY.ABILITY_CHARGE_BURST_EXCEEDS_SAFETY_ENVELOPE`: it keeps a charge from rest admissible at
+any tuned ceiling, and it is what bounds the fraction, so no arbitrary ceiling on the fraction
+itself had to be invented. The named-locals-in-declared-key-order rule still holds, so `create`
+reports the first declared offending key rather than a compiler-dependent one. **All seven values
+are ADR 0008's initial tuning assumptions and one engineering guard, not owner-selected balance**;
+the envelope in particular is a number the owner has never chosen, only a mechanism the owner
+accepted.
+
 ## `sandbox`
 
 Free play automatically enters countdown on tick one and running on tick two, never ends, accepts
-five simulation command kinds — spawn, despawn, leave, thrust, and shield — and seats joiners at
+six simulation command kinds — spawn, despawn, leave, thrust, shield, and, as of Step 19, charge —
+and seats joiners at
 supported free markers. ~~It uses built-in contacts~~: as of Step 18 it declares the shared
 `guarded_pair` row above the built-ins like the other three modes, which makes those three
 unreachable here too. That is deliberate rather than incidental: Sandbox is where a player tries a
@@ -185,8 +209,10 @@ mechanic, and a shield that worked everywhere except free play would be the surp
 shared PreKernel steering then `ability`, PostKernel status, an always-active
 support-loss trigger, and shared lifecycle respawn with explicit `[sandbox] respawn_delay_seconds`.
 The initial delay is two seconds. No Sandbox-only component, event, or mode-state block is added.
-Its welcome now advertises two client-sendable kinds, `set_thrust` and `shield`; it still omits the
-four lobby controls and `set_movement_tuning`.
+Its welcome now advertises three client-sendable wire kinds, `set_thrust`, `shield` and `charge`;
+it still omits the four lobby controls and `set_movement_tuning`. The same reasoning that gave
+Sandbox the shield gave it the charge: free play is where a player tries a mechanic, and an ability
+that worked everywhere except free play would be the surprise.
 
 The historical pre-status `SandboxMode` measurement was **89 lines** — a 52-line class block plus 37 lines of definitions — of which **58
 are code** once blank and `//` lines are removed. The measurement is the `class SandboxMode final`
@@ -265,9 +291,10 @@ capacity. The separate `hill` stream cannot advance hazards; marker tours draw n
 ## `royale`
 
 Thrust and drag inside a linearly shrinking circular safe zone, last blob standing
-(`docs/architecture/0005-royale-mode.md`). It accepts eleven simulation command kinds — spawn,
-despawn, thrust, shield, join, leave, set_movement_tuning, and the four lobby kinds, of which seven
-are client-sendable; declares the shared `guarded_pair` row above the engine's built-in contact
+(`docs/architecture/0005-royale-mode.md`). It accepts twelve simulation command kinds — spawn,
+despawn, thrust, shield, charge, join, leave, set_movement_tuning, and the four lobby kinds, of
+which eight are client-sendable wire kinds; declares the shared `guarded_pair` row above the
+engine's built-in contact
 rows, which composes the same accepted impulse equations for ordinary blobs and carries the lethal
 pass-through as its own branch; declares
 `thrust_steering` then `ability` at `kPreKernel`, `zone_shrink` then
@@ -290,9 +317,10 @@ and later shared systems.
 What it contributed outside its own directory is two component headers plus one line in
 `component_registry.hpp`, one mode-state header plus one type and one schema id in
 `mode_match_state_registry.hpp`, and one row in `game_mode_registry.hpp`. It added no command kind,
-no contact rule, no world event kind, and no kernel phase — still true after Step 18, because
-`shield`, `Shield`, the `ability` system, and the `guarded_pair` row are all shared gameplay that
-royale declares rather than owns.
+no contact rule, no world event kind, and no kernel phase — still true after Steps 18 and 19,
+because `shield`, `Shield`, `charge`, `Charge`, the `ability` system, and the `guarded_pair` row are
+all shared gameplay that royale declares rather than owns. Step 19 cost royale exactly one
+enumerator in its accepted mask.
 
 `validate_map` rejects one map at startup, naming the map and the cause: one whose arena's
 circumscribed radius is not strictly greater than `zone_minimum_radius_world_units`, which would
@@ -325,10 +353,14 @@ tick `N` with delay `D` is offered to the mode's spawn policy at phase 0 of tick
 `D = 0`, on `N + 1`. A policy defers an entity that carries a timer, which is one predicate
 (`shared/next_free_spawn_point_policy.hpp`). At the end of the same lifecycle pass, the canonical
 registry sweep erases every `ComponentLifetime<C>::bound_to_body` kind on every bodyless entity.
-`HillPresence`, `ZoneExposure`, `Stun`, `ContactEffectAdmission`, and `Shield` declare that trait;
+`HillPresence`, `ZoneExposure`, `Stun`, `ContactEffectAdmission`, `Shield`, and `Charge` declare
+that trait;
 their consumers perform no separate body-loss cleanup. `Shield` is the case where that matters most
 plainly: a returning body simply carries no shield and is therefore ready, with no reset field and
-no ability-system cleanup pass. Score, checkpoint progress, controller identity, and the timer survive. Royale still
+no ability-system cleanup pass. `Charge` is the same case a second time, and the second time is the
+evidence: the rule "reset abilities to ready on respawn" cost the second ability no code at all,
+because a cooldown that lives on a body cannot follow a body that is gone.
+Score, checkpoint progress, controller identity, and the timer survive. Royale still
 destroys whole entities, so its elimination path requires no additional sweep.
 
 `shared/match_reset_system` is royale's restart wipe generalized: on the single `lobby` tick whose
@@ -346,8 +378,8 @@ function of elapsed running ticks -- and every tick a player's centre is inside 
 the next point; a contested hill scores nobody unless `contested_hill_scores` says otherwise, and
 the first to `points_to_win`, or the leader when the clock runs out, wins
 (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill"). It accepts
-royale's eleven simulation command kinds; declares the shared `guarded_pair` row above the engine's
-built-in contact rows;
+royale's twelve simulation command kinds, of which eight are client-sendable wire kinds; declares
+the shared `guarded_pair` row above the engine's built-in contact rows;
 declares `thrust_steering` then `ability` at `kPreKernel`, `hill_movement`, `hill_scoring`, then shared `status` at `kPostKernel`,
 and `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `hill_rules_publisher` at
 `kLifecycle`; seats joiners at the next free point in every phase, because the field is open; and
@@ -363,8 +395,9 @@ What it contributed outside its own directory is two component headers plus one 
 `component_registry.hpp`, one mode-state header plus one type and one schema id in
 `mode_match_state_registry.hpp`, one row in `game_mode_registry.hpp`, one member on
 `GameModeConfiguration`, and the `[king_of_the_hill]` fields in the loader. It added no command
-kind, no contact rule, no world event kind, and no kernel phase — unchanged by Step 18, whose
-command kind, row, and system are shared and merely declared here — and it is the first mode built on
+kind, no contact rule, no world event kind, and no kernel phase — unchanged by Steps 18 and 19,
+whose command kinds, row, and system are shared and merely declared here — and it is the first mode
+built on
 the framework amendments of ADR 0007: the objective's tick context for its clock, the engine's
 `previous_phase` through the shared reset, and the shared respawn.
 
@@ -392,8 +425,8 @@ consumes certified facts, followed
 by shared status. The lifecycle systems run in this
 order: `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn`; the engine evaluates the objective afterwards. The mode uses
-shared steering and the shared `guarded_pair` contact row, and accepts the same eleven simulation
-command kinds as royale.
+shared steering and the shared `guarded_pair` contact row, and accepts the same twelve simulation
+command kinds as royale, of which eight are client-sendable wire kinds.
 
 `RaceMode::validate_map` builds and validates one `RaceCourse` before `systems()` reads it. The
 registry factory has configuration but no map, so the existing map-bearing declaration is the
@@ -433,8 +466,8 @@ declaration alone is 168 lines across its header/source. The race README is excl
 directory, race adds one `RaceProgress` component and one mode-state arm with their protocol and
 client registrations, one mode registry row, one configuration aggregate member, loader/build
 entries, its map and replay/browser fixtures. It adds no command or event kind, contact equation,
-or numbered kernel phase; Step 18 does not change that, since the shield command, the composed row,
-and the ability system are shared and race only declares them.
+or numbered kernel phase; Steps 18 and 19 do not change that, since the shield and charge commands,
+the composed row, and the ability system are shared and race only declares them.
 
 ## Steering
 
@@ -457,6 +490,24 @@ acceleration = ((x * s) * thrust_max, (y * s) * thrust_max)
 
 `sqrt(x * x + y * y)` is written out rather than delegated to `std::hypot`, which computes a
 different binary64 value for the same inputs.
+
+**`normalized_thrust_intent` is a clamp, and Step 19 put the tree's one true normalizer next to
+it.** Read the `s = 1 when m <= 1` line above as the whole point rather than an optimization: a
+half-pressed stick is half the acceleration, which is right for an analog throttle. A one-shot
+activation has a fixed gain the server owns, so it must scale by nothing the client controls, and
+routing one through that clamp would let `{"x":0.5,"y":0}` — legal under the same `[-1, 1]`
+per-component bound — buy half a burst, turning pointer distance into strength. So
+`unit_direction` sits beside it in the same file: same written-out `sqrt(x * x + y * y)`, but it
+**divides** by the magnitude in every case, including the subunit one, and it returns
+`std::optional<Vector2>` rather than throwing. It divides rather than multiplying by a reciprocal —
+one rounding instead of two, and no infinity at the small end — and `std::nullopt` covers a
+magnitude that is not finite, a magnitude of zero, and divided components that are not finite or
+leave the component domain. The zero band is wider than exact zero: `{"x":1e-200,"y":0}` clears the
+decoder and `InputBatch`, and its squared magnitude underflows. Every one of those is a silent
+refusal at the caller, and the optional exists precisely so that the caller — admission inside a
+`kPreKernel` system — has nothing to catch.
+`charge` normalizes and `set_thrust` clamps: two functions, one file, and the difference is a
+decision a reader can see.
 
 The shared required `[movement]` pair replaces per-mode thrust authoring, including Sandbox's old
 scalar. `simulation::MovementTuning` validates acceleration in `[0, 10000]` wu/s² and normal top
@@ -496,6 +547,13 @@ still-active protection window to this tick; the cooldown, the original activati
 perfect history, and the captured parry-stun duration all survive, so a stunned player is not
 handed a free re-activation. `status` never erases a `Shield`.
 
+**`status` says nothing at all about charge, deliberately.** Step 19 added no line here. A burst
+already in flight keeps flying under a stun, which is exactly what "clears intent and acceleration,
+never velocity" already guarantees and what ADR 0008 requires of every external impulse; a fresh
+charge during a stun is already refused by the canonical input lock plus the generation bump; and a
+live charge cooldown survives a stun because this system is not the cooldown's owner. The absence
+is the design, not an omission.
+
 `ability` runs last at `kPreKernel` in all four modes and is the only owner of shield activation and
 of removing a fully expired `Shield` — expired meaning protection *and* cooldown, both, because an
 empty or cancelled window with a live cooldown must survive to keep refusing. It admits at most one
@@ -506,6 +564,47 @@ the cooldown has expired. **A refusal changes nothing at all**: no cooldown cons
 activation, no error, no event. Queue acceptance and a local send are not activation confirmation;
 the published `Shield` windows are the proof that an activation committed. It holds an owned copy of
 `AbilityConfiguration`, never a pointer back at its mode.
+
+**It owns two abilities as of Step 19, and the second one is why it was never called `shield`.**
+The one-shot charge is admitted in the same `apply`, over the same single join, so both of an
+entity's pulses are in hand at the same point. The four gates above that are common to the two —
+running phase, nonzero tick, dynamic body, clear input lock — are evaluated **once** against the
+world at entry. `protection_active` is read into a local **before any write**, both eligibility
+answers are computed before either write, and only then does the shield activate if eligible and
+the charge commit if `charge_admissible && !shield_eligible`. Two consequences follow from that
+spelling that a "do the shield, then decide the charge" ordering would lose: an *ineligible* shield
+pulse cannot suppress an eligible charge, because the gate asks about eligibility rather than about
+a pulse or a component being present; and a charge that loses the tie consumes no cooldown and
+writes no `Charge`, because nothing in its branch ran. Charge's own gates are an expired charge
+cooldown, exact optional generation equality, `!protection_active`, a direction `unit_direction` can
+normalize, and a resulting speed the safety envelope admits. The expiry sweep gained a second pass
+for `Charge`, ids collected before erasure like the first, and a `Charge` needs only its one window
+expired because there is no second window to outlive.
+
+**The effect, and what does not bound it.** The burst is
+`charge_speed_fraction × the current normal ceiling` along the unit direction, added to the
+velocity read *before* the write — the join hands out a reference into the `PhysicsBody` store and
+`insert_or_assign` on a held id assigns in place, so the read must come first — and written through
+`with_velocity`. Additive, so lateral velocity survives; it touches no acceleration, position,
+radius, mass, or collision capability. **It does not decay under drag in the shipped
+configuration**: `config/blob-royale.cfg` authors `drag_per_second=0`, at zero drag the kernel's
+phase 1 factor is exactly `1.0`, and nothing clamps an externally imparted speed. The
+`charge_safety_envelope_speed`, not drag, is what bounds repeated charges — at the authored 600 wu/s
+ceiling a body gains 450 wu/s per activation and, from rest with no other propulsion, is refused
+once the next burst would carry it past 20,000 wu/s. The whole envelope test runs in raw doubles
+**before** any `Vector2` exists, because `Vector2` throws past `1e12`, a throw here escapes
+`GameSimulation::step`, and the runtime worker then stops the simulation thread permanently. Nothing
+in this system may throw for a world a client can reach, which is also why `unit_direction` returns
+an optional instead of rejecting.
+
+**Running after `thrust_steering` leaves one accepted residual.** On an activation tick the
+propulsion cap below has already sized this tick's acceleration against the *pre-burst* velocity, so
+the committed endpoint is `v_pre + burst + a·dt` — about 1 wu/s of already-certified propulsion on
+top of the burst at the authored acceleration. Declaring this system first would be worse: the cap's
+`max(normal_top_speed², v·v)` bound would then be computed against the post-burst velocity and
+thrust could *sustain* a charged speed indefinitely, which is the larger violation of "above the
+ceiling, controls may brake and turn but must not add speed". From the following tick that same
+`max` term is what lets a charged body steer without amplifying or braking.
 
 The propulsion cap constrains the canonical requested Euler endpoint to the computed squared
 speed bound `max(normal_top_speed², current_velocity·current_velocity)`, returning acceleration,

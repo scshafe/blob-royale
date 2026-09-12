@@ -3,6 +3,7 @@
 
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
+#include "commands/charge_command.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
@@ -43,6 +44,11 @@
 //     finite shared movement values inside their intrinsic bounds.
 //     A shield pulse carries the stamped entity and either no generation -- the spelling of the
 //     initial one, which the wire writes as `null` -- or a positive safe one, and nothing else.
+//     A charge carries the stamped entity, a direction whose components are finite and inside the
+//     same unit interval a thrust's are, and an optional positive safe generation. Its direction is
+//     *not* required to be normalized or nonzero here: normalization and the zero refusal belong to
+//     `gameplay::unit_direction` inside the tick, and asserting them at this boundary would encode
+//     an oracle the decoder deliberately does not enforce.
 namespace {
 
 namespace protocol = blob_royale::protocol;
@@ -119,6 +125,22 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
             // positive and safe. `null` decodes to absence, so an accepted shield with a present
             // zero would mean the wire's minimum-of-one bound had been lost.
             if (command.entity != stamped_entity ||
+                (command.input_generation.has_value() &&
+                 (command.input_generation->value() == 0 ||
+                  command.input_generation->value() > simulation::kMaximumProtocolSafeInteger))) {
+              std::abort();
+            }
+          } else if constexpr (std::is_same_v<CommandType, simulation::ChargeCommand>) {
+            // The activation's whole oracle: the sender's own body, a direction inside the closed
+            // per-component interval, and a token that is either absent or positive and safe. A
+            // zero direction, or one too short to normalize, is accepted on purpose -- it is a
+            // silent refusal one stage later, not a frame this boundary may close over.
+            if (command.entity != stamped_entity || !std::isfinite(command.direction.x()) ||
+                !std::isfinite(command.direction.y()) ||
+                std::abs(command.direction.x()) >
+                    simulation::kMaximumThrustDirectionComponentMagnitude ||
+                std::abs(command.direction.y()) >
+                    simulation::kMaximumThrustDirectionComponentMagnitude ||
                 (command.input_generation.has_value() &&
                  (command.input_generation->value() == 0 ||
                   command.input_generation->value() > simulation::kMaximumProtocolSafeInteger))) {

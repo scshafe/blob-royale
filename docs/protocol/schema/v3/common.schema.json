@@ -152,6 +152,7 @@
     "component_kind": {
       "type": "string",
       "enum": [
+        "charge",
         "contact_effect_admission",
         "controllable",
         "hill",
@@ -173,6 +174,7 @@
     "command_kind": {
       "type": "string",
       "enum": [
+        "charge",
         "clear_seat",
         "seat_npc",
         "set_movement_tuning",
@@ -181,7 +183,7 @@
         "shield",
         "start_match"
       ],
-      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller; set_thrust and shield address the sender's own body. Availability is the mode's published accepted mask, so Sandbox advertises set_thrust and shield but no lobby kind and no tuning."
+      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller; set_thrust, shield and charge address the sender's own body. Availability is the mode's published accepted mask, so Sandbox advertises set_thrust, shield and charge but no lobby kind and no tuning."
     },
     "lobby_id": {
       "type": "integer",

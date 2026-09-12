@@ -58,6 +58,23 @@
       "if": {
         "properties": {
           "kind": {
+            "const": "charge"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "charge-command.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
             "const": "set_seat_count"
           }
         },

@@ -23,10 +23,13 @@ namespace blob_royale::simulation {
 //
 //  1. Rejects a submitted command count above kMaximumInputBatchCommandCount.
 //  2. Rejects any command whose kind is absent from `accepted_kinds`.
-//  3. Rejects a thrust whose direction has a component outside [-1, 1].
-//  4. Rejects a thrust or a shield carrying a present input generation of zero, on its own context
-//     string for each kind. Absence stays legal: it is the token of an entity whose input has
-//     never been invalidated.
+//  3. Rejects a thrust or a charge whose direction has a component outside [-1, 1], on its own
+//     context string for each kind. The two vectors mean different things -- an analog throttle
+//     and a heading the ability system normalizes -- but they are authored in the same unit
+//     interval, so one bound answers for both.
+//  4. Rejects a thrust, a shield, or a charge carrying a present input generation of zero, on its
+//     own context string for each kind. Absence stays legal: it is the token of an entity whose
+//     input has never been invalidated.
 //  5. Rejects a despawn naming an id inside this batch's own EntityIdReservation.
 //  6. Rejects a lobby command naming a seat index at or above kMaximumLobbySeatCount, or a seat
 //     count outside [1, kMaximumLobbySeatCount].

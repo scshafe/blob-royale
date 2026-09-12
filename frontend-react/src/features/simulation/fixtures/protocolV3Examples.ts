@@ -3,6 +3,7 @@ export { default as npcProfileExample } from '../../../../../docs/protocol/schem
 export { default as seatNpcProfileCommandExample } from '../../../../../docs/protocol/schema/v3/examples/seat-npc-profile-command.json';
 export { default as sessionWelcomeProfileMessageExample } from '../../../../../docs/protocol/schema/v3/examples/welcome-profile-message.json';
 export { default as sessionErrorResponseExample } from '../../../../../docs/protocol/schema/v3/examples/error-response.json';
+export { default as chargeComponentExample } from '../../../../../docs/protocol/schema/v3/examples/charge-component.json';
 export { default as hillMotionComponentExample } from '../../../../../docs/protocol/schema/v3/examples/hill-motion-component.json';
 export { default as shieldComponentExample } from '../../../../../docs/protocol/schema/v3/examples/shield-component.json';
 export { default as stunComponentExample } from '../../../../../docs/protocol/schema/v3/examples/stun-component.json';

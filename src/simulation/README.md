@@ -30,19 +30,24 @@ that change which ids a store holds. The tick has only ever needed the values.
 `component_registry.hpp` is the closed, ordered list of kinds:
 `ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
 LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun,
-ContactEffectAdmission, Shield>`, where `Zone` and `ZoneExposure`
+ContactEffectAdmission, Shield, Charge>`, where `Zone` and `ZoneExposure`
 are royale's, `Hill` and `HillPresence` describe hill scoring, and `RaceProgress` counts ordered
 gates; `HillMotion` carries roaming velocity and private scheduling, while `LethalOnContact`,
-`RespawnTimer`, `Stun`, and `Shield` support shared mechanics. `Shield` is the ability window: one
+`RespawnTimer`, `Stun`, `Shield`, and `Charge` support shared mechanics. `Shield` is the ability
+window: one
 activation tick, three `TickWindow`s over it — protection, perfect opening, cooldown — and the
-parry-stun duration captured at activation. Because it is a type list,
+parry-stun duration captured at activation. `Charge` is the deliberately smaller shape beside it:
+one activation tick and **one** `TickWindow`, the cooldown, and no captured effect parameter,
+because a one-shot burst is committed to the body's velocity on the tick it is admitted and what
+survives the tick is only the wait. A second window here would describe an effect that no longer
+exists, and a copy of the gain would be state nobody reads. Because it is a type list,
 four behaviors are **generated rather than maintained** — structural world equality,
 `destroy_entity` erasing from every store, body-bound lifetime cleanup, and snapshot
 publication of every kind — so a new kind cannot forget to participate in any of them.
 
 `component_lifetime.hpp` owns the default-false `ComponentLifetime<C>::bound_to_body` trait.
-`HillPresence`, `ZoneExposure`, `Stun`, `ContactEffectAdmission`, and `Shield` declare it beside
-their values. The one registry-generated,
+`HillPresence`, `ZoneExposure`, `Stun`, `ContactEffectAdmission`, `Shield`, and `Charge` declare it
+beside their values. The one registry-generated,
 allocation-free `GameWorld::erase_body_bound_components_without_body()` sweep removes those
 kinds from every bodyless entity, including non-participants and already-bodyless entities.
 Shared respawn calls it after body removal, before commit; arbitrary intermediate store edits do
@@ -116,6 +121,18 @@ present zero with `kInputBatchInputGenerationZero` under the context
 `input_batch.commands.shield.input_generation`. The shared `kPreKernel` ability system is what gives
 it meaning; phase 0 still records it and interprets nothing.
 
+Step 19 appends `ChargeCommand` the same way and again moves no existing bit:
+`CommandKind::kCharge` is `1u << 11` and its application rank is `11`, after `kShield`'s `10`, so
+every rank Step 18 measured is preserved. It addresses an entity and carries two members, a
+`Vector2 direction` and an optional `input_generation` with `ThrustCommand`'s exact semantics.
+`InputBatch` range-checks each direction component against `[-1, 1]` and rejects a present-zero
+generation under `input_batch.commands.charge.input_generation`, and that is the **whole** of the
+value validation: the direction's *magnitude* is not a value rule, because the ability system
+normalizes it and a client's vector length selects nothing. A zero or underflowing direction is
+therefore a perfectly valid command that the tick silently refuses, not an invalid batch — the
+distinction matters, because an invalid batch is a closed connection and a refused activation is
+nothing at all.
+
 `MatchState::movement` owns current/default tuning, revision, and effective tick. The existing
 phase-0 handler freezes entry revision R, checks seated membership at each command's canonical
 position in every phase, and chooses the last eligible contender against R. A winner updates once
@@ -149,11 +166,16 @@ rather than applied.
 `InputBatch` is the one validated command value a tick may read, and `InputBatch::empty()` is the
 no-input tick. `InputBatch::create` canonicalizes to phase 0's application order — despawns, then
 spawns, then the remaining kinds, each group ascending by the identity it addresses — keeps the last
-submitted command of a kind for an identity, and rejects an unaccepted kind, a thrust direction
-component outside `[-1, 1]`, a despawn naming an id inside the batch's own reservation, and a
-submitted count above the accepted limit. A thrust direction is carried verbatim: the magnitude clamp
-belongs to the mode's steering system, whose written operation order is the contract
-(`docs/architecture/0005-royale-mode.md` § "Steering").
+submitted command of a kind for an identity, and rejects an unaccepted kind, a **thrust or charge**
+direction component outside `[-1, 1]`, a present-zero `input_generation` on **thrust, shield or
+charge**, a despawn naming an id inside the batch's own reservation, and a submitted count above the
+accepted limit. Both direction-carrying kinds share one bound and one code on distinct contexts, the
+way the three generation-carrying kinds do. A direction is carried verbatim either way, but for two
+different reasons: thrust's magnitude clamp belongs to the mode's steering system, whose written
+operation order is the contract (`docs/architecture/0005-royale-mode.md` § "Steering"), while a
+charge's direction is *normalized* — not clamped — at ability admission, so a client cannot author
+its own burst strength through the length of the vector it sends
+(`../gameplay/shared/locomotion.hpp`, `unit_direction`).
 
 `EntityIdReservation` is the contiguous half-open block of ids one tick may bring into existence.
 `draw_next` advances it and throws on exhaustion; it never wraps and never reissues a drawn id,
@@ -206,6 +228,18 @@ protection, and cancelling again is an exact no-op. Nothing decrements per
 tick here either: `SIMULATION.SHIELD_ACTIVATION_INVALID` and
 `SIMULATION.SHIELD_CANCELLATION_BEFORE_ACTIVATION` are the two named refusals, and duration overflow
 remains `TickWindow`'s own `SIMULATION.TICK_WINDOW_EXPIRY_OVERFLOW`.
+
+`Charge` is the third consumer and holds exactly **one** of those windows, the cooldown, over a
+positive activation tick. The asymmetry with `Shield` is the useful part. A shield is a *state* a
+later contact has to ask about, so it carries the windows that answer that question and the stun
+duration it captured at activation; a charge is an *event* whose whole effect is already in the
+body's velocity by the time anything reads the component, so there is nothing to describe but the
+wait. Its cooldown window is also **never empty**: `Charge`'s validated construction requires a
+strictly positive duration, where `Shield::activate` accepts a zero cooldown because shield
+admission is gated a second time by the end of its own protection.
+`SIMULATION.CHARGE_ACTIVATION_INVALID`
+is its one named refusal — there is no cancellation code, because nothing cancels a charge. Both
+members are published and both are absolute, so nothing decrements per tick here either.
 
 Systems within one tick communicate through the bounded, ordered list `GameWorld` owns.
 `GameWorld::emit` appends in production order and `GameWorld::events()` publishes it; the list is
@@ -453,7 +487,12 @@ is also the first kind whose presence is its entire value, so it publishes an em
 one registry line were the whole of the work in this domain, and outside it the kind still needed an
 encoder specialization, `shield-component.schema.json`, an enum member in `common.schema.json`, a
 property in `entity-snapshot.schema.json`, a non-visual entry in the client's renderer registry, a
-client invariant check, and a golden example. `Flag` for capture the flag is the next.
+client invariant check, and a golden example. `Charge` is the fifth and paid exactly that same list
+a step later, which turns the Step 18 measurement from an anecdote into a rate. Its one addition is
+worth naming, because it is per-kind rather than shared: `charge` requires
+`cooldown_expiry_tick > activation_tick` **strictly** where `shield`'s endpoints may equal their
+activation, so the schema, the encoder guard and the client invariant each carry that kind's own
+comparison rather than inheriting a common one. `Flag` for capture the flag is the next.
 
 `@extension-point game_mode` (mode state) — `mode_match_state_registry.hpp`. A mode's match-wide
 state that is **not** entity-shaped is one arm of the `ModeMatchState` variant plus one
@@ -540,6 +579,20 @@ like a spawn; the `CommandWireKind` specialization; and, because it is client-se
 `docs/protocol/schema/v3/shield-command.schema.json`. Skipping the mailbox arm would have failed the
 `kCommandKindCount` `static_assert` rather than compiling into a silent lifecycle answer.
 
+`ChargeCommand` walked the identical set at Step 19 — `CommandKind::kCharge` at `1u << 11` and
+application rank `11`, the entity-addressed fallback again satisfying `addressed_identity_of`, a
+`false` arm in `is_entity_lifecycle_command`, and the client-sendable three — with two differences
+worth writing down because neither is obvious from the list. First, its `input_batch.cpp` entry
+validates **two** things rather than one, a direction component range and a present-zero generation,
+and validates the direction's *range* but deliberately not its magnitude, because the consuming
+system normalizes and a client's vector length must select nothing. Second, adding a
+client-sendable kind means **re-verifying every by-position index in `command_wire_kind.hpp` by
+hand**: `kV3ClientCommandKindNames` is ascending, `"charge"` sorts before `"clear_seat"` and
+therefore lands first, and every existing index shifted by one. `shield` had shifted exactly one
+entry when it landed between `set_thrust` and `start_match`; `charge` shifts all seven. A checklist
+row that says "one name in `kV3ClientCommandKindNames`" is honest about the edit and silent about
+that consequence, so it is stated here instead.
+
 `@extension-point simulation_system` — `system_pipeline.hpp`. A mechanic is a new
 `SimulationSystem` file plus one line in a mode's declared staged list; the kernel, the other
 systems, and every other mode are untouched. Two implementations beyond the engine set:
@@ -549,7 +602,12 @@ this tick's recorded commands, `kPostKernel` sees solved positions and this tick
 `kLifecycle` sees the tick's final world. The shared `ability` system is the case that shows the
 stage choice is about visibility rather than convenience: it is declared last at `kPreKernel` by all
 four gameplay modes because a shield activated on tick N must be readable by tick N's own contact
-responses, which see the frozen post-`kPreKernel` world.
+responses, which see the frozen post-`kPreKernel` world. It is also the case that shows a system is
+not one mechanic: at Step 19 it took on a second ability rather than gaining a neighbour, because
+one place has to hold the priority when two activations are eligible on the same tick. A charge
+additionally makes it the first `kPreKernel` consumer to write `PhysicsBody::velocity` rather than
+only acceleration or a component — still "read this tick's commands before anything has moved",
+with the burst integrated by phase 1 in the ordinary way.
 
 `@extension-point contact_rule` — `contact_rule.hpp`, ordered by `contact_rule_table.hpp`. An
 interaction is a new row: two `Predicate` free-function pointers and one `Response` free-function

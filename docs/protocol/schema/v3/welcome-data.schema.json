@@ -44,12 +44,12 @@
     },
     "accepted_command_kinds": {
       "type": "array",
-      "maxItems": 7,
+      "maxItems": 8,
       "uniqueItems": true,
       "items": {
         "$ref": "common.schema.json#/$defs/command_kind"
       },
-      "$comment": "maxItems tracks the seven client-sendable kinds in common.schema.json. The published set is the intersection of the mode's accepted kinds with that vocabulary, never a server-issued kind such as spawn or despawn. Sandbox publishes set_thrust and shield."
+      "$comment": "maxItems tracks the eight client-sendable kinds in common.schema.json. The published set is the intersection of the mode's accepted kinds with that vocabulary, never a server-issued kind such as spawn or despawn. Sandbox publishes set_thrust, shield and charge."
     },
     "npc_controller_kinds": {
       "type": "array",

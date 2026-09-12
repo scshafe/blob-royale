@@ -494,10 +494,10 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
 }
 
 // The golden welcome names mode `royale`, so its advertised set is royale's real one and moves
-// when royale's does. Plan Step 18 added `shield` to all four gameplay modes on 2026-09-12, so
-// this mask, the pinned frame bytes in protocol_v3_json_encoding_tests.cpp, and both
-// `welcome*-message.json` golden examples gained it together; a golden depicting a welcome no
-// royale session can produce would be a fixture that documents the wrong contract.
+// when royale's does. Plan Steps 18 and 19 added `shield` and then `charge` to all four gameplay
+// modes on 2026-09-12, so this mask, the pinned frame bytes in protocol_v3_json_encoding_tests.cpp,
+// and both `welcome*-message.json` golden examples gained it together; a golden depicting a welcome
+// no royale session can produce would be a fixture that documents the wrong contract.
 [[nodiscard]] inline SessionWelcome golden_welcome() {
   return SessionWelcome::create(
       simulation::EntityId::create(kPlayerEntityId),
@@ -507,7 +507,7 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
           {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
            simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
            simulation::CommandKind::kStartMatch, simulation::CommandKind::kSetMovementTuning,
-           simulation::CommandKind::kShield}),
+           simulation::CommandKind::kShield, simulation::CommandKind::kCharge}),
       golden_npc_catalogue(), kGoldenLobbyId, kGoldenSeatCountMaximum, golden_terrain());
 }
 

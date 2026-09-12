@@ -89,6 +89,19 @@ for one. A client learns that its shield committed by reading the next snapshot'
 component, which is the same "observe published state, not a reply" shape the tuning exchange was
 carefully scoped to be the single exception to.
 
+A `charge` pulse, added at Step 19, needs nothing new here either, and the one thing worth stating
+is what its payload does **not** carry authority over. It decodes under the same per-session command
+bucket, is gated by the mode's published accepted mask, and is stamped with the session's own
+current body; its `x` and `y` are a direction and never a strength, because the server normalizes
+them and owns the gain, so the "no client-chosen entity" rule this file argues below is joined by a
+"no client-chosen magnitude" one that is enforced in the tick rather than at this boundary. A charge
+arriving while the session owns no body is dropped with the connection open, by the existing rule.
+The session again sends nothing back: a refused charge — a running cooldown, an active shield, a
+same-tick shield that won the tie, a direction with no unit form, or a burst outside the safety
+envelope — has no per-request receipt and no close code, and no acknowledgement channel was added
+for one. A client learns that its charge committed by reading the next snapshot's `charge`
+component and the velocity in `physics_body`.
+
 ## Trust and deployment boundary
 
 Neither protocol version has in-application authentication and snapshots are not confidential.

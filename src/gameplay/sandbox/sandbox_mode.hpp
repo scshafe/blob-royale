@@ -73,18 +73,22 @@ public:
     return simulation::ContactRuleTable::with_rows_above_built_in({guarded_pair_contact_rule()});
   }
 
-  // The five kinds free play has any use for. Lobby/tuning kinds are deliberately absent:
+  // The six kinds free play has any use for. Lobby/tuning kinds are deliberately absent:
   // FreePlayObjective starts automatically without a seated roster or a start_match command.
   // The seat roster remains inert (`src/simulation/seat_roster.hpp`).
   // Movement tuning requires seated authority, so sandbox
   // does not advertise it or invent an unseated exception; authored tuning still drives steering.
-  // `shield` is here because free play declares the `ability` system that admits it, which is what
-  // makes advertising it honest rather than a capability with no handler behind it.
+  // `shield` and `charge` are both here because free play declares the one `ability` system that
+  // admits both of them, which is what makes advertising them honest rather than two capabilities
+  // with no handler behind them. ADR 0008's mode/state matrix enables both wherever a running body
+  // exists, and free play is running from its second tick until the process stops, so a sandbox
+  // that fielded one ability and not the other would make the one mode people experiment in
+  // disagree with the three they compete in.
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
          simulation::CommandKind::kLeave, simulation::CommandKind::kThrust,
-         simulation::CommandKind::kShield});
+         simulation::CommandKind::kShield, simulation::CommandKind::kCharge});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

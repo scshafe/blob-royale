@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_PROTOCOL_COMPONENT_ENCODING_REGISTRY_HPP
 
 #include "component_encoding.hpp"
+#include "components/charge_component_encoding.hpp"
 #include "components/contact_effect_admission_component_encoding.hpp"
 #include "components/controllable_component_encoding.hpp"
 #include "components/hill_component_encoding.hpp"

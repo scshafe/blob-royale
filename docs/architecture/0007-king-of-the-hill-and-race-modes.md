@@ -267,12 +267,12 @@ royale never held a participant without a body on a tick it wiped.
 | Declaration | `king_of_the_hill` |
 |---|---|
 | `name()` | `king_of_the_hill` |
-| Components used | `PhysicsBody`, `Controllable`, `Score`, `Hill`, `HillPresence`, `RespawnTimer`, `Lifetime`, `LethalOnContact`, `Stun`, `Shield`, `HillMotion`, `ContactEffectAdmission` |
+| Components used | `PhysicsBody`, `Controllable`, `Score`, `Hill`, `HillPresence`, `RespawnTimer`, `Lifetime`, `LethalOnContact`, `Stun`, `Shield`, `Charge`, `HillMotion`, `ContactEffectAdmission` |
 | `kPreKernel` systems | `thrust_steering`, then `ability` |
 | `kPostKernel` systems | `hill_movement`, `hill_scoring`, then `status` |
 | `kLifecycle` systems | `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn`, then `hill_rules_publisher` |
 | `contact_rules()` | `guarded_pair`, then the built-in rows |
-| `accepted_command_kinds()` | royale's eleven `Command` variant kinds: spawn, despawn, thrust, shield, join, leave, set_movement_tuning, and the four lobby kinds. Seven of those are client-sendable and appear in a welcome |
+| `accepted_command_kinds()` | royale's twelve `Command` variant kinds: spawn, despawn, thrust, shield, charge, join, leave, set_movement_tuning, and the four lobby kinds. Eight of those are client-sendable wire kinds and appear in a welcome (`charge` added 2026-09-12, plan Step 19) |
 | `spawn_policy()` | `NextFreeSpawnPointPolicy`: the next free point, in every phase, deferring a respawning entity |
 | `objective()` | `HillObjective` |
 | `validate_map()` | at least one `hill` marker and at least one `spawn` marker |
@@ -420,12 +420,12 @@ map host more than one game.
 | Declaration | `race` |
 |---|---|
 | `name()` | `race` |
-| Components used | `PhysicsBody`, `Controllable`, `RaceProgress`, `RespawnTimer`, `Lifetime`, `LethalOnContact`, `Stun`, `Shield`, `ContactEffectAdmission` |
+| Components used | `PhysicsBody`, `Controllable`, `RaceProgress`, `RespawnTimer`, `Lifetime`, `LethalOnContact`, `Stun`, `Shield`, `Charge`, `ContactEffectAdmission` |
 | `kPreKernel` systems | `course_publisher`, `thrust_steering`, then `ability` |
 | `kPostKernel` systems | `checkpoint_progress`, then `status` |
 | `kLifecycle` systems | `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`, then `hazard_spawn` |
 | `contact_rules()` | `guarded_pair`, then the built-in rows |
-| `accepted_command_kinds()` | royale's eleven; seven client-sendable |
+| `accepted_command_kinds()` | royale's twelve `Command` variant kinds; eight client-sendable wire kinds (`charge` added 2026-09-12, plan Step 19) |
 | `spawn_policy()` | `GridSpawnPolicy`: the grid between matches; mid-race, only a racer returning to the grid |
 | `objective()` | `RaceObjective` |
 | `validate_map()` | the course rules under § "Map requirements" |
@@ -552,6 +552,16 @@ a racer whose retained `RaceProgress` has completed the published course, and th
 system refuses a pulse under that same lock, so a finished racer activates nothing while waiting.
 A returning racer carries no `Shield` at all, because the component is body-bound and the shared
 sweep clears it with the body.
+
+**Amended 2026-09-12 (plan Step 19): charge does not touch either return either, and it cannot
+cross a hole.** A charge is an additive velocity burst and nothing else — it writes no position and
+suspends no query — so support loss is evaluated exactly as it is for any other fast body: the
+centre test this section describes runs against the actual swept path, and a charged racer that
+leaves the corridor falls at the tick its centre does. Charging *into* a hole is therefore a way to
+die faster, not a way to skip one. Admission is the same shared lock in the other direction, so a
+finished racer refuses a charge pulse while waiting, and a returning racer carries no `Charge` for
+the same body-bound reason it carries no `Shield` — which is also why its cooldown does not follow
+it back onto the grid.
 
 #### Lifecycle and objective
 
@@ -716,6 +726,22 @@ proven instead through `ScriptedReplayController`, whose typed log already carri
 in the controllers domain. The replay `commands.csv` parser accepts a `shield` verb using
 `entity_id` alone; a replayed pulse carries an absent generation, which is the legal
 never-invalidated case.
+
+**Amended 2026-09-12 (plan Step 19), and the shape is identical.** Charge admission is shared the
+same way: a human, a bot, and a replay all reach the one `ability` system through the same recorded
+`ChargeCommand`, and are judged by the same phase, body, lock, and generation gates plus charge's
+own three — an expired charge cooldown, an obtainable unit direction, and a resulting speed the
+safety envelope admits. No registered bot emits one in this step for the same reason no bot emits a
+shield: `Controller` gained no `request_charge`, because charge timing is Step 22's and an unused
+capability would be vocabulary ahead of behaviour. Symmetry is proven through
+`ScriptedReplayController`'s whole-`Command` log again, so this domain needed no change at all.
+The one real difference is the payload: the `charge` verb carries a direction as well as an
+`entity_id`, and it reuses `thrust`'s two existing direction columns rather than declaring a pair of
+its own. What the two verbs do with those cells differs, and the difference belongs to the engine
+rather than to the log — `thrust` clamps the magnitude and keeps a subunit one while `charge`
+normalizes, so `1,0` and `2,0` are two different thrusts and the same charge, and `0,0` is a legal
+thrust release and a refused charge. A replay cannot author a stronger burst than a human can, for
+the same reason a client cannot.
 
 ### Fixtures and verification
 
@@ -1005,3 +1031,45 @@ shared ability authoring, 2026-09-12 (plan Step 18)" and reaching both modes thr
 component of its own, or an event kind of its own. Historical per-mode line-count measurements in
 § "Where each new thing goes" are dated snapshots and are not recomputed here.
 See the [Step 18 contract](../reviews/2026-09-12-shield-composition-contract.md).
+
+## Amendment: charge admission, 2026-09-12 (plan Step 19)
+
+Both declaration tables above are updated in place again, and only two cells moved in each: the
+`Components used` row gained `Charge`, and `accepted_command_kinds()` gained one kind. Neither mode
+gained a system entry, a contact row, a configuration section, a component of its own, or an event
+kind, because the second ability is admitted by the `ability` system both modes already declare.
+
+**Counts, restated with their units, because Step 18's numbers are now one behind.** Each mode's
+`accepted_command_kinds()` names **twelve simulation `Command` variant kinds** — spawn, despawn,
+thrust, shield, **charge**, join, leave, set_movement_tuning, and the four lobby kinds. A welcome's
+`accepted_command_kinds` array is the intersection of that mask with the client-sendable wire
+vocabulary and therefore names **eight wire kinds**: `set_thrust`, `shield`, `charge`,
+`set_movement_tuning`, `set_seat_count`, `clear_seat`, `seat_npc`, and `start_match`. The two counts
+differ by the four server-issued kinds — spawn, despawn, join, leave — that a client may never send,
+which is why each sentence in this ADR now names the unit it is counting rather than a bare number.
+
+**Race's ordering constraint is unchanged and now carries a second consequence.**
+`course_publisher` still runs first at `kPreKernel` and `ability` still runs last, so a racer who
+finished on an earlier tick is refused by the canonical input lock on the first tick of a new
+quantum — for a charge exactly as for a shield, because both read the same lock at the same point.
+Hill still has no equivalent constraint. What is new is the *other* neighbour: `ability` is declared
+after `thrust_steering`, so on an activation tick the propulsion limiter has already sized this
+tick's acceleration against the pre-burst velocity and the committed endpoint is `v_pre + burst +
+a·dt`. That residual is accepted rather than reordered, in both modes, for the reason ADR 0003
+§ "Amended 2026-09-12: The one-shot charge (Step 19)" records: running the ability system first
+would let thrust sustain a charged speed.
+
+**Neither mode's return, respawn, or scoring rule consults a charge.** A charged racer falls at the
+tick its centre leaves support like any other fast body, a charged player is scored on the hill by
+the same centre test, and N + D + 1 return timing, persistent progress and score, and registry-owned
+body cleanup are all untouched. `Charge` is body-bound, so a returning body carries none and no
+cooldown follows it back.
+
+Three keys join the shared `[abilities]` section — `charge_cooldown_seconds`,
+`charge_speed_fraction`, and `charge_safety_envelope_speed` — recorded in ADR 0005 § "Amendment: the
+one-shot charge, 2026-09-12 (plan Step 19)" and reaching both modes through `GameModeConfiguration`,
+exactly as the shield's four do. Historical per-mode line-count measurements in § "Where each new
+thing goes" are dated snapshots and are not recomputed here; the client-sendable command-kind row
+there was measured on `shield` and `charge` paid the same sites, with the one addition that every
+by-position index in `command_wire_kind.hpp` had to be re-verified because `charge` sorts first.
+See the [Step 19 contract](../reviews/2026-09-12-charge-contract.md).

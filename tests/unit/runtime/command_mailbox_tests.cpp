@@ -40,6 +40,14 @@ shield_fixture(const std::uint64_t entity_id,
                                    .input_generation = generation};
 }
 
+[[nodiscard]] simulation::Command
+charge_fixture(const std::uint64_t entity_id, const double x = 1.0, const double y = 0.0,
+               const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::ChargeCommand{.entity = simulation::EntityId::create(entity_id),
+                                   .direction = simulation::Vector2::create(x, y),
+                                   .input_generation = generation};
+}
+
 [[nodiscard]] simulation::Command despawn_fixture(const std::uint64_t entity_id) {
   return simulation::DespawnCommand{.entity = simulation::EntityId::create(entity_id)};
 }
@@ -72,6 +80,43 @@ TEST_CASE("CommandMailbox classifies spawn, despawn, join, and leave as entity l
   // activation they can press again -- not a body nobody owns. It must never evict a queued spawn
   // or despawn to make room for itself.
   REQUIRE_FALSE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kShield));
+  // A charge answers the same way: it is one burst on a body already in the arena, so a dropped one
+  // costs the player a moment and nothing structural. It must never evict a queued spawn or despawn
+  // either, whose loss nobody can press anything to repair.
+  REQUIRE_FALSE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kCharge));
+}
+
+TEST_CASE("CommandMailbox supersedes a pending charge for the same entity and keeps kinds apart",
+          "[unit][runtime][mailbox][charge]") {
+  runtime::CommandMailbox mailbox(simulation::CommandKindMask::all());
+
+  REQUIRE(mailbox.submit(charge_fixture(kFirstEntityId)) ==
+          runtime::CommandSubmissionResult::kAccepted);
+  // A held ability button occupies one slot no matter the rate, and a charge that changed its
+  // heading between two presses is still one decision: the later heading replaces the earlier one
+  // in place rather than queueing a second burst the tick could not have fired.
+  REQUIRE(mailbox.submit(charge_fixture(kFirstEntityId, 0.0, -1.0)) ==
+          runtime::CommandSubmissionResult::kSuperseded);
+  REQUIRE(mailbox.submit(
+              charge_fixture(kFirstEntityId, 0.0, -1.0, simulation::TickSequence::create(4))) ==
+          runtime::CommandSubmissionResult::kSuperseded);
+  // A different entity is a different slot, and so is a different kind for the same entity: the
+  // mailbox keys on (kind, addressed identity), never on the identity alone -- so a charge never
+  // displaces that entity's shield pulse, which is what lets the conflict rule see both.
+  REQUIRE(mailbox.submit(charge_fixture(kSecondEntityId)) ==
+          runtime::CommandSubmissionResult::kAccepted);
+  REQUIRE(mailbox.submit(shield_fixture(kFirstEntityId)) ==
+          runtime::CommandSubmissionResult::kAccepted);
+
+  const std::vector<simulation::Command> drained = mailbox.drain();
+
+  REQUIRE(drained.size() == 3);
+  CHECK(drained[0] ==
+        charge_fixture(kFirstEntityId, 0.0, -1.0, simulation::TickSequence::create(4)));
+  CHECK(drained[1] == charge_fixture(kSecondEntityId));
+  CHECK(drained[2] == shield_fixture(kFirstEntityId));
+  CHECK(mailbox.statistics().superseded_command_count == 2);
+  CHECK(mailbox.statistics().dropped_command_count == 0);
 }
 
 TEST_CASE("CommandMailbox supersedes a pending shield for the same entity and keeps kinds apart",

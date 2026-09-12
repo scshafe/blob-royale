@@ -57,6 +57,7 @@ import {
   validateSessionTuningResult,
 } from './sessionProtocolValidation';
 import type {
+  SessionChargeCommand,
   SessionCommand,
   SessionSnapshotMessage,
 } from './simulationProtocolTypes';
@@ -72,6 +73,13 @@ import {
   SHIELD_SNAPSHOT_TICK,
   shieldSnapshotDocument,
 } from './fixtures/shieldFrames';
+import {
+  ACCEPTED_CHARGE_COMPONENTS,
+  CHARGE_ACTIVATION_TICK,
+  CHARGE_COOLDOWN,
+  INVALID_CHARGE_COMPONENTS,
+  chargeSnapshotDocument,
+} from './fixtures/chargeFrames';
 import {
   INVALID_INPUT_GENERATIONS,
   INVALID_STUN_WINDOWS,
@@ -492,6 +500,203 @@ describe('shield protocol', () => {
     ({ payload }) => {
       expect(() =>
         validateSessionCommand({ kind: 'shield', payload } as SessionCommand),
+      ).toThrow(SimulationApiError);
+    },
+  );
+});
+
+describe('charge protocol', () => {
+  function publishedCharge(snapshot: SessionSnapshotMessage) {
+    return snapshot.data.entities.find((entity) => entity.entity_id === 7)
+      ?.components.charge;
+  }
+
+  it.each(ACCEPTED_CHARGE_COMPONENTS)(
+    'accepts $name and publishes its two members unchanged',
+    ({ value }) => {
+      const snapshot = validateSessionSnapshotMessage(
+        chargeSnapshotDocument(value),
+        welcomeSequence,
+      );
+      const charge = publishedCharge(snapshot);
+      expect(charge).toEqual(value);
+      // The published order is the encoder's, and the pair is closed at two: the activation is the
+      // denominator a cooldown arc needs and the expiry is its end, so a client that dropped or
+      // reordered one would draw an arc against the wrong endpoint. Both are public by contract.
+      expect(Object.keys(charge ?? {})).toEqual([
+        'activation_tick',
+        'cooldown_expiry_tick',
+      ]);
+      expect(Object.isFrozen(charge)).toBe(true);
+    },
+  );
+
+  it.each(INVALID_CHARGE_COMPONENTS)(
+    'rejects $name rather than reading an interval it had to guess',
+    ({ value }) => {
+      expect(() =>
+        validateSessionSnapshotMessage(
+          chargeSnapshotDocument(value),
+          welcomeSequence,
+        ),
+      ).toThrow(SimulationApiError);
+    },
+  );
+
+  it('refuses the zero-length cooldown the shield corpus deliberately accepts', () => {
+    // The one case where the two abilities part company, asserted directly rather than only through
+    // the corpus so the asymmetry is stated where a reader comparing the two blocks will find it.
+    // Shield admits an expiry equal to its activation because a stun cancels protection to zero
+    // length while the cooldown keeps running; charge has no protection window and no cancellation,
+    // so the same shape would describe a one-shot with no cooldown at all -- four hundred bursts a
+    // second, which is exactly why the authored value is validated strictly positive at load.
+    expect(() =>
+      validateSessionSnapshotMessage(
+        chargeSnapshotDocument({
+          ...CHARGE_COOLDOWN,
+          cooldown_expiry_tick: CHARGE_ACTIVATION_TICK,
+        }),
+        welcomeSequence,
+      ),
+    ).toThrow(SimulationApiError);
+    expect(() =>
+      validateSessionSnapshotMessage(
+        chargeSnapshotDocument({
+          ...CHARGE_COOLDOWN,
+          cooldown_expiry_tick: CHARGE_ACTIVATION_TICK + 1,
+        }),
+        welcomeSequence,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateSessionSnapshotMessage(
+        shieldSnapshotDocument(CANCELLED_SHIELD_WINDOWS),
+        welcomeSequence,
+      ),
+    ).not.toThrow();
+  });
+
+  // The wire admits directions the ability system will refuse, and that is the boundary itself: the
+  // server owns normalization and admission, so a client that pre-filtered here would be inventing
+  // a second rule and could disagree with the tick. A refusal is a silent no-op, never a frame
+  // error, so none of these may be turned into a send-time throw.
+  const acceptedChargeDirections: readonly {
+    readonly name: string;
+    readonly payload: SessionChargeCommand['payload'];
+  }[] = [
+    {
+      // The deliberate difference from shield, whose corpus above refuses exactly this omission.
+      // A never-invalidated entity says so by leaving the member out, as `set_thrust` does.
+      name: 'an omitted generation the shield pulse refuses',
+      payload: { x: 1, y: 0 },
+    },
+    {
+      name: 'a direction naming the generation it believes it holds',
+      payload: { x: 0, y: -1, input_generation: STUN_INPUT_GENERATION },
+    },
+    {
+      // Magnitude sqrt(2), exactly as `set_thrust` admits: the per-component bound is the wire rule
+      // and magnitude is not. Normalizing here would make this client's burst disagree with the
+      // server's, which is the one thing a second normalization rule guarantees.
+      name: 'a diagonal past unit magnitude the server will normalize',
+      payload: { x: 1, y: 1 },
+    },
+    {
+      // The inverse case, and the reason charge may not reuse `normalized_thrust_intent`: routed
+      // through the tree's magnitude *clamp* this would buy half a burst, making pointer distance
+      // into strength. Normalized, it is the same charge as `{x: 1, y: 0}`.
+      name: 'a subunit direction that buys no weaker charge',
+      payload: { x: 0.5, y: 0 },
+    },
+    {
+      // Passes the decoder and the input batch, then underflows to a zero squared magnitude at
+      // admission and is refused there, silently. A wire rejection would turn a refusal into a
+      // closed connection.
+      name: 'a subnormal direction refused at admission rather than on the wire',
+      payload: { x: 1e-200, y: 0 },
+    },
+    {
+      name: 'a zero direction the ability system refuses without an error',
+      payload: { x: 0, y: 0 },
+    },
+  ];
+
+  it.each(acceptedChargeDirections)(
+    'accepts a charge carrying $name',
+    ({ payload }) => {
+      expect(() =>
+        validateSessionCommand({ kind: 'charge', payload }),
+      ).not.toThrow();
+    },
+  );
+
+  // `input_generation` is optional here where shield's is required and nullable, and the difference
+  // is the tree's own recorded discriminator rather than a second vocabulary: shield has no other
+  // member, so an optional one would make `{}` the whole message and a truncated send would read as
+  // an authored pulse. Charge always carries `x` and `y`, so it cannot be truncated into anything,
+  // and it follows `set_thrust`. A present zero is still refused -- zero is not the absence of a
+  // generation. The payload also names no actor and no gain: session stamping owns the first, and
+  // ADR 0008 fixes the second against the room's current ceiling, so either on the wire is a client
+  // authoring its own strength.
+  const invalidChargeCommands: readonly {
+    readonly name: string;
+    readonly payload: Readonly<Record<string, unknown>>;
+  }[] = [
+    {
+      name: 'a present zero generation',
+      payload: { x: 1, y: 0, input_generation: 0 },
+    },
+    {
+      name: 'a null generation the optional shape has no room for',
+      payload: { x: 1, y: 0, input_generation: null },
+    },
+    {
+      name: 'a negative generation',
+      payload: { x: 1, y: 0, input_generation: -1 },
+    },
+    {
+      name: 'a fractional generation',
+      payload: { x: 1, y: 0, input_generation: 1.5 },
+    },
+    {
+      name: 'an unsafe generation',
+      payload: { x: 1, y: 0, input_generation: Number.MAX_SAFE_INTEGER + 1 },
+    },
+    {
+      name: 'a string generation',
+      payload: { x: 1, y: 0, input_generation: '12900' },
+    },
+    {
+      // The shape shield's required-and-nullable generation exists to prevent, and the reason
+      // charge does not need that shape: `{}` is a truncated send here, never an authored pulse.
+      name: 'an empty payload no truncation may pass off as a direction',
+      payload: {},
+    },
+    { name: 'one component of a direction', payload: { x: 1 } },
+    {
+      name: 'a component outside the closed unit interval',
+      payload: { x: 1.000001, y: 0 },
+    },
+    { name: 'a non-finite component', payload: { x: Number.NaN, y: 0 } },
+    {
+      name: 'a smuggled actor identity',
+      payload: { x: 1, y: 0, entity_id: 7 },
+    },
+    {
+      name: 'an authored gain the room tuning owns',
+      payload: { x: 1, y: 0, speed_fraction: 0.75 },
+    },
+    {
+      name: 'an authored burst speed the safety envelope bounds',
+      payload: { x: 1, y: 0, burst_speed_world_units_per_second: 450 },
+    },
+  ];
+
+  it.each(invalidChargeCommands)(
+    'rejects a charge carrying $name',
+    ({ payload }) => {
+      expect(() =>
+        validateSessionCommand({ kind: 'charge', payload } as SessionCommand),
       ).toThrow(SimulationApiError);
     },
   );

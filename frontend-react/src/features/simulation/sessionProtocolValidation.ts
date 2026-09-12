@@ -362,6 +362,35 @@ function assertSnapshotEntityInvariants(
       );
     }
 
+    // Charge publishes one interval, and JSON Schema can bound each endpoint but cannot compare the
+    // two. The comparison is strict where the shield block above is `<=`, and the asymmetry is the
+    // contract rather than a slip: `charge_cooldown_seconds` is validated strictly positive at load
+    // because a one-shot has no second admission gate. Shield survives a zero-length cooldown only
+    // because still-live protection refuses the next pulse on its own; charge has no protection
+    // window, so a cooldown collapsing onto its activation would admit a burst on every tick. A
+    // component whose cooldown expires on the tick it began is therefore a frame no server can
+    // build, and reading it would tell a player charge is ready in the same breath the frame says
+    // it just fired. There is no window to nest inside either -- the burst is instantaneous, and
+    // what outlives it is momentum `physics_body` already publishes, not a second charge endpoint.
+    const charge = entity.components.charge;
+    if (
+      charge !== undefined &&
+      (charge.activation_tick >= charge.cooldown_expiry_tick ||
+        charge.activation_tick > snapshot.data.tick_sequence)
+    ) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'Charge requires a cooldown outlasting an activation its snapshot tick covers.',
+        {
+          context: {
+            entity_id: entity.entity_id,
+            ...charge,
+            tick_sequence: snapshot.data.tick_sequence,
+          },
+        },
+      );
+    }
+
     const body = entity.components.physics_body;
     if (body !== undefined) {
       assertNoNegativeZero(body.position.x, 'position.x', entity.entity_id);

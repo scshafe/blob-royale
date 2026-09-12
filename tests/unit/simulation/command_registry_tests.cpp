@@ -1,5 +1,6 @@
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
+#include "commands/charge_command.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
 #include "commands/join_command.hpp"
@@ -88,6 +89,13 @@ shield_command(const simulation::EntityId::Value entity,
 }
 
 [[nodiscard]] simulation::Command
+charge_command(const simulation::EntityId::Value entity, const double x = 1.0, const double y = 0.0,
+               const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::Command{simulation::ChargeCommand{
+      simulation::EntityId::create(entity), simulation::Vector2::create(x, y), generation}};
+}
+
+[[nodiscard]] simulation::Command
 start_match_command(const simulation::ControllerId::Value controller) {
   return simulation::Command{
       simulation::StartMatchCommand{simulation::ControllerId::create(controller)}};
@@ -97,8 +105,10 @@ start_match_command(const simulation::ControllerId::Value controller) {
 
 TEST_CASE("CommandRegistry declares the engine command kinds in a closed ordered variant",
           "[unit][simulation][command_registry]") {
-  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 11);
-  STATIC_REQUIRE(simulation::kCommandKindCount == 11);
+  // Twelve, because `charge` was registered: the count moves only when a kind joins the variant,
+  // and the alternative order below is what `kCommandKinds` and every name list are derived from.
+  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 12);
+  STATIC_REQUIRE(simulation::kCommandKindCount == 12);
   STATIC_REQUIRE(
       std::is_same_v<simulation::Command,
                      std::variant<simulation::SpawnCommand, simulation::DespawnCommand,
@@ -106,7 +116,7 @@ TEST_CASE("CommandRegistry declares the engine command kinds in a closed ordered
                                   simulation::ClearSeatCommand, simulation::SeatNpcCommand,
                                   simulation::StartMatchCommand, simulation::LeaveCommand,
                                   simulation::JoinCommand, simulation::SetMovementTuningCommand,
-                                  simulation::ShieldCommand>>);
+                                  simulation::ShieldCommand, simulation::ChargeCommand>>);
 }
 
 TEST_CASE("Every command kind occupies its own bit so a set of kinds is one integer",
@@ -122,6 +132,9 @@ TEST_CASE("Every command kind occupies its own bit so a set of kinds is one inte
   // The eleventh kind takes the next free bit rather than displacing one: existing bits never move,
   // so a persisted or transmitted mask keeps meaning what it meant.
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kShield) == 1024u);
+  // The twelfth takes the next free bit for the same reason, and every bit above is unchanged: a
+  // mask persisted in a mode's accepted set or transmitted in `welcome` still means what it meant.
+  STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kCharge) == 2048u);
   STATIC_REQUIRE(
       simulation::command_kind_application_rank(simulation::CommandKind::kThrust) <
       simulation::command_kind_application_rank(simulation::CommandKind::kSetMovementTuning));
@@ -150,15 +163,21 @@ TEST_CASE("Every registered command kind declares its own wire name",
                  std::string_view{"set_movement_tuning"});
   STATIC_REQUIRE(simulation::command_kind_name<simulation::ShieldCommand> ==
                  std::string_view{"shield"});
+  // `charge`, not `set_charge`: the `set_` prefix marks a command that replaces a persistent
+  // intent, and a charge replaces nothing. Carrying a direction does not change that.
+  STATIC_REQUIRE(simulation::command_kind_name<simulation::ChargeCommand> ==
+                 std::string_view{"charge"});
 
   std::vector<std::string_view> names;
   for (const simulation::CommandKind kind : simulation::kCommandKinds) {
     names.push_back(simulation::command_kind_name_of(kind));
   }
 
+  // One more entry because one more kind is registered; every existing name keeps its position,
+  // which is the property the derived-from-the-variant order is worth having.
   CHECK(names == std::vector<std::string_view>{"spawn", "despawn", "thrust", "set_seat_count",
                                                "clear_seat", "seat_npc", "start_match", "leave",
-                                               "join", "set_movement_tuning", "shield"});
+                                               "join", "set_movement_tuning", "shield", "charge"});
 }
 
 TEST_CASE("command_kind_of maps every command value to its own declared kind",
@@ -176,6 +195,7 @@ TEST_CASE("command_kind_of maps every command value to its own declared kind",
   CHECK(simulation::command_kind_of(start_match_command(4)) ==
         simulation::CommandKind::kStartMatch);
   CHECK(simulation::command_kind_of(shield_command(4)) == simulation::CommandKind::kShield);
+  CHECK(simulation::command_kind_of(charge_command(4)) == simulation::CommandKind::kCharge);
 }
 
 TEST_CASE("Command application ranks are the phase 0 order of despawn, spawn, then remaining kinds",
@@ -215,6 +235,14 @@ TEST_CASE("Command application ranks are the phase 0 order of despawn, spawn, th
                  simulation::command_kind_application_rank(simulation::CommandKind::kShield));
   STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kThrust) <
                  simulation::command_kind_application_rank(simulation::CommandKind::kShield));
+
+  // A charge is recorded the same way and takes the next free rank after the shield. Their relative
+  // order carries no priority: which ability wins when both are pressed in one tick is decided at
+  // `kPreKernel` against the world at entry, never by which one phase 0 recorded first.
+  STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kShield) <
+                 simulation::command_kind_application_rank(simulation::CommandKind::kCharge));
+  STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kLeave) <
+                 simulation::command_kind_application_rank(simulation::CommandKind::kCharge));
 }
 
 TEST_CASE("A join addresses the controller that asked and is never a wire kind",
@@ -279,6 +307,15 @@ TEST_CASE("Every command kind is a comparable value struct",
   CHECK(shield_command(4) != shield_command(4, simulation::TickSequence::create(2)));
   CHECK(shield_command(4, simulation::TickSequence::create(2)) !=
         shield_command(4, simulation::TickSequence::create(3)));
+  CHECK(charge_command(4) == charge_command(4));
+  CHECK(charge_command(4) != charge_command(5));
+  // The direction is a real member, so two charges from one entity differ when they point
+  // differently -- which is the whole difference between this kind and the shield's bare pulse.
+  CHECK(charge_command(4, 1.0, 0.0) != charge_command(4, 0.0, 1.0));
+  CHECK(charge_command(4, 0.25, -0.5) == charge_command(4, 0.25, -0.5));
+  CHECK(charge_command(4) != charge_command(4, 1.0, 0.0, simulation::TickSequence::create(2)));
+  CHECK(charge_command(4, 1.0, 0.0, simulation::TickSequence::create(2)) !=
+        charge_command(4, 1.0, 0.0, simulation::TickSequence::create(3)));
 }
 
 TEST_CASE("Every lobby command addresses the sender the boundary stamped it with",
@@ -370,6 +407,23 @@ TEST_CASE("addressed_identity_of is the one answer to which identity a command a
         simulation::addressed_identity_of(thrust_command(11, 1.0, 0.0)));
   CHECK(simulation::command_kind_application_rank(simulation::CommandKind::kShield) !=
         simulation::command_kind_application_rank(simulation::CommandKind::kThrust));
+
+  // The same holds for the charge, and it is worth pinning separately: a charge carries a direction
+  // as well as an entity, and a kind with two payload members is exactly the shape someone might
+  // give an arm of its own. It needs none -- the entity is still the identity it addresses.
+  const simulation::AddressedIdentity charge =
+      simulation::addressed_identity_of(charge_command(11));
+  REQUIRE(charge.entity().has_value());
+  CHECK(charge.entity()->value() == 11);
+  CHECK(charge.ordering_key() == 11);
+  CHECK(simulation::addressed_identity_of(charge_command(11, 1.0, 0.0)) ==
+        simulation::addressed_identity_of(charge_command(11, -1.0, 0.5)));
+  CHECK(simulation::addressed_identity_of(charge_command(11)) ==
+        simulation::addressed_identity_of(shield_command(11)));
+  CHECK(simulation::addressed_identity_of(charge_command(11)) !=
+        simulation::addressed_identity_of(charge_command(12)));
+  CHECK(simulation::command_kind_application_rank(simulation::CommandKind::kCharge) !=
+        simulation::command_kind_application_rank(simulation::CommandKind::kShield));
 }
 
 TEST_CASE("The command kind list is derived from the variant rather than typed beside it",
@@ -399,7 +453,8 @@ TEST_CASE("The command kind list is derived from the variant rather than typed b
        static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kLeave) |
        static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kJoin) |
        static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSetMovementTuning) |
-       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kShield)));
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kShield) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kCharge)));
 }
 
 TEST_CASE("No two command kinds share a phase 0 application rank",

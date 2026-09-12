@@ -5,6 +5,7 @@
 #include "command_sink.hpp"
 #include "command_sink_error.hpp"
 #include "command_submission_result.hpp"
+#include "commands/charge_command.hpp"
 #include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
 #include "commands/shield_command.hpp"
@@ -67,6 +68,14 @@ struct CommandSinkFixture final {
 shield_fixture(const std::uint64_t entity_id,
                const std::optional<simulation::TickSequence> generation = {}) {
   return simulation::ShieldCommand{.entity = simulation::EntityId::create(entity_id),
+                                   .input_generation = generation};
+}
+
+[[nodiscard]] simulation::Command
+charge_fixture(const std::uint64_t entity_id, const double x = 1.0, const double y = 0.0,
+               const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::ChargeCommand{.entity = simulation::EntityId::create(entity_id),
+                                   .direction = simulation::Vector2::create(x, y),
                                    .input_generation = generation};
 }
 
@@ -279,6 +288,73 @@ TEST_CASE("CommandSink rejects zero shield generation before mailbox admission",
     CHECK(fixture.mailbox.statistics().submitted_command_count == 0);
     CHECK(fixture.mailbox.drain().empty());
   }
+}
+
+TEST_CASE("CommandSink preserves omitted and maximum safe charge generations for every source",
+          "[unit][runtime][command_sink][charge][input_generation]") {
+  // A charge carries no controller either, so the anti-spoofing visitor answers nullopt for it and
+  // the ownership question is settled by the entity the boundary stamped. Carrying a direction as
+  // well as an entity changes nothing there: an actor field is what would have needed an arm.
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CAPTURE(kind);
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "charge fixture");
+    const auto absent = charge_fixture(kIssuedEntityId, 0.6, -0.8);
+    REQUIRE(fixture.sink.submit(controller, absent) == runtime::CommandSubmissionResult::kAccepted);
+    CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{absent});
+    for (const auto value : runtime::thrust_input_fixture::kAcceptedGenerations) {
+      CAPTURE(value);
+      const auto command =
+          charge_fixture(kIssuedEntityId, 0.6, -0.8, simulation::TickSequence::create(value));
+      REQUIRE(fixture.sink.submit(controller, command) ==
+              runtime::CommandSubmissionResult::kAccepted);
+      CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{command});
+    }
+  }
+}
+
+TEST_CASE("CommandSink rejects zero charge generation before mailbox admission",
+          "[unit][runtime][command_sink][charge][input_generation]") {
+  // The boundary refuses what InputBatch::create would throw on, so one client's malformed charge
+  // cannot hard-fail the tick for everyone. The refusal names the charge for the reason the
+  // shield's does: reusing another kind's value would describe a command this client never sent.
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CAPTURE(kind);
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "charge fixture");
+    const auto result = fixture.sink.submit(
+        controller, charge_fixture(kIssuedEntityId, 1.0, 0.0, simulation::TickSequence::zero()));
+    CHECK(result == runtime::CommandSubmissionResult::kRejectedChargeInputGenerationOutOfRange);
+    CHECK(runtime::command_submission_result_name(result) ==
+          "rejected_charge_input_generation_out_of_range");
+    CHECK_FALSE(runtime::command_submission_accepted(result));
+    CHECK(fixture.mailbox.statistics().submitted_command_count == 0);
+    CHECK(fixture.mailbox.drain().empty());
+  }
+}
+
+TEST_CASE("CommandSink refuses a charge direction outside the accepted range",
+          "[unit][runtime][command_sink][charge]") {
+  CommandSinkFixture fixture;
+  const simulation::ControllerId controller = fixture.sink.open_session("session", "Ada");
+
+  // The charge's two value rules have two refusal names, exactly as the thrust's do, so a log can
+  // say which of them refused the submission rather than only that the charge was refused.
+  REQUIRE(fixture.sink.submit(controller, charge_fixture(kIssuedEntityId, 1.5, 0.0)) ==
+          runtime::CommandSubmissionResult::kRejectedChargeDirectionOutOfRange);
+  REQUIRE(fixture.sink.submit(controller, charge_fixture(kIssuedEntityId, 0.0, -1.5)) ==
+          runtime::CommandSubmissionResult::kRejectedChargeDirectionOutOfRange);
+  CHECK(runtime::command_submission_result_name(
+            runtime::CommandSubmissionResult::kRejectedChargeDirectionOutOfRange) ==
+        "rejected_charge_direction_out_of_range");
+  REQUIRE(fixture.sink.submit(controller, charge_fixture(kIssuedEntityId, 1.0, -1.0)) ==
+          runtime::CommandSubmissionResult::kAccepted);
+  // A zero direction is accepted here and refused silently by the ability system: the boundary
+  // refuses malformed *values*, and a well-formed heading that cannot be normalized is a world
+  // question this sink holds no world to answer.
+  REQUIRE(fixture.sink.submit(controller, charge_fixture(kIssuedEntityId, 0.0, 0.0)) ==
+          runtime::CommandSubmissionResult::kSuperseded);
+  CHECK(fixture.mailbox.statistics().submitted_command_count == 2);
 }
 
 TEST_CASE("CommandSink refuses a command from a controller that never opened a session",

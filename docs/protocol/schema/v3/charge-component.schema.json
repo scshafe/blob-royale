@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/charge-component.schema.json",
+  "title": "Blob Royale protocol v3 charge component",
+  "description": "Body-bound one-shot charge: the tick a burst was committed on and the first tick a new one may be committed. Charge publishes no active window because it has none. The burst is an instantaneous additive change to the body's velocity applied on activation_tick and thereafter owned by ordinary motion, so this component's presence means a cooldown is running, never that a charge is in flight, and its absence means only that no cooldown is running. The velocity itself is not republished here: physics_body already carries it, and a second copy would be a second source of truth. activation_tick is published as well as the expiry because a cooldown arc needs its denominator and the authored cooldown length is deliberately server-side; both members are absolute ticks rather than a countdown, so a frame a client buffered or received late still reads true. cooldown_expiry_tick is STRICTLY greater than activation_tick -- never equal, unlike every shield endpoint -- and that ordering needs semantic validation after JSON Schema, which cannot compare members. No shield member exists here; shield is a separate ability that owns its own published windows, and one body may carry both components at once.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["activation_tick", "cooldown_expiry_tick"],
+  "properties": {
+    "activation_tick": {
+      "$ref": "common.schema.json#/$defs/tick_sequence",
+      "description": "The committed tick the burst was applied on. Published so a reader can render elapsed cooldown: charge_cooldown_seconds never leaves the server, so cooldown_expiry_tick minus this value is the only denominator a client has."
+    },
+    "cooldown_expiry_tick": {
+      "$ref": "common.schema.json#/$defs/tick_sequence",
+      "description": "First tick at which a new charge may be admitted. Always strictly greater than activation_tick: the authored cooldown is validated strictly positive, so this window is never empty."
+    }
+  },
+  "$comment": "Both endpoints are tick_sequence rather than safe_integer or phase_start_tick, for the reason the shield component states: an expiry is never earlier than its own positive activation_tick, so zero is not a truthful value for either, and phase_start_tick admits zero only for a lobby with no committed transition, which has no charge analogue. Where shield exempts its cooldown from strict ordering, charge cannot: shield admission is gated a second time by the end of its own protection window, and charge has no protection window, so a cooldown rounding to zero ticks would admit a burst on every tick. The configuration therefore validates charge_cooldown_seconds strictly positive and this schema documents the strict inequality the encoder enforces. Only the shared ability system removes the component, once the cooldown has expired; body loss and round reset clear it through the Step 13 lifetime trait. Added with the Step 19 one-shot charge under protocol 3.0; no session major, no new close code, and no per-request activation receipt is introduced."
+}

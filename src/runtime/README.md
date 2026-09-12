@@ -60,6 +60,18 @@ tick are one attempt rather than a queue of charges, and a dropped or superseded
 activation the player can press again. Nothing here tells the sender whether the tick accepted it;
 that is deliberate, and `docs/protocol/v3.md` § "shield" says so at the wire boundary.
 
+Step 19's `charge` answers that switch the same way and for the same reason: a burst is applied to a
+body that is already in the arena, so losing one changes no roster and it must never evict a queued
+spawn or despawn, whose loss nobody can press anything to repair. The `static_assert` beside the
+switch now reads twelve kinds, and it is what forces the classification to be written rather than
+defaulted. Supersession matters more for a charge than for a shield, and the answer is unchanged:
+at most one pending pulse per entity per kind, so several presses inside one tick are one attempt
+and never a queue of charges — which is exactly what ADR 0008 asks of an ability, obtained here by
+the mailbox's existing rule rather than by an ability-specific one. Nothing here tells the sender
+whether the tick accepted it either, and for a charge that silence covers more ground: a refusal
+may be a running cooldown, an active shield, an unnormalizable direction, or a safety envelope the
+burst would have crossed, and none of the four produces a receipt.
+
 `CommandSink` has exactly three operations — `open_session`, `submit`, `close_session`.
 `open_session` returns a **`ControllerId`**, not an `EntityId`: the engine chooses entity ids inside
 `step` from the tick's reservation, and a controller outlives the entities it drives, so the durable

@@ -9,6 +9,7 @@ export type {
 // Protocol v3 owns every session frame, every command, and since 2.4 the lobby directory and the
 // HTTP failure envelope of every `/api/v3/` target.
 export type {
+  BlobRoyaleProtocolV3ChargeComponent as SessionChargeComponent,
   BlobRoyaleProtocolV3ControllableComponent as SessionControllableComponent,
   BlobRoyaleProtocolV3EntitySnapshot as SessionEntitySnapshot,
   BlobRoyaleProtocolV3HTTPErrorResponse as SessionHttpErrorResponse,
@@ -124,6 +125,35 @@ export interface SessionShieldCommand {
   readonly payload: { readonly input_generation: number | null };
 }
 
+/**
+ * A direction and nothing else. The payload names no gain because ADR 0008 fixes the burst at a
+ * fraction of the room's *current* normal ceiling, which lives in match state no client authors;
+ * naming one here would be a client selecting its own strength. `x` and `y` are `set_thrust`'s exact
+ * per-component unit interval and carry no magnitude meaning: the server normalizes them to a unit
+ * direction, so `{x: 0.5, y: 0}` charges exactly as hard as `{x: 1, y: 0}` and pointer distance
+ * cannot become strength. Sending a non-unit or a zero vector is therefore legal on the wire --
+ * normalization and refusal are both the server's, not this client's.
+ *
+ * Its `input_generation` is optional exactly as `set_thrust`'s is, and deliberately *not* shield's
+ * required-and-nullable member. The recorded discriminator is payload shape: shield has no other
+ * member, so an optional generation would let `{}` be the whole message, while charge always carries
+ * `x` and `y` and can never be truncated into a defaulted pulse. A present zero is still refused,
+ * because zero is not the absence of a generation.
+ *
+ * A successful send is not an activation. Only a published `charge` component proves the tick
+ * admitted it; a refusal -- an unnormalizable direction, a live cooldown, active shield protection,
+ * an eligible shield pulse on the same tick, or a burst the safety envelope would not admit -- is a
+ * silent no-op that consumes no cooldown and returns no receipt at all.
+ */
+export interface SessionChargeCommand {
+  readonly kind: 'charge';
+  readonly payload: {
+    readonly x: number;
+    readonly y: number;
+    readonly input_generation?: number;
+  };
+}
+
 /** A count, not a delta: two clients who both choose four agree rather than compounding. */
 export interface SessionSetSeatCountCommand {
   readonly kind: 'set_seat_count';
@@ -156,6 +186,7 @@ export interface SessionStartMatchCommand {
 export type SessionCommand =
   | SessionSetThrustCommand
   | SessionShieldCommand
+  | SessionChargeCommand
   | SessionSetMovementTuningCommand
   | SessionSetSeatCountCommand
   | SessionSeatNpcCommand

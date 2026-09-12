@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/charge-command.schema.json",
+  "title": "Blob Royale protocol v3 charge command payload",
+  "description": "One charge activation and the direction it is aimed along, in the arena frame, each component in [-1, 1]. The payload names no entity: the server stamps the sending session's current body, so an entity id is not merely ignored here, it is a closed-schema violation that closes the connection. It names no gain either: the server's [abilities] configuration owns the burst strength as a fraction of the current normal movement ceiling, and the server normalizes x and y to a unit direction before applying it, so a client cannot author its own gain by sending a longer vector. Acceptance of this message is not activation; only the published charge component proves a committed activation, and an activation the tick refuses -- an unnormalizable direction, a running cooldown, an active shield, an eligible shield pulse on the same tick, or a burst the configured safety envelope would not admit -- produces no receipt and consumes no cooldown.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["x", "y"],
+  "properties": {
+    "x": {
+      "$ref": "common.schema.json#/$defs/unit_interval_scalar",
+      "description": "Arena-frame x of the aim direction. Direction only: its magnitude selects nothing."
+    },
+    "y": {
+      "$ref": "common.schema.json#/$defs/unit_interval_scalar",
+      "description": "Arena-frame y of the aim direction. Direction only: its magnitude selects nothing."
+    },
+    "input_generation": {
+      "$ref": "common.schema.json#/$defs/tick_sequence",
+      "description": "The exact optional generation this activation was authored against. Omit only for a never-invalidated entity. Server admission requires exact optional equality and no active stun; a stale token cannot activate and is dropped, never retagged with a newer one."
+    }
+  },
+  "$comment": "input_generation is optional here, as on set_thrust, and deliberately not the required-and-nullable member shield carries. The discriminator this tree records is payload shape, not ability family: shield-command.schema.json's own $comment states that shield spells absence as an explicit null only because a pulse has no other member, so an optional generation would make {} the whole message and a truncated or defaulted send indistinguishable from an authored never-invalidated pulse, and it contrasts that with set_thrust, which carries x and y whatever happens. Charge also carries required x and y whatever happens, so an omitted generation still reads as a considered payload in the pre-generation shape and the two schemas tell one story instead of two. Nothing behavioural turns on the choice: admission is the same exact optional-generation equality either way. x and y are a direction and never a strength. set_thrust's magnitude is clamped to 1 by a mode rule (ADR 0005), which leaves a subunit vector its own magnitude; charge instead normalizes, so an aim of (0.5, 0) commits exactly the burst an aim of (1, 0) commits and pointer distance cannot become strength. A direction whose magnitude is zero, or so small that its square underflows, has no unit direction at all and is a silent refusal that consumes no cooldown, never a scaled-down burst. A decoder MUST reject non-standard JSON number literals such as NaN and Infinity."
+}

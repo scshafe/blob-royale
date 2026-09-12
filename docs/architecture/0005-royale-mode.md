@@ -93,7 +93,7 @@ a tick (ADR 0004 § "Game modes and the match lifecycle").
 | `name()` | `royale` | ADR 0004 § "Game modes and the match lifecycle" |
 | `systems()` | `thrust_steering` then `ability` at `kPreKernel`; `zone_shrink`, `zone_elimination` then `status` at `kPostKernel`; `placement_recorder`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `elimination_grace_publisher` at `kLifecycle` | ADR 0004 § "The tick: one fixed kernel, three named stages" |
 | `contact_rules()` | `guarded_pair`, then `ContactRuleTable::built_in()`'s own rows | ADR 0004 § "Contact rules" |
-| `accepted_command_kinds()` | eleven `Command` variant kinds: spawn, despawn, thrust, shield, join, leave, set_movement_tuning, and the four lobby kinds. Of those, seven are client-sendable and reach a welcome's `accepted_command_kinds`: set_thrust, shield, set_movement_tuning, and the four lobby kinds | ADR 0004 § "Commands" |
+| `accepted_command_kinds()` | twelve `Command` variant kinds: spawn, despawn, thrust, shield, charge, join, leave, set_movement_tuning, and the four lobby kinds. Of those, eight are client-sendable and reach a welcome's `accepted_command_kinds`: set_thrust, shield, charge, set_movement_tuning, and the four lobby kinds (`charge` added 2026-09-12, plan Step 19) | ADR 0004 § "Commands" |
 | `spawn_policy()` | `RotatingRingSpawnPolicy` over the map's spawn markers (§ "Spawning") | ADR 0004 § "Game modes and the match lifecycle" |
 | `objective()` | `RoyaleObjective` (§ "Match lifecycle") | ADR 0004 § "Game modes and the match lifecycle" |
 | `validate_map()` | rejects an arena whose `R_full` is not strictly greater than the zone minimum; the spawn-marker-per-seat check moved to the application's `require_lobby_fits_map` on 2026-09-09 (ADR 0006, plan Step 10) | ADR 0004 § "Maps as data" |
@@ -109,7 +109,11 @@ own, `Zone` and `ZoneExposure` (§ "Where zone and elimination state live"). It 
 no event kind, and no contact rule. **Amended 2026-09-12 (plan Step 18):** still true of royale's
 own directory — the `shield` command kind, the `Shield` component, the shared `ability` system, and
 the `guarded_pair` row are all shared gameplay that royale declares rather than owns, exactly as
-`lethal_hazard` was.
+`lethal_hazard` was. **Still true after 2026-09-12 (plan Step 19):** the `charge` command kind and
+the `Charge` component are shared in the same way, declared here and owned in
+`src/gameplay/shared/`. Royale's cost for the second ability was one enumerator in its
+`accepted_command_kinds()` mask and nothing else — no new system entry, no new row, and no change to
+any of its other six declarations.
 
 **Why `contact_rules()` is the built-in table verbatim.** Royale changes no collision equation. Blob
 meets blob is the accepted equal-mass exchange and blob meets wall or static body is the accepted
@@ -1008,3 +1012,41 @@ Royale's `[royale]` keys, the kernel's drag, and the shared `[movement]` pair ke
 owners. No mode reads another mode's section, and no system reads seconds at runtime.
 The complete contract is
 [`2026-09-12-shield-composition-contract.md`](../reviews/2026-09-12-shield-composition-contract.md).
+
+## Amendment: the one-shot charge, 2026-09-12 (plan Step 19)
+
+**The declaration table above is updated in place, and the one row that moved is
+`accepted_command_kinds()`.** Two counts live in that row and they are different units, which is
+why each is now named with its own. Royale's `accepted_command_kinds()` returns **twelve simulation
+`Command` variant kinds** — spawn, despawn, thrust, shield, charge, join, leave,
+set_movement_tuning, and the four lobby kinds. A welcome's `accepted_command_kinds` array is the
+intersection of that mask with the client-sendable wire vocabulary and therefore names **eight
+wire kinds**: `set_thrust`, `shield`, `charge`, `set_movement_tuning`, `set_seat_count`,
+`clear_seat`, `seat_npc`, and `start_match`. The four kinds in the first count that are missing from
+the second — spawn, despawn, join, leave — are server-issued and are refused at the boundary if a
+client names one, which is the whole reason the two counts differ rather than a bookkeeping
+accident. Nothing else in the table changes: `ability` was already declared last at `kPreKernel`,
+and it admits the second ability without a second entry.
+
+**Three keys join the shared `[abilities]` section**, under exactly the rule the Step 18 amendment
+above states and with no exception to it: `charge_cooldown_seconds=1.2`,
+`charge_speed_fraction=0.75`, and `charge_safety_envelope_speed=20000`. Two of them are the first
+values in that section that are not durations — a dimensionless multiple of the *current* normal
+ceiling and a speed in `wu/s` — so `AbilityConfiguration` now stores validated doubles beside its
+tick counts. The conversion rule above is unchanged and still applies to the one duration among
+them: 1.2 seconds is 480 ticks, and unlike `shield_cooldown_seconds` it is validated **strictly
+positive**, because the shield's zero-cooldown exemption rests on a second admission gate that a
+one-shot charge does not have. One cross-key rule ties the other two together,
+`charge_speed_fraction × kMaximumNormalTopSpeed <= charge_safety_envelope_speed`, so a charge from
+rest stays admissible whatever a room tunes its ceiling to.
+
+**These are not royale balance numbers and not owner-selected balance values.** They are ADR 0008's
+initial tuning proposals plus one engineering guard, and the guard's number in particular is a first
+number the owner has never selected: what was accepted at Step 1 is that a separate validated safety
+envelope exists. They are authored in the shared section precisely so that changing them is an edit
+to a configuration file rather than an amendment to an ADR.
+
+Royale's own `[royale]` keys, the kernel's `drag_per_second`, and the shared `[movement]` pair keep
+their existing owners, and royale gains no section, component, event kind, or system of its own.
+The complete contract is
+[`2026-09-12-charge-contract.md`](../reviews/2026-09-12-charge-contract.md).

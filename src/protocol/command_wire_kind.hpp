@@ -58,7 +58,7 @@ template <> struct CommandWireKind<simulation::JoinCommand> {
 // `set_thrust` says the command *replaces* a steering intent that otherwise persists, which is the
 // property a client must know to release a key correctly (`docs/protocol/v3.md` § "set_thrust").
 template <> struct CommandWireKind<simulation::ThrustCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[4];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[5];
 };
 
 // The four lobby kinds, added in 2.3. **Each one is a decision that a client may operate the
@@ -71,23 +71,23 @@ template <> struct CommandWireKind<simulation::ThrustCommand> {
 // ascending order (`protocol_v3_constants.hpp`), which is why they do not read in the order they
 // are applied.
 template <> struct CommandWireKind<simulation::SetSeatCountCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[3];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[4];
 };
 
 template <> struct CommandWireKind<simulation::ClearSeatCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[0];
-};
-
-template <> struct CommandWireKind<simulation::SeatNpcCommand> {
   static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[1];
 };
 
+template <> struct CommandWireKind<simulation::SeatNpcCommand> {
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[2];
+};
+
 template <> struct CommandWireKind<simulation::StartMatchCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[6];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[7];
 };
 
 template <> struct CommandWireKind<simulation::SetMovementTuningCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[2];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[3];
 };
 
 // The tap shield, added in Step 18. **A client may send it** for the same reason it may send
@@ -99,12 +99,34 @@ template <> struct CommandWireKind<simulation::SetMovementTuningCommand> {
 // Its name is its own, unlike `set_thrust`: a pulse replaces no persistent intent, so there is no
 // property a differing wire name would have to teach a client releasing a key.
 //
-// **Index 5, and index 5 is why `start_match` above reads 6.** The array is the schema's ascending
-// order, `"shield"` sorts between `"set_thrust"` and `"start_match"`, and the two static_asserts
-// below check only the count and that every published name selects *a* kind -- a consistently wrong
-// permutation would satisfy both. Every index in this file was re-read by hand after the insertion.
+// **Index 6.** The array is the schema's ascending order, `"shield"` sorts between `"set_thrust"`
+// and `"start_match"`, and the two static_asserts below check only the count and that every
+// published name selects *a* kind -- a consistently wrong permutation would satisfy both. Every
+// index in this file was re-read by hand after Step 18's insertion, and again after Step 19's.
 template <> struct CommandWireKind<simulation::ShieldCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[5];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[6];
+};
+
+// The one-shot charge, added in Step 19. **A client may send it** on exactly the argument the
+// shield above makes: it addresses the sender's own body, spends nothing another peer owns, and the
+// server stamps the entity, so the envelope has no field an attacker could point elsewhere. It
+// carries a direction where the shield carries none, and that direction is *intent*, not strength:
+// `gameplay::unit_direction` normalizes it to a fixed gain, so a shorter vector buys a client
+// nothing (`docs/reviews/2026-09-12-charge-contract.md` § "Direction").
+//
+// Its name is its own, like `shield`'s and unlike `set_thrust`'s: an activation replaces no
+// persistent intent, so there is no property a differing wire name would have to teach a client.
+//
+// **Index 0, and index 0 is why every specialization above moved.** `"charge"` sorts before
+// `"clear_seat"` -- `h` precedes `l` -- so it takes the front of the ascending array and shifts all
+// seven previous entries up by one: `clear_seat` 0->1, `seat_npc` 1->2, `set_movement_tuning` 2->3,
+// `set_seat_count` 3->4, `set_thrust` 4->5, `shield` 5->6, `start_match` 6->7. That renumbering is
+// invisible to both static_asserts below -- swapping any two of these declarations keeps the count
+// at eight and keeps every published name selecting *a* kind -- so the mapping is proved name by
+// name in `tests/unit/protocol/command_decoding_tests.cpp` instead, and every index here was
+// re-read against the array in `protocol_v3_constants.hpp` by hand.
+template <> struct CommandWireKind<simulation::ChargeCommand> {
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[0];
 };
 
 namespace detail {

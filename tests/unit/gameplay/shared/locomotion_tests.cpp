@@ -5,6 +5,7 @@
 #include "gameplay_validation_error.hpp"
 #include "movement_tuning.hpp"
 #include "physics.hpp"
+#include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -284,4 +285,85 @@ TEST_CASE("locomotion sustained turning reversal and lowered held limits succeed
       CHECK(velocity.y() < 0.0);
     }
   }
+}
+
+TEST_CASE("unit_direction normalizes every constructible direction, subunit ones included",
+          "[unit][gameplay][locomotion][charge]") {
+  // The whole reason charge cannot reuse `normalized_thrust_intent`: that function's scale is
+  // exactly 1.0 at or below unit magnitude, so a client sending a half-length direction -- legal
+  // under the per-component unit bound the wire applies -- would author its own burst strength.
+  // This one divides in every case, so the direction decides only where.
+  const auto subunit = simulation::Vector2::create(0.5, 0.0);
+  CHECK(gameplay::normalized_thrust_intent(subunit) == subunit);
+  const std::optional<simulation::Vector2> normalized = gameplay::unit_direction(subunit);
+  REQUIRE(normalized.has_value());
+  CHECK(*normalized == simulation::Vector2::create(1.0, 0.0));
+
+  // A non-unit direction with an exact magnitude, so the expected components are exact too.
+  const std::optional<simulation::Vector2> scaled =
+      gameplay::unit_direction(simulation::Vector2::create(3.0, 4.0));
+  REQUIRE(scaled.has_value());
+  CHECK(*scaled == simulation::Vector2::create(0.6, 0.8));
+  CHECK(std::sqrt((scaled->x() * scaled->x()) + (scaled->y() * scaled->y())) == 1.0);
+
+  // An already-unit direction is returned unchanged rather than re-scaled by a rounded 1.0.
+  for (const auto& unit :
+       {simulation::Vector2::create(1.0, 0.0), simulation::Vector2::create(0.0, -1.0),
+        simulation::Vector2::create(-1.0, 0.0)}) {
+    const std::optional<simulation::Vector2> preserved = gameplay::unit_direction(unit);
+    REQUIRE(preserved.has_value());
+    check_bits(*preserved, unit);
+  }
+
+  // A direction at the far edge of the component domain still normalizes: the squared sum of two
+  // 1e12 components is 2e24, nowhere near the overflow the domain exists to keep out.
+  const std::optional<simulation::Vector2> extreme = gameplay::unit_direction(
+      simulation::Vector2::create(simulation::kMaximumPhysicalComponentMagnitude,
+                                  simulation::kMaximumPhysicalComponentMagnitude));
+  REQUIRE(extreme.has_value());
+  CHECK(extreme->x() == extreme->y());
+  CHECK(std::abs(extreme->x() - std::sqrt(0.5)) <= std::numeric_limits<double>::epsilon());
+}
+
+TEST_CASE("unit_direction divides by the magnitude rather than multiplying by a reciprocal",
+          "[unit][gameplay][locomotion][charge]") {
+  // `(1, 7)` is a direction where the two orders genuinely disagree: the reciprocal product lands
+  // one ulp above the quotient on y. The REQUIRE below is what makes this case evidence rather
+  // than a restatement of the implementation -- without it, a reciprocal implementation would pass.
+  const double magnitude = std::sqrt((1.0 * 1.0) + (7.0 * 7.0));
+  const double reciprocal = 1.0 / magnitude;
+  REQUIRE((7.0 * reciprocal) != (7.0 / magnitude));
+  const std::optional<simulation::Vector2> normalized =
+      gameplay::unit_direction(simulation::Vector2::create(1.0, 7.0));
+  REQUIRE(normalized.has_value());
+  check_bits(*normalized, simulation::Vector2::create(1.0 / magnitude, 7.0 / magnitude));
+}
+
+TEST_CASE("unit_direction refuses the whole non-constructible band and never throws",
+          "[unit][gameplay][locomotion][charge][validation]") {
+  // Zero is not the only refusal. `1e-200` passes the decoder and `InputBatch` -- it is inside the
+  // per-component unit bound -- and its squared magnitude underflows to exactly zero, so a
+  // reciprocal would be infinite and `Vector2::create` would throw. That is the case a client can
+  // actually send, and the refusal is a silent nullopt so admission stays a no-op rather than a
+  // thrown tick (`shared/ability_system.hpp`).
+  constexpr double kUnderflowingComponent = 1e-200;
+  for (const auto& refused :
+       {simulation::Vector2::create(0.0, 0.0), simulation::Vector2::create(-0.0, 0.0),
+        simulation::Vector2::create(kUnderflowingComponent, 0.0),
+        simulation::Vector2::create(0.0, kUnderflowingComponent),
+        simulation::Vector2::create(kUnderflowingComponent, kUnderflowingComponent),
+        simulation::Vector2::create(-kUnderflowingComponent, kUnderflowingComponent)}) {
+    CAPTURE(refused.x(), refused.y());
+    std::optional<simulation::Vector2> answer = simulation::Vector2::create(1.0, 0.0);
+    REQUIRE_NOTHROW(answer = gameplay::unit_direction(refused));
+    CHECK_FALSE(answer.has_value());
+  }
+
+  // The band is the underflowed one, not "small": `1e-150` squares to a normal number, so it
+  // normalizes exactly. A refusal band drawn by magnitude rather than by representability would
+  // have swallowed this direction too.
+  const std::optional<simulation::Vector2> tiny =
+      gameplay::unit_direction(simulation::Vector2::create(1e-150, 0.0));
+  REQUIRE(tiny.has_value());
+  CHECK(*tiny == simulation::Vector2::create(1.0, 0.0));
 }

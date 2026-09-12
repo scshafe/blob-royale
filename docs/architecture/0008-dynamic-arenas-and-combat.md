@@ -206,8 +206,31 @@ The UI offers labelled numeric/range controls for acceleration (`wu/s²`) and **
 speed** (`wu/s`), with Apply, Reset, authoritative values, and a pending/applied indication. Normal
 speed caps propulsion, not collision impulse: do not clamp the whole velocity after every bounce.
 Above the normal ceiling, controls may brake/turn but must not add speed until back within it.
-Charge and external knockback may exceed it and decay under drag. A separate validated physical
+Charge and external knockback may exceed it ~~and decay under drag~~. A separate validated physical
 safety envelope bounds all speeds and event work; it is not an "unlimited speed" UI option.
+
+**Promise closed and one sentence corrected, 2026-09-12 (plan Step 19).** The separate validated
+safety envelope is now a real authored key rather than a promise: required
+`[abilities] charge_safety_envelope_speed`, 20,000 wu/s, validated finite, strictly positive, and
+at most `simulation::kMaximumPhysicalComponentMagnitude`, and checked against *combined* current
+velocity and burst before a charge commits. It is an **engineering guard, not a balance option**,
+and it is deliberately not a UI control: it bounds representability and per-tick motion-event work,
+so exposing it beside acceleration and normal top speed would offer a player a lever over how much
+solver work one activation may cost. The number itself is initial tuning that the owner has never
+selected — what the owner accepted at Step 1 is *that such an envelope exists* (§ "Owner decisions,
+2026-09-10"), and 20,000 changes by editing the section rather than by amending this ADR.
+
+**"and decay under drag" is struck because it is false in the shipped configuration.**
+`drag_per_second` is a `[simulation]` kernel parameter and `config/blob-royale.cfg` authors it as
+`0`, as does every replay fixture under `tests/fixtures/replays/` except `royale-drag-decay` —
+seventeen of the eighteen checked in at this step, `royale-charge-burst` among them. At zero drag
+ADR 0003's phase 1 damping factor is exactly `1.0` and multiplication by `1.0` is the identity, so
+a charge burst is **permanent**, not decaying. The claim holds only where drag is authored nonzero:
+`deploy/ubuntu-pc/blob-royale.cfg` (2.0) and the `royale-drag-decay` replay (2). What bounds
+repeated charges is therefore the envelope, not drag, and that is the whole reason the envelope is
+a required key rather than an incidental representability check — see § "Charge" below for the
+arithmetic at the authored ceiling. "Do not emulate the speed setting by changing drag" below is
+unchanged and now cuts both ways: drag is also not the mechanism that limits an ability.
 
 Exact vector behavior at/above the ceiling must be a tested shared locomotion function, including
 sideways steering, reverse input, zero acceleration, lowered limits, and overspeed from impacts.
@@ -318,9 +341,33 @@ state and is rechecked by the server, not inferred from the presence of a button
 proposed: the shared `ability` system admits a pulse only in `running`, with a `Controllable` and a
 non-static body, outside the canonical input lock, at a matching input generation, with no active
 protection and an expired cooldown. All four gameplay modes declare the system and advertise
-`shield`, including Sandbox, so the last row's "Enabled" is now true of a real command. The charge
-half remains a proposal until Step 19. See § "Amendment: tap shield and the live guarded
+`shield`, including Sandbox, so the last row's "Enabled" is now true of a real command. ~~The charge
+half remains a proposal until Step 19.~~ See § "Amendment: tap shield and the live guarded
 composition, 2026-09-12 (plan Step 18)" below.
+
+**Amended 2026-09-12 (plan Step 19): the charge half is enforced too, by the same system and the
+same four gates.** `AbilitySystem` evaluates running phase, non-zero tick, non-static body, and the
+canonical input lock **once** against the world at entry, then decides both abilities against that
+one evaluation. The column heading "Charge and shield" is now literal rather than aspirational:
+there is one admission matrix because there is one system, and the last row's "No new activation"
+covers a charge pulse identically. On top of those four, each ability applies exact optional
+generation equality and refuses while protection is active; the two then differ in their own last
+gate. Shield asks for an expired shield cooldown. Charge asks for an expired **charge** cooldown —
+the two cooldowns are separate keys on separate components and neither gates the other ability —
+plus an obtainable unit direction whose resulting speed the safety envelope admits. Then the
+conflict rule below.
+
+**The conflict rule, as landed.** Eligibility for both abilities is computed **before either
+write**, and `protection_active` is read into a local before anything mutates a store. Shield is
+applied when it is eligible; charge is applied when it is admissible **and shield is not eligible**.
+The gate is spelled `!shield_eligible` rather than "no `Shield` component present", which is what
+makes the plan's "an ineligible shield pulse does not suppress an eligible charge" provable rather
+than incidental. Losing the tie consumes no charge cooldown, queues nothing, and leaves no trace:
+the charge branch simply does not run. Computing eligibility first is not a stylistic preference —
+under a naive "apply shield, then decide charge" ordering the tie would resolve by re-reading a
+store the shield branch had just written, so "a shield is active" and "a shield was activated on
+this tick" would be indistinguishable, and the rule would happen to work only because a positive
+shield duration is enforced in a different file.
 
 ### Charge
 
@@ -335,6 +382,57 @@ The browser supplies current steering direction or the last nonzero aim directio
 exists, Charge is unavailable with an explanation. Charge does not teleport, grant invulnerability,
 erase existing lateral velocity, or bypass cliffs. It produces ordinary collision interactions,
 which is why continuous motion precedes implementation of the move.
+
+**Implemented 2026-09-12 (plan Step 19).** Every sentence above is now shipped behaviour, with four
+things this section did not say and a reader would otherwise get wrong.
+
+*The gain is authoritative and the direction is normalized, not clamped.* `charge_speed_fraction`
+is `0.75` — a dimensionless multiple of the **current** normal movement ceiling read from match
+state, not an authored speed, because that ceiling is live-tunable and "0.75 times the current
+normal movement ceiling" above means the ceiling a room is actually running. Charge therefore may
+**not** use `gameplay::normalized_thrust_intent`, which is this tree's single magnitude *clamp*: its
+scale is `1.0` whenever the magnitude is at most one, and its own header says "Subunit analog intent
+keeps its magnitude". That is correct for an analog throttle and wrong here. Routed through it, a
+client sending `{"x":0.5,"y":0}` — legal under the per-component unit bound `set_thrust` already
+publishes — would receive half the burst, making pointer distance into strength: the exact inverse
+of § "Mouse direction with authoritative fixed strength", which fixes requested magnitude by the
+authoritative setting "independent of pointer distance or pointer speed". A one-shot activation with
+a stated fixed gain must scale by nothing the client controls, so a new canonical helper,
+`gameplay::unit_direction`, sits beside `normalized_thrust_intent` in
+`src/gameplay/shared/locomotion.{hpp,cpp}` and always returns a unit vector or nothing. It computes
+`sqrt(x*x + y*y)` written out, divides rather than multiplying by a reciprocal, and returns
+`std::nullopt` — never throws — when the magnitude is not finite, is zero, or when the divided
+components are not finite or leave the component domain. The refusal band is wider than exact zero:
+`{"x":1e-200,"y":0}` passes the decoder and `InputBatch`, its squared magnitude underflows to zero,
+and a reciprocal would be infinite. **Charge normalizes where thrust clamps**, and the two helpers
+sit side by side so that the difference is a decision a reader can see rather than infer.
+
+*Refusal is silent, and that is not a contradiction of "refuse explicitly, not silently convert".*
+This section's sentence contrasts refusal with **conversion** — with quietly delivering a different,
+weaker move — not with silence. Every inadmissible charge is a no-op on the path every other ability
+refusal already takes: no cooldown consumed, no queued activation, no event, no error, and no
+receipt. A thrown validation error would be strictly worse than silence, because `AbilitySystem`
+runs inside the tick: a throw escapes `GameSimulation::step`, the runtime worker records a worker
+failure and returns, and the room is dead. One client's charge must not be able to end a match, so
+the envelope is checked in raw doubles **before** any `Vector2` is constructed, where
+`Vector2::operator+` would otherwise throw on a component past `1e12`.
+
+*The cooldown is validated strictly positive, unlike the shield's.* `charge_cooldown_seconds` is
+`1.2` — 480 ticks at 400 Hz — and a value rounding to zero ticks is refused at startup with
+`GAMEPLAY.ABILITY_DURATION_NOT_POSITIVE`. The shield's deliberate zero-cooldown exemption does not
+transfer: shield admission has a second gate, because a new pulse also requires the prior protection
+to have ended, and charge is one-shot with no protection window at all, so a cooldown of zero ticks
+would admit a burst on every tick — four hundred a second.
+
+*One cross-key rule bounds the fraction, and nothing else needs to.*
+`charge_speed_fraction * simulation::kMaximumNormalTopSpeed <= charge_safety_envelope_speed`, or
+`GAMEPLAY.ABILITY_CHARGE_BURST_EXCEEDS_SAFETY_ENVELOPE` at startup. In words: a charge from rest
+must stay admissible whatever a room tunes its ceiling to. At the shipped `0.75` and the
+`10,000` wu/s tuning maximum that is `7,500 <= 20,000`. Without it an unbounded fraction is a hole
+rather than a knob — `charge_speed_fraction = 1e6` against a 10,000 wu/s ceiling is a `1e10` wu/s
+burst whose components still sit inside `Vector2`'s domain and which then exhausts the motion-event
+work cap on its first tick, and an exhausted cap is fatal to the room. The rule closes that without
+inventing an arbitrary ceiling on the fraction itself.
 
 ### Timed shield and perfect opening
 
@@ -383,6 +481,11 @@ The half-open window and activation-start cooldown sentences above are now the s
   eligible in one entity/tick, shield wins and charge is refused without consuming charge cooldown.
   An unavailable shield pulse does not suppress an otherwise eligible charge. Charge is unavailable
   while shield is active. This keeps the initial shield defensive and prevents stacking the moves.
+  Implemented 2026-09-12 (plan Step 19) exactly as written, in the one `AbilitySystem` that owns
+  both: `protection_active` is read into a local before any write, both eligibility booleans are
+  computed before either write, and the charge branch's conflict gate is spelled `!shield_eligible`.
+  § "Charge, shield, and stun" above records why each of those three is load-bearing rather than
+  incidental.
 
 Do not implement every flag combination as a contact-rule row. Use one pair-symmetric composition:
 immutable pair facts → existing base physical equation → defense modifications → typed effects
@@ -408,6 +511,15 @@ Stun is a reusable temporary control lock on a dynamic entity, not a bot-only fl
 hack. It immediately kills momentum at the triggering impact; subsequent external impulses may
 still move the stunned body. It blocks steering and fresh charge/shield activations until expiry,
 never restores old velocity, and merges repeated stun requests by maximum expiry, not addition.
+
+**Charge needed no `StatusSystem` change at all, 2026-09-12 (plan Step 19), and that is this
+paragraph's own doing.** A burst already in flight keeps flying when its owner is stunned, which is
+precisely "never restores old velocity" and "subsequent external impulses may still move the stunned
+body": the status pass zeroes intent and acceleration and never touches velocity. A *fresh* charge
+during a stun is already refused with no new code, by the canonical input lock plus the generation
+bump that invalidates a pulse stamped before the stun. A live charge cooldown survives a stun for
+the same reason a shield's does — the status pass is not the cooldown's owner. Nothing about charge
+is written into the status system, and nothing should be.
 
 Defense state is fixed for one outer tick; post-kernel status application clears shield and input
 intent for following ticks. Thus a body parried earlier may still shield another contact in the
@@ -441,6 +553,8 @@ for the first version, and on round restart. Test zero-delay respawn explicitly.
 2026-09-12 (plan Step 18) for shield: `Shield` declares the Step 13 body-bound lifetime trait and
 nothing else, so body loss and round reset clear it through the one registry sweep, and a returning
 body is ready because it carries no `Shield` at all — no per-owner cleanup and no reset field.
+`Charge` does exactly the same on 2026-09-12 (plan Step 19), which is the point of stating the rule
+once: the second ability cost this paragraph no second mechanism.
 
 The mailbox coalesces same-kind inputs, so multiple same-tick activation pulses mean at most one
 attempt, not queued charges. Key repeat cannot reactivate; blur/disconnect/body loss clears local
@@ -1262,8 +1376,9 @@ remain the already-resolved gameplay decisions.
 
 Phase C may now proceed in plan order without a motion-model redesign. Step 16 owns live solver
 and per-object-policy adoption; Step 17 owns production falling/race chronology; Step 18 owns the
-tap shield and the live guarded composition (landed 2026-09-12); the remaining steps own charge,
-visuals, and controls. Approval does not itself implement or verify those
+tap shield and the live guarded composition (landed 2026-09-12); Step 19 owns the one-shot charge
+(landed 2026-09-12); the remaining steps own visuals and controls. Approval does not itself
+implement or verify those
 steps, change the 400 Hz clock or representation, certify native capacity/performance, or authorize
 push/deployment. Native evidence remains required for Step 24 performance/release claims.
 
@@ -1348,8 +1463,106 @@ the client-sendable `shield` command carrying only a required `input_generation`
 positive exact tick; schema, encoder, generated types, strict client validation, examples, and the
 `docs/protocol/v3.md` row. The session major stays `3.0` and no close code is added.
 
-**Not claimed here.** No charge field, key binding, or visual treatment landed: charge is Step 19,
-visuals are Step 20, and controls are Step 21. No new kernel policy socket, ninth mode declaration,
+**Not claimed here.** No charge field, key binding, or visual treatment landed: ~~charge is Step
+19~~ — charge landed the same day, in the dated section below — visuals are Step 20, and controls
+are Step 21. No new kernel policy socket, ninth mode declaration,
 event root, second pair equation, command-receipt channel, or `Controller` capability was added.
 This records implementation, not verification, native capacity, or release certification.
 See the [Step 18 contract](../reviews/2026-09-12-shield-composition-contract.md).
+
+## Amendment: the one-shot charge, 2026-09-12 (plan Step 19)
+
+The one-shot charge is implemented. This section records what landed and the three judgements a
+careless reader would get wrong; the sections above carry the in-place dated corrections it makes
+true.
+
+**Three keys join the same required `[abilities]` owner**, validated by the same
+`gameplay::AbilityConfiguration` and reaching every mode through the same `GameModeConfiguration`:
+`charge_cooldown_seconds=1.2` (480 ticks through the shared `duration_ticks`, and **validated
+strictly positive**, unlike `shield_cooldown_seconds` — § "Charge" states why the shield's exemption
+does not transfer), `charge_speed_fraction=0.75` (finite and strictly positive; a dimensionless
+multiple of the *current* normal ceiling read from match state, never an authored speed, because the
+ceiling is live-tunable), and `charge_safety_envelope_speed=20000` wu/s (finite, strictly positive,
+at most `simulation::kMaximumPhysicalComponentMagnitude`). One cross-key rule joins them:
+`charge_speed_fraction * kMaximumNormalTopSpeed <= charge_safety_envelope_speed`, so a charge from
+rest stays admissible whatever a room tunes its ceiling to. Two of the three are doubles, which is
+the first time this owner has stored anything but a tick count, and `AbilityConfiguration`'s own
+canonical header was amended in the same commit rather than left to contradict itself.
+
+**These three numbers are this ADR's initial tuning and an engineering guard, not owner-selected
+balance values**, exactly as the four shield values are. The distinction matters most for the
+envelope: what the owner accepted at Step 1 is *that a separate validated safety envelope exists*
+(§ "Owner decisions, 2026-09-10"), and 20,000 wu/s is a first number nobody has chosen. It is also
+not a balance option and not a UI control — § "Normal movement and web tuning" now says so in place,
+where the promise was made.
+
+**Body-bound `simulation::Charge` holds exactly one `TickWindow`, the cooldown.** Charge is
+one-shot, so there is no active window and no captured effect parameter; a burst is applied and
+gone. It publishes exactly `activation_tick` and `cooldown_expiry_tick` — both absolute endpoints,
+never a countdown, because an absolute tick stays true in a frame a client buffered or received
+late, which is the rule the shield encoder already states. The activation is published as well as
+the expiry because a cooldown arc needs its denominator and `charge_cooldown_seconds` is
+deliberately server-side. Because the cooldown is strictly positive, the schema and the encoder
+require `cooldown_expiry_tick > activation_tick` **strictly**, where shield's ordering is `<=`. It
+declares the Step 13 body-bound lifetime trait and nothing else, and only `AbilitySystem` removes
+it, once the cooldown has expired.
+
+**`simulation::ChargeCommand` is entity-addressed and carries a direction.**
+`CommandKind::kCharge` is `1u << 11` with application rank 11, appended after shield's 10 so every
+existing bit and rank is preserved. Its wire payload is `{x, y, input_generation?}` with the
+generation **optional**, matching `set_thrust` rather than `shield`. Nothing behavioural turns on
+that choice — the C++ value and the exact-optional-equality admission are identical either way — so
+it follows the discriminator this tree has already written down three times: shield's member is
+required-and-nullable because it has no other member and an optional one would make `{}` the whole
+message, and each of those three statements contrasts it with `set_thrust`, which "carries x and y
+whatever happens". Charge carries required `x` and `y`, so it is `set_thrust`'s shape. `x` and `y`
+reuse `set_thrust`'s per-component `unit_interval_scalar` bound.
+
+**The effect is an instantaneous additive velocity burst** of
+`charge_speed_fraction × match.movement.current.normal_top_speed()` along the unit direction,
+written through `PhysicsBody::with_velocity`. Additive, so lateral velocity survives, which is this
+ADR's "never erases existing lateral velocity" made literal. It touches no acceleration, position,
+radius, mass, or collision capability: there is no teleport, no invulnerability, no cliff bypass,
+and a charging body meets every other body through the unchanged Step 18 composition and Step 16
+motion. The envelope is checked in raw doubles — both prospective components finite, and
+`sqrt(next_x² + next_y²)` at most `charge_safety_envelope_speed` — **before any `Vector2` is
+constructed**, because a magnitude bound at or below the component domain keeps both components
+representable and because a `Vector2` throw inside a `kPreKernel` system would stop the runtime
+worker permanently.
+
+**The accepted `kPreKernel` ordering residual.** `AbilitySystem` runs **last** at `kPreKernel`,
+after `ThrustSteeringSystem`, in all four modes. On an activation tick the thrust limiter has
+therefore
+already sized this tick's acceleration against the *pre-burst* velocity, so the committed endpoint
+is `v_pre + burst + a·dt`: one tick of already-certified propulsion stacked on top of the burst, at
+most 1 wu/s at the authored 400 wu/s² and the 1/400 s tick. **This is accepted in writing rather
+than reordered.** Running the ability system first would be worse, not better: the limiter's
+`max(ceiling², v·v)` bound would then be computed against the *post*-burst velocity, and thrust
+could sustain a charged speed indefinitely — a far larger violation of § "Normal movement and web
+tuning"'s "above the normal ceiling, controls may brake/turn but must not add speed until back
+within it" than one certified tick of ordinary acceleration. From the next tick on, that same `max`
+term is what lets a charged body steer without amplifying or braking, which is the intended feel.
+
+**What bounds repeated charges is the envelope, not drag.** At the shipped `drag_per_second=0` the
+burst never decays, so a body that charges again and again in one direction accumulates
+`0.75 × 600 = 450` wu/s per activation at the authored ceiling. From rest and with no other
+propulsion, the forty-fourth activation reaches 19,800 wu/s and the forty-fifth is refused, because
+20,250 wu/s would pass the 20,000 wu/s envelope. Repeated charges therefore converge on a bound
+instead of growing without limit, and they do so long before the solver's per-tick motion-event work
+cap is threatened. § "Normal movement and web tuning" carries the correction to the ADR's older
+"decay under drag" sentence.
+
+**Every refusal is a silent no-op**, on exactly the path every other ability refusal already takes:
+no cooldown consumed, no queued activation, no event, no error, no receipt. This section's own
+"refuse an inadmissible activation explicitly, not silently convert it" contrasts refusal with
+*conversion*, and Step 18 already committed that a refused pulse produces no per-request receipt and
+that the contract promises none.
+
+**Nothing else moved.** No second system — the conflict between two abilities cannot be decided
+without one place holding the priority, which is why the system has always been named `ability`
+rather than `shield`. No new kernel socket, hook stage, event root, pair equation, policy socket,
+mode declaration, or control binding; no `Controller` capability; no `StatusSystem` change; no
+protocol version bump and no new close code. Visual treatment is Step 20 and key or button bindings
+are Step 21, so no sender exists yet. This records implementation, not verification, native
+capacity, or release certification.
+See the [Step 19 contract](../reviews/2026-09-12-charge-contract.md).

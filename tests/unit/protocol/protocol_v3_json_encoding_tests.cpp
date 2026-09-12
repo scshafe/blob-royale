@@ -1,3 +1,4 @@
+#include "fixtures/charge_encoding_fixture.hpp"
 #include "fixtures/hill_motion_encoding_fixture.hpp"
 #include "fixtures/shield_encoding_fixture.hpp"
 #include "protocol_v3_test_fixture.hpp"
@@ -57,6 +58,17 @@ void require_members_in_order(const std::string_view encoded,
   }
 }
 
+// One committed frame carrying the supplied charge, encoded through the production path. Named
+// once so the charge cases below differ only in the value under test. There is no `committed_tick`
+// knob beside the shield's: a charge owns no window anything can shorten, so every specimen is
+// simply the state the activation tick produced.
+[[nodiscard]] std::string encoded_charge_frame(const simulation::Charge& charge) {
+  return protocol::encode_snapshot_message_v3(
+      protocol::charge_fixture::snapshot(charge), fixture::golden_directory(), std::nullopt,
+      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
+}
+
 // One committed frame carrying the supplied shield, encoded through the production path. Named once
 // so the four shield cases below differ only in the value under test. `committed_tick` exists so a
 // case that shortens a window can commit at a tick where that shortening is a state the world could
@@ -105,7 +117,7 @@ TEST_CASE("Welcome encoder matches the accepted golden example and canonical byt
   fixture::require_json_matches_v3_golden_example(encoded, "welcome-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]},"movement_tuning_minimum_interval_milliseconds":500},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
+      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["charge","clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]},"movement_tuning_minimum_interval_milliseconds":500},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
 }
 
 TEST_CASE("Snapshot v3 encoder matches the accepted golden example",
@@ -715,12 +727,16 @@ TEST_CASE("The closed v3 component vocabulary names exactly the registered compo
   CHECK_FALSE(protocol::is_v3_component_kind(""));
   CHECK(std::ranges::is_sorted(protocol::kV3ComponentKindNames));
 
-  // Sixteen since Step 18's `shield`, which sorts between `score` and `stun`. The count is written
-  // out beside the derived comparison above deliberately: the comparison proves the two lists agree
-  // with each other, and this proves they agree with the number a reader of the accepted schema set
-  // can count for themselves. Sortedness is the other half -- appending `"shield"` at the end of
-  // `kV3ComponentKindNames` would satisfy every compile-time gate and only fail here.
-  CHECK(protocol::kV3ComponentKindNames.size() == 16);
+  // Seventeen since Step 19's `charge`, which sorts ahead of `contact_effect_admission` and so
+  // takes the front of the array; Step 18's `shield` sorts between `score` and `stun`. The count is
+  // written out beside the derived comparison above deliberately: the comparison proves the two
+  // lists agree with each other, and this proves they agree with the number a reader of the
+  // accepted schema set can count for themselves. Sortedness is the other half -- appending
+  // `"charge"` at the end of `kV3ComponentKindNames` would satisfy every compile-time gate,
+  // including the two static_asserts in `component_encoding_registry.hpp`, and only fail here.
+  CHECK(protocol::kV3ComponentKindNames.size() == 17);
+  CHECK(protocol::is_v3_component_kind("charge"));
+  CHECK(protocol::kV3ComponentKindNames.front() == "charge");
   CHECK(protocol::is_v3_component_kind("shield"));
 }
 
@@ -888,6 +904,78 @@ TEST_CASE("Shield encoding's out-of-range guards have no reachable specimen",
                                             shield_fixture::kShieldDurationTicks,
                                             shield_fixture::kPerfectDurationTicks,
                                             shield_fixture::kCooldownDurationTicks, 0),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("Charge publishes its activation and one absolute cooldown expiry in wire member order",
+          "[unit][protocol][v3][encoding][charge][golden]") {
+  namespace charge_fixture = protocol::charge_fixture;
+  const simulation::WorldSnapshot published = charge_fixture::snapshot(charge_fixture::activated());
+  REQUIRE(published.components<simulation::Charge>().size() == 1);
+
+  const std::string encoded = encoded_charge_frame(charge_fixture::activated());
+
+  // Exact bytes rather than a parsed comparison: `docs/protocol/v3.md` § "Object member order"
+  // makes the encoder's sink-call order normative, so a reordering that a JSON-value comparison
+  // would call equal is a contract change this test has to fail on. Two numbers and no third: a
+  // one-shot activation has no protection window to publish, and the activation is published
+  // alongside the expiry only because a cooldown arc needs a denominator the client is never told.
+  CHECK(encoded.find(R"("charge":{"activation_tick":100,"cooldown_expiry_tick":580})") !=
+        std::string::npos);
+  // ...and the component key itself sits in the ascending kind-name order the same section pins,
+  // which is why the fixture entity carries a body as well as a charge. `"charge"` lands *before*
+  // `"physics_body"` where `"shield"` lands after it, so this is the one ordering an encoder that
+  // simply appended the new kind would get wrong.
+  require_members_in_order(encoded, {R"("components")", R"("charge")", R"("activation_tick")",
+                                     R"("cooldown_expiry_tick")", R"("physics_body")"});
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
+}
+
+TEST_CASE("Charge encoding carries the shortest and the longest admissible cooldown exactly",
+          "[unit][protocol][v3][encoding][charge]") {
+  namespace charge_fixture = protocol::charge_fixture;
+
+  // One tick is the shortest cooldown the authored configuration can round to, because
+  // `charge_cooldown_seconds` is validated strictly positive rather than merely nonnegative. It is
+  // the tightest value the encoder's `expiry > activation` rule admits, so it must publish rather
+  // than fail closed: the guard refuses `100 == 100`, and `101 > 100` is a tick of real wait.
+  CHECK(encoded_charge_frame(charge_fixture::activated(charge_fixture::kActivation, 1))
+            .find(R"("charge":{"activation_tick":100,"cooldown_expiry_tick":101})") !=
+        std::string::npos);
+
+  // The top of the tick domain: TickWindow refuses to overflow it, and the wire carries the exact
+  // safe integer rather than a rounded double.
+  CHECK(encoded_charge_frame(charge_fixture::activated(charge_fixture::kActivation,
+                                                       simulation::TickSequence::kMaximumValue -
+                                                           charge_fixture::kActivation))
+            .find(R"("cooldown_expiry_tick":9007199254740991)") != std::string::npos);
+}
+
+TEST_CASE("Charge encoding's out-of-range guards have no reachable specimen",
+          "[unit][protocol][v3][encoding][charge][rejection]") {
+  namespace charge_fixture = protocol::charge_fixture;
+
+  // The encoder fails closed on a non-positive activation and on a cooldown expiry that does not
+  // strictly exceed it -- and neither can be handed to it, because `Charge::activate` is the only
+  // way to make one and it refuses a zero activation and a zero cooldown duration first. So this
+  // test pins the *reason* the guards are unreachable rather than pretending to reach them: a
+  // `Charge` in an invalid state is not constructible from outside the class, and forging one would
+  // assert against a value the world cannot hold. The guards stay written for the same reason
+  // `decode_seat_npc`'s grammar check sits behind its membership check
+  // (`src/protocol/command_decoding.cpp`): a boundary must not depend on another module's
+  // invariant staying true.
+  //
+  // The zero-duration refusal is the one that carries the strictness. Shield admits an expiry equal
+  // to its activation because `shield_cooldown_seconds` may legally round to zero ticks and because
+  // a stun may cancel protection on the activation tick; charge's cooldown is validated strictly
+  // positive and charge owns no cancellable window, so equality here would be a broken world
+  // published as a permanently ready charge
+  // (`docs/reviews/2026-09-12-charge-contract.md` § "Authored tuning and value ownership").
+  //
+  // If a later step gives `Charge` a second construction path, this is the test that breaks, and
+  // the guards in `charge_component_encoding.hpp` then owe positive specimens here.
+  CHECK_THROWS_AS(charge_fixture::activated(0), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(charge_fixture::activated(charge_fixture::kActivation, 0),
                   simulation::SimulationValidationError);
 }
 
@@ -1335,10 +1423,11 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
       no_kind, fixture::session_request_id(), fixture::kWelcomeTimestamp);
 
   // In the published vocabulary's own order, not the engine's declaration order, so a client reads
-  // the array in the order its schema enumerates.
+  // the array in the order its schema enumerates. Step 19's `charge` therefore appears first rather
+  // than last: the encoder walks `kV3ClientCommandKindNames`, and that array is ascending.
   CHECK(
       advertised_all.find(
-          R"("accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"])") !=
+          R"("accepted_command_kinds":["charge","clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"])") !=
       std::string::npos);
   CHECK(advertised_all.find("spawn") == std::string::npos);
   CHECK(advertised_all.find("despawn") == std::string::npos);

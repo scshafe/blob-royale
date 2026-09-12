@@ -5,7 +5,7 @@
     "display_name": "Cole Shaffer",
     "mode": "royale",
     "map": "arena-960x640",
-    "accepted_command_kinds": ["clear_seat", "seat_npc", "set_movement_tuning", "set_seat_count", "set_thrust", "shield", "start_match"],
+    "accepted_command_kinds": ["charge", "clear_seat", "seat_npc", "set_movement_tuning", "set_seat_count", "set_thrust", "shield", "start_match"],
     "npc_controller_kinds": ["wanderer", "chaser"],
     "npc_profiles": [{ "npc_kind": "tactical", "profile_name": "steady" }],
     "lobby_id": 1,

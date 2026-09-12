@@ -30,23 +30,34 @@ struct OrderedCommand final {
 
 // Written as a negated `<=` so a non-finite component is rejected too, although Vector2::create
 // already makes one unreachable: it rejects a non-finite component with
-// SIMULATION.PHYSICAL_SCALAR_NOT_FINITE before a ThrustCommand can hold it.
-[[nodiscard]] bool within_thrust_direction_range(const double component) noexcept {
+// SIMULATION.PHYSICAL_SCALAR_NOT_FINITE before a command can hold it.
+[[nodiscard]] bool within_direction_component_range(const double component) noexcept {
   return std::abs(component) <= kMaximumThrustDirectionComponentMagnitude;
 }
 
-void validate_thrust_direction(const ThrustCommand& thrust, const std::size_t submission_index) {
-  if (within_thrust_direction_range(thrust.direction.x()) &&
-      within_thrust_direction_range(thrust.direction.y())) {
+// The one per-component unit bound, shared by every kind that carries a direction. A thrust and a
+// charge mean different things by their vectors -- an analog throttle whose length is the throttle,
+// and a heading whose length the ability system normalizes away -- but both are authored in the
+// same unit interval, so a second bound would be a second answer to one question and the two could
+// drift apart.
+//
+// **The code stays `INPUT_BATCH_THRUST_DIRECTION_OUT_OF_RANGE` for both**, rather than gaining a
+// charge twin that would mean exactly the same thing; the context string and the kind name in the
+// message are what say which command was malformed. That is the precedent
+// `kInputBatchInputGenerationZero` already sets for the thrust and the shield, and the one
+// `validate_seat_index` sets below for the three lobby kinds.
+void validate_direction_range(const Vector2& direction, const EntityId entity,
+                              const std::string_view context, const std::string_view kind_name,
+                              const std::size_t submission_index) {
+  if (within_direction_component_range(direction.x()) &&
+      within_direction_component_range(direction.y())) {
     return;
   }
-  throw SimulationValidationError(SimulationValidationCode::kInputBatchThrustDirectionOutOfRange,
-                                  "input_batch.commands.thrust.direction",
-                                  "thrust direction (" + std::to_string(thrust.direction.x()) +
-                                      ", " + std::to_string(thrust.direction.y()) +
-                                      ") for EntityId " + std::to_string(thrust.entity.value()) +
-                                      " has a component outside [-1, 1]" +
-                                      command_position(submission_index));
+  throw SimulationValidationError(
+      SimulationValidationCode::kInputBatchThrustDirectionOutOfRange, std::string(context),
+      std::string(kind_name) + " direction (" + std::to_string(direction.x()) + ", " +
+          std::to_string(direction.y()) + ") for EntityId " + std::to_string(entity.value()) +
+          " has a component outside [-1, 1]" + command_position(submission_index));
 }
 
 // A despawn naming an id this batch's reservation would issue is the "spawn and despawn in one
@@ -111,7 +122,9 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
   }
 
   if (const auto* thrust = std::get_if<ThrustCommand>(&command); thrust != nullptr) {
-    validate_thrust_direction(*thrust, submission_index);
+    validate_direction_range(thrust->direction, thrust->entity,
+                             "input_batch.commands.thrust.direction",
+                             command_kind_name<ThrustCommand>, submission_index);
     if (thrust->input_generation == TickSequence::zero()) {
       throw SimulationValidationError(SimulationValidationCode::kInputBatchInputGenerationZero,
                                       "input_batch.commands.thrust.input_generation",
@@ -128,6 +141,20 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
     if (shield->input_generation == TickSequence::zero()) {
       throw SimulationValidationError(SimulationValidationCode::kInputBatchInputGenerationZero,
                                       "input_batch.commands.shield.input_generation",
+                                      "a present input generation must be positive" +
+                                          command_position(submission_index));
+    }
+  }
+  // A charge is the one ability kind with two value rules, because it is the one that carries a
+  // direction. They run in the order the thrust arm runs its two -- the heading, then the token --
+  // and each is reported on its own context, so a log names both which command and which field.
+  if (const auto* charge = std::get_if<ChargeCommand>(&command); charge != nullptr) {
+    validate_direction_range(charge->direction, charge->entity,
+                             "input_batch.commands.charge.direction",
+                             command_kind_name<ChargeCommand>, submission_index);
+    if (charge->input_generation == TickSequence::zero()) {
+      throw SimulationValidationError(SimulationValidationCode::kInputBatchInputGenerationZero,
+                                      "input_batch.commands.charge.input_generation",
                                       "a present input generation must be positive" +
                                           command_position(submission_index));
     }

@@ -14,6 +14,7 @@ import {
   snapshotDocument,
   welcomeDocument,
 } from './fixtures/sessionFrames';
+import { CHARGE_COOLDOWN } from './fixtures/chargeFrames';
 import { SHIELD_WINDOWS } from './fixtures/shieldFrames';
 import {
   type SessionSequenceState,
@@ -316,12 +317,39 @@ const snapshotMutations: readonly MutationCase<MutableSnapshotDocument>[] = [
   {
     name: 'shield carrying a charge member the component does not publish',
     mutate: (document) => {
-      // The published shield is closed at exactly five members. Charge lands in Step 19 with its
-      // own authoritative behaviour, so a charge field arriving now is a server this client does
-      // not know, not a field to ignore.
+      // The published shield is closed at exactly five members. Charge is a separate ability with
+      // its own component and its own two endpoints, so a charge field riding on a shield is a
+      // server this client does not know, not a field to ignore.
       Reflect.set(playerEntity(document).components, 'shield', {
         ...SHIELD_WINDOWS,
         charge_expiry_tick: 13000,
+      });
+    },
+  },
+  {
+    name: 'charge cooldown that expires on the tick it was activated',
+    mutate: (document) => {
+      // Both endpoints are valid ticks on their own, so only the semantic pass can catch this, and
+      // only for charge: shield accepts an expiry equal to its activation because a cancelled
+      // protection window is a real published state. A charge cooldown is validated strictly
+      // positive at load, because it is the only gate a one-shot has -- a reader that accepted this
+      // would report an ability ready to fire again on the tick the same frame says it fired.
+      Reflect.set(playerEntity(document).components, 'charge', {
+        ...CHARGE_COOLDOWN,
+        cooldown_expiry_tick: CHARGE_COOLDOWN.activation_tick,
+      });
+    },
+  },
+  {
+    name: 'charge carrying the protection window a one-shot never opens',
+    mutate: (document) => {
+      // The published charge is closed at exactly two members. There is no active window to report:
+      // the burst is applied once, on the activation tick, and what outlives it is velocity the
+      // physics body already publishes. A shield-shaped endpoint here would invite a reader to draw
+      // a protection the server never granted.
+      Reflect.set(playerEntity(document).components, 'charge', {
+        ...CHARGE_COOLDOWN,
+        shield_expiry_tick: 12960,
       });
     },
   },

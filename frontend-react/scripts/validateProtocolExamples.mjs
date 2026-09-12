@@ -67,6 +67,7 @@ const protocolVersions = [
       ['welcome-profile-message.json', 'welcome-message.schema.json'],
       ['stun-component.json', 'stun-component.schema.json'],
       ['shield-component.json', 'shield-component.schema.json'],
+      ['charge-component.json', 'charge-component.schema.json'],
       [
         'contact-effect-admission-component.json',
         'contact-effect-admission-component.schema.json',
@@ -80,6 +81,7 @@ const protocolVersions = [
         'set-thrust-command.schema.json',
       ],
       ['shield-command.json', 'shield-command.schema.json'],
+      ['charge-command.json', 'charge-command.schema.json'],
       ['hill-motion-component.json', 'hill-motion-component.schema.json'],
       [
         'set-movement-tuning-command.json',

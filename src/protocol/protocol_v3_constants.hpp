@@ -80,7 +80,8 @@ inline constexpr double kThrustComponentMaximumMagnitude = 1.0;
 // The closed component-kind vocabulary of `common.schema.json#/$defs/component_kind`, in the
 // schema's own ascending order, which is also the order `docs/protocol/v3.md`
 // § "Object member order" requires component keys to be encoded in.
-inline constexpr std::array<std::string_view, 16> kV3ComponentKindNames{"contact_effect_admission",
+inline constexpr std::array<std::string_view, 17> kV3ComponentKindNames{"charge",
+                                                                        "contact_effect_admission",
                                                                         "controllable",
                                                                         "hill",
                                                                         "hill_motion",
@@ -103,15 +104,20 @@ inline constexpr std::array<std::string_view, 16> kV3ComponentKindNames{"contact
 // (`docs/protocol/v3.md` § "welcome").
 //
 // Four kinds operate pre-match lobby setup. Tuning is a separate, seated cooperative mutation of
-// shared movement state, while `shield` is an entity's own combat pulse and therefore takes no
-// authority from a seat; actual availability always comes from the mode's accepted mask.
+// shared movement state, while `charge` and `shield` are an entity's own combat activations and
+// therefore take no authority from a seat; actual availability always comes from the mode's
+// accepted mask.
 //
 // `command_wire_kind.hpp` selects entries **by index**, so inserting a name in ascending position
-// renumbers every later kind there. `shield` sorting between `set_thrust` and `start_match` is what
-// moved `start_match` from 5 to 6.
-inline constexpr std::array<std::string_view, 7> kV3ClientCommandKindNames{
-    "clear_seat", "seat_npc", "set_movement_tuning", "set_seat_count",
-    "set_thrust", "shield",   "start_match"};
+// renumbers every later kind there. Step 18's `shield` sorted between `set_thrust` and
+// `start_match` and moved one index; Step 19's `charge` sorts **before every existing name**, so it
+// moved all seven. `"charge"` precedes `"clear_seat"` because `h` precedes `l`, which is a
+// one-character difference easy to read past -- and reading past it renumbers the whole file
+// silently, because the two static_asserts over there check the count and surjectivity, both of
+// which a consistently wrong permutation satisfies.
+inline constexpr std::array<std::string_view, 8> kV3ClientCommandKindNames{
+    "charge",         "clear_seat", "seat_npc", "set_movement_tuning",
+    "set_seat_count", "set_thrust", "shield",   "start_match"};
 
 inline constexpr double kMovementAccelerationMinimum = 0.0;
 inline constexpr double kMovementAccelerationMaximum = 10'000.0;

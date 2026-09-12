@@ -56,6 +56,9 @@ enum class ConfigField : std::size_t {
   kAbilitiesShieldPerfectWindowSeconds,
   kAbilitiesShieldCooldownSeconds,
   kAbilitiesParryStunDurationSeconds,
+  kAbilitiesChargeCooldownSeconds,
+  kAbilitiesChargeSpeedFraction,
+  kAbilitiesChargeSafetyEnvelopeSpeed,
   kRoyaleZoneMinimumRadius,
   kRoyaleZoneShrinkSeconds,
   kRoyaleEliminationGraceSeconds,
@@ -110,9 +113,11 @@ constexpr std::array<std::string_view, 13> kConfigSections = {
 // (`src/gameplay/game_mode_configuration.hpp`). `[lobbies]` is required for the same reason: `1`
 // is the single-match server, and a deployment that wants more rooms changes one number.
 // Required `[movement]` belongs to no mode: one pair seeds every room, including Sandbox.
-// Required `[abilities]` belongs to no mode either: one authored shield tuning arms the ability
-// system every room runs, so a deployment cannot field a mode whose shield timings nobody wrote
-// (`src/gameplay/shared/ability_configuration.hpp`).
+// Required `[abilities]` belongs to no mode either: one authored shield and charge tuning arms
+// the ability system every room runs, so a deployment cannot field a mode whose ability timings
+// nobody wrote (`src/gameplay/shared/ability_configuration.hpp`). Charge's three keys extend that
+// one section rather than opening a `[charge]` one, so the count of required sections is the same
+// after Step 19 as before it.
 constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCount)>
     kConfigFieldSpecs = {
         {{"server", "bind_address"},
@@ -140,6 +145,9 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"abilities", "shield_perfect_window_seconds"},
          {"abilities", "shield_cooldown_seconds"},
          {"abilities", "parry_stun_duration_seconds"},
+         {"abilities", "charge_cooldown_seconds"},
+         {"abilities", "charge_speed_fraction"},
+         {"abilities", "charge_safety_envelope_speed"},
          {"royale", "zone_minimum_radius_world_units"},
          {"royale", "zone_shrink_seconds"},
          {"royale", "elimination_grace_seconds"},
@@ -842,11 +850,20 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
   const simulation::MovementTuning movement =
       simulation::MovementTuning::create(movement_acceleration, movement_normal_top_speed);
 
-  // The shield's timings belong to no mode for the same reason the movement pair does: one ability
-  // system runs in every room, so a second authoring home would be the second source of truth ADR
-  // 0008 forbids. Validated here, below movement and above the mode sections, because a room's
-  // shared mechanics are refused before a section only one selected mode ever reads. Named locals
-  // again: two bad ability keys must not report whichever one the compiler evaluated first.
+  // The shield's and charge's tunings belong to no mode for the same reason the movement pair
+  // does: one ability system runs in every room, so a second authoring home would be the second
+  // source of truth ADR 0008 forbids. Validated here, below movement and above the mode sections,
+  // because a room's shared mechanics are refused before a section only one selected mode ever
+  // reads. Named locals again: seven ability keys must not report whichever one the compiler
+  // evaluated first, and the order below is the order `[abilities]` declares them.
+  //
+  // Only four of the seven are durations. `charge_speed_fraction` is a dimensionless multiple of
+  // the room's *current* normal ceiling and `charge_safety_envelope_speed` is a speed in world
+  // units per second, so neither is a candidate for the seconds-to-ticks conversion and both stay
+  // doubles inside the value -- read here exactly the way `[movement]`'s two scalars just were.
+  // The loader reads all seven with the same `parse_double_config_value` on purpose: which of them
+  // is a duration, and what each one's bounds are, is `AbilityConfiguration`'s contract to state
+  // and not a rule this file is allowed to hold a second copy of.
   const double shield_duration_seconds =
       parse_double_config_value(document, ConfigField::kAbilitiesShieldDurationSeconds);
   const double shield_perfect_window_seconds =
@@ -855,9 +872,16 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       parse_double_config_value(document, ConfigField::kAbilitiesShieldCooldownSeconds);
   const double parry_stun_duration_seconds =
       parse_double_config_value(document, ConfigField::kAbilitiesParryStunDurationSeconds);
-  const gameplay::AbilityConfiguration abilities =
-      gameplay::AbilityConfiguration::create(shield_duration_seconds, shield_perfect_window_seconds,
-                                             shield_cooldown_seconds, parry_stun_duration_seconds);
+  const double charge_cooldown_seconds =
+      parse_double_config_value(document, ConfigField::kAbilitiesChargeCooldownSeconds);
+  const double charge_speed_fraction =
+      parse_double_config_value(document, ConfigField::kAbilitiesChargeSpeedFraction);
+  const double charge_safety_envelope_speed =
+      parse_double_config_value(document, ConfigField::kAbilitiesChargeSafetyEnvelopeSpeed);
+  const gameplay::AbilityConfiguration abilities = gameplay::AbilityConfiguration::create(
+      shield_duration_seconds, shield_perfect_window_seconds, shield_cooldown_seconds,
+      parry_stun_duration_seconds, charge_cooldown_seconds, charge_speed_fraction,
+      charge_safety_envelope_speed);
 
   // Validated by the mode that owns the section, so the application never re-derives a balance
   // rule: each section is authored in seconds and world units and comes back in tick counts. The

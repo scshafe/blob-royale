@@ -129,6 +129,23 @@ documented exception and gain nothing: their parser rejects unread keys and neve
 `[abilities]`, so a replay inherits `GameModeConfiguration::defaults()`, exactly as it does for
 `[sandbox]`.
 
+Step 19 adds three more required keys to that same section, and they are the first values in it
+that are not durations: `charge_cooldown_seconds` (1.2), `charge_speed_fraction` (0.75), and
+`charge_safety_envelope_speed` (20000). The cooldown goes through the shared duration owner like the
+other four and is validated **strictly positive** — unlike `shield_cooldown_seconds`, whose zero is
+legal only because shield admission is gated a second time by the end of its own protection.
+`charge_speed_fraction` is a dimensionless multiple of the *current* normal ceiling, not a speed;
+`charge_safety_envelope_speed` is a speed in `wu/s`, bounded above by the simulation's physical
+component domain. Both are validated finite and strictly positive, and one cross-key rule ties them
+together so that a charge from rest stays admissible at any tuned ceiling. As with the shield's
+four, these are ADR 0008's initial tuning assumptions plus one engineering guard, not
+owner-selected balance, and the envelope's number in particular is a first number the owner has
+never chosen. Because the loader still requires every declared section regardless of `[match] mode`,
+adding three keys migrated every standalone `.cfg`, every inline unit-test configuration string, and
+`write_fixture_inputs` again; the replay exception is unchanged, and the frozen deployment snapshot
+gained a fifth provenance entry, which will be the one retained benchmark field that differs from
+Step 18's baseline.
+
 Step 17 adds required `[sandbox] respawn_delay_seconds`, validated by the shared gameplay duration
 owner. Match startup binds race checkpoint return clearance against the configured player radius
 and complete terrain before building any room; unsupported discs fail with

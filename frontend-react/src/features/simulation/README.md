@@ -143,4 +143,27 @@ nothing, exactly as with stun. This step adds no sender — keys and buttons are
 `SimulationApi` is still the only file in the domain that writes to a socket, and the outbound
 `SessionCommand` union carries the shield shape without anything constructing one yet.
 
+`charge` joins both of those as of protocol 3.0's Step 19: the third ability component to register
+non-visually with a stated reason, after `stun` and `shield`, and the second outbound command shape
+with no sender behind it. The component publishes only
+`activation_tick` and `cooldown_expiry_tick`, and `sessionProtocolValidation` checks the two
+orderings JSON Schema cannot — activation at most the snapshot tick, and `cooldown_expiry_tick`
+**strictly** greater than `activation_tick`. That strictness is the one place a reader must not
+carry shield's rules across: a zero-length shield window is a valid cancelled shield, while a
+zero-length charge cooldown is unreachable by construction, so a frame carrying one is malformed and
+fails closed. Read the interval against the snapshot's own tick; elapsed browser time readies
+nothing.
+
+Two client-side traps are worth naming because both are ways to draw a confident lie. **The
+direction is not a strength**: the outbound `charge` payload's `x` and `y` are normalized by the
+server, so `{x: 0.5, y: 0}` charges exactly as hard as `{x: 1, y: 0}`, and a future control must
+not scale a burst by pointer distance the way an analog thrust legitimately may. Its
+`input_generation` is **optional** — omitted, never null — following `set_thrust` rather than
+`shield`, because the payload has other required members. **And the burst does not decay.** The
+server ships `drag_per_second=0`, so a charged body keeps its speed until something else changes it,
+and nothing published bounds that speed: `match.movement`'s ceiling is a propulsion parameter and
+the server's safety envelope is not on the wire at all. A client that animated a decaying burst, or
+derived a maximum speed from `match.movement`, would be drawing a world the server is not
+simulating.
+
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v3`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

@@ -57,19 +57,23 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as eight answers",
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
-  // Eleven: the three lifecycle kinds every mode needs, `thrust` and `shield`, seated movement
-  // tuning, the four that operate the pre-match lobby, and the server-issued `join`. A mode
-  // declares the lobby kinds rather than the engine offering them to everybody, which is why
-  // `sandbox` -- whose objective never starts -- accepts none of them. `shield` is advertised only
-  // because this mode also declares the `ability` system that admits it.
+  // Twelve: the three lifecycle kinds every mode needs, `thrust`, `shield` and `charge`, seated
+  // movement tuning, the four that operate the pre-match lobby, and the server-issued `join`. A
+  // mode declares the lobby kinds rather than the engine offering them to everybody, which is why
+  // `sandbox` -- whose objective never starts -- accepts none of them. Both abilities are
+  // advertised only because this mode declares the one `ability` system that admits both.
+  //
+  // This is an exact-mask equality rather than a "contains `kCharge`" probe, and deliberately so:
+  // the mask is what `welcome` advertises, so a kind that appeared here without a handler, or a
+  // kind that quietly vanished from it, are the same defect and this states both at once.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
-             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-             simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
+             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
 }
 
 TEST_CASE("royale falling records elimination without delivering the later pair impulse",

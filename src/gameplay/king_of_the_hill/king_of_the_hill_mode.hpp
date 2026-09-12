@@ -36,7 +36,7 @@ namespace blob_royale::gameplay {
 //                           lifetime_expiry, hazard_spawn then hill_rules_publisher at kLifecycle
 //   contact_rules()         guarded_pair, then the built-in rows it makes unreachable
 //   motion_triggers()       ground-bound support loss while running
-//   accepted_command_kinds  royale's eleven, including shield and seated movement tuning
+//   accepted_command_kinds  royale's twelve, including shield, charge and seated movement tuning
 //   spawn_policy()          NextFreeSpawnPointPolicy: the next free point, in every phase
 //   objective()             HillObjective
 //   validate_map()          at least one `hill` marker and at least one `spawn` marker
@@ -90,17 +90,19 @@ public:
     return simulation::ContactRuleTable::with_rows_above_built_in({guarded_pair_contact_rule()});
   }
 
-  // Royale's eleven. `shield` is advertised only because this mode also declares the `ability`
-  // system that admits it, which is the wire rule: no command is offered in `welcome` before its
-  // handler exists.
+  // Royale's twelve. `shield` and `charge` are both advertised only because this mode declares the
+  // one `ability` system that admits both of them, which is the wire rule: no command is offered
+  // in `welcome` before its handler exists. The hill neither adds nor withholds an ability -- ADR
+  // 0008's mode/state matrix enables both wherever a running body exists -- so this list stays
+  // royale's list rather than becoming a per-mode capability negotiation.
   [[nodiscard]] simulation::CommandKindMask accepted_command_kinds() const noexcept override {
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
          simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-         simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
-         simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-         simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-         simulation::CommandKind::kJoin});
+         simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
+         simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+         simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kJoin});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

@@ -1,6 +1,7 @@
 #include "replay_fixture.hpp"
 
 #include "command_kind_mask.hpp"
+#include "commands/charge_command.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
 #include "commands/join_command.hpp"
@@ -342,6 +343,36 @@ read_commands(const std::filesystem::path& path, const std::uint64_t tick_count)
       require_empty(columns, 8, "npc_kind", where);
       tick_commands.push_back(simulation::Command{simulation::ShieldCommand{
           simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id"))}});
+      continue;
+    }
+    // A charge names the body and the direction it fires along, and it **reuses `thrust`'s two
+    // direction columns** rather than declaring a pair of its own. Both payloads are one
+    // `simulation::Vector2` of intent read from the same two cells, so a second pair -- say
+    // `charge_x`/`charge_y` -- would grow every existing `commands.csv` by two permanently empty
+    // columns and leave a reader asking which pair a row was supposed to use. The alternative was
+    // rejected on exactly that ground: this format's rule is that a row may not carry a value the
+    // reader drops, and the cheapest way to keep it is to have one meaning per column.
+    //
+    // **What the two kinds do with those cells differs, and the difference is not this file's.**
+    // `thrust` clamps the magnitude and keeps a subunit one, while `charge` normalizes, so `1,0`
+    // and `2,0` are two different thrusts and the same charge, and `0,0` is a legal thrust
+    // (a release) and a refused charge (`src/gameplay/shared/locomotion.hpp`). A replay author
+    // writes the direction; the engine decides what it means, which is the same division that
+    // keeps the burst's strength out of the log.
+    //
+    // There is no tenth column for `input_generation` here either, for the reason the shield arm
+    // above records in full: a recorded log is literal, and its entities carry the absent initial
+    // token until something in that same replay invalidates it
+    // (`src/simulation/commands/charge_command.hpp`).
+    if (kind == "charge") {
+      require_empty(columns, 3, "controller_id", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
+      tick_commands.push_back(simulation::Command{simulation::ChargeCommand{
+          simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id")),
+          simulation::Vector2::create(parse_double(columns[4], where + " direction_x"),
+                                      parse_double(columns[5], where + " direction_y"))}});
       continue;
     }
     // The four lobby kinds. Each names its sender in `controller_id`, exactly as the wire does: the

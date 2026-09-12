@@ -163,6 +163,22 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
             return CommandSubmissionResult::kRejectedShieldInputGenerationOutOfRange;
           }
           return CommandSubmissionResult::kAccepted;
+        } else if constexpr (std::is_same_v<CommandType, simulation::ChargeCommand>) {
+          // Both of `InputBatch::create`'s charge rules, in the order it enforces them, so a
+          // submission this boundary accepts is one the engine cannot throw on. A charge is the one
+          // ability kind with a direction, so it is the one that needs the range check as well as
+          // the token check, and each refusal names the charge rather than borrowing the thrust's
+          // value: the two commands carry the same rules but a log that named the wrong one would
+          // describe a command this client never sent.
+          const double limit = simulation::kMaximumThrustDirectionComponentMagnitude;
+          if (!(std::abs(value.direction.x()) <= limit) ||
+              !(std::abs(value.direction.y()) <= limit)) {
+            return CommandSubmissionResult::kRejectedChargeDirectionOutOfRange;
+          }
+          if (value.input_generation.has_value() && value.input_generation->value() == 0) {
+            return CommandSubmissionResult::kRejectedChargeInputGenerationOutOfRange;
+          }
+          return CommandSubmissionResult::kAccepted;
         } else if constexpr (std::is_same_v<CommandType, simulation::DespawnCommand>) {
           // A despawn naming an id inside the tick's own reservation is the one despawn
           // InputBatch::create rejects outright. The cursor only rises, so an id strictly below the

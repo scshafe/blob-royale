@@ -1,0 +1,53 @@
+# One charging blob, one bystander, and one recorded burst -- the replay-level proof that a charge
+# row reaches the same admission a browser frame or a scripted controller reaches, and that what it
+# commits is ADDED to the velocity the body already had rather than substituted for it.
+#
+# Two seats are taken and started on tick 1. `countdown_seconds=0` puts tick 1 in `countdown` and
+# tick 2 in `running`, which is the earliest tick an ability may be admitted at all.
+#
+# Entity 1 spawns on the ring's first marker at (300, 320) and entity 2 on its second at (300, 520).
+# Entity 2 never presses anything. It is here because royale wants a second player, and because
+# "entity 1 carries a charge and entity 2 does not" is what makes admission per entity rather than
+# per tick. 200 wu of separation, and entity 1 travels away from it, so the two never touch and no
+# contact response can be mistaken for the burst.
+#
+# Building a velocity worth adding to. Entity 1 thrusts +x on tick 3, switches to +y on tick 23, and
+# releases with a zero direction on tick 33. With `drag_per_second=0` and 4,000 wu/s^2, each
+# accelerated tick of semi-implicit Euler adds 4000/400 = 10 wu/s, so twenty +x ticks (3..22) and
+# ten +y ticks (23..32) leave the body near (200, 100) wu/s. The release is load-bearing rather than
+# tidy: a zero direction is a legal thrust that sets the persisted intent to zero, so acceleration
+# is exactly zero on every later tick and two consecutive velocities are exactly equal. `ability`
+# runs after `thrust_steering`, so a still-held thrust would stack one certified tick of propulsion
+# on top of the burst and the arithmetic below would be nearly exact instead of exact
+# (`docs/reviews/2026-09-12-charge-contract.md` section "Ordering inside kPreKernel").
+#
+# The burst. Entity 1 charges along `1,0` on tick 40. The gain is a fraction of the CURRENT normal
+# ceiling and not an authored speed, so this fixture authors 600 wu/s and the burst is
+# 0.75 * 600 = 450 wu/s; both factors and their product are exact in binary64, and the suite derives
+# the product from the published ceiling and the configured fraction rather than writing 450 down.
+# The committed velocity is therefore about (650, 100): the +x component gained exactly the burst,
+# the +y component -- the lateral one, perpendicular to the charge -- is untouched, and the
+# resulting speed near 658 wu/s sits above the 600 ceiling, which is the point of a charge. Nothing
+# then takes it back: at zero drag the burst does not decay, and the last tick of this replay still
+# carries the velocity tick 40 committed.
+#
+# The cooldown. `charge_cooldown_seconds=1.2` is 480 ticks at 400 Hz, so tick 40's activation holds
+# the cooldown [40, 520) and these 200 ticks never see it end. Entity 1 charges again on tick 100,
+# well inside that window, and the refusal is silent: no second burst, no new activation, no
+# restarted cooldown, no event and no receipt. The suite states that by comparing tick 100 against
+# tick 99, because a refusal that changed nothing is the only evidence there is to read.
+#
+# There is no `input_generation` column and none is needed: nothing here stuns anybody, so both
+# entities are still on the initial generation, which is exactly the absent token a replay row
+# carries.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+1,,spawn,2,,,,,
+1,,join,1,,,,,
+1,,join,2,,,,,
+1,,start_match,1,,,,,
+3,1,thrust,,1,0,,,
+23,1,thrust,,0,1,,,
+33,1,thrust,,0,0,,,
+40,1,charge,,1,0,,,
+100,1,charge,,1,0,,,

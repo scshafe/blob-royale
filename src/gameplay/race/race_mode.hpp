@@ -42,8 +42,10 @@ namespace blob_royale::gameplay {
 //
 // contact_rules() is the shared guarded_pair row above the built-in ones, which it makes
 // unreachable here (shared/guarded_pair_contact_rule.hpp): one live response path for a defended,
-// a lethal and an ordinary contact alike. accepted_command_kinds() advertises shield only because
-// this mode also declares the ability system that admits it.
+// a lethal and an ordinary contact alike. accepted_command_kinds() advertises shield and charge
+// only because this mode declares the one ability system that admits both of them. A finished
+// racer is refused either of them by the canonical input lock rather than by a shorter mask, which
+// is why the publisher-before-ability ordering above is the constraint and the mask is not.
 // related: docs/architecture/0007-king-of-the-hill-and-race-modes.md section "The mode
 // declaration".
 class RaceMode final : public simulation::GameMode {
@@ -77,10 +79,10 @@ public:
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
          simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-         simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
-         simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-         simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-         simulation::CommandKind::kJoin});
+         simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
+         simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+         simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+         simulation::CommandKind::kLeave, simulation::CommandKind::kJoin});
   }
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {
     return std::make_unique<const GridSpawnPolicy>();

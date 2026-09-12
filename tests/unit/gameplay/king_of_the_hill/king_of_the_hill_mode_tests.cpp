@@ -87,16 +87,16 @@ TEST_CASE("KingOfTheHillMode declares the hill game as eight answers",
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
-  // Royale's eleven, `shield` included, and advertised only because this mode also declares the
-  // `ability` system that admits it.
+  // Royale's twelve, `shield` and `charge` included, and both advertised only because this mode
+  // declares the one `ability` system that admits both of them.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
-             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-             simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
+             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
 }

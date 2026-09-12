@@ -3,9 +3,11 @@
 #include "gameplay_validation_error.hpp"
 #include "movement_tuning.hpp"
 #include "physics.hpp"
+#include "simulation_limits.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -25,6 +27,30 @@ simulation::Vector2 normalized_thrust_intent(const simulation::Vector2& directio
   const double magnitude = std::sqrt((x * x) + (y * y));
   const double scale = magnitude <= 1.0 ? 1.0 : 1.0 / magnitude;
   return simulation::Vector2::create(x * scale, y * scale);
+}
+
+std::optional<simulation::Vector2> unit_direction(const simulation::Vector2& direction) {
+  const double x = direction.x();
+  const double y = direction.y();
+  const double magnitude = std::sqrt((x * x) + (y * y));
+  // Zero is not the only unusable magnitude, but it is the one the squared sum produces for every
+  // direction too small to normalize: `1e-200` squares to zero, so this single test refuses exact
+  // zero and the whole underflowed band together, before any division exists to be infinite.
+  if (!std::isfinite(magnitude) || magnitude == 0.0) {
+    return std::nullopt;
+  }
+  // Divided, not multiplied by a reciprocal: one rounding rather than two.
+  const double unit_x = x / magnitude;
+  const double unit_y = y / magnitude;
+  // Unreachable for a `Vector2` argument, and written out because the caller cannot afford to be
+  // wrong about that: `Vector2::create` throws on a component this test would have caught, and a
+  // throw inside `AbilitySystem::apply` stops the runtime worker rather than refusing an input.
+  if (!std::isfinite(unit_x) || !std::isfinite(unit_y) ||
+      std::abs(unit_x) > simulation::kMaximumPhysicalComponentMagnitude ||
+      std::abs(unit_y) > simulation::kMaximumPhysicalComponentMagnitude) {
+    return std::nullopt;
+  }
+  return simulation::Vector2::create(unit_x, unit_y);
 }
 
 simulation::Vector2 thrust_acceleration_from_intent(const simulation::Vector2& intent,

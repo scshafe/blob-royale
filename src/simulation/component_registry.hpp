@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_COMPONENT_REGISTRY_HPP
 
 #include "component_list.hpp"
+#include "components/charge_component.hpp"
 #include "components/contact_effect_admission_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/hill_component.hpp"
@@ -55,15 +56,20 @@ namespace blob_royale::simulation {
 // ordered gate counter, retained while its racer awaits a body
 // (`components/race_progress_component.hpp`).
 //
-// `Shield` is the latest, and it belongs to `src/gameplay/shared/` for the same reason
-// `LethalOnContact` and `RespawnTimer` do: a body that can raise a guard for a moment is a
-// mechanic any mode may field, and every mode that fields abilities declares the one system that
-// writes it. It cost the same one header plus this one line, with no kernel file edited
-// (`components/shield_component.hpp`).
+// `Shield` is `src/gameplay/shared/`'s for the same reason `LethalOnContact` and `RespawnTimer`
+// are: a body that can raise a guard for a moment is a mechanic any mode may field, and every mode
+// that fields abilities declares the one system that writes it. It cost the same one header plus
+// this one line, with no kernel file edited (`components/shield_component.hpp`).
+//
+// `Charge` is the latest: the second ability value, declared by the same `src/gameplay/shared/`
+// owner and costing exactly what the first one did -- one header, this one line, and no kernel file
+// at all. That the second addition costs the same as the first is the whole claim this seam makes,
+// and a whole one-shot ability's committed state is the case that measures it
+// (`components/charge_component.hpp`).
 using ComponentRegistry =
     ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
                   LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun,
-                  ContactEffectAdmission, Shield>;
+                  ContactEffectAdmission, Shield, Charge>;
 
 } // namespace blob_royale::simulation
 

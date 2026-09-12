@@ -6,6 +6,7 @@
     "mode": "royale",
     "map": "arena-960x640",
     "accepted_command_kinds": [
+      "charge",
       "clear_seat",
       "seat_npc",
       "set_movement_tuning",

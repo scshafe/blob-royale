@@ -64,12 +64,17 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   // A shield does not change whether an entity exists: it raises a guard on a body that is already
   // there, and a dropped pulse is one missed activation the player can press again.
   case simulation::CommandKind::kShield:
+  // A charge answers the same way and for the same reason: it is one burst applied to a body that
+  // is already in the arena. A dropped one is a cooldown never spent, so the player presses again
+  // and loses nothing but the moment -- and it must never evict a queued spawn or despawn, whose
+  // loss nobody can press anything to repair.
+  case simulation::CommandKind::kCharge:
     return false;
   }
   return false;
 }
 
-static_assert(simulation::kCommandKindCount == 11,
+static_assert(simulation::kCommandKindCount == 12,
               "a new CommandKind must declare in is_entity_lifecycle_command whether losing it "
               "changes whether an entity exists");
 

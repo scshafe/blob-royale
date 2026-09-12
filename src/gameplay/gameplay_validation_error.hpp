@@ -43,6 +43,9 @@ enum class GameplayValidationCode {
   kDurationTickOverflow,
   kAbilityDurationNotPositive,
   kAbilityPerfectWindowExceedsShield,
+  kAbilityScalarNotFinite,
+  kAbilityScalarOutOfRange,
+  kAbilityChargeBurstExceedsSafetyEnvelope,
   kGuardedPairStunDefenderWithoutShield,
   kHazardKindNameInvalid,
   kHazardScalarNotFinite,
@@ -111,6 +114,12 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.ABILITY_DURATION_NOT_POSITIVE";
   case GameplayValidationCode::kAbilityPerfectWindowExceedsShield:
     return "GAMEPLAY.ABILITY_PERFECT_WINDOW_EXCEEDS_SHIELD";
+  case GameplayValidationCode::kAbilityScalarNotFinite:
+    return "GAMEPLAY.ABILITY_SCALAR_NOT_FINITE";
+  case GameplayValidationCode::kAbilityScalarOutOfRange:
+    return "GAMEPLAY.ABILITY_SCALAR_OUT_OF_RANGE";
+  case GameplayValidationCode::kAbilityChargeBurstExceedsSafetyEnvelope:
+    return "GAMEPLAY.ABILITY_CHARGE_BURST_EXCEEDS_SAFETY_ENVELOPE";
   case GameplayValidationCode::kGuardedPairStunDefenderWithoutShield:
     return "GAMEPLAY.GUARDED_PAIR_STUN_DEFENDER_WITHOUT_SHIELD";
   case GameplayValidationCode::kHazardKindNameInvalid:

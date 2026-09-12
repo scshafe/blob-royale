@@ -61,3 +61,27 @@ seven in ascending order, moving `start_match`'s index from five to six. `comman
 decodes the closed payload's one required `input_generation`, `null` or a positive safe integer,
 and never an actor identity: the session still stamps its own current body. The protocol version
 constant does not move; `3.0` covers the whole coordinated development release.
+
+Step 19 registers `charge` at the same two extension points, and the ordering consequences are the
+part of it worth reading twice. `component_encoding.hpp` gains the `Charge` specialization in
+`components/charge_component_encoding.hpp`, encoding exactly `activation_tick` then
+`cooldown_expiry_tick`; its fail-closed guard is **strict**, `cooldown_expiry_tick >
+activation_tick`, where the shield encoder's corresponding checks admit equality, because the
+authored charge cooldown is validated strictly positive and an empty window is unreachable rather
+than merely unusual. `kV3ComponentKindNames` grows to seventeen with `"charge"` **first**, ahead of
+`"contact_effect_admission"`, because component keys encode ascending by kind name — so a `charge`
+is the first key of every entity that carries one, and it is the first kind this protocol has added
+that did not land at the end.
+
+`command_wire_kind.hpp` gains the `ChargeCommand` specialization and `kV3ClientCommandKindNames`
+grows from seven to eight, and here the ordering is a hazard rather than a curiosity. That header
+selects names **by index**, `"charge"` sorts before `"clear_seat"` (`h` precedes `l`), and it
+therefore takes index `0` and renumbers **every** existing entry — where Step 18's `shield` moved
+exactly one. The file's two `static_assert`s check the count and surjectivity, both of which a
+consistently wrong permutation would satisfy, so every by-position index in that file was
+re-verified by hand rather than trusted. `command_decoding.cpp` decodes the closed
+`{x, y, input_generation?}` payload: `x` and `y` required and in `[-1, 1]`, the generation
+**optional** as on `set_thrust` rather than required-and-nullable as on `shield`, and no actor
+identity. The decoder does not normalize and does not judge the direction's magnitude — that is the
+ability system's, and this domain's job ends at the closed shape. The protocol version constant
+still does not move.

@@ -2,6 +2,7 @@ add_subdirectory(observability)
 
 add_executable(blob_simulation_unit_tests
   simulation/bounded_name_promotion_tests.cpp
+  simulation/charge_component_tests.cpp
   simulation/command_kind_mask_tests.cpp
   simulation/command_registry_tests.cpp
   simulation/component_join_tests.cpp

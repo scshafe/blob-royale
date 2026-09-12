@@ -532,6 +532,22 @@ header, the benchmark JSON `schema_migration` string, and `benchmarks/README.md`
 migration, and historical review/baseline artifacts remain evidence of their original inputs.
 This does not certify native performance.
 
+### Historical input schema migration, 2026-09-12 (dynamic-arena plan Step 19)
+
+The same required `[abilities]` section gains charge's three keys, so the historical fixture also
+authors `charge_cooldown_seconds=1.2`, `charge_speed_fraction=0.75` and
+`charge_safety_envelope_speed=20000`. Those are again exactly
+`gameplay::AbilityConfiguration::defaults()`, so the fixture writes down what it would otherwise
+have inherited and no measured royale input changes. The fraction is dimensionless: it multiplies
+the fixture's own authored 10000 wu/s ceiling rather than naming a speed, which is why a value
+that reads large against this fixture is the same 0.75 gain the shipped 600 wu/s deployment uses.
+The royale case sends no `charge` command, so what this migration arms is the shared ability
+system's charge expiry pass; that pass, like Step 18's, is the step's own workload change and
+belongs to the step rather than to this derivation. The fixture stays a schema-only derivation of
+the source commit above, its provenance header, the benchmark JSON `schema_migration` string, and
+`benchmarks/README.md` name the same migration, and historical review/baseline artifacts remain
+evidence of their original inputs. This does not certify native performance.
+
 ## Amendment: canonical session-v3 routes, 2026-09-10 (plan Step 7)
 
 The active directory is now `GET /api/v3/lobbies`, and room joins use

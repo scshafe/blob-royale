@@ -1,5 +1,6 @@
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
+#include "commands/charge_command.hpp"
 #include "commands/clear_seat_command.hpp"
 #include "commands/despawn_command.hpp"
 #include "commands/join_command.hpp"
@@ -56,6 +57,13 @@ shield(const simulation::EntityId::Value entity,
       simulation::ShieldCommand{simulation::EntityId::create(entity), generation}};
 }
 
+[[nodiscard]] simulation::Command
+charge(const simulation::EntityId::Value entity, const double x = 1.0, const double y = 0.0,
+       const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::Command{simulation::ChargeCommand{
+      simulation::EntityId::create(entity), simulation::Vector2::create(x, y), generation}};
+}
+
 // "<wire name>:<addressed identity>", which is exactly what the canonical order is stated over.
 [[nodiscard]] std::string describe(const simulation::Command& command) {
   const std::string name{simulation::command_kind_name_of(simulation::command_kind_of(command))};
@@ -70,6 +78,10 @@ shield(const simulation::EntityId::Value entity,
   if (const auto* shield_command = std::get_if<simulation::ShieldCommand>(&command);
       shield_command != nullptr) {
     return name + ":" + std::to_string(shield_command->entity.value());
+  }
+  if (const auto* charge_command = std::get_if<simulation::ChargeCommand>(&command);
+      charge_command != nullptr) {
+    return name + ":" + std::to_string(charge_command->entity.value());
   }
   return name + ":" + std::to_string(std::get<simulation::ThrustCommand>(command).entity.value());
 }
@@ -226,6 +238,132 @@ TEST_CASE("InputBatch rejects a shield the mode does not accept",
   try {
     static_cast<void>(simulation::InputBatch::create({shield(5)}, thrust_only, reservation()));
     FAIL("a shield absent from the accepted set was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kInputBatchCommandKindNotAccepted);
+    CHECK(error.context() == "input_batch.commands.kind");
+  }
+}
+
+TEST_CASE("InputBatch accepts a charge with no generation and one with a positive generation",
+          "[unit][simulation][input_batch][charge]") {
+  // Absence is the token of an entity whose input has never been invalidated, so a charge that
+  // carries none is the ordinary first press rather than a malformed one.
+  for (const auto generation :
+       {std::optional<simulation::TickSequence>{},
+        std::optional{simulation::TickSequence::create(1)},
+        std::optional{simulation::TickSequence::create(simulation::TickSequence::kMaximumValue)}}) {
+    const simulation::Command command = charge(5, 0.6, -0.8, generation);
+    const simulation::InputBatch batch = simulation::InputBatch::create(
+        {command}, simulation::CommandKindMask::all(), reservation());
+
+    REQUIRE(batch.commands().size() == 1);
+    CHECK(batch.commands()[0] == command);
+  }
+}
+
+TEST_CASE("InputBatch rejects a charge carrying a present zero input generation",
+          "[unit][simulation][input_batch][charge][validation]") {
+  // The same rule the thrust and the shield arms enforce, reported on the charge's own context so a
+  // log names the press that was malformed rather than a command the client never sent.
+  try {
+    static_cast<void>(
+        simulation::InputBatch::create({charge(5, 1.0, 0.0, simulation::TickSequence::zero())},
+                                       simulation::CommandKindMask::all(), reservation()));
+    FAIL("a present zero charge generation was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kInputBatchInputGenerationZero);
+    CHECK(error.code() == std::string_view{"SIMULATION.INPUT_BATCH_INPUT_GENERATION_ZERO"});
+    CHECK(error.context() == "input_batch.commands.charge.input_generation");
+  }
+}
+
+TEST_CASE("InputBatch rejects a charge direction component outside the unit interval",
+          "[unit][simulation][input_batch][charge][validation]") {
+  // One unit-interval bound answers for both kinds that carry a direction, so the code is the one
+  // the bound was named for and the context is what says which command was malformed.
+  try {
+    static_cast<void>(simulation::InputBatch::create(
+        {charge(5, 1.5, 0.0)}, simulation::CommandKindMask::all(), reservation()));
+    FAIL("an out-of-range charge direction was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kInputBatchThrustDirectionOutOfRange);
+    CHECK(error.code() == std::string_view{"SIMULATION.INPUT_BATCH_THRUST_DIRECTION_OUT_OF_RANGE"});
+    CHECK(error.context() == "input_batch.commands.charge.direction");
+  }
+}
+
+TEST_CASE("InputBatch rejects an out-of-range charge direction on either component",
+          "[unit][simulation][input_batch][charge][validation]") {
+  const auto rejects = [](const double x, const double y) {
+    try {
+      static_cast<void>(simulation::InputBatch::create(
+          {charge(5, x, y)}, simulation::CommandKindMask::all(), reservation()));
+      return false;
+    } catch (const simulation::SimulationValidationError& error) {
+      return error.validation_code() ==
+             simulation::SimulationValidationCode::kInputBatchThrustDirectionOutOfRange;
+    }
+  };
+
+  CHECK(rejects(0.0, -1.000000001));
+  CHECK(rejects(-2.0, 0.0));
+  CHECK_FALSE(rejects(-1.0, 1.0));
+  // Zero passes intake and is refused later, silently, by the ability system: a direction that
+  // cannot be normalized is a world question, and this factory has no world to ask.
+  CHECK_FALSE(rejects(0.0, 0.0));
+}
+
+TEST_CASE("InputBatch carries a charge direction verbatim for the ability system to normalize",
+          "[unit][simulation][input_batch][charge]") {
+  // Normalizing here and again at `kPreKernel` would scale twice and is not bit-identical to
+  // scaling once, which is exactly why the thrust is carried verbatim too.
+  const simulation::InputBatch batch = simulation::InputBatch::create(
+      {charge(5, 0.25, -0.5)}, simulation::CommandKindMask::all(), reservation());
+
+  REQUIRE(batch.commands().size() == 1);
+  CHECK(std::get<simulation::ChargeCommand>(batch.commands()[0]).direction ==
+        simulation::Vector2::create(0.25, -0.5));
+}
+
+TEST_CASE("InputBatch keeps the last charge an entity submitted in one tick",
+          "[unit][simulation][input_batch][charge]") {
+  // A held button is one decision per tick, and for a one-shot ability the last heading is the one
+  // that fires: a second press inside one tick could not have been honoured anyway.
+  const simulation::InputBatch batch = simulation::InputBatch::create(
+      {charge(5, 1.0, 0.0), charge(5, 0.0, 1.0), charge(5, -1.0, 0.0), charge(9)},
+      simulation::CommandKindMask::all(), reservation());
+
+  REQUIRE(batch.commands().size() == 2);
+  CHECK(batch.commands()[0] == charge(5, -1.0, 0.0));
+  CHECK(batch.commands()[1] == charge(9));
+}
+
+TEST_CASE("InputBatch orders a charge after every other kind that names the same entity",
+          "[unit][simulation][input_batch][charge]") {
+  // A charge is recorded rather than applied, so it takes the last application rank: a body the
+  // same batch despawned has no Controllable left to record it against. The two ability kinds'
+  // order between themselves carries no priority -- that is decided at `kPreKernel`.
+  const simulation::InputBatch batch =
+      simulation::InputBatch::create({charge(5), shield(5), thrust(5, 1.0, 0.0), despawn(5)},
+                                     simulation::CommandKindMask::all(), reservation());
+
+  CHECK(describe(batch) ==
+        std::vector<std::string>{"despawn:5", "thrust:5", "shield:5", "charge:5"});
+}
+
+TEST_CASE("InputBatch rejects a charge the mode does not accept",
+          "[unit][simulation][input_batch][charge][validation]") {
+  // A mode that fields no abilities never advertises the kind, and a charge reaching this factory
+  // anyway is the boundary disagreeing with the engine, which stays a hard failure.
+  const simulation::CommandKindMask shield_only =
+      simulation::CommandKindMask::none().with(simulation::CommandKind::kShield);
+
+  try {
+    static_cast<void>(simulation::InputBatch::create({charge(5)}, shield_only, reservation()));
+    FAIL("a charge absent from the accepted set was accepted");
   } catch (const simulation::SimulationValidationError& error) {
     CHECK(error.validation_code() ==
           simulation::SimulationValidationCode::kInputBatchCommandKindNotAccepted);

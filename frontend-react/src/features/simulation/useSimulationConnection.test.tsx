@@ -318,6 +318,7 @@ describe('useSimulationConnection', () => {
       // The golden welcome names mode `royale`, and royale advertised `shield` from plan Step 18
       // on 2026-09-12. The list is the example's, in the schema enum's ascending order.
       acceptedCommandKinds: [
+        'charge',
         'clear_seat',
         'seat_npc',
         'set_movement_tuning',

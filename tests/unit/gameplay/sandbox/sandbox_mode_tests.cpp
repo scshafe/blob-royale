@@ -57,13 +57,14 @@ TEST_CASE("SandboxMode declares free play with shared falling and configured ret
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
-  // Five: the four free play always had, plus `shield`, advertised only because sandbox also
-  // declares the `ability` system that admits it.
+  // Six: the four free play always had, plus `shield` and `charge`, advertised only because
+  // sandbox declares the one `ability` system that admits both of them. Free play still declares
+  // no lobby or tuning kind, so charge widened the ability half of this list and nothing else.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kLeave, simulation::CommandKind::kThrust,
-             simulation::CommandKind::kShield}));
+             simulation::CommandKind::kShield, simulation::CommandKind::kCharge}));
 
   const simulation::SystemPipeline systems = mode.systems();
   REQUIRE(systems.size() == 4);

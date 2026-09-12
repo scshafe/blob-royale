@@ -44,6 +44,8 @@ enum class CommandSubmissionResult : std::uint8_t {
   kRejectedNpcDeclarationUnknown = 16,
   kRejectedJoinDeclarationInvalid = 17,
   kRejectedShieldInputGenerationOutOfRange = 18,
+  kRejectedChargeDirectionOutOfRange = 19,
+  kRejectedChargeInputGenerationOutOfRange = 20,
 };
 
 // Whether the command is now pending for a tick. The two acceptances are the only values for which
@@ -99,6 +101,14 @@ command_submission_result_name(const CommandSubmissionResult result) noexcept {
   // press would name a command the client never sent.
   case CommandSubmissionResult::kRejectedShieldInputGenerationOutOfRange:
     return "rejected_shield_input_generation_out_of_range";
+  // A charge has two value rules and therefore two names, exactly as a thrust does. Collapsing them
+  // into one charge refusal would make the charge the only kind whose log cannot say which of its
+  // rules refused the submission -- and borrowing the thrust's two would name a command the client
+  // never sent, which is the reason the shield took its own name above.
+  case CommandSubmissionResult::kRejectedChargeDirectionOutOfRange:
+    return "rejected_charge_direction_out_of_range";
+  case CommandSubmissionResult::kRejectedChargeInputGenerationOutOfRange:
+    return "rejected_charge_input_generation_out_of_range";
   }
   return "command_submission_result_invalid";
 }

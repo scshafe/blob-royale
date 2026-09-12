@@ -182,6 +182,20 @@ describe('entityRendererRegistry', () => {
     expect(entityRendererRegistry.race_progress.renders).toBe(false);
   });
 
+  it('registers charge as non-visual while only its one-shot cooldown is authoritative', () => {
+    // Charge publishes two absolute endpoints and nothing else: the tick it fired on and the tick a
+    // second burst becomes admissible. The burst itself is already on screen -- it is velocity the
+    // physics body carries -- so a charge renderer would either repaint motion that is drawn or
+    // invent an effect the server never published. Step 20 owns the cooldown arc the activation
+    // endpoint supplies a denominator for, so this registration exists to make the absence a
+    // decision rather than an omission -- and the pinned draw order below stays exactly as it was,
+    // because a kind that draws nothing must not move a single existing layer.
+    expect(entityRendererRegistry.charge.renders).toBe(false);
+    expect(
+      visualEntityRenderers().some((renderer) => renderer.kind === 'charge'),
+    ).toBe(false);
+  });
+
   it('registers shield as non-visual while only its windows are authoritative', () => {
     // Shield publishes four absolute endpoints and a captured stun duration: timing state the HUD
     // reads, with no geometry of its own. Step 20 owns shield, perfect and stun presentation, so

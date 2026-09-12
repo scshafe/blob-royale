@@ -50,7 +50,7 @@ system_names_at(const simulation::SystemPipeline& pipeline, const simulation::Sy
 
 } // namespace
 
-TEST_CASE("RaceMode declares the fourth game with the shared contact rows and ten commands",
+TEST_CASE("RaceMode declares the fourth game with the shared contact rows and twelve commands",
           "[unit][gameplay][race][mode]") {
   const gameplay::RaceMode mode{testing::race_test_configuration()};
   CHECK(mode.name() == std::string_view{"race"});
@@ -64,16 +64,17 @@ TEST_CASE("RaceMode declares the fourth game with the shared contact rows and te
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
-  // Eleven kinds, `shield` included, and advertised only because this mode also declares the
-  // `ability` system that admits it.
+  // Twelve kinds, `shield` and `charge` included, and both advertised only because this mode
+  // declares the one `ability` system that admits both of them. A finished racer is refused either
+  // by the canonical input lock, not by a shorter mask, so the list does not vary with progress.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
-             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
-             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
-             simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
+             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
+             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
+             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
   CHECK(gameplay::GameModeRegistry::contains("race"));

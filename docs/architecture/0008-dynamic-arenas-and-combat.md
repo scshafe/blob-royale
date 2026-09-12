@@ -2,7 +2,7 @@
 
 # 8. Dynamic arenas, player abilities, and tactical personalities
 
-* **Status:** Accepted 2026-09-10 at plan Step 1; not implemented, and the solver remains unproven until the plan's Step 5 prototype gate
+* **Status:** Design accepted 2026-09-10 at plan Step 1; revised prototype boundary accepted by the owner at Step 5 on 2026-09-11. Phase B is implemented; Phase C is authorized but its live-kernel and combat steps still require implementation and verification. Native performance/release certification remains deferred.
 * **Date:** 2026-09-10
 * **Baseline:** `b282a90`
 * **Decider:** Project owner
@@ -1180,3 +1180,25 @@ The narrow StunRequest test-foundation/Step 18 production exception is recorded 
 The detailed implementation/test contract is
 `docs/reviews/2026-09-11-stun-input-generation-review.md`. No unstunned fixture or existing bot
 random behavior changes, no new kernel policy socket, and no Phase C authority are implied.
+
+## Human acceptance of the physics prototype boundary, 2026-09-11 (plan Step 5)
+
+After the Step 15 completion handoff, the owner explicitly answered "yes" to approval of Step 5
+and commencement of Phase C. The handoff linked the revised Step 4a review and advisory baseline
+and surfaced the remaining numerical, repeat-contact, and shield-energy limitations. This accepts
+the reviewed Step 4/4a motion model together with Step 7a's repaired construction provenance;
+the original sloped/fractional and clipped-corner inputs are not accepted rejection cases.
+
+The accepted boundary retains bounded binary64 geometry and whole-sweep endpoint admission,
+initial overlap without depenetration, revision-based within-tick repeat suppression rather than
+once-per-encounter delivery, limited recovery search, and visible precision/work exhaustion.
+The ordinary shield's quarter-impulse proposal remains initial tuning with its documented
+external-energy behavior, not a new globally energy-conserving contract. Per-object touch versus
+closing-impact eligibility, player-center support loss, and ordinary post-perfect protection
+remain the already-resolved gameplay decisions.
+
+Phase C may now proceed in plan order without a motion-model redesign. Step 16 owns live solver
+and per-object-policy adoption; Step 17 owns production falling/race chronology; subsequent steps
+own shield, charge, visuals, and controls. Approval does not itself implement or verify those
+steps, change the 400 Hz clock or representation, certify native capacity/performance, or authorize
+push/deployment. Native evidence remains required for Step 24 performance/release claims.

@@ -48,11 +48,20 @@ const CURSOR_FIXTURE = Object.freeze({
   // A400/drag40 approaches9wu/s: eight units is observable within a bounded short hold.
   motionDistance: 8,
 });
+/**
+ * The retired steering keys that are still inert, which is now a strict subset of the eight Step 11a
+ * removed.
+ *
+ * ADR 0008 reserved that whole pool "for later charge/shield bindings", and plan Step 21 spent two
+ * of it on 2026-09-12: `KeyS` activates shield and `KeyD` activates charge. They are therefore no
+ * longer inert and asserting that they steer nothing would now be asserting the opposite of the
+ * contract. The six that remain still prove what this case exists to prove -- that no directional
+ * key steers -- and the two that left are covered by their own bindings in
+ * `useThrustInput.test.ts`, so nothing is untested by the move.
+ */
 const RETIRED_DIRECTION_KEYS = [
   'KeyW',
   'KeyA',
-  'KeyS',
-  'KeyD',
   'ArrowUp',
   'ArrowLeft',
   'ArrowDown',

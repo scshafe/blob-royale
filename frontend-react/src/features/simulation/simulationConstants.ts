@@ -30,6 +30,34 @@ export const WEBSOCKET_CONNECT_TIMEOUT_MILLISECONDS = 10_000;
 // client sends only on change and never once per animation frame.
 export const THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS = 50;
 export const THRUST_GO_KEY_CODE = 'Space';
+// The two ability bindings come out of the pool ADR 0008 already reserved: of Step 11a it records
+// that "WASD/arrows no longer steer after Step 11a; those keys are available for later
+// charge/shield bindings", and Step 11a froze exactly that pool as the fixtures' inert
+// `REMOVED_DIRECTION_KEYS`. `KeyS` is the home-row key under the middle finger of the hand whose
+// thumb holds the go key -- the fastest reachable code on the board, which belongs to the reactive
+// move -- and `KeyD` is adjacent under the index finger, keeping the ADR's own S-for-shield,
+// D-for-dash mnemonic. Both match on `event.code` exactly as the go key does, so the binding is
+// layout-independent; the four arrow codes stay reserved and stay asserted inert.
+//
+// Shift was rejected on evidence rather than taste, and the alternative is recorded here because a
+// reader would otherwise reach for it. The go-key guard deliberately filters `altKey`, `ctrlKey`
+// and `metaKey` and deliberately does *not* filter `shiftKey` -- a choice an existing test pins, so
+// Shift+Space thrusts today -- which means a bare-Shift shield would fire on the leading half of
+// every Shift+Tab a keyboard user makes; five presses of it is the Windows Sticky Keys gesture; it
+// is two codes (`ShiftLeft`/`ShiftRight`) against a one-constant-per-action model; and modifier
+// keys do not auto-repeat, so the key-repeat rule ADR 0008 requires could only ever pass vacuously
+// against it.
+export const SHIELD_KEY_CODE = 'KeyS';
+export const CHARGE_KEY_CODE = 'KeyD';
+// A pulse is a one-shot, so it has no change-only gate to bound its rate the way a thrust level
+// does, and this floor is the client's own side of the per-session command bucket: capacity 30,
+// refill 20 per second, the token charged before parsing, and an empty bucket is a `1008
+// command_rate_exceeded` close rather than a refusal. Held thrust with a moving cursor already runs
+// at the full refill rate, so two unthrottled ability keys on top of it disconnect a player
+// mid-match. A live published cooldown is the primary suppression; this is the backstop for the
+// window between a press and the snapshot that would show that cooldown. The authored cooldowns are
+// 0.9 s and 1.2 s, so a third of a second costs a player nothing they could have spent.
+export const ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS = 300;
 // A seat count is sent once, a quarter of a second after the last change: a dragged control emits
 // a change per step, and thirty steps in a burst would spend the session's whole command bucket.
 export const SEAT_COUNT_COMMAND_DEBOUNCE_MILLISECONDS = 250;

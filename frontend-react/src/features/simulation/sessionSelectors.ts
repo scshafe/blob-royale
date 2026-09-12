@@ -1,6 +1,11 @@
 import { SimulationApiError } from './SimulationApiError';
 import type { SimulationConnection } from './useSimulationConnection';
-import type { ThrustInputOptions } from './useThrustInput';
+import type {
+  AbilityUnavailability,
+  SimulationAbility,
+  ThrustDirection,
+  ThrustInputOptions,
+} from './useThrustInput';
 import type {
   SessionEntitySnapshot,
   SessionMatchSection,
@@ -98,31 +103,111 @@ function windowContainsTick(
 }
 
 /**
+ * One published window contains this frame's tick. Every argument is optional and every absence is
+ * the same answer: a component the frame does not carry and a frame carrying no tick are both "no
+ * live window", never containment. Stating that once is what lets an activation gate read one
+ * expression per window instead of guarding three absences at each of four call sites, and it is
+ * what makes a tick-less frame silence rather than a claim that a cooldown is over.
+ */
+function windowIsLive(
+  activationTick: number | undefined,
+  endpointTick: number | undefined,
+  tick: number | undefined,
+): boolean {
+  return (
+    activationTick !== undefined &&
+    endpointTick !== undefined &&
+    tick !== undefined &&
+    windowContainsTick(activationTick, endpointTick, tick)
+  );
+}
+
+/**
+ * Everything about the own blob that every own-body command shares, resolved once per frame: whether
+ * there is a body in this room to command at all, the one authoritative input lock, the generation
+ * token an activation must carry, and the tick every published window is read against.
+ *
+ * It exists as one resolution because two readers now ask these questions and must never answer them
+ * differently. `selectThrustInputOptions` builds the sole input owner's lifetime from it, and
+ * `abilityAvailabilityReport` builds the sentence an ability control shows. A control that said
+ * "stunned" on a frame the sender was still transmitting on, or that stayed live on a frame the
+ * sender had gone quiet, would be a second opinion about one authority. The rejected alternative is
+ * the obvious one -- let the availability selector re-read `stun`, `physics_body` and the tick for
+ * itself -- and it is exactly that second opinion, drifting the first time one of the two is edited.
+ *
+ * `bodyPresent` deliberately folds "not connected" and "seated in another room" into "there is no
+ * body here". They are not the same fact, but they are the same answer to the only question a
+ * control asks, the connection's own status already has a live region of its own at the top of
+ * `SimulationViewer`, and a control that tried to narrate a socket state would be explaining
+ * something no player can act on.
+ */
+interface OwnBodyFrame {
+  readonly bodyPresent: boolean;
+  readonly components: SessionEntitySnapshot['components'] | undefined;
+  readonly inputGeneration: number | undefined;
+  readonly inputLocked: boolean;
+  /** The snapshot tick every published window is read against; absent before the first frame. */
+  readonly tick: number | undefined;
+}
+
+function ownBodyFrame(
+  connection: SimulationConnection,
+  lobbyId: number | null,
+): OwnBodyFrame {
+  const ownEntity = findEntityById(connection.entities, connection.ownEntityId);
+  const components = ownEntity?.components;
+  const stun = components?.stun;
+  const tick = connection.snapshot?.data.tick_sequence;
+  return {
+    bodyPresent:
+      connection.status === 'connected' &&
+      components?.physics_body !== undefined &&
+      connection.session !== null &&
+      connection.session.lobbyId === lobbyId,
+    components,
+    inputGeneration: components?.controllable?.input_generation,
+    inputLocked:
+      stun !== undefined &&
+      tick !== undefined &&
+      windowContainsTick(stun.activation_tick, stun.expiry_tick, tick),
+    tick,
+  };
+}
+
+/**
  * @canonical session_thrust_input_options -- resolves body, authority, lock, and generation for
  * the feature's sole input owner. Validated absolute ticks determine stun availability; no local
  * countdown or render timing can unlock the player. Same-generation frames retain hook lifetime.
+ *
+ * `abilityUnavailable` travels with them because that same owner sends the ability pulses, and a key
+ * press must never do what the control beside it says is impossible. Its value is the published half
+ * of `publishedBlockingReason` below -- the same function the control's own sentence comes from, so
+ * the two cannot disagree about a cooldown -- reduced to the one bit a sender can act on. The one
+ * reason it omits is `no_aim`, which is not published state: aim lives inside the input owner, and
+ * feeding a hook's own state back in through its options would be a loop.
+ *
+ * The value is interned rather than built fresh. `SimulationFeature` rebuilds this whole object on
+ * every render, and the owner compares that member by identity to decide whether anything changed,
+ * so a fresh literal would report a change on every frame and rebuild an input lifetime that must
+ * survive a cooldown merely starting.
  */
 export function selectThrustInputOptions(
   connection: SimulationConnection,
   lobbyId: number | null,
 ): ThrustInputOptions {
-  const ownEntity = findEntityById(connection.entities, connection.ownEntityId);
-  const stun = ownEntity?.components.stun;
-  const tick = connection.snapshot?.data.tick_sequence;
+  const frame = ownBodyFrame(connection, lobbyId);
   return {
     enabled:
-      connection.status === 'connected' &&
-      ownEntity?.components.physics_body !== undefined &&
-      connection.session !== null &&
-      connection.session.lobbyId === lobbyId &&
-      connection.session.acceptedCommandKinds.includes('set_thrust'),
+      frame.bodyPresent &&
+      connection.session?.acceptedCommandKinds.includes('set_thrust') === true,
     session: connection.session,
     ownEntityId: connection.ownEntityId,
-    inputLocked:
-      stun !== undefined &&
-      tick !== undefined &&
-      windowContainsTick(stun.activation_tick, stun.expiry_tick, tick),
-    inputGeneration: ownEntity?.components.controllable?.input_generation,
+    inputLocked: frame.inputLocked,
+    inputGeneration: frame.inputGeneration,
+    abilityUnavailable: abilityUnavailability(
+      publishedBlockingReason('charge', connection, frame) !== null,
+      publishedBlockingReason('shield', connection, frame) !== null,
+    ),
     sendCommand: connection.sendCommand,
   };
 }
@@ -294,6 +379,293 @@ export function abilityStatusReport({
             tickSequence,
             ticksPerSecond,
           ),
+  };
+}
+
+/**
+ * Why a control cannot attempt its ability, as one stable token a component switches on and a test
+ * asserts. The prose belongs to the token rather than to the control, so one reason cannot be
+ * reworded into a different meaning in one of two places and a test can pin the cause instead of the
+ * sentence.
+ *
+ * `no_aim` is charge's alone. A shield pulse carries no direction at all -- its payload is the
+ * generation member and nothing else -- so there is no aim it could be missing.
+ */
+export type AbilityUnavailableReason =
+  | 'not_advertised'
+  | 'no_body'
+  | 'not_running'
+  | 'stunned'
+  | 'protection_active'
+  | 'cooling_down'
+  | 'no_aim';
+
+/**
+ * Nothing the client can see refuses this activation. That is emphatically not a claim the server
+ * will accept one -- charge's last gate is the safety envelope, which is deliberately server-side
+ * and never on the wire -- which is why the affirmative member is spelled `canAttempt`, why it is
+ * the *absence* of a named obstruction, and why no member of this report anywhere spells "ready".
+ */
+export interface AbilityAttemptable {
+  readonly kind: SimulationAbility;
+  readonly canAttempt: true;
+  readonly reason: null;
+  readonly explanation: null;
+}
+
+/** One named obstruction, with the one sentence a control shows for it. */
+export interface AbilityBlocked {
+  readonly kind: SimulationAbility;
+  readonly canAttempt: false;
+  readonly reason: AbilityUnavailableReason;
+  readonly explanation: string;
+}
+
+/**
+ * Discriminated on `canAttempt` so a control that renders the explanation gets a `string` rather
+ * than a `string | null` it would have to defend against with wording of its own.
+ */
+export type AbilityAvailability = AbilityAttemptable | AbilityBlocked;
+
+/** Both controls' answers for one frame, keyed by the command kind each of them sends. */
+export type AbilityAvailabilityReport = Readonly<
+  Record<SimulationAbility, AbilityAvailability>
+>;
+
+export interface AbilityAvailabilityInput {
+  readonly connection: SimulationConnection;
+  /**
+   * The input owner's remembered nonzero cursor aim -- `useThrustInput`'s `lastNonzeroAimDirection`,
+   * never its live `aimDirection`, because a cursor resting on the blob's exact centre has no
+   * direction and the remembered one is what an activation commits. `null` until a pointer has ever
+   * been inside the canvas.
+   */
+  readonly lastNonzeroAimDirection: ThrustDirection | null;
+  /** The room this view is in, which is the shell's decision and not the socket's. */
+  readonly lobbyId: number | null;
+}
+
+/**
+ * The four values of two booleans, interned. `abilityUnavailable` reaches `useThrustInput` inside
+ * `ThrustInputOptions` and `SimulationFeature` rebuilds that object on every render, so this value
+ * is compared by identity somewhere downstream whatever the owner does with it -- a dependency list,
+ * or a ref write it can skip. A fresh object literal per render would make every one of those
+ * comparisons report a change on frames where nothing changed, and the input owner must not be
+ * rebuilt when a cooldown merely starts: a rebuild re-declares `goHeld` and would drop the thrust a
+ * player is holding, and it would discard remembered aim, whose contracted discard set is body loss,
+ * body replacement, a new welcome and disconnect and does not include "a React render happened".
+ *
+ * Two booleans have four values, so exact identity costs four frozen objects rather than a memo hook
+ * in every caller, and "changing this never disturbs held thrust" becomes true by construction
+ * instead of true while every caller remembers to wrap the call.
+ */
+const NEITHER_SUPPRESSED: AbilityUnavailability = Object.freeze({
+  charge: false,
+  shield: false,
+});
+const CHARGE_SUPPRESSED: AbilityUnavailability = Object.freeze({
+  charge: true,
+  shield: false,
+});
+const SHIELD_SUPPRESSED: AbilityUnavailability = Object.freeze({
+  charge: false,
+  shield: true,
+});
+const BOTH_SUPPRESSED: AbilityUnavailability = Object.freeze({
+  charge: true,
+  shield: true,
+});
+
+function abilityUnavailability(
+  charge: boolean,
+  shield: boolean,
+): AbilityUnavailability {
+  if (charge) {
+    return shield ? BOTH_SUPPRESSED : CHARGE_SUPPRESSED;
+  }
+  return shield ? SHIELD_SUPPRESSED : NEITHER_SUPPRESSED;
+}
+
+/**
+ * A direction the wire would actually act on. `null` is the player who has never aimed, and a zero
+ * vector is refused in silence: `charge-command.schema.json` records that a direction whose
+ * magnitude is zero "is a silent refusal that consumes no cooldown, never a scaled-down burst". Both
+ * are therefore "no aim yet" here, because a control must not offer an attempt that would vanish.
+ * Non-finite components cannot arrive -- `useThrustInput.directionForAim` raises
+ * SIMULATION.SESSION_INVARIANT_VIOLATION rather than remembering one -- so nothing is checked twice.
+ */
+function hasAim(aim: ThrustDirection | null): boolean {
+  return aim !== null && (aim.x !== 0 || aim.y !== 0);
+}
+
+/**
+ * The published half of the answer, resolved in the server's own gate order
+ * (`src/gameplay/shared/ability_system.cpp`), so the single sentence a control shows names the gate
+ * that would really refuse this pulse first rather than whichever check this file happened to write
+ * first. Each is a reason the client can genuinely see; none of them is a claim about readiness.
+ *
+ * 1. `not_advertised` -- the per-kind capability. `SimulationApi.sendCommand` returns false for a
+ *    kind the welcome did not accept, before anything reaches the socket, and the server boundary
+ *    would close `1008 command_kind_rejected` if one ever did. `enabled` above checks `set_thrust`
+ *    alone, so without this a control for an unadvertised kind would look live and silently no-op.
+ *    It is asked only once a welcome exists: before that there is no vocabulary to be missing from,
+ *    and the missing body below is the truthful answer instead.
+ * 2. `no_body` -- the ability stage is a join over `Controllable` and `PhysicsBody` and never visits
+ *    a bodyless entity, which is the ordinary state of an eliminated or not-yet-seated player.
+ * 3. `not_running` -- "Abilities are a running-match mechanic. A pulse in `lobby`, `countdown` or
+ *    `ended` is refused rather than held." It also subsumes that stage's tick-zero refusal without a
+ *    reason of its own: a match that has never run has never left `lobby`
+ *    (`src/simulation/match_state.hpp`), so no frame is both running and at the loaded initial tick.
+ * 4. `stunned` -- the canonical input lock, and literally the same boolean the thrust sender obeys,
+ *    because both read it from `ownBodyFrame`.
+ * 5. `protection_active` -- live protection refuses **both** abilities, not only charge:
+ *    `shield_eligible` requires `!protection_active` because a re-tap would restart the perfect
+ *    opening, and the charge term requires it because a blob may not charge out of its own guard.
+ *    The contract's § "Availability" names only the charge half; the shield half is the same term of
+ *    the same expression, and it is the only thing refusing a re-tap in a room that authored a zero
+ *    shield cooldown -- the published frame Step 20 already had to guard a denominator for.
+ * 6. `cooling_down` -- this ability's own live published cooldown. It is an explanation and the
+ *    contract's primary rate mitigation at once: the per-session bucket is 30 burst and 20 refill
+ *    per second, exhausting it closes the socket with `1008 command_rate_exceeded` rather than
+ *    refusing a command, and held thrust already runs at the full refill rate.
+ *
+ * **Both windows are read through `windowContainsTick`, and deliberately not through
+ * `abilityStatusReport`.** That report is the same three windows read against the same tick, and it
+ * remains the only place they become the seconds a HUD row shows -- but it needs a positive
+ * `ticks_per_second` to divide by and returns nothing at all without one. An activation gate must
+ * not be able to fall open because a cadence was missing, and containment needs no cadence. The two
+ * still read the same components through the same one predicate, so a row saying "Cooling 0.6 s" and
+ * a control saying "Shield is cooling down" cannot disagree about whether the window is live.
+ */
+function publishedBlockingReason(
+  kind: SimulationAbility,
+  connection: SimulationConnection,
+  frame: OwnBodyFrame,
+): AbilityUnavailableReason | null {
+  const session = connection.session;
+  if (session !== null && !session.acceptedCommandKinds.includes(kind)) {
+    return 'not_advertised';
+  }
+  if (!frame.bodyPresent) {
+    return 'no_body';
+  }
+  if (connection.match?.phase !== 'running') {
+    return 'not_running';
+  }
+  if (frame.inputLocked) {
+    return 'stunned';
+  }
+  const shield = frame.components?.shield;
+  const protectionActive = windowIsLive(
+    shield?.activation_tick,
+    shield?.shield_expiry_tick,
+    frame.tick,
+  );
+  if (protectionActive) {
+    return 'protection_active';
+  }
+  const cooldownSource = kind === 'shield' ? shield : frame.components?.charge;
+  const coolingDown = windowIsLive(
+    cooldownSource?.activation_tick,
+    cooldownSource?.cooldown_expiry_tick,
+    frame.tick,
+  );
+  if (coolingDown) {
+    return 'cooling_down';
+  }
+  return null;
+}
+
+function explainReason(
+  kind: SimulationAbility,
+  reason: AbilityUnavailableReason,
+): string {
+  switch (reason) {
+    case 'not_advertised':
+      return `This room does not accept the ${kind} command.`;
+    case 'no_body':
+      return 'Your blob is not in play.';
+    case 'not_running':
+      return 'The match is not running.';
+    case 'stunned':
+      return 'Your blob is stunned.';
+    case 'protection_active':
+      return kind === 'shield'
+        ? 'Your shield is still up.'
+        : 'You cannot charge out of your own shield.';
+    case 'cooling_down':
+      return kind === 'shield'
+        ? 'Shield is cooling down.'
+        : 'Charge is cooling down.';
+    case 'no_aim':
+      return 'Move the pointer over the arena to aim first.';
+  }
+}
+
+function availabilityOf(
+  kind: SimulationAbility,
+  reason: AbilityUnavailableReason | null,
+): AbilityAvailability {
+  return reason === null
+    ? { kind, canAttempt: true, reason: null, explanation: null }
+    : {
+        kind,
+        canAttempt: false,
+        reason,
+        explanation: explainReason(kind, reason),
+      };
+}
+
+/**
+ * @canonical session_ability_availability -- whether an ability control may attempt its ability, or
+ * the one named reason it may not, computed from published state and this frame's tick alone.
+ *
+ * **It never claims readiness, which is Step 20's rule kept rather than a caution repeated.**
+ * `canAttempt` says only that no reason the client can see refuses this activation. It is not a
+ * prediction that the server will accept one: charge's final refusal is the authored safety
+ * envelope, which is deliberately server-side and not on the wire, and the shield's authored window
+ * length is never published either. So every value here is that negative, there is no `isReady`
+ * member, and no sentence spells "ready" or "available" -- either word would be a lie on exactly the
+ * frames a player would act on it. An elapsed cooldown is "cooldown over" and nothing more.
+ *
+ * **Two readers, one answer.** `publishedBlockingReason` is shared with `selectThrustInputOptions`,
+ * which folds it into the input owner's `abilityUnavailable`, so the key and the button refuse for
+ * the same reasons at the same instant and a press cannot do what the control beside it says is
+ * impossible. Exactly one reason is outside that shared half, and it is the last one asked:
+ * `no_aim` is client-local, so it is an input here rather than a read.
+ *
+ * **Why aim is an input.** Cursor aim belongs to `useThrustInput`, the one normalization owner, and
+ * nothing else may invent one or re-derive it from pointer geometry. It arrives here as a value that
+ * hook already published; a control's own `onClick` must still resolve the direction it sends inside
+ * that hook's effect, because this exposed value can lag the closure by a commit.
+ *
+ * **The named limitation, and it is an accessibility gap rather than an oversight.** Aim exists only
+ * for a mouse pointer inside the canvas, so for a touch, pen or keyboard-only player no aim ever
+ * exists: charge reports `no_aim` permanently, with its explanation showing, which is at least the
+ * honest rendering of it. Shield is unaffected, being a pulse with no direction. Inventing a keyboard
+ * aim is outside this step's authorized scope, so the gap is recorded here and named to the owner
+ * rather than shipped quietly.
+ *
+ * **A frame with no tick states nothing rather than claiming a window is over.** No published window
+ * can be read without a tick, so no window reason can fire; in the live client that frame has no
+ * entities either -- they are only ever set from a snapshot -- so `no_body` answers it before any
+ * window is consulted. Nothing here divides, throws, or reads a countdown of its own.
+ */
+export function abilityAvailabilityReport({
+  connection,
+  lastNonzeroAimDirection,
+  lobbyId,
+}: AbilityAvailabilityInput): AbilityAvailabilityReport {
+  const frame = ownBodyFrame(connection, lobbyId);
+  const chargeReason =
+    publishedBlockingReason('charge', connection, frame) ??
+    (hasAim(lastNonzeroAimDirection) ? null : 'no_aim');
+  return {
+    charge: availabilityOf('charge', chargeReason),
+    shield: availabilityOf(
+      'shield',
+      publishedBlockingReason('shield', connection, frame),
+    ),
   };
 }
 

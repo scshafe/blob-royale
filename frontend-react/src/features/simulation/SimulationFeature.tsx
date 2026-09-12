@@ -8,7 +8,10 @@ import { useRoomNavigation } from './useRoomNavigation';
 import { useSimulationConnection } from './useSimulationConnection';
 import { useThrustInput } from './useThrustInput';
 import { useMovementTuning } from './useMovementTuning';
-import { selectThrustInputOptions } from './sessionSelectors';
+import {
+  abilityAvailabilityReport,
+  selectThrustInputOptions,
+} from './sessionSelectors';
 
 /**
  * The root of the feature, and deliberately the only place its three long-lived things meet: where
@@ -34,6 +37,18 @@ export function SimulationFeature() {
   const thrust = useThrustInput(
     selectThrustInputOptions(connection, navigation.lobbyId),
   );
+  // What the on-screen controls say is resolved here rather than in the view, and it is resolved
+  // after the input owner rather than beside it: every other reason a control can give comes from
+  // the published frame, but "no aim yet" is remembered pointer state, and the input owner is the
+  // only thing that holds it. `selectThrustInputOptions` reads the same rule without that member,
+  // because the hook resolves the charge direction inside its own effect, where a remembered value
+  // cannot lag a commit -- so the suppression it applies and the sentence a player reads here are
+  // one rule, evaluated twice, rather than two rules that could disagree.
+  const abilityControls = abilityAvailabilityReport({
+    connection,
+    lastNonzeroAimDirection: thrust.lastNonzeroAimDirection,
+    lobbyId: navigation.lobbyId,
+  });
 
   const { leave } = navigation;
   const refusal = connection.status === 'refused' ? connection.error : null;
@@ -58,10 +73,12 @@ export function SimulationFeature() {
         />
       ) : (
         <SimulationViewer
+          abilityControls={abilityControls}
           connection={connection}
           lobbyId={navigation.lobbyId}
           movementTuning={movementTuning}
           thrust={thrust.direction}
+          onActivateAbility={thrust.activateAbility}
           onAimObservation={thrust.observeAim}
         />
       )}

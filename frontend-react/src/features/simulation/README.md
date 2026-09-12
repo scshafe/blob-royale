@@ -6,7 +6,7 @@ This directory owns the browser's complete Blob Royale capability: choosing a ro
 
 **What a browser cannot see.** The server refuses a join it will not admit with `404 LOBBY.NOT_FOUND`, `409 LOBBY.FULL`, or `503 LOBBY.UNAVAILABLE`, but the WebSocket API never exposes the HTTP response a declined upgrade was refused with: from here every one of them is a socket that closed before it opened. `useSimulationConnection` therefore reads the directory once after such a close and derives the refusal from the listing -- full, not serving, or not listed -- and sends the player back to the directory with that sentence as the notice, never retrying; a listing that predicts no refusal, or a directory that cannot be read, means the close was transport and keeps the bounded backoff. The one refusal that arrives as the server's own words is `1013 lobby_full`, the last-seat race lost after admission, which is a close reason and is read as one. `lobbyDirectorySelectors.ts` holds the rule and every sentence, so the directory's disabled Join buttons and the connection's refusals cannot disagree. The directory also predicts the one refusal admission cannot: a room whose every seat is filled past `countdown`, or filled with no bot to displace, has no seat a join could take, and its Join is disabled with that sentence rather than letting a hopeful session be closed `lobby_full`.
 
-`SimulationApi` is the only transport implementation. It fetches immutable protocol v1 configuration without browser credentials, reads the lobby directory without caching it, enforces 10-second fetch and socket-connect timeouts, owns at most one room session socket (`/api/v3/lobbies/<id>/session`), validates the welcome, every snapshot, the directory, and every v3 failure envelope against the accepted v3 schemas before a component sees them, and is the only file in the domain that writes to a socket. `useSimulationConnection` is the only connection-state and reconnect policy: every retry uses a fresh API and configuration fetch, clears stale session state, follows the finite 1/2/4/8/16/16-second backoff sequence, and resets that budget only after a valid snapshot. `useThrustInput` is the only place a keyboard becomes a command. The canvas, HUD, overlay, debug panel, and viewer are presentational and receive only validated readonly values.
+`SimulationApi` is the only transport implementation. It fetches immutable protocol v1 configuration without browser credentials, reads the lobby directory without caching it, enforces 10-second fetch and socket-connect timeouts, owns at most one room session socket (`/api/v3/lobbies/<id>/session`), validates the welcome, every snapshot, the directory, and every v3 failure envelope against the accepted v3 schemas before a component sees them, and is the only file in the domain that writes to a socket. `useSimulationConnection` is the only connection-state and reconnect policy: every retry uses a fresh API and configuration fetch, clears stale session state, follows the finite 1/2/4/8/16/16-second backoff sequence, and resets that budget only after a valid snapshot. `useThrustInput` is the only place a keyboard, or an ability button, becomes a command. The canvas, HUD, overlay, debug panel, and viewer are presentational and receive only validated readonly values.
 
 Two rules of the wire shape this domain and are worth restating here. The own body is resolved every frame by `controllable.controller_id`, never from `welcome.entity_id`, because elimination and the lobby wipe destroy an entity and the server seats the same controller on a new one. And an open socket with no frames is the ordinary state of a joiner the mode has deferred to the next lobby, not a failure to connect.
 
@@ -162,7 +162,8 @@ not propulsion, and WASD/arrows no longer generate thrust. An observed body/sess
 old activation; the wire cannot reveal same-entity body recreation wholly between snapshots.
 
 `selectThrustInputOptions` is the shared feature/test composition for owned body availability,
-session authority, observed stun containment, and persistent `controllable.input_generation`.
+session authority, observed stun containment, persistent `controllable.input_generation`, and, since
+Step 21, the published half of each ability's suppression.
 Stun locks against the authoritative snapshot's `[activation_tick, expiry_tick)` window; elapsed
 browser time cannot unlock it. A fresh non-repeat Space press captures the exact optional
 generation, and every held aim update and zero release retains that activation token. A generation
@@ -182,14 +183,15 @@ snapshot tick, `activation_tick <= perfect_expiry_tick <= shield_expiry_tick`,
 protection window is **valid**, not a violation: a stun cancels protection by shortening it to the
 cancellation tick while the cooldown keeps running, so a live component with no protection left is
 an ordinary frame. Read the intervals against the snapshot's own tick; elapsed browser time unlocks
-nothing, exactly as with stun. This step adds no sender — keys and buttons are the controls step, so
-`SimulationApi` is still the only file in the domain that writes to a socket, and the outbound
-`SessionCommand` union carries the shield shape without anything constructing one yet.
+nothing, exactly as with stun. Step 18 added no sender for it — keys and buttons were the controls
+step — and Step 21 is that step: `SimulationApi` is still the only file in the domain that writes to
+a socket, and the shield shape the outbound `SessionCommand` union has carried since Step 18 is now
+constructed, with the explicit `input_generation: null` its schema requires.
 
-`charge` arrived a step later, in protocol 3.0's Step 19, as the second outbound command shape with
-no sender behind it — and it is the one ability component still registered non-visually. As of
-Step 20 that is a settled decision rather than a deferral, and its reason says so instead of
-pointing at the step that would resolve it. The component publishes only
+`charge` arrived a step later, in protocol 3.0's Step 19, as the second outbound command shape and
+the second to wait until Step 21 for a sender — and it is the one ability component still registered
+non-visually. As of Step 20 that is a settled decision rather than a deferral, and its reason says
+so instead of pointing at the step that would resolve it. The component publishes only
 `activation_tick` and `cooldown_expiry_tick`, and `sessionProtocolValidation` checks the two
 orderings JSON Schema cannot — activation at most the snapshot tick, and `cooldown_expiry_tick`
 **strictly** greater than `activation_tick`. That strictness is the one place a reader must not
@@ -200,8 +202,10 @@ nothing.
 
 Two client-side traps are worth naming because both are ways to draw a confident lie. **The
 direction is not a strength**: the outbound `charge` payload's `x` and `y` are normalized by the
-server, so `{x: 0.5, y: 0}` charges exactly as hard as `{x: 1, y: 0}`, and a future control must
-not scale a burst by pointer distance the way an analog thrust legitimately may. Its
+server, so `{x: 0.5, y: 0}` charges exactly as hard as `{x: 1, y: 0}`, and a control must not scale
+a burst by pointer distance the way an analog thrust legitimately may — Step 21's sends the same
+normalized unit aim the thrust path produces, and nothing between the pointer and the wire carries a
+magnitude. Its
 `input_generation` is **optional** — omitted, never null — following `set_thrust` rather than
 `shield`, because the payload has other required members. **And the burst does not decay.** The
 server ships `drag_per_second=0`, so a charged body keeps its speed until something else changes it,
@@ -293,5 +297,194 @@ the right numbers under translation, manual and follow camera, edge view, fracti
 ratio and resize. It does not say that a cliff reads as a cliff, or that a perfect mark is legible
 in the eighty milliseconds it exists. That judgement is the owner's, from images, not from this
 suite.
+
+**Ability controls take two keys the arena already gave up.** Step 21 binds shield to
+`SHIELD_KEY_CODE = 'KeyS'` and charge to `CHARGE_KEY_CODE = 'KeyD'`, matched on `event.code` beside
+`THRUST_GO_KEY_CODE` so both are layout-independent rather than letter-independent. The pool is not
+an arbitrary reach: ADR 0008 records of Step 11a that WASD and the arrows no longer steer and that
+those keys are available for later charge and shield bindings, and Step 11a froze exactly that pool
+as `REMOVED_DIRECTION_KEYS` and pinned its inertness in three tests. Spending two of them shrinks
+that pool to `KeyW`, `KeyA` and the four arrow codes, which stay reserved and stay asserted inert,
+and turns the two it spent from stale reserved-key assertions into the binding cases the ability
+tests press. This is not the return of directional steering: neither ability key steers anything,
+and a held ability key is not a held axis. `KeyS` is the home-row key under the middle finger of the
+hand whose thumb holds Space — the fastest key to reach without moving the go hand — and shield is
+the reactive move; `KeyD` is adjacent under the index finger, and S for shield, D for dash is
+ADR 0008's own mnemonic. Both abilities also get ordinary on-screen buttons, which are the
+accessible path rather than a convenience, and both paths run through one activation function.
+
+**Shift was rejected, and not as a matter of taste.** ADR 0008 proposed Shift for shield, and a
+dated amendment supersedes that proposal there rather than leaving two answers on the record. The
+go-key guard filters `altKey`, `ctrlKey` and `metaKey` and deliberately does _not_ filter
+`shiftKey` — the pinned modifier test enumerates exactly those three plus `isComposing` — so
+Shift+Space thrusts today, and a bare-Shift shield would therefore fire on the leading half of every
+Shift+Tab a keyboard user makes. Five presses of Shift is also the Windows Sticky Keys gesture;
+Shift is two codes, `ShiftLeft` and `ShiftRight`, against a one-constant-per-action model; and
+modifier keys do not auto-repeat at all, so the key-repeat rule ADR 0008 requires could only have
+passed vacuously against it.
+
+**One input owner, and deliberately not one send path.** The ability bindings live inside
+`useThrustInput`'s one layout effect and inherit its whole lifecycle for free: the editing and
+camera-button guard, the camera-gesture and blur cancellations, and the body, session, welcome and
+`input_generation` lifetime that already decides when held thrust dies. What they do not reuse is
+`flush`, and the distance between "the existing sender" and "the existing send path" is the whole
+point. `flush` implements a _level_: its change-only gate would silently swallow a second identical
+pulse, which for a pulse is not a redundant send but the player's next shield; its 50 ms coalescing
+timer would park that pulse for up to 50 ms against an 80 ms perfect opening; its single parked
+timer can drop a pending send on an effect re-run; its `currentTransmission.direction` bookkeeping
+is level state a pulse does not have; and its shared refusal latch means one refused ability send
+would drop held thrust with it. What an ability reuses is the `sendCommand` reference and the guards
+around it, never the fifty-odd lines of level semantics; the activation path does not even read the
+sender's result, because consulting it would be the first step back toward that shared latch.
+
+**Two seams carry the abilities, and both exist to keep them out of the input lifetime.**
+`ThrustInputOptions` gains `abilityUnavailable`, one boolean per `SimulationAbility`, and
+`ThrustInputControls` gains `activateAbility(ability)` — the stable activation boundary a button
+calls, exactly as `observeAim` is the stable observational boundary the Canvas calls. Availability
+moves with almost every snapshot and the input effect must not be rebuilt when it does: a rebuild
+re-declares `goHeld`, so a cooldown merely _starting_ would drop the thrust a player is holding. So
+availability is written to a ref after every commit and read only from inside an event handler, and
+the effect keeps the narrow dependency list Step 11a gave it. `activateAbility` returns nothing on
+purpose — a successful send is not an activation, only the published component proves the tick
+admitted the pulse — so no caller can manufacture readiness out of having called it. And
+`SimulationAbility` is `Extract<SessionCommandKind, 'charge' | 'shield'>` rather than a fresh string
+union, so a renamed or retired command kind is a compile error here instead of a binding that
+silently sends nothing. `ThrustTransmission` became `InputTransmission` in the same step, because
+what it carries across a rebuild is now the session's input rather than thrust alone: the remembered
+aim and the per-ability last-attempt timestamps are body state, and re-deriving them from nothing on
+every rebuild is exactly the bug described next.
+
+**Rate discipline is mandatory, because the bucket closes the socket rather than refusing.** The
+per-session command budget is a token bucket of capacity 30 refilling at 20 per second, the token is
+charged before any parsing, and an exhausted bucket is `1008 command_rate_exceeded` — a disconnect
+mid-match, not a refused command. Held thrust with a moving cursor already runs at the full 20/s
+refill rate, so two unthrottled ability keys on top of it drain the burst in seconds, and they buy
+nothing doing it: the server's mailbox coalesces same-kind inputs, so several pulses inside one tick
+are at most one attempt. The primary mitigation is therefore published state rather than a timer —
+an activation is suppressed while the client can see a live cooldown for that ability — and
+`ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS`, applied per ability, is the backstop for the gap
+between a press and the snapshot that would show that cooldown. The authored cooldowns are
+`shield_cooldown_seconds=0.9` and `charge_cooldown_seconds=1.2`, so its third of a second costs a
+player nothing they could otherwise have spent.
+
+**The two payloads are not the same shape, and the wrong one fails silently.** `charge` carries
+`x`, `y` and an _optional_ `input_generation`, exactly as `set_thrust` does, so it may reuse that
+expression verbatim. `shield` may not: its member is required and nullable, so the never-invalidated
+entity sends an explicit `input_generation: null` where charge omits the member entirely. Copying
+the thrust expression into shield produces `{}`, the closed envelope refuses it, and `sendCommand`
+logs a refusal and returns false — with no wire receipt, on exactly the players who have never been
+stunned, which is everyone at the moment they first press shield. The two are encoded separately and
+the never-invalidated case is tested for both. The charge direction is the same normalized aim the
+thrust path produces, and the rule above still holds on it: the server normalizes, so a direction is
+not a strength and pointer distance never becomes one.
+
+**Remembered aim now survives a stun, which it did not before this step.**
+`lastNonzeroAimDirection` is a closure-local of the layout effect, and that effect's dependencies
+include `inputLocked` and `inputGeneration` — so every stun rebuilt the closure and wiped the
+remembered aim, leaving a just-unstunned player with no aim to charge along until they moved the
+mouse. The contracted discard set is body loss, body replacement, a new welcome, and disconnect, and
+nothing else; the same-body condition that already carries the transmission across a generation or
+lock change now carries the remembered aim on `InputTransmission` too. The direction an activation
+sends is resolved _inside_ the effect by `chargeDirection`, never from the exposed React state in a
+button's `onClick`, because the exposed value can lag the closure by a commit. That one function is
+also the only place the fallback rule lives: current aim wins whenever it exists, an exact-centre
+cursor falls back to the remembered nonzero aim, and `null` means no aim has ever existed on this
+body. The fallback is deliberately the opposite of the centre-thrust rule two paragraphs of this
+file already state, and the asymmetry is the wire's: a level with no direction is honestly zero
+thrust, while a pulse with no direction is a zero vector the server refuses outright. And the
+ability keydown does not inherit the thrust path's `!hasObservation` guard: that guard is a
+held-control rule, and applying it here would refuse exactly the off-canvas case the last-nonzero
+fallback exists for.
+
+**A pulse still needs a held latch.** "A one-shot has no release" is true of what it sends and false
+of what it must observe. The thrust path rejects a repeat with `event.repeat || goHeld`, and the
+second half — the one keyup clears — is what makes it robust when a browser or a synthetic event
+omits `repeat`; each ability keeps the same latch in a per-ability `heldAbilityKeys` set, and every
+cancellation source clears it, blur included. Blur is exactly why the release is not left to keyup:
+a blur swallows the keyup, and a latch that outlives its press wedges the key, so the next real
+press reads as a repeat and that ability never fires again for the rest of the match. The latch
+records that the key is physically down rather than that a pulse went out, so it is set on every
+press this owner accepts and not only on one that sends: an activation suppressed by a live cooldown
+still has to refuse the auto-repeat streaming along behind it.
+
+**A button is a second repeat source, and it must not steal the go key.** A focused `<button>`
+activates on Enter _keydown_ and repeats while Enter is held, and it also activates on Space, which
+is propulsion. So each control takes both keys back: Enter and Space are prevented on the way in and
+re-expressed as exactly one activation per press through `event.repeat`, and Space is prevented on
+keyup as well, because keyup is where a space press actually activates a button. Behind both entry
+points is the one `activate` closure, with the same availability check, the same generation token
+and the same per-ability interval, so a button can never activate what a key could not. **And a
+click must hand Space back.** A click leaves the button focused, `blocksGameplayInput` then reads
+that focused button as UI and swallows the ability key, and the browser activates the focused button
+on the next Space — the go key would quietly become the shield key for the rest of the match. A
+click with a real pointer behind it (`event.detail > 0`) therefore blurs; a keyboard activation
+never reaches `onClick` at all, and an assistive technology's synthesized click carries no click
+count, so neither of them loses the focus its user is navigating with.
+
+**Availability says why not, and still never says ready.** Step 20's rule is unchanged, and it is
+why every value the `@canonical session_ability_availability` selector publishes
+(`abilityAvailabilityReport`) is a negative: `canAttempt` says only that no reason the client can
+see refuses this activation, there is no `isReady` member, and no sentence
+spells "ready" or "available", because charge's last refusal is the authored safety envelope, which
+is deliberately server-side and not on the wire. The reasons are asked in the server's own gate
+order, taken from `ability_system.cpp`, so the single sentence a control shows names the gate that
+would really refuse this pulse first rather than whichever check the selector happened to write
+first. The kind is not among this welcome's advertised commands — `sendCommand` returns false for an
+unadvertised kind before anything reaches the socket, so a control for one would otherwise look live
+and silently no-op. There is no body here to command, which deliberately folds "not connected" and
+"seated in another room" into the one answer a control can give. The match is not running, which
+also subsumes the tick-zero refusal, since a match that has never run has never left `lobby`. The
+blob is stunned — literally the boolean the thrust sender obeys, because both read one
+`ownBodyFrame`. Live shield protection, which refuses **both** abilities and not only charge: a
+re-tap would restart the perfect opening, a blob may not charge out of its own guard, and in a room
+that authored a zero shield cooldown this term is the only thing refusing the re-tap. This ability's
+own live published cooldown. And, for charge alone, no aim yet.
+
+**One authority, two readers, and one predicate.** `publishedBlockingReason` is shared:
+`selectThrustInputOptions` reduces it to the one bit a sender can act on and hands it to the input
+owner, while the report turns it into the sentence beside the button, so a key press cannot do what
+the control next to it says is impossible, and the two cannot drift the way a second copy of the
+rule would. The rejected alternative is the obvious one — let the availability selector re-read
+`stun`, `physics_body` and the tick for itself. Both window reads go through the plain containment
+predicate and deliberately _not_ through `abilityStatusReport`: that report reads the same windows
+against the same tick, but it needs a positive `ticks_per_second` to divide by and reports nothing
+at all without one, and an activation gate must never fall open because a cadence was missing. Same
+components, same predicate, so a row reading "Cooling 0.6 s" and a control reading "cooling down"
+cannot disagree about whether the window is live. The one reason outside the shared half is the aim,
+which is not published state at all: it lives inside the input owner, so it arrives as an _input_ to
+the report rather than a read — feeding a hook's own state back through its own options would be a
+loop — and a zero vector counts as no aim, because the charge schema records that a zero-magnitude
+direction is a silent refusal consuming no cooldown rather than a scaled-down burst.
+
+Those reasons and the controls live outside the Match-status table on purpose: that table is pinned
+against both `/ready/i` and `/available/i` — and "unavailable" contains the second — a second
+assertion pins its rowheader list exactly, and a control is not a status row in any case.
+
+**An unavailable control stays reachable, which is why it is not `disabled`.** The camera buttons
+and the lobby's Start express "present but not pressable" with the `disabled` attribute, and for
+them that is right: their reason is ambient and visible in the panel around them. Here the reason
+_is_ the control, and `disabled` removes the element from the tab order — so the one node whose
+`aria-describedby` carries that sentence would be the one node a screen-reader user could never land
+on. Each ability button therefore carries `aria-disabled`, refuses the press itself rather than
+having the browser refuse it, and lets `App.css` draw the look `:disabled` would have drawn. Each
+reason is a settled sentence and never a countdown: the seconds live in the ability rows of the
+status table, which read a published window against the frame's own tick, and a reason that changed
+every snapshot would be an `aria-describedby` re-read every snapshot. For the same reason the
+section is not a live region. Each button also advertises its key with `aria-keyshortcuts`, and both
+that label and the hint under the controls are derived from `SHIELD_KEY_CODE` and `CHARGE_KEY_CODE`
+rather than typed a second time, so a rebinding cannot leave the screen and the keyboard disagreeing.
+
+**The accessibility limitation, stated plainly rather than buried.** Aim exists only for a mouse
+pointer inside the canvas. `observeAim` is fed by the Canvas's pointer handlers, and
+`lastNonzeroAimDirection` only ever becomes nonzero after a pointer has moved over the arena, so a
+player using touch, a pen, or the keyboard alone never has an aim at all: shield is fully usable
+from the keyboard and from its button, being a pulse with no direction, and **charge is permanently
+unavailable to them**, reporting `no_aim` with "Move the pointer over the arena to aim first."
+showing forever — which is at least the honest rendering of it. In a step titled "accessible ability
+controls" that is a real gap, and it is recorded here rather than described as a niche case.
+Closing it means inventing a keyboard aim — a held direction, the last thrust direction, a target
+lock — which is a control design neither the plan nor ADR 0008 authorizes and which would be a
+second aim owner beside the cursor. It is therefore a named open question for the owner, not a
+shipped decision.
 
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v3`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

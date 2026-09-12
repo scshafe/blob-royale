@@ -1286,6 +1286,10 @@ momentum. Pointer distance and speed never scale acceleration. An exact-center p
 no direction and therefore zero thrust. WASD/arrows no longer steer after Step 11a; those keys are
 available for later charge/shield bindings, without assigning or implementing abilities here.
 The earlier proposed Space-for-charge binding is superseded. Left-drag camera panning remains.
+**Assigned 2026-09-12 (plan Step 21):** two of that reserved pool are now spent -- `KeyS` activates
+shield and `KeyD` activates charge -- and the four arrow codes stay reserved and stay asserted
+inert. See § "Amendment: accessible ability controls" below, which also records why the
+Shift-for-shield proposal in § "Stun and input lifecycle" is superseded rather than adopted.
 
 One canonical input owner retains direction, send throttling, and cancellation, observing the
 Canvas's existing shared projection rather than owning a second projection.
@@ -1625,3 +1629,53 @@ This records the client contract, not a judgement that the result reads well. Th
 call sequences and geometry arguments; it does not look at pixels, and no shipped map authors a
 hole, so the hole-rim path is exercised only by synthetic fixtures. Whether a cliff reads as a cliff
 is an owner judgement on rendered images.
+
+## Amendment: accessible ability controls, 2026-09-12 (plan Step 21)
+
+A person can now press shield and charge. Nothing on the wire changes: the command kinds, their
+admission and their published state all landed at Steps 18 and 19, and this step is verified by the
+web gate alone.
+
+**Shift is rejected as a shield binding, and the reason is mechanical rather than aesthetic.** The
+canonical input owner's go-key guard filters `altKey`, `ctrlKey` and `metaKey` and deliberately does
+*not* filter `shiftKey`, a choice an existing test pins, because Shift+Space must still thrust. A
+bare-Shift shield would therefore fire on the leading half of every Shift+Tab a keyboard user makes;
+five presses of it is the Windows Sticky Keys gesture; it is two codes against a
+one-constant-per-action model; and modifier keys do not auto-repeat, so the key-repeat rule this ADR
+requires could not be demonstrated against it at all. The bindings instead come from the pool this
+ADR already reserved when Step 11a retired directional steering, which is the assignment that
+paragraph anticipated.
+
+**A pulse is not a held control, and reusing the held control's send path would break it.** The
+ability activation shares the input owner's guards -- modifiers, composition, typing, camera gesture,
+ownership, the input lock -- and shares its `sendCommand`, but not its change-only flush: that gate
+would swallow a second identical pulse, its coalescing timer would delay one against an 80 ms perfect
+opening, and its refusal latch is shared with held thrust. Each ability keeps its own one-shot latch,
+cleared on keyup and on blur, because a blur swallows the keyup and the key would otherwise wedge.
+
+**The client now rate-limits its own activations, because the boundary's answer to excess is a
+disconnect rather than a refusal.** The per-session command bucket is a 30-token burst refilled at
+20 per second, the token is charged before parsing, and an empty bucket closes the connection. Held
+thrust with a moving cursor already runs at the full refill rate. So an activation is suppressed
+entirely while the client can see a live published cooldown for that ability -- legitimate published
+state, and the primary mitigation -- with a per-ability minimum send interval as the backstop for the
+window between a press and the next snapshot. Nothing is lost by it: the mailbox coalesces same-kind
+inputs, so extra same-tick pulses were never more than one attempt.
+
+**Remembered aim survives a stun.** The last nonzero steering direction is retained across a
+same-body generation or lock change; the discard set stays what this ADR contracts -- body loss, body
+replacement, a new welcome, and disconnect. Before this step a stun silently wiped it, which would
+have made charge unavailable for the frames after every parry.
+
+**The client still never claims readiness**, on the rule Step 20 recorded: charge readiness depends
+on the safety envelope, which is deliberately server-side and not on the wire. What a control may
+state is what the client can see -- an unadvertised kind, no owned body, a phase that is not running,
+an active stun, a live published cooldown, active shield protection blocking a charge, and for charge
+the absence of any aim.
+
+**One accessibility limitation is recorded rather than resolved.** Charge takes its direction from
+the cursor aim or the last nonzero steering direction, and both exist only for a mouse pointer inside
+the canvas. A touch, pen or keyboard-only player therefore has no aim, and charge stays unavailable
+with its explanation showing. Shield is fully usable without a pointer. Closing that gap means
+inventing a keyboard aim, which would partly reverse Step 11a's removal of directional steering and
+is a decision for the owner, not an implementation detail of this step.

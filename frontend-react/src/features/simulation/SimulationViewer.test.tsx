@@ -8,7 +8,7 @@ import {
 import { useMovementTuning } from './useMovementTuning';
 import { SimulationApiError } from './SimulationApiError';
 import { useThrustInput } from './useThrustInput';
-import type { ThrustAimObservation } from './useThrustInput';
+import type { SimulationAbility, ThrustAimObservation } from './useThrustInput';
 import {
   aimPointer,
   installCanvasAimSurface,
@@ -33,8 +33,17 @@ import {
   SHIELD_WINDOWS,
 } from './fixtures/shieldFrames';
 import { CHARGE_COOLDOWN } from './fixtures/chargeFrames';
-import { selectThrustInputOptions } from './sessionSelectors';
-import { THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS } from './simulationConstants';
+import {
+  abilityAvailabilityReport,
+  selectThrustInputOptions,
+  type AbilityAvailability,
+  type AbilityAvailabilityReport,
+} from './sessionSelectors';
+import {
+  CHARGE_KEY_CODE,
+  SHIELD_KEY_CODE,
+  THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS,
+} from './simulationConstants';
 import type { SessionCommand } from './simulationProtocolTypes';
 import {
   cameraConfiguration,
@@ -98,10 +107,39 @@ const session: SimulationSessionIdentity = Object.freeze({
 
 const zeroThrust = Object.freeze({ x: 0, y: 0 });
 
+/**
+ * What the many readout cases get: two controls that are present, explained, and not pressable. The
+ * cases that press one compose the real availability instead, exactly as the feature does.
+ */
+const UNADVERTISED_ABILITIES: AbilityAvailabilityReport = Object.freeze({
+  charge: unadvertisedAbility('charge'),
+  shield: unadvertisedAbility('shield'),
+});
+
+function unadvertisedAbility(kind: SimulationAbility): AbilityAvailability {
+  return {
+    kind,
+    canAttempt: false,
+    reason: 'not_advertised',
+    explanation: `This room does not accept the ${kind} command.`,
+  };
+}
+
 /** Mirror the feature's always-mounted controls owner while exercising the view in isolation. */
 function SimulationViewer(
-  props: Omit<SimulationViewerProps, 'movementTuning' | 'onAimObservation'> &
-    Partial<Pick<SimulationViewerProps, 'onAimObservation'>>,
+  props: Omit<
+    SimulationViewerProps,
+    | 'abilityControls'
+    | 'movementTuning'
+    | 'onActivateAbility'
+    | 'onAimObservation'
+  > &
+    Partial<
+      Pick<
+        SimulationViewerProps,
+        'abilityControls' | 'onActivateAbility' | 'onAimObservation'
+      >
+    >,
 ) {
   const movementTuning = useMovementTuning({
     lobbyId: props.lobbyId,
@@ -109,6 +147,8 @@ function SimulationViewer(
   });
   return (
     <RoomViewer
+      abilityControls={UNADVERTISED_ABILITIES}
+      onActivateAbility={ignoreAbilityActivation}
       onAimObservation={ignoreAimObservation}
       {...props}
       movementTuning={movementTuning}
@@ -120,6 +160,10 @@ function ignoreAimObservation(observation: ThrustAimObservation | null): void {
   void observation;
 }
 
+function ignoreAbilityActivation(ability: SimulationAbility): void {
+  void ability;
+}
+
 /** Same composition as Feature: actual body availability and stable welcome/entity incarnation. */
 function CursorViewer({
   connection,
@@ -129,12 +173,29 @@ function CursorViewer({
   const thrust = useThrustInput(selectThrustInputOptions(connection, 1));
   return (
     <SimulationViewer
+      abilityControls={abilityAvailabilityReport({
+        connection,
+        lastNonzeroAimDirection: thrust.lastNonzeroAimDirection,
+        lobbyId: 1,
+      })}
       lobbyId={1}
       connection={connection}
       thrust={thrust.direction}
+      onActivateAbility={thrust.activateAbility}
       onAimObservation={thrust.observeAim}
     />
   );
+}
+
+/** Every ability command a sender saw, in order, ignoring the steering traffic around them. */
+function abilityCommands(
+  calls: readonly (readonly [SessionCommand])[],
+): readonly SessionCommand[] {
+  return calls
+    .map(([command]) => command)
+    .filter(
+      (command) => command.kind === 'charge' || command.kind === 'shield',
+    );
 }
 
 async function advanceThrustInterval() {
@@ -1193,6 +1254,226 @@ describe('SimulationViewer', () => {
       />,
     );
     expect(abilityHeaders()).toEqual([null, null, null, null]);
+  });
+
+  it('offers a named, keyboard-operable button for each ability and sends each its own payload shape', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    render(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, cameraSessionIdentity())}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+
+    const shield = screen.getByRole('button', { name: 'Shield' });
+    const charge = screen.getByRole('button', { name: 'Charge' });
+    expect(shield).toHaveAttribute('aria-keyshortcuts', 'S');
+    expect(charge).toHaveAttribute('aria-keyshortcuts', 'D');
+    expect(shield).toHaveAttribute('aria-disabled', 'false');
+    expect(charge).toHaveAttribute('aria-disabled', 'false');
+    expect(shield).not.toHaveAccessibleDescription();
+
+    // Enter is a button's own activation key, fired by the browser on keydown and repeated while
+    // the key is held. The control takes both edges over and keeps the focus its user chose.
+    act(() => shield.focus());
+    expect(fireEvent.keyDown(shield, { key: 'Enter' })).toBe(false);
+    fireEvent.keyUp(shield, { key: 'Enter' });
+    expect(document.activeElement).toBe(shield);
+
+    // A focused button also activates on Space, which is the go key. Prevented on both edges,
+    // because a space press activates a button on its way up rather than on its way down.
+    act(() => charge.focus());
+    expect(fireEvent.keyDown(charge, { key: ' ', code: 'Space' })).toBe(false);
+    expect(fireEvent.keyUp(charge, { key: ' ', code: 'Space' })).toBe(false);
+
+    // Never invalidated is the state every blob is in until its first stun, and the two payloads
+    // spell it differently: shield's member is required and nullable, charge's is omitted exactly
+    // as `set_thrust`'s is. Sending shield the thrust way produces `{}` and is refused in silence.
+    expect(abilityCommands(sender.mock.calls)).toEqual([
+      { kind: 'shield', payload: { input_generation: null } },
+      { kind: 'charge', payload: { x: 1, y: 0 } },
+    ]);
+  });
+
+  it('activates once for a held Enter on a button and once for a held ability key', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    render(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, cameraSessionIdentity())}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+
+    // A held Enter on a focused button is a second repeat source: the browser fires one click per
+    // repeat, so a control that simply trusted the click would send a pulse per repeat.
+    const shield = screen.getByRole('button', { name: 'Shield' });
+    act(() => shield.focus());
+    fireEvent.keyDown(shield, { key: 'Enter' });
+    fireEvent.keyDown(shield, { key: 'Enter', repeat: true });
+    fireEvent.keyDown(shield, { key: 'Enter', repeat: true });
+    fireEvent.keyUp(shield, { key: 'Enter' });
+    expect(abilityCommands(sender.mock.calls)).toHaveLength(1);
+
+    // The key path carries the same one-shot rule. It is pressed from the arena rather than from
+    // the control just used, because a focused button swallows an ability key by design.
+    act(() => shield.blur());
+    fireEvent.keyDown(canvas, { code: CHARGE_KEY_CODE });
+    fireEvent.keyDown(canvas, { code: CHARGE_KEY_CODE, repeat: true });
+    fireEvent.keyUp(canvas, { code: CHARGE_KEY_CODE });
+    expect(abilityCommands(sender.mock.calls)).toHaveLength(2);
+  });
+
+  it('hands the go key back after a pointer press on a control and keeps focus after a keyboard one', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    render(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, cameraSessionIdentity())}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+
+    // A click leaves the button focused, a focused button is read as UI and swallows the ability
+    // key, and the browser then activates that same button on Space. Left alone, one press of a
+    // mouse would turn the go key into the shield key for the rest of the match.
+    const shield = screen.getByRole('button', { name: 'Shield' });
+    act(() => shield.focus());
+    fireEvent.click(shield, { detail: 1 });
+    expect(abilityCommands(sender.mock.calls)).toHaveLength(1);
+    expect(document.activeElement).not.toBe(shield);
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0 },
+    });
+    fireEvent.keyUp(canvas, { code: 'Space' });
+
+    // A keyboard activation never reaches the click path at all, so it keeps the focus ring its
+    // user is navigating with and can be pressed again without finding the control a second time.
+    const charge = screen.getByRole('button', { name: 'Charge' });
+    act(() => charge.focus());
+    fireEvent.keyDown(charge, { key: 'Enter' });
+    fireEvent.keyUp(charge, { key: 'Enter' });
+    expect(document.activeElement).toBe(charge);
+    expect(abilityCommands(sender.mock.calls)).toHaveLength(2);
+  });
+
+  it('keeps an unavailable ability focusable with its reason, and outside the Match status table', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    // This suite's welcome advertises `set_thrust` alone, which is a narrowing a real mode
+    // publishes. An unadvertised kind is refused at the boundary and returns false from the sender,
+    // so a control that looked live would silently do nothing at all.
+    const connection = createConnection({ sendCommand: sender });
+    function AbilityViewer() {
+      const thrust = useThrustInput(selectThrustInputOptions(connection, 1));
+      return (
+        <SimulationViewer
+          abilityControls={abilityAvailabilityReport({
+            connection,
+            lastNonzeroAimDirection: thrust.lastNonzeroAimDirection,
+            lobbyId: 1,
+          })}
+          lobbyId={1}
+          connection={connection}
+          thrust={thrust.direction}
+          onActivateAbility={thrust.activateAbility}
+          onAimObservation={thrust.observeAim}
+        />
+      );
+    }
+    render(<AbilityViewer />);
+
+    const shield = screen.getByRole('button', { name: 'Shield' });
+    expect(shield).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: 'Charge' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    // Not the `disabled` attribute the pan buttons use. That takes the control out of the tab
+    // order and takes the node carrying its explanation with it, which would leave the reason
+    // legible to a reader who can see the screen and to nobody else.
+    expect(shield).toBeEnabled();
+    act(() => shield.focus());
+    expect(document.activeElement).toBe(shield);
+    expect(shield).toHaveAccessibleDescription();
+
+    fireEvent.click(shield, { detail: 1 });
+    fireEvent.keyDown(shield, { key: 'Enter' });
+    fireEvent.keyUp(shield, { key: 'Enter' });
+    expect(abilityCommands(sender.mock.calls)).toEqual([]);
+
+    // "unavailable" contains "available", and this table is pinned against that substring and
+    // against its exact rowheader list. A control is not a published status row in any case.
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(within(hud).queryByText(/available/i)).toBeNull();
+    expect(within(hud).queryByRole('button')).toBeNull();
+    const controls = screen.getByRole('region', { name: 'Ability controls' });
+    expect(within(controls).getAllByRole('button')).toHaveLength(2);
+  });
+
+  it('activates no ability from a camera gesture or from a settings field', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    render(
+      <CursorViewer
+        connection={cursorSteeringConnection(sender, cameraSessionIdentity())}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+
+    // Dragging the map is the camera's gesture and nothing else's. It already cancels propulsion,
+    // and an ability pressed in the middle of a drag must not slip past the same rule.
+    fireEvent.click(screen.getByRole('button', { name: 'Manual view' }));
+    act(() => canvas.focus());
+    fireEvent.pointerDown(canvas, aimPointer(700, 390, { buttons: 1 }));
+    fireEvent.keyDown(canvas, { code: SHIELD_KEY_CODE });
+    fireEvent.keyDown(canvas, { code: CHARGE_KEY_CODE });
+    expect(abilityCommands(sender.mock.calls)).toEqual([]);
+    fireEvent.pointerUp(canvas, aimPointer(700, 390));
+    fireEvent.lostPointerCapture(canvas, aimPointer(700, 390));
+
+    // Typing a tuning value is not playing. Both ability keys are ordinary letters, so a settings
+    // field keeps them, and Space stays the browser's rather than becoming propulsion.
+    const acceleration = screen.getByRole('spinbutton', {
+      name: 'Acceleration (wu/s²)',
+    });
+    act(() => acceleration.focus());
+    expect(document.activeElement).toBe(acceleration);
+    expect(fireEvent.keyDown(acceleration, { code: SHIELD_KEY_CODE })).toBe(
+      true,
+    );
+    expect(fireEvent.keyDown(acceleration, { code: CHARGE_KEY_CODE })).toBe(
+      true,
+    );
+    expect(fireEvent.keyDown(acceleration, { code: 'Space' })).toBe(true);
+    fireEvent.keyUp(acceleration, { code: 'Space' });
+    expect(sender).not.toHaveBeenCalled();
   });
 
   it('announces a terminal connection failure as an alert', () => {

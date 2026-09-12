@@ -257,6 +257,53 @@
   margin: 0;
 }
 
+/*
+ * The two ability controls, and the only sidebar section that is a control rather than a readout.
+ * One row per ability, each holding the button and the sentence that says why it cannot be pressed,
+ * so the explanation sits beside the thing it explains at every width.
+ */
+.AbilityControls {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.AbilityControl {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.AbilityButton {
+  font-weight: 600;
+  min-width: 6rem;
+  padding: 0.5rem 1rem;
+}
+
+/*
+ * These buttons carry `aria-disabled` rather than `disabled`, so that an unavailable control keeps
+ * its place in the tab order and can read its reason out; see SimulationHud.tsx for why. The cost
+ * is that `:disabled` never matches them, so the unavailable look has to be written here.
+ */
+.AbilityButton[aria-disabled='true'] {
+  background: #e2e8f0;
+  border-color: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.AbilityHint,
+.AbilityReason {
+  color: #475569;
+  font-size: 0.875rem;
+  margin: 0;
+}
+
 /* The pre-match lobby: a roster to read at a glance, and every control a person needs to run it. */
 .LobbyPanel {
   background: #ffffff;

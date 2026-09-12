@@ -20,16 +20,25 @@ import {
   phaseElapsedSeconds,
   raceHudReport,
   zoneExposureReport,
+  type AbilityAvailabilityReport,
 } from './sessionSelectors';
 import type { SimulationConnection } from './useSimulationConnection';
-import type { ThrustAimObservation, ThrustDirection } from './useThrustInput';
+import type {
+  SimulationAbility,
+  ThrustAimObservation,
+  ThrustDirection,
+} from './useThrustInput';
 
 export interface SimulationViewerProps {
+  /** Per-ability availability and its explanation, resolved above this view and never here. */
+  readonly abilityControls: AbilityAvailabilityReport;
   readonly connection: SimulationConnection;
   /** The room this view is in, which is the shell's decision and not the socket's. */
   readonly lobbyId: number;
   readonly thrust: ThrustDirection;
   readonly movementTuning: MovementTuningControls;
+  /** The input owner's one activation path; the buttons are not a second sender. */
+  readonly onActivateAbility: (ability: SimulationAbility) => void;
   readonly onAimObservation: (observation: ThrustAimObservation | null) => void;
 }
 
@@ -47,10 +56,12 @@ const connectionStatusLabels = Object.freeze({
 
 /** Renders match state and steering feedback from validated values it does not own. */
 export function SimulationViewer({
+  abilityControls,
   connection,
   lobbyId,
   thrust,
   movementTuning,
+  onActivateAbility,
   onAimObservation,
 }: SimulationViewerProps) {
   const [debugPanelVisible, setDebugPanelVisible] = useState(false);
@@ -141,6 +152,7 @@ export function SimulationViewer({
                 ticksPerSecond:
                   connection.configuration.simulation.ticks_per_second,
               })}
+              abilityControls={abilityControls}
               aliveCount={countAlivePlayers(connection.entities)}
               displayName={connection.session?.displayName ?? null}
               hill={hillHudReport({
@@ -153,6 +165,7 @@ export function SimulationViewer({
               })}
               isOwnBodyPresent={isOwnBodyPresent}
               match={connection.match}
+              onActivateAbility={onActivateAbility}
               ownEntityId={connection.ownEntityId}
               ownPlacement={findPlacementForController(
                 connection.match,
@@ -182,8 +195,9 @@ export function SimulationViewer({
             />
             <p className="SteeringHint">
               Aim with the cursor, click or tab into the arena, and hold Space
-              to move. Release Space to coast. Left-drag pans in Manual view;
-              WASD and arrows do not steer.
+              to move. Release Space to coast. Left-drag pans in Manual view.
+              Nothing steers but the cursor: the arrow keys are unused, and an
+              ability key fires once rather than holding a direction.
             </p>
             <MovementTuningPanel controls={movementTuning} />
             <button

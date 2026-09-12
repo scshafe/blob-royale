@@ -1,6 +1,11 @@
 import { raceTerrain, solidTerrain } from './fixtures/terrainFrames';
 import { describe, expect, it, vi } from 'vitest';
-import { cameraSessionIdentity } from './fixtures/simulationCameraFrames';
+import {
+  cameraSessionIdentity,
+  type CameraSnapshotScenario,
+} from './fixtures/simulationCameraFrames';
+import { cursorSteeringConnection } from './fixtures/cursorSteeringFrames';
+import { THRUST_RIGHT, THRUST_ZERO } from './fixtures/thrustInputFrames';
 import {
   STUN_INPUT_NEXT_GENERATION,
   STUN_INPUT_SNAPSHOT_TICK,
@@ -11,13 +16,16 @@ import {
 import {
   CANCELLED_SHIELD_WINDOWS,
   SHIELD_ACTIVATION_TICK,
+  SHIELD_COOLDOWN_EXPIRY_TICK,
   SHIELD_PARRY_STUN_DURATION_TICKS,
   SHIELD_SNAPSHOT_TICK,
   SHIELD_WINDOWS,
   shieldSnapshotDocument,
 } from './fixtures/shieldFrames';
 import {
+  CHARGE_ACTIVATION_TICK,
   CHARGE_COOLDOWN,
+  CHARGE_COOLDOWN_EXPIRY_TICK,
   chargeSnapshotDocument,
 } from './fixtures/chargeFrames';
 
@@ -31,8 +39,11 @@ import {
 } from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import {
+  type AbilityAvailabilityReport,
+  abilityAvailabilityReport,
   type AbilityStatusInput,
   abilityStatusReport,
+  type AbilityUnavailableReason,
   countAlivePlayers,
   describeMatchOverlay,
   findOwnEntityId,
@@ -56,6 +67,8 @@ import type {
   SessionEntitySnapshot,
   SessionMatchSection,
 } from './simulationProtocolTypes';
+import type { SimulationConnection } from './useSimulationConnection';
+import type { ThrustDirection } from './useThrustInput';
 
 const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
@@ -1166,6 +1179,496 @@ describe('sessionSelectors for published ability windows', () => {
     expect(abilityStatusReport(input).shield).not.toBeNull();
     expect(abilityStatusReport({ ...input, ownEntityId: 8 })).toEqual(
       NOTHING_PUBLISHED,
+    );
+  });
+});
+
+/**
+ * The frame every availability case is read from. `cursorSteeringConnection` supplies the live
+ * client's own shape -- a validated welcome advertising both ability kinds, a running hill frame, an
+ * owned body and a real sender -- and this adds only the ability state one case needs. Every frame
+ * still goes through the real validator, for `stunInputConnection`'s reason: a window no server could
+ * publish, an activation in its own frame's future or a reversed cooldown, must fail as a fixture
+ * rather than quietly become an availability case that proves nothing.
+ */
+function abilityConnection(
+  overrides: {
+    readonly charge?: unknown;
+    readonly scenario?: CameraSnapshotScenario;
+    readonly shield?: unknown;
+    readonly stun?: unknown;
+    readonly tickSequence?: number;
+  } = {},
+): SimulationConnection {
+  const session = cameraSessionIdentity();
+  const connection = cursorSteeringConnection(
+    vi.fn(() => true),
+    session,
+    overrides.scenario,
+  );
+  if (connection.snapshot === null) {
+    throw new Error('TEST.ABILITY_AVAILABILITY_SNAPSHOT_MISSING');
+  }
+  const document = {
+    ...connection.snapshot,
+    data: {
+      ...connection.snapshot.data,
+      tick_sequence:
+        overrides.tickSequence ?? connection.snapshot.data.tick_sequence,
+      entities: connection.entities.map((entity) =>
+        entity.entity_id === connection.ownEntityId
+          ? {
+              ...entity,
+              components: {
+                ...entity.components,
+                ...(overrides.charge === undefined
+                  ? {}
+                  : { charge: overrides.charge }),
+                ...(overrides.shield === undefined
+                  ? {}
+                  : { shield: overrides.shield }),
+                ...(overrides.stun === undefined
+                  ? {}
+                  : { stun: overrides.stun }),
+              },
+            }
+          : entity,
+      ),
+    },
+  };
+  const snapshot = validateSessionSnapshotMessage(document, {
+    messageSequence: 1,
+    requestId: document.meta.request_id,
+    tickSequence: null,
+    npcCatalogue: session.npcCatalogue,
+    terrain: session.terrain,
+  });
+  return { ...connection, snapshot, entities: snapshot.data.entities };
+}
+
+function availability(
+  connection: SimulationConnection,
+  lastNonzeroAimDirection: ThrustDirection | null = THRUST_RIGHT,
+): AbilityAvailabilityReport {
+  return abilityAvailabilityReport({
+    connection,
+    lastNonzeroAimDirection,
+    lobbyId: connection.session?.lobbyId ?? null,
+  });
+}
+
+function abilityUnavailableOf(connection: SimulationConnection) {
+  const lobbyId = connection.session?.lobbyId ?? null;
+  return selectThrustInputOptions(connection, lobbyId).abilityUnavailable;
+}
+
+/** An open gate is the absence of a reason, never a claim that an activation would be accepted. */
+function attemptable(kind: 'charge' | 'shield') {
+  return { kind, canAttempt: true, reason: null, explanation: null };
+}
+
+function blocked(
+  kind: 'charge' | 'shield',
+  reason: AbilityUnavailableReason,
+  explanation: string,
+) {
+  return { kind, canAttempt: false, reason, explanation };
+}
+
+describe('sessionSelectors for ability availability', () => {
+  it('names no obstruction while every gate the client can see is open', () => {
+    expect(availability(abilityConnection())).toEqual({
+      charge: attemptable('charge'),
+      shield: attemptable('shield'),
+    });
+  });
+
+  it.each(['charge', 'shield'] as const)(
+    'refuses %s alone when the welcome does not advertise that kind',
+    (kind) => {
+      // `enabled` checks `set_thrust` and nothing else, so without a per-kind read a control for an
+      // unadvertised kind would look live and silently no-op: `SimulationApi.sendCommand` returns
+      // false for a kind the welcome did not accept, before anything reaches the socket.
+      const base = abilityConnection();
+      const session = base.session;
+      if (session === null) {
+        throw new Error('TEST.ABILITY_AVAILABILITY_SESSION_MISSING');
+      }
+      const other = kind === 'charge' ? 'shield' : 'charge';
+      const report = availability({
+        ...base,
+        session: {
+          ...session,
+          acceptedCommandKinds: session.acceptedCommandKinds.filter(
+            (candidate) => candidate !== kind,
+          ),
+        },
+      });
+      expect(report[kind]).toEqual(
+        blocked(
+          kind,
+          'not_advertised',
+          `This room does not accept the ${kind} command.`,
+        ),
+      );
+      expect(report[other]).toEqual(attemptable(other));
+    },
+  );
+
+  it('folds every "there is no blob here" state into the one answer', () => {
+    // Not connected, seated in another room, holding an entity whose body is gone, and holding no
+    // entity at all are four different facts and one answer to the only question a control asks.
+    // The connection's own status has a live region of its own at the top of `SimulationViewer`.
+    const bodyless = availability(abilityConnection({ scenario: 'bodyless' }));
+    expect(bodyless.shield).toEqual(
+      blocked('shield', 'no_body', 'Your blob is not in play.'),
+    );
+    expect(bodyless.charge.reason).toBe('no_body');
+    const missing = availability(abilityConnection({ scenario: 'missing' }));
+    expect(missing.shield.reason).toBe('no_body');
+    const retrying = availability({
+      ...abilityConnection(),
+      status: 'retrying',
+    });
+    expect(retrying.shield.reason).toBe('no_body');
+    const otherRoom = abilityAvailabilityReport({
+      connection: abilityConnection(),
+      lastNonzeroAimDirection: THRUST_RIGHT,
+      lobbyId: 4242,
+    });
+    expect(otherRoom.shield.reason).toBe('no_body');
+  });
+
+  it('refuses both abilities outside a running match', () => {
+    // "Abilities are a running-match mechanic. A pulse in `lobby`, `countdown` or `ended` is refused
+    // rather than held" -- `src/gameplay/shared/ability_system.cpp`. The blob still holds its body
+    // on this frame, so the reason is the phase rather than the body. The same gate subsumes that
+    // stage's tick-zero refusal: a match that has never run has never left `lobby`.
+    const report = availability(abilityConnection({ scenario: 'lobby' }));
+    expect(report.shield).toEqual(
+      blocked('shield', 'not_running', 'The match is not running.'),
+    );
+    expect(report.charge).toEqual(
+      blocked('charge', 'not_running', 'The match is not running.'),
+    );
+  });
+
+  it.each([
+    { tick: STUN_INPUT_WINDOW.expiry_tick - 1, stunned: true },
+    { tick: STUN_INPUT_WINDOW.expiry_tick, stunned: false },
+  ])('reads the input lock half-open at tick $tick', ({ tick, stunned }) => {
+    // The same boolean the thrust sender obeys, read from the same `ownBodyFrame`, so a control
+    // cannot say "stunned" on a frame the sender is still transmitting on.
+    const report = availability(
+      abilityConnection({ stun: STUN_INPUT_WINDOW, tickSequence: tick }),
+    );
+    expect(report.shield).toEqual(
+      stunned
+        ? blocked('shield', 'stunned', 'Your blob is stunned.')
+        : attemptable('shield'),
+    );
+    expect(report.charge.reason).toBe(stunned ? 'stunned' : null);
+  });
+
+  it('lets live protection refuse both abilities, and says why for each', () => {
+    // `shield_eligible` requires `!protection_active` because a re-tap would restart the perfect
+    // opening, and the charge term requires it because a blob may not charge out of its own guard
+    // (`src/gameplay/shared/ability_system.cpp`). The contract's § "Availability" names only the
+    // charge half; this is the same term of the same expression.
+    const inside = availability(
+      abilityConnection({
+        shield: SHIELD_WINDOWS,
+        tickSequence: SHIELD_WINDOWS.shield_expiry_tick - 1,
+      }),
+    );
+    expect(inside.shield).toEqual(
+      blocked('shield', 'protection_active', 'Your shield is still up.'),
+    );
+    expect(inside.charge).toEqual(
+      blocked(
+        'charge',
+        'protection_active',
+        'You cannot charge out of your own shield.',
+      ),
+    );
+    // The first tick protection does not cover; half-open containment is what makes it the first.
+    // The shield falls through to its own live cooldown and the charge to nothing at all.
+    const after = availability(
+      abilityConnection({
+        shield: SHIELD_WINDOWS,
+        tickSequence: SHIELD_WINDOWS.shield_expiry_tick,
+      }),
+    );
+    expect(after.shield.reason).toBe('cooling_down');
+    expect(after.charge).toEqual(attemptable('charge'));
+  });
+
+  it.each([
+    {
+      kind: 'shield' as const,
+      frame: (tick: number) =>
+        abilityConnection({ shield: SHIELD_WINDOWS, tickSequence: tick }),
+      liveTick: SHIELD_COOLDOWN_EXPIRY_TICK - 1,
+      elapsedTick: SHIELD_COOLDOWN_EXPIRY_TICK,
+      sentence: 'Shield is cooling down.',
+    },
+    {
+      kind: 'charge' as const,
+      frame: (tick: number) =>
+        abilityConnection({ charge: CHARGE_COOLDOWN, tickSequence: tick }),
+      liveTick: CHARGE_COOLDOWN_EXPIRY_TICK - 1,
+      elapsedTick: CHARGE_COOLDOWN_EXPIRY_TICK,
+      sentence: 'Charge is cooling down.',
+    },
+  ])(
+    'suppresses $kind while its own published cooldown is live',
+    ({ kind, frame, liveTick, elapsedTick, sentence }) => {
+      // Suppression is the contract's primary rate mitigation as well as an explanation: the
+      // per-session bucket is 30 burst and 20 refill per second, exhausting it closes the socket
+      // with 1008 rather than refusing one command, and held thrust already runs at the refill rate.
+      const live = availability(frame(liveTick));
+      expect(live[kind]).toEqual(blocked(kind, 'cooling_down', sentence));
+      // An elapsed cooldown is "cooldown over" and never "ready": the reason simply goes away, and
+      // whether an activation would be admitted stays the server's answer to give.
+      const elapsed = availability(frame(elapsedTick));
+      expect(elapsed[kind]).toEqual(attemptable(kind));
+    },
+  );
+
+  it('keeps each cooldown to the ability that published it', () => {
+    // "The two cooldowns are separate keys on separate components and neither gates the other
+    // ability" -- `src/gameplay/shared/ability_system.cpp`. One shared flag would make a spent
+    // charge disable the guard a player needs in the same second.
+    const report = availability(
+      abilityConnection({
+        charge: {
+          activation_tick: CHARGE_ACTIVATION_TICK,
+          cooldown_expiry_tick: 12900,
+        },
+        shield: SHIELD_WINDOWS,
+        tickSequence: 13000,
+      }),
+    );
+    expect(report.shield.reason).toBe('cooling_down');
+    expect(report.charge).toEqual(attemptable('charge'));
+  });
+
+  it('reads the zero-cooldown shield frame without a divisor to guard', () => {
+    // `cooldown_expiry_tick === activation_tick` is authored tuning the configuration permits, so it
+    // is a frame the server is required to be able to send, and it is the one frame where nothing
+    // but live protection refuses a re-tap. Containment answers both ticks: the empty span Step 20
+    // had to return a null fraction for is simply never live, and nothing here divides at all.
+    const zeroCooldown = {
+      ...SHIELD_WINDOWS,
+      cooldown_expiry_tick: SHIELD_ACTIVATION_TICK,
+    };
+    const guarded = availability(
+      abilityConnection({
+        shield: zeroCooldown,
+        tickSequence: SHIELD_SNAPSHOT_TICK,
+      }),
+    );
+    expect(guarded.shield.reason).toBe('protection_active');
+    const afterProtection = availability(
+      abilityConnection({
+        shield: zeroCooldown,
+        tickSequence: SHIELD_WINDOWS.shield_expiry_tick,
+      }),
+    );
+    expect(afterProtection.shield).toEqual(attemptable('shield'));
+  });
+
+  it('states nothing from a frame with no tick, never that a window is over', () => {
+    const live = abilityConnection({
+      shield: SHIELD_WINDOWS,
+      tickSequence: 13000,
+    });
+    expect(availability(live).shield.reason).toBe('cooling_down');
+    // The live client cannot hold a body without a tick: entities are only ever set from a snapshot
+    // (`useSimulationConnection`), so clearing one clears the other and the missing body answers.
+    const disconnected = availability({
+      ...live,
+      snapshot: null,
+      entities: [],
+      ownEntityId: null,
+    });
+    expect(disconnected.shield.reason).toBe('no_body');
+    // Forced past that into a state the reducer cannot produce, an unknown tick is silence rather
+    // than a claim the cooldown elapsed: no window can contain a tick that is not there, nothing
+    // divides, and nothing throws.
+    const tickless = availability({ ...live, snapshot: null });
+    expect(tickless.shield).toEqual(attemptable('shield'));
+  });
+
+  it.each([
+    { name: 'a pointer that has never entered the arena', aim: null },
+    { name: 'a remembered direction of zero magnitude', aim: THRUST_ZERO },
+  ])('refuses charge alone with $name', ({ aim }) => {
+    // A zero-magnitude direction "is a silent refusal that consumes no cooldown, never a scaled-down
+    // burst" (`charge-command.schema.json`), so a control must not offer an attempt that vanishes.
+    // Shield is unaffected in both cases: its pulse carries no direction at all.
+    const report = availability(abilityConnection(), aim);
+    expect(report.charge).toEqual(
+      blocked(
+        'charge',
+        'no_aim',
+        'Move the pointer over the arena to aim first.',
+      ),
+    );
+    expect(report.shield).toEqual(attemptable('shield'));
+  });
+
+  it('names one reason at a time, and the earliest gate wins', () => {
+    // Every gate is shut at once on this frame -- a stunned blob whose shield is up and whose charge
+    // is cooling -- and a control shows one sentence. The order is the server's own gate order, so
+    // the sentence names the gate that would really refuse the pulse first.
+    const everything = {
+      charge: CHARGE_COOLDOWN,
+      shield: SHIELD_WINDOWS,
+      stun: STUN_INPUT_WINDOW,
+      tickSequence: STUN_INPUT_SNAPSHOT_TICK,
+    };
+    const stunned = abilityConnection(everything);
+    const session = stunned.session;
+    if (session === null) {
+      throw new Error('TEST.ABILITY_AVAILABILITY_SESSION_MISSING');
+    }
+    const unseated = abilityConnection({ ...everything, scenario: 'bodyless' });
+    expect(
+      availability({
+        ...unseated,
+        session: { ...session, acceptedCommandKinds: [] },
+      }).charge.reason,
+    ).toBe('not_advertised');
+    expect(availability(unseated).charge.reason).toBe('no_body');
+    const lobby = abilityConnection({ ...everything, scenario: 'lobby' });
+    expect(availability(lobby).charge.reason).toBe('not_running');
+    expect(availability(stunned).charge.reason).toBe('stunned');
+    const guarded = abilityConnection({
+      ...everything,
+      tickSequence: STUN_INPUT_WINDOW.expiry_tick,
+    });
+    expect(availability(guarded).charge.reason).toBe('protection_active');
+    const cooling = abilityConnection({
+      ...everything,
+      tickSequence: SHIELD_WINDOWS.shield_expiry_tick,
+    });
+    expect(availability(cooling).charge.reason).toBe('cooling_down');
+    const settled = abilityConnection({
+      ...everything,
+      tickSequence: CHARGE_COOLDOWN_EXPIRY_TICK,
+    });
+    expect(availability(settled, null).charge.reason).toBe('no_aim');
+    expect(availability(settled).charge).toEqual(attemptable('charge'));
+  });
+
+  it('never claims readiness, in any state and in any wording', () => {
+    // Charge readiness depends on the authored safety envelope, which is deliberately server-side
+    // and never on the wire, and the shield's authored length is never published either. So the only
+    // honest client statement is the absence of a visible obstruction, and neither "ready" nor
+    // "available" may reach a player from here -- both would be a claim on exactly the frames a
+    // player would act on one.
+    const base = abilityConnection();
+    const session = base.session;
+    if (session === null) {
+      throw new Error('TEST.ABILITY_AVAILABILITY_SESSION_MISSING');
+    }
+    const reports: AbilityAvailabilityReport[] = [
+      availability(base),
+      availability(base, null),
+      availability({
+        ...base,
+        session: { ...session, acceptedCommandKinds: [] },
+      }),
+      availability(abilityConnection({ scenario: 'bodyless' })),
+      availability(abilityConnection({ scenario: 'lobby' })),
+      availability(
+        abilityConnection({
+          stun: STUN_INPUT_WINDOW,
+          tickSequence: STUN_INPUT_SNAPSHOT_TICK,
+        }),
+      ),
+      availability(
+        abilityConnection({
+          shield: SHIELD_WINDOWS,
+          tickSequence: SHIELD_SNAPSHOT_TICK,
+        }),
+      ),
+      availability(
+        abilityConnection({ charge: CHARGE_COOLDOWN, tickSequence: 13000 }),
+      ),
+    ];
+    const named = new Set<AbilityUnavailableReason>();
+    for (const report of reports) {
+      for (const control of [report.charge, report.shield]) {
+        expect(JSON.stringify(control)).not.toMatch(/\b(ready|available)\b/i);
+        if (control.canAttempt) {
+          expect(control.reason).toBeNull();
+          expect(control.explanation).toBeNull();
+        } else {
+          named.add(control.reason);
+          expect(control.explanation.length).toBeGreaterThan(0);
+        }
+      }
+    }
+    // Every reason this selector can name is exercised above, so a new one cannot arrive untested.
+    expect([...named].sort()).toEqual([
+      'cooling_down',
+      'no_aim',
+      'no_body',
+      'not_advertised',
+      'not_running',
+      'protection_active',
+      'stunned',
+    ]);
+  });
+
+  it('hands the input owner the published half of the same answer', () => {
+    const cooling = abilityConnection({
+      shield: SHIELD_WINDOWS,
+      tickSequence: 13000,
+    });
+    expect(availability(cooling).shield.reason).toBe('cooling_down');
+    expect(abilityUnavailableOf(cooling)).toEqual({
+      charge: false,
+      shield: true,
+    });
+    // A key press must never do what the control beside it says is impossible, so the suppression
+    // carries the whole published composition and not the cooldown alone.
+    const lobby = abilityConnection({ scenario: 'lobby' });
+    expect(abilityUnavailableOf(lobby)).toEqual({ charge: true, shield: true });
+  });
+
+  it('keeps the client-local aim reason out of that suppression', () => {
+    // Aim is the input owner's own state; feeding it back in through its options would be a loop,
+    // and the contract has the hook resolve the direction inside its effect anyway. So the control
+    // explains "no aim" while the sender's published suppression stays silent about it.
+    const connection = abilityConnection();
+    expect(availability(connection, null).charge.reason).toBe('no_aim');
+    expect(abilityUnavailableOf(connection)).toEqual({
+      charge: false,
+      shield: false,
+    });
+  });
+
+  it('interns the suppression so a render cannot retire the input owner', () => {
+    // `SimulationFeature` rebuilds these options on every render, and the owner compares this
+    // member by identity to decide whether anything changed. A fresh object here would report a
+    // change on every frame -- rebuilding an input lifetime that must survive a cooldown merely
+    // starting, and discarding remembered aim, which is discarded only on body loss, replacement,
+    // a new welcome or disconnect.
+    const first = abilityConnection({
+      shield: SHIELD_WINDOWS,
+      tickSequence: 13000,
+    });
+    const later = abilityConnection({
+      shield: SHIELD_WINDOWS,
+      tickSequence: 13001,
+    });
+    expect(abilityUnavailableOf(first)).toBe(abilityUnavailableOf(first));
+    expect(abilityUnavailableOf(later)).toBe(abilityUnavailableOf(first));
+    expect(abilityUnavailableOf(abilityConnection())).not.toBe(
+      abilityUnavailableOf(first),
     );
   });
 });

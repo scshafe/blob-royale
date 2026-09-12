@@ -1,6 +1,6 @@
 # Blob Royale web client
 
-This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v3 session socket, processes the complete published world and renders its known visual components, and turns cursor aim plus held Space into `set_thrust` commands. Processing the complete world does not require showing the whole map at once. Its public artifact is the production bundle in `dist/`.
+This directory owns the browser interface that joins a Blob Royale match: it loads public simulation configuration over protocol v1, holds one protocol v3 session socket, processes the complete published world and renders its known visual components, turns cursor aim plus held Space into `set_thrust` commands, and turns two ability keys or their on-screen buttons into `shield` and `charge` pulses. Processing the complete world does not require showing the whole map at once. Its public artifact is the production bundle in `dist/`.
 
 `SimulationApi` is the canonical browser transport. It derives `/api/v1/config`, `/api/v3/lobbies`, and canonical `/api/v3/lobbies/<lobby_id>/session` endpoints from the page authority, opens the session socket with the `blob-royale.session.v3` subprotocol, validates every inbound frame against the accepted Draft 2020-12 schemas with Ajv, and exposes `sendCommand`, which is a no-op that reports `false` unless the session is open, welcomed, and the kind is one the welcome advertised.
 
@@ -27,6 +27,27 @@ Leaving/cancelling, editing, camera interaction, blur, disconnect, or an observe
 requires a fresh go activation; merely holding the key through cancellation cannot resume thrust.
 The wire has no incarnation token for a body removed/recreated wholly between delivered snapshots,
 so that invisible transition is not claimed as detectable. Native UI Space/Enter remains native.
+
+The same owner wires the two abilities, since an ability that dodged those guards would be a second
+input owner. Shield is `KeyS` and charge is `KeyD` — two keys of the pool Step 11a retired from
+steering, matched on `event.code` and layout-independent — and each also has an ordinary button,
+which is the accessible path rather than a convenience. A pulse is not a level, so it reuses
+`sendCommand` but not the change-only, 50 ms-coalesced thrust `flush`, which would swallow a second
+identical pulse and could park one for most of an 80 ms perfect opening. It is rate-disciplined all
+the same, because the per-session bucket closes the socket with `1008 command_rate_exceeded` rather
+than refusing a command: an activation is suppressed while a published cooldown for that ability
+still covers the frame's tick, with a per-ability minimum interval behind it for the gap before the
+next snapshot. `shield` sends an explicit `input_generation: null` where `charge` omits the member;
+an ability key's auto-repeat is refused by a per-ability latch cleared on keyup and on blur, held
+Enter on a button by the button's own repeat check, and both by the shared interval behind them; and
+a pointer-activated button blurs itself, so a focused button can neither swallow the ability key nor
+turn Space into it. An unavailable button carries `aria-disabled` rather than `disabled`, so it
+keeps its place in the tab order and the reason it names stays reachable. No control claims an
+ability is ready — charge's last refusal is the server's off-wire safety envelope — and each states
+instead why it cannot act. Charge needs an aim, and an aim exists only for a mouse pointer over the
+canvas, so charge is unavailable to a touch, pen or keyboard-only player: that accessibility gap is
+recorded as an open question for the owner in `src/features/simulation/README.md`, not settled
+here.
 
 Rendering goes through `rendering/entityRendererRegistry.ts`, tagged `@extension-point entity_renderer`. It is keyed by component kind: `physics_body` draws a disc or a static obstacle with the own-body highlight, `zone` and `hill` draw the safe zone and the scoring circle from their own components, `lethal_on_contact` and `zone_exposure` ring a body that kills on contact and a body whose grace is running out, `shield` and `stun` draw the two combat states a peer has to be able to read, and `controllable` draws the display name under its body. Every kind outside that list is registered as non-visual with a stated reason, and one of those reasons is now a settled decision rather than a deferral: `charge` draws nothing because its burst is already on screen as the velocity the body carries, and what remains of it is a cooldown, which is screen-space feedback the HUD owns rather than world geometry. Draw order is the registration's layer and then the kind's own name, so `shield` and `stun` hold a `status` layer of their own between `zone_exposure` and the label rather than letting the alphabet decide whether an ability mark paints over an exposure ring. Adding a component kind is a new `rendering/<kind>Renderer.ts` plus one registration line — `SimulationCanvas` names no kind — and the registry's `satisfies Record<SessionComponentKind, …>` fails the build if a generated kind has no entry.
 

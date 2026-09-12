@@ -3,9 +3,16 @@ import { flushSync } from 'react-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationApiError } from './SimulationApiError';
-import { THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS } from './simulationConstants';
+import {
+  ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS,
+  CHARGE_KEY_CODE,
+  SHIELD_KEY_CODE,
+  THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS,
+} from './simulationConstants';
 import { createThrustInputControls } from './fixtures/thrustInputControls';
 import {
+  ABILITIES_AVAILABLE,
+  ABILITY_KEY_CASES,
   REMOVED_DIRECTION_KEYS,
   THRUST_DIRECTION_CASES,
   THRUST_DOWN,
@@ -16,6 +23,7 @@ import {
   THRUST_STATIONARY_POINTER_UP,
   THRUST_UP,
   THRUST_ZERO,
+  abilityUnavailableFor,
   thrustAim,
   thrustInputOptions,
 } from './fixtures/thrustInputFrames';
@@ -25,7 +33,11 @@ import {
   STUN_INPUT_NEXT_GENERATION,
 } from './fixtures/stunInputFrames';
 import type { SessionCommand } from './simulationProtocolTypes';
-import { useThrustInput, type ThrustInputOptions } from './useThrustInput';
+import {
+  useThrustInput,
+  type SimulationAbility,
+  type ThrustInputOptions,
+} from './useThrustInput';
 
 let controls: ReturnType<typeof createThrustInputControls> | null = null;
 
@@ -53,14 +65,16 @@ function renderInput(
   };
 }
 
-function pressGo(
+/** Returns whether the browser default survived, which is how a binding proves it took the key. */
+function pressKey(
+  code: string,
   target: HTMLElement | Window = window,
   fields: KeyboardEventInit = {},
 ): boolean {
   let defaultAllowed = true;
   act(() => {
     defaultAllowed = fireEvent.keyDown(target, {
-      code: 'Space',
+      code,
       cancelable: true,
       ...fields,
     });
@@ -68,10 +82,35 @@ function pressGo(
   return defaultAllowed;
 }
 
-function releaseGo(target: HTMLElement | Window = window): void {
+function releaseKey(
+  code: string,
+  target: HTMLElement | Window = window,
+): boolean {
+  let defaultAllowed = true;
   act(() => {
-    fireEvent.keyUp(target, { code: 'Space', cancelable: true });
+    defaultAllowed = fireEvent.keyUp(target, { code, cancelable: true });
   });
+  return defaultAllowed;
+}
+
+function pressGo(
+  target: HTMLElement | Window = window,
+  fields: KeyboardEventInit = {},
+): boolean {
+  return pressKey('Space', target, fields);
+}
+
+function releaseGo(target: HTMLElement | Window = window): void {
+  releaseKey('Space', target);
+}
+
+/** The other of the two abilities, so a suppression test cannot pass by blocking everything. */
+function otherAbilityCase(
+  ability: SimulationAbility,
+): (typeof ABILITY_KEY_CASES)[number] {
+  const other = ABILITY_KEY_CASES.find((entry) => entry.ability !== ability);
+  if (other === undefined) throw new Error('TEST.ABILITY_CASE_MISSING');
+  return other;
 }
 
 async function advance(
@@ -314,7 +353,10 @@ describe('useThrustInput', () => {
         expect(
           fireEvent.keyUp(editor[name], { code: 'Space', cancelable: true }),
         ).toBe(true);
-        for (const code of REMOVED_DIRECTION_KEYS) {
+        for (const code of [
+          ...REMOVED_DIRECTION_KEYS,
+          ...ABILITY_KEY_CASES.map((ability) => ability.code),
+        ]) {
           expect(
             fireEvent.keyDown(editor[name], { code, cancelable: true }),
           ).toBe(true);
@@ -324,6 +366,8 @@ describe('useThrustInput', () => {
         }
       });
       await advance();
+      // Still exactly the activation and its cancelling zero: an ability key pressed into a
+      // focused control activates nothing, and the control keeps its own native default.
       expect(sendCommand).toHaveBeenCalledTimes(2);
       expect(sendCommand).toHaveBeenLastCalledWith({
         kind: 'set_thrust',
@@ -783,15 +827,236 @@ describe('useThrustInput', () => {
     },
   );
 
+  it.each(ABILITY_KEY_CASES)(
+    'encodes the never-invalidated $ability payload its own schema requires',
+    ({ ability, code }) => {
+      const { result, sendCommand } = renderInput();
+      act(() => result.current.observeAim(thrustAim()));
+      expect(pressKey(code)).toBe(false);
+      // Serialized rather than compared as an object: the whole point is which member is on the
+      // wire. Shield's schema requires `input_generation` and spells never-invalidated as an
+      // explicit null; charge omits the member exactly as `set_thrust` does, and a deep-equality
+      // assertion would treat an accidental `undefined` as absence and pass on a broken payload.
+      expect(JSON.stringify(sendCommand.mock.calls[0]?.[0])).toBe(
+        ability === 'shield'
+          ? '{"kind":"shield","payload":{"input_generation":null}}'
+          : '{"kind":"charge","payload":{"x":1,"y":0}}',
+      );
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(ABILITY_KEY_CASES)(
+    'states the generation it believes it holds in the $ability payload',
+    ({ ability, code }) => {
+      const { result, sendCommand } = renderInput({
+        inputGeneration: STUN_INPUT_GENERATION,
+      });
+      act(() => result.current.observeAim(thrustAim()));
+      pressKey(code);
+      expect(JSON.stringify(sendCommand.mock.calls[0]?.[0])).toBe(
+        ability === 'shield'
+          ? '{"kind":"shield","payload":{"input_generation":12900}}'
+          : '{"kind":"charge","payload":{"x":1,"y":0,"input_generation":12900}}',
+      );
+    },
+  );
+
+  it.each(ABILITY_KEY_CASES)(
+    'sends a second identical $ability pulse instead of swallowing it as unchanged',
+    async ({ code }) => {
+      const { result, sendCommand } = renderInput();
+      act(() => result.current.observeAim(thrustAim()));
+      pressKey(code);
+      releaseKey(code);
+      await advance(ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS);
+      pressKey(code);
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+      expect(sendCommand.mock.calls[0]).toEqual(sendCommand.mock.calls[1]);
+    },
+  );
+
+  it.each(ABILITY_KEY_CASES)(
+    'drops a $ability press inside the minimum interval without parking it',
+    async ({ code }) => {
+      const { result, sendCommand } = renderInput();
+      act(() => result.current.observeAim(thrustAim()));
+      pressKey(code);
+      releaseKey(code);
+      await advance(ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS - 1);
+      pressKey(code);
+      releaseKey(code);
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      await advance(1000);
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      pressKey(code);
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(ABILITY_KEY_CASES)(
+    'refuses a held $ability key through the repeat flag and through its own latch',
+    async ({ code }) => {
+      const { result, sendCommand } = renderInput();
+      act(() => result.current.observeAim(thrustAim()));
+      pressKey(code);
+      await advance(1000);
+      expect(pressKey(code, window, { repeat: true })).toBe(false);
+      expect(pressKey(code)).toBe(false);
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      expect(releaseKey(code)).toBe(false);
+      pressKey(code);
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(ABILITY_KEY_CASES)(
+    'clears a held $ability latch on a blur that swallows the release',
+    async ({ code }) => {
+      const { result, sendCommand } = renderInput();
+      act(() => result.current.observeAim(thrustAim()));
+      pressKey(code);
+      act(() => {
+        fireEvent.blur(window);
+      });
+      await advance(1000);
+      pressKey(code);
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(ABILITY_KEY_CASES)(
+    'skips a $ability activation while the frame publishes a reason it cannot act',
+    async ({ ability, code }) => {
+      const { result, rerender, options, sendCommand } = renderInput({
+        abilityUnavailable: abilityUnavailableFor(ability),
+      });
+      act(() => result.current.observeAim(thrustAim()));
+      pressKey(code);
+      act(() => result.current.activateAbility(ability));
+      expect(sendCommand).not.toHaveBeenCalled();
+      pressKey(otherAbilityCase(ability).code);
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      releaseKey(code);
+      await advance(1000);
+      // The same options object identity everywhere else: availability must reach the handler
+      // without rebuilding the effect, because a rebuild would drop the thrust a player is holding.
+      rerender({ ...options, abilityUnavailable: ABILITIES_AVAILABLE });
+      pressKey(code);
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('keeps remembered aim across a stun so an off-canvas charge still has a direction', () => {
+    const { result, rerender, options, sendCommand } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    act(() => result.current.observeAim(thrustAim(THRUST_UP)));
+    rerender({
+      ...options,
+      inputLocked: true,
+      inputGeneration: STUN_INPUT_NEXT_GENERATION,
+    });
+    expect(result.current.lastNonzeroAimDirection).toEqual(THRUST_UP);
+    pressKey(CHARGE_KEY_CODE);
+    pressKey(SHIELD_KEY_CODE);
+    expect(sendCommand).not.toHaveBeenCalled();
+    rerender({ ...options, inputGeneration: STUN_INPUT_NEXT_GENERATION });
+    expect(result.current.lastNonzeroAimDirection).toEqual(THRUST_UP);
+    expect(sendCommand).not.toHaveBeenCalled();
+    releaseKey(CHARGE_KEY_CODE);
+    pressKey(CHARGE_KEY_CODE);
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith({
+      kind: 'charge',
+      payload: { ...THRUST_UP, input_generation: STUN_INPUT_NEXT_GENERATION },
+    });
+  });
+
+  it.each(ABILITY_KEY_CASES)(
+    'never activates $ability from a camera gesture, by key or by button',
+    ({ ability, code }) => {
+      const { result, sendCommand } = renderInput();
+      act(() => result.current.observeAim(thrustAim(THRUST_RIGHT, 100, true)));
+      expect(pressKey(code)).toBe(true);
+      act(() => result.current.activateAbility(ability));
+      expect(sendCommand).not.toHaveBeenCalled();
+      act(() => result.current.observeAim(thrustAim()));
+      pressKey(code);
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('activates shield without any aim and leaves charge unavailable until one exists', () => {
+    const { result, sendCommand } = renderInput();
+    expect(result.current.lastNonzeroAimDirection).toBeNull();
+    pressKey(CHARGE_KEY_CODE);
+    expect(sendCommand).not.toHaveBeenCalled();
+    pressKey(SHIELD_KEY_CODE);
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith({
+      kind: 'shield',
+      payload: { input_generation: null },
+    });
+    act(() => result.current.observeAim(thrustAim(THRUST_LEFT)));
+    releaseKey(CHARGE_KEY_CODE);
+    pressKey(CHARGE_KEY_CODE);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'charge',
+      payload: THRUST_LEFT,
+    });
+  });
+
+  it.each(ABILITY_KEY_CASES)(
+    'activates $ability from a button through the same rate discipline as the key',
+    async ({ ability }) => {
+      const { result, sendCommand } = renderInput();
+      act(() => result.current.observeAim(thrustAim()));
+      act(() => result.current.activateAbility(ability));
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      // A focused button fires click on Enter keydown and held Enter repeats, and a button has no
+      // key latch of its own: the shared interval is what refuses the repeat behind it.
+      act(() => {
+        result.current.activateAbility(ability);
+        result.current.activateAbility(ability);
+      });
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      await advance(ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS);
+      act(() => result.current.activateAbility(ability));
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('leaves held thrust running when an ability pulse is refused', async () => {
+    const sender = createSender();
+    sender.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const { result, sendCommand } = renderInput({}, sender);
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    pressKey(SHIELD_KEY_CODE);
+    expect(result.current.direction).toEqual(THRUST_RIGHT);
+    act(() => result.current.observeAim(thrustAim(THRUST_UP)));
+    await advance();
+    expect(result.current.direction).toEqual(THRUST_UP);
+    expect(sendCommand).toHaveBeenCalledTimes(3);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: THRUST_UP,
+    });
+  });
+
   it('retires the observer, keyboard listeners, and pending nonzero on unmount', async () => {
     const { result, unmount, sendCommand } = renderInput();
     const observe = result.current.observeAim;
+    const activate = result.current.activateAbility;
     act(() => observe(thrustAim()));
     pressGo();
     act(() => observe(thrustAim(THRUST_UP)));
     unmount();
     observe(thrustAim(THRUST_DOWN));
     pressGo();
+    for (const { ability, code } of ABILITY_KEY_CASES) {
+      activate(ability);
+      pressKey(code);
+    }
     await advance(1000);
     expect(sendCommand).toHaveBeenCalledTimes(1);
   });

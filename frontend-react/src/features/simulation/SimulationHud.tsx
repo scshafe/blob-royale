@@ -1,4 +1,8 @@
+import { useId } from 'react';
+
 import type {
+  AbilityAvailability,
+  AbilityAvailabilityReport,
   AbilityStatusReport,
   AbilityWindowReport,
   HillHudReport,
@@ -7,21 +11,31 @@ import type {
   ShieldStatusReport,
   ZoneExposureReport,
 } from './sessionSelectors';
+import { CHARGE_KEY_CODE, SHIELD_KEY_CODE } from './simulationConstants';
 import type {
   SessionMatchSection,
   SessionPlacement,
 } from './simulationProtocolTypes';
-import type { ThrustDirection } from './useThrustInput';
+import type { SimulationAbility, ThrustDirection } from './useThrustInput';
 
 export interface SimulationHudProps {
   /** The own blob's ability windows at this frame's tick; a `null` member is unpublished. */
   readonly ability: AbilityStatusReport;
+  /**
+   * Per-ability availability behind the on-screen controls, from the one selector the input owner's
+   * own suppression is built from, so a control cannot offer what a key press would refuse. Its
+   * explanation is a settled sentence rather than a countdown: the seconds belong to the ability
+   * rows of the status table, and a description that moved every frame would be re-read as often.
+   */
+  readonly abilityControls: AbilityAvailabilityReport;
   readonly aliveCount: number;
   readonly displayName: string | null;
   /** The hill section, present exactly when the frame carries the `king_of_the_hill` block. */
   readonly hill: HillHudReport | null;
   readonly isOwnBodyPresent: boolean;
   readonly match: SessionMatchSection | null;
+  /** The one activation path, owned by `useThrustInput`; a control never reaches a sender itself. */
+  readonly onActivateAbility: (ability: SimulationAbility) => void;
   /** The session's own entity this frame, which the scoreboard marks; a body is not required. */
   readonly ownEntityId: number | null;
   readonly ownPlacement: SessionPlacement | null;
@@ -138,6 +152,150 @@ function AbilityRows({ ability }: { readonly ability: AbilityStatusReport }) {
         </tr>
       )}
     </>
+  );
+}
+
+/** `'KeyS'` is the binding; `'S'` is what is printed on the key a player is looking for. */
+function keyLabelForCode(code: string): string {
+  return code.startsWith('Key') ? code.slice(3) : code;
+}
+
+const SHIELD_KEY_LABEL = keyLabelForCode(SHIELD_KEY_CODE);
+const CHARGE_KEY_LABEL = keyLabelForCode(CHARGE_KEY_CODE);
+
+interface AbilityControlDescriptor {
+  readonly ability: SimulationAbility;
+  readonly keyLabel: string;
+  readonly label: string;
+}
+
+/**
+ * Shield first, because it is the reactive move and its key is the one under a resting hand. Both
+ * labels are derived from the canonical key codes rather than typed a second time here, so a
+ * rebinding moves the button's shortcut with it instead of leaving the two disagreeing.
+ */
+const ABILITY_CONTROLS: readonly AbilityControlDescriptor[] = Object.freeze([
+  { ability: 'shield', keyLabel: SHIELD_KEY_LABEL, label: 'Shield' },
+  { ability: 'charge', keyLabel: CHARGE_KEY_LABEL, label: 'Charge' },
+]);
+
+/**
+ * One ability control: an ordinary button, with three departures from the camera and Start buttons
+ * beside it, each forced by the fact that the go key is Space and a focused `<button>` owns Space.
+ *
+ * **`aria-disabled`, not `disabled`.** The camera pan buttons and the lobby's Start express "present
+ * but not pressable" with the `disabled` attribute, which is right for them: their reason is ambient
+ * and a sighted player can see the whole lobby it comes from. Here the reason *is* the control --
+ * `no_aim`, `cooling_down`, `not_advertised` -- and `disabled` takes an element out of the tab
+ * order, so the one node carrying that sentence in its `aria-describedby` becomes the one node a
+ * screen-reader user can never land on. Focusable plus `aria-disabled` keeps the state and its
+ * explanation both reachable; the press is refused here rather than by the browser, and `App.css`
+ * draws the unavailable look that `:disabled` would otherwise have drawn.
+ *
+ * **Keyboard activation is taken back from the browser.** A focused button activates on Enter
+ * *keydown* and repeats while Enter is held, and it activates on Space -- which is propulsion. Both
+ * keys are therefore `preventDefault`ed on the way in and re-expressed as exactly one activation per
+ * press through `event.repeat`; Space is prevented on keyup as well, because that is where a space
+ * press actually activates a button and preventing only the keydown does not reliably stop it.
+ *
+ * **A pointer press hands Space back.** A click leaves the button focused, `blocksGameplayInput`
+ * then reads that focused button as UI and swallows the ability key, and the browser activates the
+ * focused button on the next Space -- so the go key would quietly become the shield key for the rest
+ * of the match. A pointer-initiated click therefore blurs. A keyboard activation never reaches
+ * `onClick` at all, and an assistive technology's synthesized click carries no click count, so
+ * neither loses the focus its user is navigating with.
+ */
+function AbilityControl({
+  control,
+  onActivate,
+  state,
+}: {
+  readonly control: AbilityControlDescriptor;
+  readonly onActivate: (ability: SimulationAbility) => void;
+  readonly state: AbilityAvailability;
+}) {
+  const reasonId = useId();
+  const activate = (): void => {
+    if (state.canAttempt) {
+      onActivate(control.ability);
+    }
+  };
+  return (
+    <div className="AbilityControl">
+      <button
+        aria-describedby={state.canAttempt ? undefined : reasonId}
+        aria-disabled={!state.canAttempt}
+        aria-keyshortcuts={control.keyLabel}
+        className="AbilityButton"
+        onClick={(event) => {
+          activate();
+          if (event.detail > 0) {
+            event.currentTarget.blur();
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+          }
+          event.preventDefault();
+          if (!event.repeat) {
+            activate();
+          }
+        }}
+        onKeyUp={(event) => {
+          if (event.key === ' ') {
+            event.preventDefault();
+          }
+        }}
+        type="button"
+      >
+        {control.label}
+      </button>
+      {state.canAttempt ? null : (
+        <p className="AbilityReason" id={reasonId}>
+          {state.explanation}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The on-screen half of the ability bindings, and the accessible half: the keys are the fast path
+ * for a player already holding the arena, and these are the path for everyone else. They call the
+ * same `activateAbility` the key handler calls, so a control cannot become a second sender and
+ * cannot activate something a key could not.
+ *
+ * They sit outside the Match-status table deliberately. A control is not a published status row; the
+ * table is pinned against the substrings `/ready/i` and `/available/i`, and "unavailable" contains
+ * the second; and a second assertion pins that table's rowheader list exactly.
+ *
+ * The section carries no live region. A reason can change with every snapshot -- a cooldown starts
+ * and ends inside a second -- and a polite live region would read the whole set again each time. The
+ * state is on the buttons, where a reader can ask for it.
+ */
+function AbilityControls({
+  abilities,
+  onActivate,
+}: {
+  readonly abilities: AbilityAvailabilityReport;
+  readonly onActivate: (ability: SimulationAbility) => void;
+}) {
+  return (
+    <section aria-label="Ability controls" className="AbilityControls">
+      {ABILITY_CONTROLS.map((control) => (
+        <AbilityControl
+          control={control}
+          key={control.ability}
+          onActivate={onActivate}
+          state={abilities[control.ability]}
+        />
+      ))}
+      <p className="AbilityHint">
+        Press {SHIELD_KEY_LABEL} to shield and {CHARGE_KEY_LABEL} to charge, or
+        press these buttons. Aiming a charge needs the cursor over the arena.
+      </p>
+    </section>
   );
 }
 
@@ -359,14 +517,23 @@ function formatThrust(thrust: ThrustDirection): string {
  * because the wire does not carry them: that charge is *ready*, which only the server's safety
  * envelope can decide, and how long a shield's authored protection would have been, which a
  * cancellation makes unknowable from the outside.
+ *
+ * The ability controls are the other half of Step 21's bindings and the accessible half. They live
+ * in this component, beside the rows that read the same two abilities' published windows, because a
+ * player reads one and presses the other in a single glance -- and they live outside the table it
+ * renders, for the reasons `AbilityControls` sets out. Nothing they do belongs to this file: the
+ * availability they render and the activation they call are both `useThrustInput`'s, so a control
+ * cannot claim an ability the sender would refuse.
  */
 export function SimulationHud({
   ability,
+  abilityControls,
   aliveCount,
   displayName,
   hill,
   isOwnBodyPresent,
   match,
+  onActivateAbility,
   ownEntityId,
   ownPlacement,
   phaseElapsedSeconds,
@@ -430,6 +597,10 @@ export function SimulationHud({
           </tr>
         </tbody>
       </table>
+      <AbilityControls
+        abilities={abilityControls}
+        onActivate={onActivateAbility}
+      />
       {hill === null ? null : (
         <ScoreboardTable ownEntityId={ownEntityId} rows={hill.scoreboard} />
       )}

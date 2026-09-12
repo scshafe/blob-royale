@@ -43,15 +43,52 @@ Zero instances is legal and is what every configuration in this tree looked like
 instance-name *grammar* belongs to the value that publishes the name, exactly as `[match] mode` does:
 the loader refuses only an empty instance name, and `HazardArchetype::create` refuses one outside
 `common.schema.json#/$defs/kind_name`. Tactical profiles are the second customer:
-`[bot_profile.<name>]` uses the same parser, with four required controller-owned values.
+`[bot_profile.<name>]` uses the same parser, with ten required controller-owned values.
 
-`TacticalProfileCatalogue` retains up to 16 unique profiles in declaration order. Each requires
-`objective_seek_probability` (finite 0..1), `reaction_delay_ticks` (integer 0..4000), `aim_error`
-(finite 0..0.25), and `target_persistence_ticks` (integer 0..4000). Seeking chooses go versus coast;
-it never scales acceleration. Aim error is a perpendicular/forward ratio, not degrees. No implicit
-profile or inactive combat setting is accepted. Roster terms are `tactical@<profile>:<count>`;
-plain `kind:count` keeps its meaning. Profiled choices are supported in hill, race, and royale,
-but rejected at Sandbox startup because that mode has no stable authored-seat identity.
+`TacticalProfileCatalogue` retains up to 16 unique profiles in declaration order. Step 15 required
+four keys: `objective_seek_probability` (finite 0..1), `reaction_delay_ticks` (integer 0..4000),
+`aim_error` (finite 0..0.25), and `target_persistence_ticks` (integer 0..4000). Seeking chooses go
+versus coast; it never scales acceleration. Aim error is a perpendicular/forward ratio, not degrees.
+
+**Step 22a adds six more keys, carrying three settings, and the closed family made that a migration
+of every authored profile section in the tree.** They are `objective_weight_hill`,
+`objective_weight_zone`, `objective_weight_race_gate` and `objective_weight_race_recovery` (each
+finite 0..1, one per `controllers::TacticalObjectiveKind`, together the per-kind weight vector the
+utility selection stage reads); `risk_tolerance` (finite 0..1); and `prediction_horizon_ticks`
+(integer 0..400 — one second of committed time at the fixed 400 Hz tick). The weight keys spell
+their names nowhere in this library: `kConfigFamilyFieldSpecs` reads
+`controllers::tactical_objective_weight_key`, which is `constexpr`, so the schema stays a
+compile-time constant, an unknown key is still refused by the same lookup `[royale]` uses, and a key
+cannot drift between the parser's schema and the domain's rejection diagnostic. The four are
+declared in objective-kind ordinal order in the field enum, in the field-spec table, in the
+`TacticalProfile::Section` initializer, and in the order `TacticalProfile::create` validates, so a
+section with two bad weights reports the same key at every layer. New settings append; interleaving
+one would silently re-point `rejected-tactical-profile-missing-key.cfg` at a different key than its
+name states.
+
+**Because the key schema is closed *within* an instance, an instance that omits one of its family's
+keys is `KEY_MISSING`, so every authored `[bot_profile.<name>]` section in the tree had to gain all
+six.** Those files are `config/blob-royale.cfg`;
+`frontend-react/e2e/fixtures/blob-royale-browser-e2e-tactical-movement.cfg` and
+`...-tactical-profiles.cfg`;
+`tests/unit/application/fixtures/tactical_profile_configuration_fixture.hpp`;
+and three of the four fuzz seeds — `tests/fuzz/corpus/application/valid-tactical-profile.cfg`,
+`rejected-tactical-profile-missing-key.cfg`, `rejected-tactical-profile-probability.cfg` and
+`rejected-tactical-profile-unknown-roster.cfg`. Each `rejected-*` seed keeps the reason its name
+states. The fourth, `rejected-tactical-profile-inert-combat.cfg`, was **deliberately not migrated**:
+it authors `aggression=1` to enforce ADR 0008's rule that no inert aggression, charge or shield
+setting is accepted before its behaviour exists, and it still fails for exactly that reason, because
+the parser refuses an unknown key at the line carrying it, before the missing-key sweep runs at the
+end of the document. Leaving it pointed at `aggression` is what keeps it testing what it names.
+
+No implicit profile or inactive combat setting is accepted. Domain validation adds four rejections:
+`CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHT_INVALID`, `..._RISK_TOLERANCE_INVALID` and
+`..._PREDICTION_HORIZON_INVALID` name the failed key, while `..._OBJECTIVE_WEIGHTS_DEGENERATE` names
+the section — it rejects all four weights at zero, the one combination whose every value is legal
+alone but which is indistinguishable from an unauthored one and which makes selection inexpressive.
+Roster terms are `tactical@<profile>:<count>`; plain `kind:count` keeps its meaning. Profiled
+choices are supported in hill, race, and royale, but rejected at Sandbox startup because that mode
+has no stable authored-seat identity.
 
 The composition root derives one `NpcCatalogue` from registry metadata and these validated profile
 values. The same value supplies runtime admission and the session's plain/profile projections.

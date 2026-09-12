@@ -50,10 +50,10 @@ src/controllers/
   chaser_controller.hpp/.cpp         thrust toward the nearest other controllable entity
   hill_seeker_controller.hpp/.cpp    thrust toward the hill's centre and hold there
   racer_controller.hpp/.cpp          seek ordered gates and recover toward the centreline
-  tactical_controller.hpp/.cpp       one objective go/coast algorithm for every authored profile
-  tactical_profile.hpp/.cpp          four validated active settings and bounded profile identity
+  tactical_controller.hpp/.cpp       one weighted decision pipeline for every authored profile
+  tactical_profile.hpp/.cpp          seven validated active settings and bounded profile identity
   tactical_profile_catalogue.hpp/.cpp  immutable ordered configured profiles
-  tactical_objective_candidates.hpp/.cpp  public objective providers and terrain screening
+  tactical_objective_candidates.hpp/.cpp  objective providers, screening, scoring, and selection
   tactical_seed_identity.hpp/.cpp     authored identity and domain-separated per-running seed
   creation_context.hpp               borrowed profile and authored identity during factory calls
   scripted_replay_controller.hpp/.cpp  a recorded command log, one step per pass
@@ -103,7 +103,9 @@ entity destruction; it is not a promise of invisible body-incarnation detection.
 
 **No controller sends a shield pulse, and `Controller` gained no capability for one at Step 18.**
 The base class deliberately holds exactly two — request a body, request thrust — and bot shield
-policy is Step 22's, so a `request_shield` today would be vocabulary ahead of behaviour. Human, bot
+policy is Step 22b's, so a `request_shield` today would be vocabulary ahead of behaviour. Step 22a
+built the decision pipeline and did **not** change this: see "What the pipeline deliberately does
+not decide" below for why a controller cannot yet time a shield at all. Human, bot
 and replay inputs nonetheless share one admission path: a `ShieldCommand` from any source reaches
 the same shared `ability` system and the same phase, body, input-lock, generation, protection and
 cooldown checks. Symmetry is provable now without a capability, because `ScriptedReplayController`'s
@@ -114,7 +116,7 @@ never-invalidated case. The four diagnostic bots and tactical are unchanged, dra
 and observe shield exactly as any other reader does: through the published component.
 
 **Step 19 repeats that exactly: no controller sends a charge and `Controller` gained no
-`request_charge`.** Bot charge timing is Step 22's, and the plan's own words for it — "no knowingly
+`request_charge`.** Bot charge timing is Step 22b's, and the plan's own words for it — "no knowingly
 suicidal charge" — are why a capability landing three steps early would be worse than none: a bot
 that could charge but had no policy for holes, hazards or the arena edge would be a bot that could
 kill itself. Human, bot and replay inputs share one admission path here too: a `ChargeCommand` from
@@ -223,7 +225,11 @@ at most 64 bytes. A catalogue may be empty or contain at most 16 unique names in
 `profiles()` exposes a const span; `find(name)` returns a borrowed pointer or explicit absence.
 Another personality is another value, never another tactical class or registry row.
 
-The application's strict section-family parser accepts all four required active settings:
+The application's strict section-family parser accepts **seven active settings, authored as ten
+required keys**. Step 15 shipped the first four; Step 22a added the three the decision pipeline
+reads. The four `objective_weight_*` keys are one setting — the per-kind weight vector — authored
+one key per name rather than one positional list, so a `.cfg` a human reads names the kind it is
+weighting and an omitted one is the parser's own `KEY_MISSING` naming that key.
 
 | Setting | Accepted values | Meaning |
 |---|---|---|
@@ -231,6 +237,19 @@ The application's strict section-family parser accepts all four required active 
 | `reaction_delay_ticks` | integer `0..4000` | Delay from observation to the next decision |
 | `aim_error` | finite `0..0.25` | Bounded perpendicular-to-forward aim perturbation |
 | `target_persistence_ticks` | integer `0..4000` | Lifetime of a still-eligible objective key |
+| `objective_weight_hill` | finite `0..1` | Preference for a published hill |
+| `objective_weight_zone` | finite `0..1` | Preference for a published royale zone |
+| `objective_weight_race_gate` | finite `0..1` | Preference for the next race checkpoint |
+| `objective_weight_race_recovery` | finite `0..1` | Preference for the centreline recovery point |
+| `risk_tolerance` | finite `0..1` | Fraction of a failed escape screen's penalty ignored |
+| `prediction_horizon_ticks` | integer `0..400` | Ticks escape screening and intercept look ahead |
+
+The four weight keys are declared in `TacticalObjectiveKind` ordinal order — hill, zone, race gate,
+race recovery — in `kConfigFamilyFieldSpecs`, in `TacticalProfile::Section`, and in the order
+`TacticalProfile::create` validates, so a section with two bad weights blames the same key at every
+layer. `tactical_objective_weight_key` is the one spelling of each name: the configuration parser's
+key list reads it rather than repeating the literal, so a key cannot drift between the schema and
+the diagnostic that names it.
 
 For example, append this section to a complete application configuration and select
 `bots=tactical@steady:1` under `[match]`:
@@ -241,16 +260,40 @@ objective_seek_probability=1
 reaction_delay_ticks=80
 aim_error=0.05
 target_persistence_ticks=400
+objective_weight_hill=1
+objective_weight_zone=1
+objective_weight_race_gate=1
+objective_weight_race_recovery=1
+risk_tolerance=0.5
+prediction_horizon_ticks=80
 ```
 
 These are authored example values, not defaults. Missing, repeated, unknown, malformed, nonfinite,
-or out-of-range input fails at startup; there is no clamping or inert combat setting. Plain
-`kind:count` retains its meaning and must omit a profile. Profiled selection requires a configured
-name. The application retains this catalogue and derives one immutable `NpcCatalogue` shared by
-runtime and session admission. Only real configured choices are advertised as `npc_profiles`;
-tactical is never a bare `npc_controller_kinds` choice. Lobby seats retain the full kind/profile
-declaration through pending, occupied, and vacated states. The reconciler guards queued joins with
-that declaration and immediately retires work for a replaced declaration.
+or out-of-range input fails at startup; there is no clamping or inert combat setting.
+
+Four settings-level rejections are this step's, all `CONTROLLERS.TACTICAL_PROFILE_*`:
+`OBJECTIVE_WEIGHT_INVALID`, `RISK_TOLERANCE_INVALID` and `PREDICTION_HORIZON_INVALID` name the key
+that failed, and `OBJECTIVE_WEIGHTS_DEGENERATE` names the *section*, because no single key is at
+fault. That last one is the only rejection in this library of a combination whose every value is
+individually legal: a single zero weight is a real authored answer — "this profile does not care
+about that objective" — but **all four at zero is not**, because it is the one weight set an
+omission produces (C++ zero-fills an aggregate initializer rather than refusing to compile) and
+because it makes selection inexpressive, collapsing every score onto the stable kind ordinal. A
+profile with genuinely no preference authors equal *positive* weights, which keeps distance
+ordering; that is what `config/blob-royale.cfg` ships.
+
+`risk_tolerance` is not an aggression knob under another name, and the bound is written to keep the
+two apart: it only ever scales a penalty *away*, so no value of it can add score to a dangerous
+candidate. `prediction_horizon_ticks` is bounded at one second of committed time rather than the
+ten the other tick settings allow, because a hosted bot re-decides roughly twenty times a second
+and a horizon reaching past twenty of its own future decisions would be a planner's.
+
+Plain `kind:count` retains its meaning and must omit a profile. Profiled selection requires a
+configured name. The application retains this catalogue and derives one immutable `NpcCatalogue`
+shared by runtime and session admission. Only real configured choices are advertised as
+`npc_profiles`; tactical is never a bare `npc_controller_kinds` choice. Lobby seats retain the full
+kind/profile declaration through pending, occupied, and vacated states. The reconciler guards queued
+joins with that declaration and immediately retires work for a replaced declaration.
 
 Profiled startup rosters require the selected mode's actual `StartMatch` capability, available in
 hill, race, and royale. Sandbox has no stable authored-seat identity, so it rejects those rosters
@@ -268,9 +311,45 @@ code. Candidate count is bounded at 32 before filtering, and unsupported running
 The target point and straight center segment must pass simulation's `terrain_supports_point` and
 `first_support_exit`; numerical failures propagate. This screening is not pathfinding and promises
 nothing about momentum, perturbed aim, moving terrain, body-radius clearance, hazards, or combat.
-Selection orders by squared distance, explicit objective-kind ordinal, then subject identity.
 An unexpired lease retains the same eligible key and refreshes its public target without renewing
 its acquisition time. Removal, ineligibility, or a changed gate cancels the lease immediately.
+
+**Escape screening** is the second screen and it *ranks down* rather than deletes. For each
+candidate that survived the terrain screen, the collector casts one ray from the body along the
+approach direction, of length `normal_top_speed × prediction_horizon_ticks × fixed delta` clamped to
+the arena diagonal, and asks the same canonical `simulation::first_support_exit` the screen beside
+it already calls. **There is no second support predicate anywhere in this library**, and adding one
+would break the single-geometry-owner rule `terrain_queries.hpp` states. A candidate whose approach
+already left supported ground before the target was deleted by the first screen, so this ray can
+only find the end of support *beyond* the target: what it answers is "if I keep going at the room's
+published top speed for my horizon, do I run out of ground?". A yes sets `escape_blocked`, which the
+score penalises — it does not remove the candidate, because removal would be one more way for the
+collector to return nothing and the step requires a decision when every candidate screens badly,
+not silence. Top speed is a
+published session fact a browser client reads too, so this costs the human/bot symmetry nothing;
+drag is not published and is deliberately not modelled, and omitting it overstates travel, which for
+a safety screen is the conservative direction.
+
+**Hill intercept and hold** is the one prediction in this domain that needs nothing unpublished, and
+that is worth saying out loud because every other prediction this domain might want *does*.
+`ComponentPublication<HillMotion>` strips the private retarget schedule and publishes the hill's
+**committed velocity**; `hill_movement` integrates that velocity with no drag term; and the hill
+entity owns no `PhysicsBody`, so it is never dragged, never accelerated by contact, and never capped
+by a speed limit. Its future centre is therefore exactly `center + velocity × horizon × fixed
+delta`, closed form, no unpublished term. Contrast the three predictions Step 22b needs: an
+opponent's future position needs `drag_per_second`, which lives on `SimulationConfig` and reaches no
+snapshot; a charge needs `charge_speed_fraction`; a parry needs `shield_perfect_window_seconds`.
+Intercept and hold are the same computation — a bot already inside a moving hill measures itself
+against the future centre and so keeps station instead of arriving where the hill used to be. A hill
+with no published `HillMotion`, or a zero horizon, returns the centre unchanged, so every
+stationary-hill behaviour is bit-identical to Step 15's. An extrapolated point outside the
+representable `Vector2` domain returns the centre unchanged rather than throwing: a throw here would
+be isolated by the host and would silently stop the bot for the pass.
+
+The intercept is computed in the provider, so the point terrain screening and escape screening see
+**is** the predicted one: a hill about to roam over a hole is screened out on where it is going, not
+on where it is. The lease refresh picks up the recomputed intercept on every pass without renewing
+the acquisition window, which is what makes hold work — the target moves under a held lease.
 
 The first eligible running dynamic-body observation, body/generation change, and stun recovery
 start reaction timing from the actual observed tick. The timer starts even when no objective is
@@ -289,6 +368,172 @@ one additional aim draw even for zero error. It normalizes the target offset, co
 `e = ((draw * 2) - 1) * aim_error`, then `(ux - e*uy, uy + e*ux)`, and normalizes that pair with
 written square-root arithmetic and the canonical component clamp. No trigonometry is used. Missing,
 invalid, or arrived targets, bodyless state, non-running phases, and active stun consume no draws.
+
+## Profile-weighted utility selection
+
+**This stage is the point of Step 22a.** Step 15 selected with `min_element` over nearest squared
+distance and consulted the profile at four call sites, none of them selection — so two profiles
+differing only in numbers picked the *same* candidate on the same frame, and no differentiation
+could be proven no matter how many objective kinds were added. ADR 0008 names the path as "published
+observation → objective candidates → safety screening → **utility selection** → steering/actions";
+the utility stage is what did not exist.
+
+`tactical_candidate_score` is the one written scoring order every profile shares:
+
+```
+preference = weight(kind) * (1 - normalized_distance)
+penalty    = escape_blocked ? (1 - risk_tolerance) : 0
+score      = (preference - penalty) + held_bonus
+```
+
+Multiply, subtract, then add, in that order and never reassociated, so two toolchains select the
+same candidate bit for bit. `normalized_distance` is the distance to the target over the **published
+arena diagonal**, clamped to `[0,1]`, so one authored weight means the same thing on a 960-unit
+fixture map and on a ten-kilometre one. Every term lands in the unit interval when the weights do,
+which is what makes the penalty commensurate with the preference. Nothing here draws from the
+generator: selection is deterministic, and the seek and aim draws stay exactly where Step 15 put
+them, in the same order, so no authored profile's stream moved.
+
+`tactical_select_candidate` takes the maximum, and an exact tie falls through to
+`tactical_candidate_precedes` — kept from Step 15, no longer the selector but now the *tail* of the
+chain. Its order is nearest first, then the key, whose first component is the stable kind ordinal;
+keys are unique within one screened set, so this is a strict total order and **no selection can
+depend on the order providers happened to push candidates in**.
+
+**Hysteresis is the existing lease, given a bonus, not a second memory beside it.** While the
+persistence window is open no selection runs at all. At the moment it ends, the candidate it was
+holding carries `kTacticalHeldTargetBonus` (0.125, an eighth of the score range) into the one
+comparison that can replace it, so a challenger must beat the held target by more than that bonus.
+That damps oscillation between two near-equal candidates without pinning a bot to a stale one.
+**Target loss is the other half**: a held key that no longer appears among the screened candidates
+releases the lease immediately, cancels held input, and restarts reaction timing.
+
+A weight is not inert today even though each running schema publishes one kind. With a single kind
+the weight is a common factor and cannot reorder two candidates by itself; what it reorders is a
+candidate against the *escape penalty* and against the *hysteresis bonus*, neither of which it
+scales. `w * (proximity_near - proximity_far) > 1 - tolerance` is the authored decision between a
+near objective a bot would overshoot into a cliff and a clear one further away, and the weight alone
+settles it. `tests/unit/controllers/tactical_controller_tests.cpp` proves exactly that, and proves
+it honestly: the two bots share one profile **name**, so they share a seed, a stream and a draw
+count, and the only difference between them is one weight. That matters because `tactical_seed_for`
+mixes the name's length and every one of its bytes, so two differently *named* profiles already draw
+and steer differently before any setting is consulted, and a test comparing two names would prove
+nothing.
+
+## Reason codes and bounded work
+
+`TacticalDecisionReason` is a closed 13-value enum recording **which branch produced the decision**,
+and `TacticalTargetHold` a closed 7-value enum recording **what became of the held target** on that
+same decision. They are two enums rather than one flattened branch-times-hold product, which would
+have to be renamed whenever either half grew. Several distinct branches of `decide_next` return the
+same observable answer — an empty command vector, or an explicit zero thrust — and before these
+enums a test could only tell them apart by side effects: a draw that did not happen, a window that
+did not move. A log line would not have fixed that either: free text cannot be asserted on and
+drifts from the code the first time a branch moves.
+
+The reasons are `kNotDecided`, `kAwaitingBody`, `kNoControllableBody`, `kMatchNotRunning`,
+`kStunned`, `kObjectivesWaiting`, `kObjectivesFinished`, `kNoScreenedCandidate`,
+`kAwaitingReaction`, `kArrived`, `kSeekDeclined`, `kPursuing` and `kPursuingUnderRisk`. The holds
+are `kNone`, `kAcquired`, `kRetainedInLease`, `kRetainedByBonus`, `kSwitched`, `kLost` and
+`kReleased`. Every value is reachable and the unit tests reach each one. `kPursuingUnderRisk` is
+the **required fallback made visible**: a bot whose every candidate failed escape screening still
+pursues the least bad one rather than throwing or standing still, and this value is how a test
+tells that apart from a clean run.
+
+`decision_reason()`, `target_hold()` and `objective_work()` are exposed exactly as the existing
+window accessors are, and are rolled back with them when an observation fails validation and is not
+consumed — a reason is decision state, not a log.
+
+`TacticalObjectiveWork` counts bounded work **where it happens, rather than estimating it
+afterwards**: `raw_candidate_count` (what the 32-candidate throw is measured against, before any
+terrain work), `screened_candidate_count`, and `prediction_step_count`. A pass extrapolates at most
+one moving-hill centre per raw candidate and casts at most one escape ray per screened candidate,
+and screened candidates are a subset of raw ones, so the ceiling is
+`kMaximumTacticalPredictionStepCount` = `2 × 32` = 64. It is *derived* from the candidate bound and
+the two loops rather than authored, which is why it is stated beside those loops rather than in
+`controllers_limits.hpp`, where the bounds an authored input must satisfy live. **There is no
+search, no replanning loop and no planner**: a prediction is a fixed number of fixed-delta steps
+over a bounded horizon, and a zero horizon performs — and therefore counts — none at all.
+
+**The 32-candidate throw is left exactly as Step 15 wrote it**, and the code says so rather than
+leaving it to be rediscovered. `require_candidate_count` throws
+`CONTROLLERS.TACTICAL_CANDIDATE_LIMIT_EXCEEDED` on the raw per-provider count *before* terrain work,
+and the host isolates that throw, so the bot silently stops acting for the pass. It is honest today
+only because exactly one provider runs per running schema, which makes "raw count" and "this
+provider's count" the same number. Escape screening adds no per-opponent candidate, so this step
+cannot trip the bound and did not raise it. Step 22b's opponent-derived provider is the first that
+can run alongside another and the first bounded by 64 seats rather than by 32 candidates; **it must
+make the accounting per-provider**, or one provider will exhaust the shared budget.
+
+## What the pipeline deliberately does not decide
+
+This is the most useful thing to know about Step 22a, so it is written here rather than left to a
+review document. **Shoving, charge timing and the trajectory-based shield decision are absent on
+purpose. They are Step 22b.**
+
+They are absent because *a controller cannot see what they need*. `Observation` carries the
+published snapshot and nothing else, and this library links no gameplay:
+
+* **The perfect opening's length is not published.** The shield component publishes
+  `activation_tick`, `shield_expiry_tick`, `perfect_expiry_tick`, `cooldown_expiry_tick` and
+  `parry_stun_duration_ticks` — all facts of a shield that already exists. A bot deciding *whether
+  to raise one* has no window length to aim at, so a "timing error" setting would have no
+  denominator without a second copy of `[abilities] shield_perfect_window_seconds` inside this
+  library.
+* **The charge burst has no published length.** `normal_top_speed` is published;
+  `charge_speed_fraction` and `charge_safety_envelope_speed` are not. A bot cannot compute its own
+  post-burst velocity, cannot compute a stopping distance, and cannot tell an available charge from
+  one the safety envelope will silently refuse.
+* **`drag_per_second` reaches no snapshot and no welcome.** It lives on `SimulationConfig`, and the
+  three configurations in this tree author 0, 2.0 and 40. At the deployed 2.0 a linear predictor
+  overstates travel by about 7% over 32 ticks and about 21% over 0.2 s, the bias is one-signed —
+  it always predicts contact *earlier* than it happens — and it flips with a file the bot cannot
+  read. That is precisely why hill intercept above is legitimate and an opponent predictor is not:
+  the hill does not drag.
+* **Shove force needs `restitution`, which exists on the in-process `PhysicsBody` but not on the
+  wire.** A controller reading it would see more than a browser client can, breaking the human/bot
+  symmetry `tests/unit/controllers/human_bot_symmetry_tests.cpp` asserts.
+
+**And publishing all of them would still not buy a reliable parry.** Hosted bots decide at
+presentation cadence — `snapshots_per_second=20` against a 400 Hz tick — so one decision per twenty
+committed ticks, on a snapshot that may itself be a publish interval stale, with the command landing
+at the next tick's phase 0. The activation tick is `observed + k` for a `k` of roughly 1 to 21 that
+the bot cannot observe. **The perfect opening is 32 ticks.** The unobservable activation jitter is
+comparable to the entire window and dominates any profile-authored timing error. A bot can raise a
+shield in anticipation of a contact; it cannot reliably land the perfect opening, and only a change
+to hosted-bot decision cadence would alter that.
+
+**So no aggression, charge-appetite or shield-timing setting is authored here.** ADR 0008 §
+"Tactical personalities without a class per mood" forbids an inert combat knob before its behaviour
+exists — "No inert aggression/charge/shield settings are accepted before their behavior" — and
+`tests/fuzz/corpus/application/rejected-tactical-profile-inert-combat.cfg` enforces the rule: it
+authors `aggression=1` and must keep being rejected. It was deliberately **not** migrated with the
+other seeds, and it still rejects for the reason its name states — the parser refuses an unknown key
+at the line that carries it, before the missing-key sweep runs at the end of the document.
+
+The four named personalities ADR 0008 sketches — Keeper, Bully, Opportunist, Cautious Racer — are
+Step 22b's too, because three of the four are defined by combat behaviour. Step 22a added settings,
+not profiles, which is also what keeps the tactical-profiles browser spec's exact published profile
+list unchanged.
+
+**What Step 22b will and will not be, now that the owner has decided.** ADR 0008 § "Owner decision:
+authored caution for bot combat, 2026-09-12" chose **authored caution over derived physics**: none
+of the four facts above becomes a v3 wire field, and controllers stay exactly where ADR 0002 puts
+them, seeing what a browser sees and nothing more. Step 22b's combat numbers will therefore be
+profile-authored ray lengths and anticipation windows, and its code must say so — they are authored
+caution, not predictions of the kernel. The accepted consequences are that a bot will sometimes
+charge into a wall or a hazard it had no way to predict, and that its shield will often be early or
+late. **Neither is a defect to tune away**, and a future reader who "fixes" one by reaching for
+gameplay configuration inside a controller is undoing that decision. The parry-cadence limit above
+stands under the decision either way.
+
+This also settles what a combat setting authored *here* would have meant. `risk_tolerance` and the
+objective weights are read by behaviour Step 22a ships; an aggression, charge-appetite or
+shield-timing key would have been read by nothing until 22b, which is precisely the inert knob the
+ADR refuses.
+
+Full findings: `docs/reviews/2026-09-12-tactical-combat-preflight.md`. The contract this step was
+built to: `docs/reviews/2026-09-12-tactical-pipeline-contract.md`.
 
 ## Determinism
 
@@ -335,5 +580,16 @@ asserts both move, and an in-test mode written to avoid that link would be a sec
 Helper promotion is covered against frozen complete diagnostic behavior on both pinned compiler
 lanes. Tactical fixtures separately exercise profile/catalogue validation, seed derivation,
 public objective/terrain selection, timing, cancellation, and duplicate-observation admission.
-The implementation contract is `docs/reviews/2026-09-11-tactical-profile-contract.md`; these
-test descriptions are coverage intent, not a claim that an unrun gate passed.
+Step 22a adds coverage for the written scoring order and its unit terms, maximum-score selection
+with the stable-ordinal tie-break, escape screening ranking down rather than deleting, hill
+intercept extrapolating the published committed velocity only, hysteresis holding through a lease
+and then by the bonus until a challenger beats it, a decision when every candidate screens badly,
+every reason code and every hold outcome, and bounded work at its derived ceiling — plus the
+weight-not-seed differentiation proof, which holds the profile **name** constant.
+
+**A `[bot_profile]` key change breaks four gates outside this library**, which is why Step 22a's
+Verify line is wider than Step 15's: `unit.application`, `verify-fuzz-regressions`, `verify-web` and
+`verify-browser-e2e` all parse an authored profile section. The implementation contracts are
+`docs/reviews/2026-09-11-tactical-profile-contract.md` (Step 15) and
+`docs/reviews/2026-09-12-tactical-pipeline-contract.md` (Step 22a); these test descriptions are
+coverage intent, not a claim that an unrun gate passed.

@@ -199,8 +199,8 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
 // naming the section it came from. Two copies of that grammar in one library would be the second
 // source of truth this concept exists to avoid.
 //
-// `[bot_profile.steady]` uses the same seam: its four settings are closed, while names are authored
-// in configuration alone. Each domain validates its own collected values after this strict parse.
+// `[bot_profile.steady]` uses the same seam: its ten keys are closed, while names are authored in
+// configuration alone. Each domain validates its own collected values after this strict parse.
 enum class ConfigSectionFamily : std::size_t {
   kHazard,
   kBotProfile,
@@ -222,6 +222,12 @@ enum class ConfigFamilyField : std::size_t {
   kBotProfileReactionDelayTicks,
   kBotProfileAimError,
   kBotProfileTargetPersistenceTicks,
+  kBotProfileObjectiveWeightHill,
+  kBotProfileObjectiveWeightZone,
+  kBotProfileObjectiveWeightRaceGate,
+  kBotProfileObjectiveWeightRaceRecovery,
+  kBotProfileRiskTolerance,
+  kBotProfilePredictionHorizonTicks,
   kCount,
 };
 
@@ -251,18 +257,41 @@ constexpr char kConfigSectionFamilySeparator = '.';
 // `kMaximumBotRosterEntryCount` applies to the roster line.
 constexpr std::size_t kMaximumConfigSectionFamilyInstanceCount = 64;
 
+// **The four objective-weight keys spell their names nowhere.** They are the one place this file's
+// closed key schema meets a closed enumeration another library owns, and a copied spelling here
+// would be a second source of truth for a key: `controllers::tactical_objective_weight_key` is the
+// single name of each, read by this list, by the domain's own rejection diagnostics, and by the
+// tests that author a section (`src/controllers/tactical_profile.hpp`). It is `constexpr`, so the
+// schema is still a compile-time constant and an unknown key is still refused by the same lookup
+// `[royale]` uses.
+//
+// Their declared order is `TacticalObjectiveKind`'s ordinal order, which is also the order
+// `TacticalProfile::create` validates in, so a section with two bad weights reports the same one at
+// every layer. New settings append; interleaving one would silently re-point the
+// `rejected-tactical-profile-missing-key.cfg` fuzz seed at a different key than its name states.
 constexpr std::array<ConfigFamilyFieldSpec, static_cast<std::size_t>(ConfigFamilyField::kCount)>
-    kConfigFamilyFieldSpecs = {{{ConfigSectionFamily::kHazard, "radius_world_units"},
-                                {ConfigSectionFamily::kHazard, "mass"},
-                                {ConfigSectionFamily::kHazard, "restitution"},
-                                {ConfigSectionFamily::kHazard, "speed_world_units_per_second"},
-                                {ConfigSectionFamily::kHazard, "spawn_interval_seconds"},
-                                {ConfigSectionFamily::kHazard, "lethal_on_contact"},
-                                {ConfigSectionFamily::kHazard, "contact_effect_policy"},
-                                {ConfigSectionFamily::kBotProfile, "objective_seek_probability"},
-                                {ConfigSectionFamily::kBotProfile, "reaction_delay_ticks"},
-                                {ConfigSectionFamily::kBotProfile, "aim_error"},
-                                {ConfigSectionFamily::kBotProfile, "target_persistence_ticks"}}};
+    kConfigFamilyFieldSpecs = {
+        {{ConfigSectionFamily::kHazard, "radius_world_units"},
+         {ConfigSectionFamily::kHazard, "mass"},
+         {ConfigSectionFamily::kHazard, "restitution"},
+         {ConfigSectionFamily::kHazard, "speed_world_units_per_second"},
+         {ConfigSectionFamily::kHazard, "spawn_interval_seconds"},
+         {ConfigSectionFamily::kHazard, "lethal_on_contact"},
+         {ConfigSectionFamily::kHazard, "contact_effect_policy"},
+         {ConfigSectionFamily::kBotProfile, "objective_seek_probability"},
+         {ConfigSectionFamily::kBotProfile, "reaction_delay_ticks"},
+         {ConfigSectionFamily::kBotProfile, "aim_error"},
+         {ConfigSectionFamily::kBotProfile, "target_persistence_ticks"},
+         {ConfigSectionFamily::kBotProfile,
+          controllers::tactical_objective_weight_key(controllers::TacticalObjectiveKind::kHill)},
+         {ConfigSectionFamily::kBotProfile,
+          controllers::tactical_objective_weight_key(controllers::TacticalObjectiveKind::kZone)},
+         {ConfigSectionFamily::kBotProfile, controllers::tactical_objective_weight_key(
+                                                controllers::TacticalObjectiveKind::kRaceGate)},
+         {ConfigSectionFamily::kBotProfile, controllers::tactical_objective_weight_key(
+                                                controllers::TacticalObjectiveKind::kRaceRecovery)},
+         {ConfigSectionFamily::kBotProfile, "risk_tolerance"},
+         {ConfigSectionFamily::kBotProfile, "prediction_horizon_ticks"}}};
 
 // One declared `[<family>.<instance>]` section: its family, its open name, and one slot per key of
 // the closed schema. The slots a sibling family owns stay empty, which costs a startup-only parse
@@ -736,6 +765,10 @@ parse_hazard_archetypes(const StrictIniDocument& document) {
 }
 
 // Preserve authored order; the controller-owned catalogue validates its own capacity and identity.
+// The initializers below are written in the declared key order of `ConfigFamilyField`, so the file
+// schema, this call, and `TacticalProfile::Section` read top to bottom as one list; a settings key
+// added to the middle of one of the three and the end of another would be the drift this ordering
+// makes visible in review.
 [[nodiscard]] controllers::TacticalProfileCatalogue
 parse_tactical_profiles(const StrictIniDocument& document) {
   std::vector<controllers::TacticalProfile> profiles;
@@ -751,7 +784,21 @@ parse_tactical_profiles(const StrictIniDocument& document) {
             parse_unsigned_family_value(instance, ConfigFamilyField::kBotProfileReactionDelayTicks),
         .aim_error = parse_double_family_value(instance, ConfigFamilyField::kBotProfileAimError),
         .target_persistence_ticks = parse_unsigned_family_value(
-            instance, ConfigFamilyField::kBotProfileTargetPersistenceTicks)}));
+            instance, ConfigFamilyField::kBotProfileTargetPersistenceTicks),
+        .objective_weights =
+            controllers::TacticalObjectiveWeights{
+                .hill = parse_double_family_value(
+                    instance, ConfigFamilyField::kBotProfileObjectiveWeightHill),
+                .zone = parse_double_family_value(
+                    instance, ConfigFamilyField::kBotProfileObjectiveWeightZone),
+                .race_gate = parse_double_family_value(
+                    instance, ConfigFamilyField::kBotProfileObjectiveWeightRaceGate),
+                .race_recovery = parse_double_family_value(
+                    instance, ConfigFamilyField::kBotProfileObjectiveWeightRaceRecovery)},
+        .risk_tolerance =
+            parse_double_family_value(instance, ConfigFamilyField::kBotProfileRiskTolerance),
+        .prediction_horizon_ticks = parse_unsigned_family_value(
+            instance, ConfigFamilyField::kBotProfilePredictionHorizonTicks)}));
   }
   return controllers::TacticalProfileCatalogue::create(std::move(profiles));
 }

@@ -1679,3 +1679,42 @@ the canvas. A touch, pen or keyboard-only player therefore has no aim, and charg
 with its explanation showing. Shield is fully usable without a pointer. Closing that gap means
 inventing a keyboard aim, which would partly reverse Step 11a's removal of directional steering and
 is a decision for the owner, not an implementation detail of this step.
+
+## Owner decision: authored caution for bot combat, 2026-09-12 (plan Step 22)
+
+A read-only preflight established that four of Step 22's named behaviours need values no reader can
+see. The perfect opening's *length* is never published -- only the endpoints of a shield that already
+exists -- so a bot deciding whether to raise one has no window to aim at. `charge_speed_fraction` and
+`charge_safety_envelope_speed` are held in `gameplay::AbilityConfiguration` and reach no snapshot, so
+a bot cannot compute its own post-burst velocity or tell an available charge from one the envelope
+will refuse. `drag_per_second` lives on `SimulationConfig` and reaches neither a snapshot nor the
+welcome, and the three configurations in this tree author 0, 2.0 and 40. And shove force would need
+`restitution`, which exists on the in-process `PhysicsBody` but is not encoded to the wire -- so a
+controller reading it would see more than a browser client and break the human/bot symmetry this
+design asserts.
+
+The owner was offered two ways forward and **chose authored caution over derived physics.**
+
+**Bots screen a ray of profile-authored length and raise shields on a profile-authored anticipation
+window.** No ability tuning and no `drag_per_second` is published on v3 for bot use. Controllers stay
+where ADR 0002 puts them: seeing exactly what a browser sees, and nothing more. A profile's combat
+numbers are authored caution, and the code and this ADR must say so rather than dressing them as
+prediction.
+
+**The consequences are accepted rather than disguised.** A bot will sometimes charge into a wall or a
+hazard it had no way to predict, because it is screening an authored distance and not simulating the
+kernel. Its shield will often be early or late, because it cannot know the window it is aiming at.
+Neither is a defect to be tuned away; both follow from the boundary, and a future reader who "fixes"
+them by reaching for gameplay configuration inside a controller is undoing this decision.
+
+**One limit no published state would have removed.** Hosted bots decide at presentation cadence --
+`snapshots_per_second=20` against a 400 Hz tick -- so a bot's activation lands at an observed tick
+plus a jitter of roughly one to twenty-one ticks that it cannot observe. The perfect opening is 32
+ticks. The jitter is comparable to the entire window, and it dominates any profile timing error. **A
+bot cannot reliably land a perfect parry**, and that is true under either option. Making bot parries
+reliable would mean changing the decision cadence for hosted bots, which is a separate decision this
+one does not take.
+
+This records the boundary, not an implementation. Step 22a builds the decision pipeline from
+published state; Step 22b builds the combat behaviours under this decision. Neither publishes a new
+wire field, adds a kernel seam, or gives a controller a gameplay dependency.

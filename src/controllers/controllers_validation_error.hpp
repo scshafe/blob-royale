@@ -26,7 +26,11 @@ namespace blob_royale::controllers {
 // roster, two controllers
 // claiming one durable identity, a personality outside its accepted range, an observation built for
 // a different controller. `RACER_COURSE_INVALID` additionally reports a malformed published course
-// during a decision; accepted race maps cannot produce it. A decision failure is isolated and
+// during a decision; accepted race maps cannot produce it.
+// `TACTICAL_PROFILE_OBJECTIVE_WEIGHTS_DEGENERATE` is the one code here that rejects a section whose
+// every value is individually in range: it names a *combination* that cannot express a preference,
+// and `tactical_profile.cpp` states why an authored one is always an omission. A decision failure
+// is isolated and
 // counted by `ControllerHost`, not thrown out of, because a bot holds exactly the capabilities a
 // network session holds and neither may stop the match (`controller_host.hpp`). related:
 // controller_registry.hpp -- the unknown-kind rejection. related: controller_host.hpp -- the
@@ -52,6 +56,10 @@ enum class ControllersValidationCode {
   kTacticalProfileReactionDelayInvalid,
   kTacticalProfileAimErrorInvalid,
   kTacticalProfilePersistenceInvalid,
+  kTacticalProfileObjectiveWeightInvalid,
+  kTacticalProfileObjectiveWeightsDegenerate,
+  kTacticalProfileRiskToleranceInvalid,
+  kTacticalProfilePredictionHorizonInvalid,
   kTacticalProfileCatalogueFull,
   kTacticalProfileNameDuplicate,
   kControllerCreationContextInvalid,
@@ -105,6 +113,14 @@ controllers_validation_code_name(const ControllersValidationCode code) noexcept 
     return "CONTROLLERS.TACTICAL_PROFILE_AIM_ERROR_INVALID";
   case ControllersValidationCode::kTacticalProfilePersistenceInvalid:
     return "CONTROLLERS.TACTICAL_PROFILE_PERSISTENCE_INVALID";
+  case ControllersValidationCode::kTacticalProfileObjectiveWeightInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHT_INVALID";
+  case ControllersValidationCode::kTacticalProfileObjectiveWeightsDegenerate:
+    return "CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHTS_DEGENERATE";
+  case ControllersValidationCode::kTacticalProfileRiskToleranceInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_RISK_TOLERANCE_INVALID";
+  case ControllersValidationCode::kTacticalProfilePredictionHorizonInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_PREDICTION_HORIZON_INVALID";
   case ControllersValidationCode::kTacticalProfileCatalogueFull:
     return "CONTROLLERS.TACTICAL_PROFILE_CATALOGUE_FULL";
   case ControllersValidationCode::kTacticalProfileNameDuplicate:

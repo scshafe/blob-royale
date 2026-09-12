@@ -13,6 +13,13 @@
 namespace blob_royale::testing::tactical_profile_fixture {
 
 inline constexpr std::string_view kName = "steady";
+
+// Equal POSITIVE weights, which is how a profile authors "no preference". All-zero weights are a
+// named rejection rather than a neutral setting, because zero is exactly what C++ fills an omitted
+// aggregate initializer with and the parser cannot see that a caller was left behind
+// (`controllers/tactical_profile.hpp`). Equal weights keep selection ordered by distance, which is
+// what every case written before Step 22a expects.
+inline constexpr controllers::TacticalObjectiveWeights kEqualWeights{1.0, 1.0, 1.0, 1.0};
 inline constexpr std::string_view kOtherName = "quick";
 inline constexpr controllers::TacticalSeedIdentity kIdentity{20260911, 2, 3};
 inline constexpr std::array<std::string_view, 6> kInvalidNames{"",    "Upper", "space name",
@@ -25,10 +32,10 @@ inline constexpr std::array<double, 5> kInvalidAimErrors{
     -std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()};
 
 [[nodiscard]] inline controllers::TacticalProfile::Section configured_section() {
-  return {std::string{kName}, 1.0, 80, 0.05, 400};
+  return {std::string{kName}, 1.0, 80, 0.05, 400, kEqualWeights, 0.5, 80};
 }
 [[nodiscard]] inline controllers::TacticalProfile::Section immediate_section() {
-  return {std::string{kName}, 1.0, 0, 0.0, 5};
+  return {std::string{kName}, 1.0, 0, 0.0, 5, kEqualWeights, 0.5, 0};
 }
 [[nodiscard]] inline controllers::TacticalProfile profile() {
   return controllers::TacticalProfile::create(immediate_section());

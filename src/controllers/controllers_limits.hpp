@@ -87,6 +87,55 @@ inline constexpr std::uint64_t kMaximumTacticalTargetPersistenceTicks = 4'000;
 inline constexpr std::size_t kMaximumTacticalObjectiveCandidateCount = 32;
 inline constexpr std::uint64_t kTacticalSeedDomain = 0x7461'6374'6963'616cULL;
 
+// The inclusive range of one per-kind objective weight, zero through this bound.
+//
+// A weight is the *preference* term of the utility score
+// (`tactical_objective_candidates.hpp` `tactical_candidate_score`), so the same reasoning that
+// bounds `kMaximumChaserAggressionWeight` and `kMaximumHillSeekerWeight` at one applies: a unit
+// weight against a unit-normalised distance keeps every term of that score, and the escape penalty
+// it is compared against, in one commensurate range. That is what lets the selection stage state a
+// written operation order with no overflow or infinity case, and what makes "a zero-tolerance
+// profile always prefers a candidate it can stop short of" a provable statement rather than a
+// tuning accident.
+//
+// Zero is an authored value -- "this profile does not care about that objective" -- but *every*
+// weight at zero is not, because that is the one weight set indistinguishable from an unauthored
+// one: see `CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHTS_DEGENERATE` in `tactical_profile.cpp`.
+// How *many* weights a profile authors is not a bound and is not declared here; it is
+// `kTacticalObjectiveKindCount`, beside the enum it counts.
+inline constexpr double kMaximumTacticalObjectiveWeight = 1.0;
+
+// The inclusive range of a profile's risk tolerance, zero through this bound.
+//
+// It scales away the penalty a screened-but-marginal candidate carries: at zero the penalty applies
+// in full, at one it is cancelled and the escape screen is ignored. **It cannot run the other
+// way.** No value of it adds score to a dangerous candidate, because a knob that did would be an
+// appetite for danger -- which is Step 22b's aggression, and ADR 0008 § "Tactical profiles" forbids
+// an inert aggression, charge or shield setting before its behavior exists
+// (`docs/reviews/2026-09-12-tactical-pipeline-contract.md` § "Profile settings"). Stating the
+// direction as a bound, rather than only in prose, is what keeps the two apart in review.
+inline constexpr double kMaximumTacticalRiskTolerance = 1.0;
+
+// Committed ticks a profile's prediction may look ahead, zero through this bound inclusive.
+//
+// **One second of committed time, and deliberately not the ten seconds the other tick bounds here
+// allow.** A hosted bot decides at presentation cadence, roughly twenty times a second against the
+// 400 Hz tick, so a one-second horizon already reaches past twenty of the bot's own future
+// decisions, each of which re-observes and corrects. A horizon longer than that is a planner's, and
+// this step ships no planner (`docs/reviews/2026-09-12-tactical-pipeline-contract.md` § "Bounded
+// work"). It also keeps an honest claim honest: the only prediction this step performs is over the
+// published `hill_motion` velocity, which does not drag, while the preflight measured a linear
+// predictor of a *dragged* body diverging about 21% by 0.2 s at the deployed `drag_per_second=2.0`
+// (`docs/reviews/2026-09-12-tactical-combat-preflight.md`). A future dragged predictor must argue
+// for its own horizon rather than inherit a target-persistence-sized one.
+inline constexpr std::uint64_t kMaximumTacticalPredictionHorizonTicks =
+    simulation::kSimulationTicksPerSecond;
+
+static_assert(kMaximumTacticalPredictionHorizonTicks <= kMaximumTacticalTargetPersistenceTicks,
+              "a prediction informs the decision that holds a target, so a horizon reaching past "
+              "the longest lease a profile may author would predict a world its own next decision "
+              "has already replaced");
+
 } // namespace blob_royale::controllers
 
 #endif

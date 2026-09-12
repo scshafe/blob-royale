@@ -16,12 +16,29 @@ namespace profile_fixture = blob_royale::testing::tactical_profile_fixture;
 namespace frozen_random = blob_royale::testing::deterministic_random_reference;
 
 namespace {
+using Hold = controllers::TacticalTargetHold;
+using Reason = controllers::TacticalDecisionReason;
+
 [[nodiscard]] std::unique_ptr<controllers::TacticalController>
 bot(const controllers::TacticalProfile::Section& section = profile_fixture::immediate_section(),
     const std::uint64_t controller = frame_fixture::kController) {
   return std::make_unique<controllers::TacticalController>(
       simulation::ControllerId::create(controller), controllers::TacticalProfile::create(section),
       profile_fixture::kIdentity);
+}
+// The one place this file names the profile's selection settings, so a case states the numbers its
+// arithmetic depends on instead of inheriting whatever the shared fixture happens to author. The
+// profile *name* is never varied: `tactical_seed_for` mixes the name's length and every one of its
+// bytes, so a differently named profile already draws differently and would prove nothing.
+[[nodiscard]] controllers::TacticalProfile::Section tuned(const double objective_weight,
+                                                          const double risk_tolerance,
+                                                          const std::uint64_t horizon_ticks) {
+  auto section = profile_fixture::immediate_section();
+  section.objective_weights = {objective_weight, objective_weight, objective_weight,
+                               objective_weight};
+  section.risk_tolerance = risk_tolerance;
+  section.prediction_horizon_ticks = horizon_ticks;
+  return section;
 }
 [[nodiscard]] std::vector<simulation::Command> decide(controllers::Controller& controller,
                                                       const frame_fixture::Frame& frame) {
@@ -150,7 +167,10 @@ TEST_CASE("Tactical first eligible empty observations retain their deadline and 
 TEST_CASE("Tactical target persistence refreshes position without renewal and expires between "
           "reaction deadlines",
           "[unit][controllers][tactical][timing]") {
-  auto section = profile_fixture::immediate_section();
+  // The weights are stated here rather than inherited: at the tick 9 deadline the held first
+  // objective carries the hysteresis bonus, and a full weight is what lets the much nearer second
+  // objective outscore it. A profile that weighted this kind at a quarter would keep the first.
+  auto section = tuned(1.0, 1.0, 0);
   section.reaction_delay_ticks = 4;
   section.target_persistence_ticks = 2;
   auto controller = bot(section);
@@ -168,12 +188,14 @@ TEST_CASE("Tactical target persistence refreshes position without renewal and ex
   CHECK(controller->target_key()->subject == frame_fixture::kFirstObjective);
   CHECK(controller->target() == simulation::Vector2::create(550.0, 320.0));
   CHECK(controller->persistence_window()->activation_tick().value() == 5);
+  CHECK(controller->target_hold() == Hold::kRetainedInLease);
   frame.tick = 7;
   CHECK(decide(*controller, frame).empty());
   CHECK(controller->target_key()->subject == frame_fixture::kFirstObjective);
   frame.tick = 9;
   require_go(decide(*controller, frame));
   CHECK(controller->target_key()->subject == frame_fixture::kSecondObjective);
+  CHECK(controller->target_hold() == Hold::kSwitched);
   CHECK(controller->persistence_window()->activation_tick().value() == 9);
 }
 
@@ -190,6 +212,8 @@ TEST_CASE("Tactical removed targets cancel held input immediately and restart de
   frame.circles = {{frame_fixture::kSecondObjective, 400.0, 400.0, 20.0}};
   require_zero(decide(*controller, frame));
   CHECK_FALSE(controller->target_key());
+  CHECK(controller->target_hold() == Hold::kLost);
+  CHECK(controller->decision_reason() == Reason::kAwaitingReaction);
   CHECK(controller->reaction_window()->expiry_tick().value() == 6);
   frame.tick = 5;
   CHECK(decide(*controller, frame).empty());
@@ -197,6 +221,7 @@ TEST_CASE("Tactical removed targets cancel held input immediately and restart de
   frame.tick = 6;
   require_go(decide(*controller, frame));
   CHECK(controller->target_key()->subject == frame_fixture::kSecondObjective);
+  CHECK(controller->target_hold() == Hold::kAcquired);
 }
 
 TEST_CASE(
@@ -368,6 +393,7 @@ TEST_CASE("Tactical failed observation does not consume its tick lease or draws 
   static_cast<void>(decide(*reference, frame));
   const auto window = controller->persistence_window();
   const auto seed = controller->current_seed();
+  const auto reason = controller->decision_reason();
   frame.tick = 2;
   frame.circles.front().radius = -1.0;
   CHECK_THROWS_AS(decide(*controller, frame), controllers::ControllersValidationError);
@@ -375,6 +401,9 @@ TEST_CASE("Tactical failed observation does not consume its tick lease or draws 
   CHECK(controller->persistence_window() == window);
   CHECK(controller->current_seed() == seed);
   CHECK(controller->draw_count() == 2);
+  // A reason is decision state, so a failed observation leaves it exactly where the last completed
+  // decision left it rather than recording the branch that threw.
+  CHECK(controller->decision_reason() == reason);
   frame.circles.front().radius = 20.0;
   const auto retried = thrust(decide(*controller, frame));
   const auto expected = thrust(decide(*reference, frame));
@@ -405,6 +434,7 @@ TEST_CASE("Tactical arrived zero-radius goals and lost terrain support coast wit
   require_zero(decide(*controller, frame));
   CHECK_FALSE(controller->target_key());
   CHECK(controller->draw_count() == 2);
+  CHECK(controller->decision_reason() == Reason::kNoScreenedCandidate);
   frame.tick = 4;
   CHECK(decide(*controller, frame).empty());
   CHECK(controller->draw_count() == 2);
@@ -449,5 +479,194 @@ TEST_CASE("Tactical every published nonrunning phase coasts without seeding or d
     CHECK_FALSE(controller->current_seed());
     CHECK(controller->draw_count() == 0);
     CHECK_FALSE(controller->target_key());
+    CHECK(controller->decision_reason() == Reason::kMatchNotRunning);
+  }
+}
+
+TEST_CASE("Tactical objective weight and not the seed chooses between a near risk and a far clear "
+          "objective",
+          "[unit][controllers][tactical][utility]") {
+  frame_fixture::Frame frame;
+  frame.terrain = frame_fixture::terrain_with_hole(400.0, 30.0);
+  frame.circles = {{frame_fixture::kFirstObjective, 350.0, 320.0, 0.0},
+                   {frame_fixture::kSecondObjective, 350.0, 100.0, 0.0}};
+  // Both approaches are supported, so both survive terrain screening. Only the first overshoots
+  // into the hole's void within the horizon: 600 world units a second for 160 ticks is 240 units,
+  // which runs past a target 150 away and into a void that starts at 170.
+  auto bold = bot(tuned(1.0, 0.95, 160));
+  auto careful = bot(tuned(0.25, 0.95, 160));
+  const auto bold_commands = decide(*bold, frame);
+  const auto careful_commands = decide(*careful, frame);
+  // Same authored name, so both mix the same seed and draw the same stream. The only difference
+  // between these two bots is one authored weight, which is what makes the divergence below a
+  // proof about the weight instead of a proof about `tactical_seed_for`.
+  CHECK(bold->profile().name() == careful->profile().name());
+  CHECK(bold->current_seed() == careful->current_seed());
+  CHECK(bold->draw_count() == careful->draw_count());
+  require_go(bold_commands);
+  require_go(careful_commands);
+  CHECK(bold->target_key()->subject == frame_fixture::kFirstObjective);
+  CHECK(careful->target_key()->subject == frame_fixture::kSecondObjective);
+  CHECK(bold->decision_reason() == Reason::kPursuingUnderRisk);
+  CHECK(careful->decision_reason() == Reason::kPursuing);
+  CHECK(bold->objective_work().screened_candidate_count == 2);
+  CHECK(bold->objective_work().prediction_step_count == 2);
+}
+
+TEST_CASE("Tactical hysteresis holds a target through its lease and then by the bonus until a "
+          "challenger beats it",
+          "[unit][controllers][tactical][utility]") {
+  auto section = tuned(1.0, 1.0, 0);
+  section.reaction_delay_ticks = 0;
+  section.target_persistence_ticks = 2;
+  auto controller = bot(section);
+  frame_fixture::Frame frame;
+  frame.circles = {{frame_fixture::kFirstObjective, 500.0, 320.0, 0.0}};
+  require_go(decide(*controller, frame));
+  CHECK(controller->target_hold() == Hold::kAcquired);
+  CHECK(controller->decision_reason() == Reason::kPursuing);
+  frame.tick = 2;
+  frame.circles.push_back({frame_fixture::kSecondObjective, 450.0, 320.0, 0.0});
+  require_go(decide(*controller, frame));
+  CHECK(controller->target_hold() == Hold::kRetainedInLease);
+  CHECK(controller->target_key()->subject == frame_fixture::kFirstObjective);
+  // The lease has ended, so selection runs; the challenger is nearer but by less than the bonus.
+  frame.tick = 3;
+  require_go(decide(*controller, frame));
+  CHECK(controller->target_hold() == Hold::kRetainedByBonus);
+  CHECK(controller->target_key()->subject == frame_fixture::kFirstObjective);
+  // Nearer by more than the bonus, and the held target is abandoned rather than oscillated over.
+  frame.tick = 5;
+  frame.circles.back().x = 250.0;
+  require_go(decide(*controller, frame));
+  CHECK(controller->target_hold() == Hold::kSwitched);
+  CHECK(controller->target_key()->subject == frame_fixture::kSecondObjective);
+}
+
+TEST_CASE("Tactical candidates that all screen badly still produce a decision rather than a throw "
+          "or an empty pass",
+          "[unit][controllers][tactical][utility]") {
+  frame_fixture::Frame frame;
+  frame.terrain = frame_fixture::terrain_with_hole(400.0, 30.0);
+  frame.circles = {{frame_fixture::kFirstObjective, 350.0, 320.0, 0.0},
+                   {frame_fixture::kSecondObjective, 330.0, 320.0, 0.0}};
+  auto controller = bot(tuned(1.0, 0.0, 160));
+  const auto commands = decide(*controller, frame);
+  require_go(commands);
+  CHECK(controller->decision_reason() == Reason::kPursuingUnderRisk);
+  CHECK(controller->target_key()->subject == frame_fixture::kSecondObjective);
+  CHECK(controller->objective_work().screened_candidate_count == 2);
+}
+
+TEST_CASE("Tactical bounded work is published per decision and sits under its derived ceiling",
+          "[unit][controllers][tactical][limits]") {
+  frame_fixture::Frame frame;
+  frame.circles.clear();
+  for (std::size_t index = 0; index < controllers::kMaximumTacticalObjectiveCandidateCount;
+       ++index) {
+    frame.circles.push_back({frame_fixture::kFirstObjective + index, 600.0, 320.0, 0.0});
+  }
+  auto controller = bot(tuned(1.0, 1.0, 160));
+  require_go(decide(*controller, frame));
+  const auto work = controller->objective_work();
+  CHECK(work.raw_candidate_count == controllers::kMaximumTacticalObjectiveCandidateCount);
+  CHECK(work.screened_candidate_count == controllers::kMaximumTacticalObjectiveCandidateCount);
+  // No published hill here carries a velocity, so the pass casts escape rays and predicts nothing
+  // else: one per screened candidate, half the ceiling, and never a search or a replanning loop.
+  CHECK(work.prediction_step_count == controllers::kMaximumTacticalObjectiveCandidateCount);
+  CHECK(work.prediction_step_count <= controllers::kMaximumTacticalPredictionStepCount);
+}
+
+TEST_CASE("Tactical every decision reason and every hold outcome is reachable",
+          "[unit][controllers][tactical][reason]") {
+  const auto section = tuned(1.0, 1.0, 0);
+  {
+    const auto controller = bot(section);
+    CHECK(controller->decision_reason() == Reason::kNotDecided);
+    CHECK(controller->target_hold() == Hold::kNone);
+  }
+  {
+    auto controller = bot(section);
+    frame_fixture::Frame frame;
+    frame.owned = false;
+    REQUIRE(decide(*controller, frame).size() == 1);
+    CHECK(controller->decision_reason() == Reason::kAwaitingBody);
+    frame.tick = 2;
+    frame.owned = true;
+    frame.body = false;
+    CHECK(decide(*controller, frame).empty());
+    CHECK(controller->decision_reason() == Reason::kNoControllableBody);
+    frame.tick = 3;
+    frame.body = true;
+    frame.phase = simulation::MatchPhase::kLobby;
+    require_zero(decide(*controller, frame));
+    CHECK(controller->decision_reason() == Reason::kMatchNotRunning);
+    frame.tick = 4;
+    frame.phase = simulation::MatchPhase::kRunning;
+    frame.stun = true;
+    frame.stun_activation = 4;
+    frame.stun_duration = 2;
+    CHECK(decide(*controller, frame).empty());
+    CHECK(controller->decision_reason() == Reason::kStunned);
+  }
+  {
+    auto controller = bot(section);
+    frame_fixture::Frame frame;
+    frame.terrain = frame_fixture::terrain_with_hole(600.0, 30.0);
+    CHECK(decide(*controller, frame).empty());
+    CHECK(controller->decision_reason() == Reason::kNoScreenedCandidate);
+    CHECK(controller->target_hold() == Hold::kNone);
+  }
+  {
+    auto delayed = tuned(1.0, 1.0, 0);
+    delayed.reaction_delay_ticks = 5;
+    auto controller = bot(delayed);
+    frame_fixture::Frame frame;
+    CHECK(decide(*controller, frame).empty());
+    CHECK(controller->decision_reason() == Reason::kAwaitingReaction);
+  }
+  {
+    auto controller = bot(section);
+    frame_fixture::Frame frame;
+    frame.circles.front().x = frame.x;
+    require_zero(decide(*controller, frame));
+    CHECK(controller->decision_reason() == Reason::kArrived);
+  }
+  {
+    auto declining = tuned(1.0, 1.0, 0);
+    declining.objective_seek_probability = 0.0;
+    auto controller = bot(declining);
+    frame_fixture::Frame frame;
+    require_zero(decide(*controller, frame));
+    CHECK(controller->decision_reason() == Reason::kSeekDeclined);
+  }
+  {
+    auto controller = bot(section);
+    frame_fixture::Frame frame;
+    require_go(decide(*controller, frame));
+    CHECK(controller->decision_reason() == Reason::kPursuing);
+    CHECK(controller->target_hold() == Hold::kAcquired);
+  }
+  {
+    // A released lease is not a lost one: the objective did not disappear, the provider stopped
+    // publishing any objective at all, and later says this bot is finished.
+    auto controller = bot(section);
+    frame_fixture::Frame frame;
+    frame.mode = frame_fixture::Mode::kRace;
+    require_go(decide(*controller, frame));
+    CHECK(controller->target_hold() == Hold::kAcquired);
+    frame.tick = 2;
+    frame.race_progress = false;
+    require_zero(decide(*controller, frame));
+    CHECK(controller->decision_reason() == Reason::kObjectivesWaiting);
+    CHECK(controller->target_hold() == Hold::kReleased);
+    frame.tick = 3;
+    frame.race_progress = true;
+    require_go(decide(*controller, frame));
+    frame.tick = 4;
+    frame.checkpoint = 2;
+    require_zero(decide(*controller, frame));
+    CHECK(controller->decision_reason() == Reason::kObjectivesFinished);
+    CHECK(controller->target_hold() == Hold::kReleased);
   }
 }

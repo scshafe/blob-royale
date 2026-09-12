@@ -6,6 +6,7 @@
 #include "match_configuration.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "tactical_objective_candidates.hpp"
 #include "tactical_profile.hpp"
 #include "tactical_profile_catalogue.hpp"
 
@@ -78,6 +79,34 @@ TEST_CASE("authored tactical profiles preserve values order and independent fami
   const ApplicationConfig copied = loaded;
   CHECK(copied == loaded);
   CHECK(copied.tactical_profiles().profiles().data() != profiles.data());
+}
+
+TEST_CASE("each authored selection setting reaches the loaded profile under the key that names it",
+          "[unit][application][config][tactical]") {
+  // The four settings Step 15 authored are covered above; these six keys carry the three that a
+  // profile's *choice* of objective now reads. Equality alone would pass while two weight keys fed
+  // each other's field, so this walks the kinds and reads each weight back through the accessor a
+  // selection stage uses, and asserts the four authored values are distinct first -- against four
+  // equal weights the walk would prove nothing.
+  TemporaryApplicationInputWorkspace workspace;
+  const ApplicationConfig loaded = fixture::load(workspace, fixture::configuration());
+  const auto profiles = loaded.tactical_profiles().profiles();
+  REQUIRE(profiles.size() == 1);
+  CHECK(profiles[0] == TacticalProfile::create(fixture::kFirstProfileValues));
+  CHECK(profiles[0].risk_tolerance() == fixture::kFirstProfileValues.risk_tolerance);
+  CHECK(profiles[0].prediction_horizon_ticks() ==
+        fixture::kFirstProfileValues.prediction_horizon_ticks);
+
+  std::vector<double> authored;
+  for (std::size_t ordinal = 0; ordinal < controllers::kTacticalObjectiveKindCount; ++ordinal) {
+    const auto kind = static_cast<controllers::TacticalObjectiveKind>(ordinal);
+    CAPTURE(controllers::tactical_objective_weight_key(kind));
+    const double expected = controllers::tactical_objective_weight_of(
+        fixture::kFirstProfileValues.objective_weights, kind);
+    CHECK(std::ranges::find(authored, expected) == authored.end());
+    authored.push_back(expected);
+    CHECK(profiles[0].objective_weight(kind) == expected);
+  }
 }
 
 TEST_CASE("tactical configuration accepts exact inclusive profile bounds without clamping",

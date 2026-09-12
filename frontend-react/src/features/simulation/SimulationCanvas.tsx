@@ -258,6 +258,12 @@ export function SimulationCanvas({
       ownEntityId,
       projection,
       surface: context,
+      // The tick every ability window on the wire is expressed against, read from the same snapshot
+      // the accessible caption below reports, so a mark drawn on a body and the sentence describing
+      // the frame can never be a tick apart. The frame type admits `null` for the frames drawn
+      // before the first snapshot arrives; this line runs only past the `snapshot === null` return,
+      // so what a renderer receives here is always the committed tick.
+      tickSequence: snapshot.tick_sequence,
     };
     const renderedEntities = snapshot.entities.slice(0, SESSION_ENTITY_LIMIT);
 

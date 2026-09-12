@@ -164,7 +164,14 @@ describe('raceCourseRenderer', () => {
           },
         },
       },
-      { ...frame, eliminationGraceTicks: null, ownEntityId: 21 },
+      {
+        ...frame,
+        eliminationGraceTicks: null,
+        ownEntityId: 21,
+        // A body is drawn from its published position alone; nothing here reads a window, so the
+        // alignment this case pins holds with or without a tick on the frame.
+        tickSequence: null,
+      },
     );
 
     expect(surface.arc.mock.calls).toEqual([

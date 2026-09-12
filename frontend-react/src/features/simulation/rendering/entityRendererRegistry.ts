@@ -12,6 +12,8 @@ import { drawPhysicsBody } from './physicsBodyRenderer';
 import { drawZone } from './zoneRenderer';
 import { drawLethalOnContact } from './lethalOnContactRenderer';
 import { drawZoneExposure } from './zoneExposureRenderer';
+import { drawShield } from './shieldRenderer';
+import { drawStun } from './stunRenderer';
 
 /**
  * @extension-point entity_renderer -- the client's registration point for one component kind.
@@ -31,7 +33,7 @@ import { drawZoneExposure } from './zoneExposureRenderer';
 export const entityRendererRegistry = Object.freeze({
   charge: nonVisualComponent(
     'charge',
-    'A one-shot cooldown is timing state the HUD reads; the burst is already drawn as body velocity, and cooldown presentation arrives with the later ability visuals.',
+    'The burst is already on screen as the velocity the body carries, so a world-space charge renderer could only repaint drawn motion or invent an effect the server never published. What remains is a cooldown, which is screen-space feedback rather than world geometry: it must not pan and scale with the camera, so the HUD owns it.',
   ),
   contact_effect_admission: nonVisualComponent(
     'contact_effect_admission',
@@ -77,14 +79,8 @@ export const entityRendererRegistry = Object.freeze({
     'score',
     'A scoreboard cell belongs to the HUD, not to the arena.',
   ),
-  shield: nonVisualComponent(
-    'shield',
-    'Published windows are timing state the HUD reads; shield, perfect and stun presentation arrives with the later ability visuals.',
-  ),
-  stun: nonVisualComponent(
-    'stun',
-    'Absolute status ticks lock input; stun presentation belongs to the later ability UI.',
-  ),
+  shield: entityRenderer('shield', ENTITY_RENDER_LAYERS.status, drawShield),
+  stun: entityRenderer('stun', ENTITY_RENDER_LAYERS.status, drawStun),
   team: nonVisualComponent(
     'team',
     'No accepted mode fields teams yet; a team renderer without a mode to render is a guess.',

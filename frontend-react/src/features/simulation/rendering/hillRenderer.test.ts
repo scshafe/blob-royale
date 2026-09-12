@@ -59,6 +59,9 @@ describe('hillRenderer', () => {
         ownEntityId: null,
         projection,
         surface: surface as unknown as CanvasRenderingContext2D,
+        // The hill is published geometry, not a timed window: it draws the same circle at every
+        // tick, so this case says so by offering no tick at all.
+        tickSequence: null,
       };
       drawTerrain(hillRoamingTerrain, frame);
       entityRendererRegistry.hill.drawEntity(entity, frame);
@@ -71,7 +74,12 @@ describe('hillRenderer', () => {
         0,
         2 * Math.PI,
       );
-      expect(arcScopes).toEqual([1, 0]);
+      // Two arcs inside the terrain clip scope, then the hill's outside it. Step 20 added the
+      // cliff rim, so each hole is arc'd twice while the complement clips are live: once to
+      // build the clip and once to stroke the rim that bounds it. What this case exists to
+      // prove is unchanged and is the trailing zero: the hill circle is drawn at depth 0, so
+      // no terrain clip can trim published hill geometry.
+      expect(arcScopes).toEqual([1, 1, 0]);
       expect(surface.clip).toHaveBeenCalledTimes(2);
       expect(surface.fill).toHaveBeenCalledTimes(1);
       expect(surface.fillStyle).toBe(HILL_FILL);

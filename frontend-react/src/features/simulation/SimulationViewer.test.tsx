@@ -26,6 +26,13 @@ import {
   STUN_INPUT_WINDOW,
   stunInputConnection,
 } from './fixtures/stunInputFrames';
+import {
+  CANCELLED_SHIELD_WINDOWS,
+  SHIELD_ACTIVATION_TICK,
+  SHIELD_PARRY_STUN_DURATION_TICKS,
+  SHIELD_WINDOWS,
+} from './fixtures/shieldFrames';
+import { CHARGE_COOLDOWN } from './fixtures/chargeFrames';
 import { selectThrustInputOptions } from './sessionSelectors';
 import { THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS } from './simulationConstants';
 import type { SessionCommand } from './simulationProtocolTypes';
@@ -196,6 +203,38 @@ function entitiesWithOwnExposure(
       : entity,
   );
 }
+
+/**
+ * The golden roster with the session's own blob (entity 7) publishing ability windows, read at the
+ * golden frame's own tick of 12,904 and the published cadence of 400 ticks per second. The windows
+ * are supplied rather than round-tripped through the validator for the reason
+ * `entitiesWithOwnExposure` is: this suite exercises the composed view, and every window meets the
+ * real validator at its boundary ticks in `sessionSelectors.test.ts`.
+ */
+function entitiesWithOwnAbilities(
+  abilities: Pick<
+    SessionEntitySnapshot['components'],
+    'charge' | 'shield' | 'stun'
+  >,
+): readonly SessionEntitySnapshot[] {
+  return snapshot.data.entities.map((entity) =>
+    entity.entity_id === 7
+      ? {
+          entity_id: entity.entity_id,
+          components: { ...entity.components, ...abilities },
+        }
+      : entity,
+  );
+}
+
+/** The one live perfect opening in this suite: 200 of its ticks are still ahead of tick 12,904. */
+const OPEN_PERFECT_SHIELD_WINDOWS = Object.freeze({
+  activation_tick: 12900,
+  shield_expiry_tick: 13160,
+  perfect_expiry_tick: 13104,
+  cooldown_expiry_tick: 13260,
+  parry_stun_duration_ticks: SHIELD_PARRY_STUN_DURATION_TICKS,
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -947,6 +986,213 @@ describe('SimulationViewer', () => {
         { name: 'Zone exposure' },
       ),
     ).toBeNull();
+  });
+
+  it('states both cooldowns as remaining time and never claims an ability is ready', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: entitiesWithOwnAbilities({
+            charge: CHARGE_COOLDOWN,
+            shield: SHIELD_WINDOWS,
+          }),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    // Golden tick 12,904 at the published 400 ticks per second: protection runs to 12,960, the
+    // shield cooldown to 13,160 and the charge cooldown to 13,280, and the perfect opening closed
+    // at 12,832. Every row states remaining time against a window the frame really carries.
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).getByRole('row', { name: 'Shield Protected 0.1 s left' }),
+    ).toBeVisible();
+    expect(
+      within(hud).getByRole('row', { name: 'Shield cooldown Cooling 0.6 s' }),
+    ).toBeVisible();
+    expect(
+      within(hud).getByRole('row', { name: 'Charge cooldown Cooling 0.9 s' }),
+    ).toBeVisible();
+
+    // Readiness is not derivable and must not be implied. Charge's final refusal is the server's
+    // safety envelope, which is deliberately not on the wire, so a row that promised availability
+    // would lie on exactly the frames a player would act on it.
+    expect(within(hud).queryByText(/ready/i)).toBeNull();
+    expect(within(hud).queryByText(/available/i)).toBeNull();
+  });
+
+  it('separates the perfect opening from ordinary protection in the shield row', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: entitiesWithOwnAbilities({
+            shield: OPEN_PERFECT_SHIELD_WINDOWS,
+          }),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).getByRole('row', {
+        name: 'Shield Perfect opening 0.5 s left',
+      }),
+    ).toBeVisible();
+    expect(
+      within(hud).getByRole('row', { name: 'Shield cooldown Cooling 0.9 s' }),
+    ).toBeVisible();
+  });
+
+  it('reports a cancelled shield as no protection rather than as a published component', () => {
+    // A stun shortens still-live protection to the cancelling tick and leaves the cooldown running,
+    // so the component outlives the protection by the whole remainder of its cooldown. This is the
+    // majority of a shield's published life by duration, and a row keyed on presence would tell a
+    // stunned player they are safe.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: entitiesWithOwnAbilities({
+            shield: CANCELLED_SHIELD_WINDOWS,
+          }),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).getByRole('row', { name: 'Shield No protection' }),
+    ).toBeVisible();
+    expect(
+      within(hud).getByRole('row', { name: 'Shield cooldown Cooling 0.6 s' }),
+    ).toBeVisible();
+    expect(within(hud).queryByText(/Perfect/)).toBeNull();
+  });
+
+  it('renders the zero-cooldown shield frame as an elapsed cooldown, not as a division', () => {
+    // `cooldown_expiry_tick === activation_tick` is authored tuning the configuration permits, so
+    // this is a frame the server is required to be able to send and the one that divides by zero if
+    // the denominator is trusted. The row reports the cooldown as over and prints no NaN.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+
+    render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: entitiesWithOwnAbilities({
+            shield: {
+              ...SHIELD_WINDOWS,
+              cooldown_expiry_tick: SHIELD_ACTIVATION_TICK,
+            },
+          }),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    const hud = screen.getByRole('table', { name: 'Match status' });
+    expect(
+      within(hud).getByRole('row', { name: 'Shield cooldown Cooldown over' }),
+    ).toBeVisible();
+    expect(within(hud).queryByText(/NaN|Infinity/)).toBeNull();
+    expect(within(hud).queryByText(/ready/i)).toBeNull();
+  });
+
+  it('shows the stun row only while the published window still covers the tick', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const stunRow = () =>
+      within(screen.getByRole('table', { name: 'Match status' })).queryByRole(
+        'rowheader',
+        { name: 'Stunned' },
+      );
+
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: entitiesWithOwnAbilities({
+            stun: { activation_tick: 12800, expiry_tick: 13000 },
+          }),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    // 13,000 - 12,904 leaves 96 ticks, which is 0.24 s at 400 ticks per second.
+    expect(
+      within(screen.getByRole('table', { name: 'Match status' })).getByRole(
+        'row',
+        { name: 'Stunned 0.2 s left' },
+      ),
+    ).toBeVisible();
+
+    // A window whose endpoint is this very tick no longer contains it. Containment is half-open, so
+    // the row clears with the frame that ended the stun and no client timer can disagree.
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: entitiesWithOwnAbilities({
+            stun: { activation_tick: 12800, expiry_tick: 12904 },
+          }),
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+
+    expect(stunRow()).toBeNull();
+  });
+
+  it('shows no ability row without a published component or without a tick to read against', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const abilityHeaders = () => {
+      const hud = within(screen.getByRole('table', { name: 'Match status' }));
+      return [
+        hud.queryByRole('rowheader', { name: 'Stunned' }),
+        hud.queryByRole('rowheader', { name: 'Shield' }),
+        hud.queryByRole('rowheader', { name: 'Shield cooldown' }),
+        hud.queryByRole('rowheader', { name: 'Charge cooldown' }),
+      ];
+    };
+
+    // The golden blob has published no ability component at all.
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection()}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(abilityHeaders()).toEqual([null, null, null, null]);
+
+    // Windows are absolute committed ticks, so a session holding a roster but no snapshot has
+    // nothing to read them against. It shows no row rather than a countdown of its own invention.
+    view.rerender(
+      <SimulationViewer
+        lobbyId={1}
+        connection={createConnection({
+          entities: entitiesWithOwnAbilities({
+            charge: CHARGE_COOLDOWN,
+            shield: SHIELD_WINDOWS,
+            stun: { activation_tick: 12800, expiry_tick: 13000 },
+          }),
+          snapshot: null,
+        })}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(abilityHeaders()).toEqual([null, null, null, null]);
   });
 
   it('announces a terminal connection failure as an alert', () => {

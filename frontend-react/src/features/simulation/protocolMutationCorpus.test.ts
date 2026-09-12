@@ -16,6 +16,7 @@ import {
 } from './fixtures/sessionFrames';
 import { CHARGE_COOLDOWN } from './fixtures/chargeFrames';
 import { SHIELD_WINDOWS } from './fixtures/shieldFrames';
+import { STUN_INPUT_WINDOW } from './fixtures/stunInputFrames';
 import {
   type SessionSequenceState,
   validateSessionCommand,
@@ -327,6 +328,43 @@ const snapshotMutations: readonly MutationCase<MutableSnapshotDocument>[] = [
     },
   },
   {
+    name: 'shield opening on a tick the frame carrying it has not reached',
+    mutate: (document) => {
+      // Every endpoint below is a legal tick and the four are correctly ordered against each other
+      // -- 32 perfect ticks inside 160 protected ones with a 360-tick cooldown, the authored
+      // durations -- so the only rule this violates is the one that compares the activation with
+      // the snapshot tick covering it. That rule is what makes the frame rejectable at all, and
+      // rejection is the only defence: Step 20's shield renderer opens with
+      // `activation_tick <= tick`, an activation in the future answers it `false`, and drawing
+      // nothing is exactly what an honest expired shield also looks like. A renderer could not be
+      // the thing that notices, so the frame must not reach one.
+      const activation = document.data.tick_sequence + 1;
+      Reflect.set(playerEntity(document).components, 'shield', {
+        ...SHIELD_WINDOWS,
+        activation_tick: activation,
+        shield_expiry_tick: activation + 160,
+        perfect_expiry_tick: activation + 32,
+        cooldown_expiry_tick: activation + 360,
+      });
+    },
+  },
+  {
+    name: 'stun window that expires on the tick it activated',
+    mutate: (document) => {
+      // The one shield rule a reader must not carry across, in the direction the shield cases above
+      // do not cover. A shield whose protection expiry equals its activation is a cancelled shield
+      // and a frame the server is required to send; a stun whose expiry equals its activation is a
+      // lock that never held a tick, and the semantic pass refuses it. Step 20 draws stun on the
+      // same half-open `[activation_tick, expiry_tick)` window `selectThrustInputOptions` already
+      // locks input against, so an empty one would paint nothing and read on screen exactly like a
+      // peer who was never stunned -- a tolerated frame, not a rejected one.
+      Reflect.set(playerEntity(document).components, 'stun', {
+        ...STUN_INPUT_WINDOW,
+        expiry_tick: STUN_INPUT_WINDOW.activation_tick,
+      });
+    },
+  },
+  {
     name: 'charge cooldown that expires on the tick it was activated',
     mutate: (document) => {
       // Both endpoints are valid ticks on their own, so only the semantic pass can catch this, and
@@ -350,6 +388,22 @@ const snapshotMutations: readonly MutationCase<MutableSnapshotDocument>[] = [
       Reflect.set(playerEntity(document).components, 'charge', {
         ...CHARGE_COOLDOWN,
         shield_expiry_tick: 12960,
+      });
+    },
+  },
+  {
+    name: 'charge cooldown that expires before the tick it was activated',
+    mutate: (document) => {
+      // The zero-length case above proves the interval cannot collapse; this one proves it cannot
+      // run backwards, and Step 20 is why the second case earns its place. Charge stays non-visual,
+      // but its cooldown becomes a screen-space readout whose denominator is
+      // `cooldown_expiry_tick - activation_tick` -- the one ability denominator that may be divided
+      // unguarded, precisely because this validation makes it strictly positive where a shield
+      // cooldown may legally be zero. A reversed interval turns that denominator negative, and the
+      // readout would count a spent cooldown upward toward an expiry the same frame says is past.
+      Reflect.set(playerEntity(document).components, 'charge', {
+        ...CHARGE_COOLDOWN,
+        cooldown_expiry_tick: CHARGE_COOLDOWN.activation_tick - 1,
       });
     },
   },

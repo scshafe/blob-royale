@@ -16,6 +16,7 @@ import {
 } from './simulationConstants';
 import type {
   SessionEntitySnapshot,
+  SessionStunComponent,
   SessionWorldSnapshot,
 } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
@@ -113,13 +114,15 @@ function createCanvasContext() {
     lineWidth: [],
     strokeStyle: [],
   };
+  const fill = vi.fn();
+  const stroke = vi.fn();
   const context = {
     arc,
     beginPath: vi.fn(),
     clip: vi.fn(),
     rect: vi.fn(),
     clearRect: vi.fn(),
-    fill: vi.fn(),
+    fill,
     fillRect,
     fillText,
     font: '',
@@ -129,7 +132,7 @@ function createCanvasContext() {
     save: vi.fn(),
     scale: vi.fn(),
     setTransform,
-    stroke: vi.fn(),
+    stroke,
     strokeRect,
     textAlign: '',
     textBaseline: '',
@@ -147,13 +150,29 @@ function createCanvasContext() {
     arc,
     assignments,
     context,
+    fill,
     fillRect,
     fillText,
     lineTo,
     moveTo,
     restore,
     setTransform,
+    stroke,
     strokeRect,
+    /**
+     * Every mark this surface has been asked to make, counted rather than identified. A test that
+     * only needs to know whether a renderer drew at all must not also pin the shape it chose, or it
+     * becomes a second copy of that renderer's own geometry test and fails on a restyle.
+     */
+    drawOperations: () =>
+      arc.mock.calls.length +
+      fill.mock.calls.length +
+      fillRect.mock.calls.length +
+      fillText.mock.calls.length +
+      lineTo.mock.calls.length +
+      moveTo.mock.calls.length +
+      stroke.mock.calls.length +
+      strokeRect.mock.calls.length,
   };
 }
 
@@ -176,6 +195,18 @@ function bodyEntity(
         velocity: { x: 0, y: 0 },
       },
     },
+  };
+}
+
+function stunnedBodyEntity(
+  entityId: number,
+  stun: SessionStunComponent,
+  position: WorldPoint = { x: 240, y: 300 },
+): SessionEntitySnapshot {
+  const entity = bodyEntity(entityId, position);
+  return {
+    entity_id: entity.entity_id,
+    components: { ...entity.components, stun },
   };
 }
 
@@ -436,7 +467,9 @@ describe('SimulationCanvas', () => {
         terrain={solidTerrain}
       />,
     );
-    expect(fillRect).toHaveBeenCalledTimes(3);
+    // One background fill for the first render, then three for the second: the background, the
+    // void underlay Step 20 paints before the hole complements, and the ground over it.
+    expect(fillRect).toHaveBeenCalledTimes(4);
   });
 
   it('keeps hole geometry on the same camera projection through fractional DPR and manual movement', () => {
@@ -500,8 +533,11 @@ describe('SimulationCanvas', () => {
       />,
     );
 
-    expect(moveTo).toHaveBeenCalledTimes(1);
-    expect(lineTo).toHaveBeenCalledTimes(2);
+    // The one corridor is traced twice, not once: Step 20 underprints the cliff rim by stroking
+    // the same polyline at road width plus twice the rim before the surface pass over it. Two
+    // traces of a three-point road is two moveTo and four lineTo.
+    expect(moveTo).toHaveBeenCalledTimes(2);
+    expect(lineTo).toHaveBeenCalledTimes(4);
     // Three course gates precede both body discs; restoring the course projection is the boundary.
     expect(arc).toHaveBeenCalledTimes(5);
     expect(restore.mock.invocationCallOrder[0]).toBeLessThan(
@@ -516,8 +552,11 @@ describe('SimulationCanvas', () => {
         terrain={raceTerrain}
       />,
     );
-    expect(moveTo).toHaveBeenCalledTimes(2);
-    expect(lineTo).toHaveBeenCalledTimes(4);
+    // The second draw traces the same road twice again, so both counts double while the gate and
+    // body arcs are unchanged: this case still proves terrain is redrawn once per frame and never
+    // accumulated across them.
+    expect(moveTo).toHaveBeenCalledTimes(4);
+    expect(lineTo).toHaveBeenCalledTimes(8);
     expect(arc).toHaveBeenCalledTimes(8);
   });
 
@@ -585,6 +624,67 @@ describe('SimulationCanvas', () => {
     expect(view.getByRole('img')).toHaveAccessibleDescription(
       'Complete tick 12904 with 4 entities and 2 players.',
     );
+  });
+
+  it('draws ability windows against the snapshot tick rather than component presence', () => {
+    // `EntityRenderFrame.tickSequence` exists for exactly this, and this is the only test that can
+    // prove the canvas actually supplies it. Every ability window on the wire is a pair of absolute
+    // ticks and a component outlives its window -- a cancelled shield keeps a live cooldown, a
+    // lapsed stun is still published for the rest of the frame it lapsed in -- so a renderer that
+    // could not see the tick could only key on presence, and would mark a player whose window has
+    // already closed.
+    //
+    // The three frames below differ in nothing but the published window: same bodies, same
+    // positions, same camera, same snapshot tick 12904. Any difference in what reaches the surface
+    // is therefore the snapshot's own tick arriving at a renderer, and a canvas that threaded
+    // `null` -- or any constant of its own -- would make all three draw identically. Marks are
+    // counted, not identified, so this stays a test of the plumbing and does not become a second
+    // copy of a renderer's geometry test.
+    const surface = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      surface.context,
+    );
+    const peerPosition = { x: 340, y: 300 };
+    // Both an own body and a peer carry the window, because a stun is a state the stunned player
+    // feels and an opponent acts on; the count below cannot depend on which of the two is marked.
+    const frameWith = (
+      stun: SessionStunComponent | null,
+    ): SessionWorldSnapshot => ({
+      ...goldenSnapshot,
+      entities:
+        stun === null
+          ? [bodyEntity(21), bodyEntity(22, peerPosition)]
+          : [
+              stunnedBodyEntity(21, stun),
+              stunnedBodyEntity(22, stun, peerPosition),
+            ],
+    });
+    const props = { configuration, ownEntityId: 21 };
+
+    const view = render(
+      <SimulationCanvas {...props} snapshot={frameWith(null)} />,
+    );
+    const unmarked = surface.drawOperations();
+    view.rerender(
+      <SimulationCanvas
+        {...props}
+        // Published, and closed long before this frame's tick.
+        snapshot={frameWith({ activation_tick: 12_800, expiry_tick: 12_850 })}
+      />,
+    );
+    const afterClosedWindow = surface.drawOperations() - unmarked;
+    view.rerender(
+      <SimulationCanvas
+        {...props}
+        // Open across this frame's tick, on the same bodies in the same places.
+        snapshot={frameWith({ activation_tick: 12_900, expiry_tick: 12_910 })}
+      />,
+    );
+    const afterOpenWindow =
+      surface.drawOperations() - unmarked - afterClosedWindow;
+
+    expect(afterClosedWindow).toBe(unmarked);
+    expect(afterOpenWindow).toBeGreaterThan(unmarked);
   });
 
   it('rings only blobs the zone is counting, and alarms the own one', () => {

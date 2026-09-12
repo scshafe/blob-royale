@@ -1,7 +1,10 @@
 import type {
+  AbilityStatusReport,
+  AbilityWindowReport,
   HillHudReport,
   RaceHudReport,
   ScoreboardRow,
+  ShieldStatusReport,
   ZoneExposureReport,
 } from './sessionSelectors';
 import type {
@@ -11,6 +14,8 @@ import type {
 import type { ThrustDirection } from './useThrustInput';
 
 export interface SimulationHudProps {
+  /** The own blob's ability windows at this frame's tick; a `null` member is unpublished. */
+  readonly ability: AbilityStatusReport;
   readonly aliveCount: number;
   readonly displayName: string | null;
   /** The hill section, present exactly when the frame carries the `king_of_the_hill` block. */
@@ -57,6 +62,83 @@ function formatZoneExposure(exposure: ZoneExposureReport): string {
 
 function formatScore(ownPoints: number | null, pointsToWin: number): string {
   return `${ownPoints === null ? '—' : String(ownPoints)} of ${String(pointsToWin)}`;
+}
+
+/**
+ * What the shield row says, and it has three readings rather than two. Protection is not the
+ * component: a stun cancels protection by shortening it to the cancelling tick and leaves the
+ * cooldown running, so the majority of a shield component's published life by duration is exactly
+ * the third reading -- no protection at all, the component still on the wire because its cooldown
+ * is. A row keyed on presence would tell a stunned player they are safe.
+ *
+ * No reading names a duration the wire does not carry. Only the protection that actually happened is
+ * published, and a cancellation shortens it, so the row counts down the remainder of the window in
+ * front of it and never states how long a full opening would have been.
+ */
+function formatShieldProtection(shield: ShieldStatusReport): string {
+  if (shield.perfect.isActive) {
+    return `Perfect opening ${formatSeconds(shield.perfect.remainingSeconds)} left`;
+  }
+  if (shield.protection.isActive) {
+    return `Protected ${formatSeconds(shield.protection.remainingSeconds)} left`;
+  }
+  return 'No protection';
+}
+
+/**
+ * What a cooldown row says, and "cooling" and "cooldown over" are its only two readings. Neither is
+ * a claim of availability, and that is the point: charge's final refusal is the server's safety
+ * envelope, which is deliberately not on the wire, and a shield still holding protection refuses its
+ * own next pulse. A row that said "ready" would be lying on exactly the frames a player would act on
+ * it, so an elapsed cooldown reports only that the cooldown elapsed.
+ */
+function formatCooldown(cooldown: AbilityWindowReport): string {
+  return cooldown.isActive
+    ? `Cooling ${formatSeconds(cooldown.remainingSeconds)}`
+    : 'Cooldown over';
+}
+
+/**
+ * The own blob's ability rows. Each exists exactly while the frame publishes the component behind
+ * it, which is the bargain the zone-exposure row already makes: the server erases a status the tick
+ * it ends, so a row clears with the snapshot that cleared it and no client timer can disagree.
+ *
+ * The stun row is the one exception, and it is narrower rather than wider: it exists only while the
+ * window actually contains the tick, because a published-but-elapsed stun still locks nothing and a
+ * row saying "Stunned" would be false. Its remainder is read against a denominator that can grow --
+ * a merge keeps the activation and takes the maximum expiry -- so the row states time left rather
+ * than a share of a window whose length is not stable.
+ */
+function AbilityRows({ ability }: { readonly ability: AbilityStatusReport }) {
+  const { charge, shield, stun } = ability;
+  return (
+    <>
+      {stun === null || !stun.isActive ? null : (
+        <tr className="MatchHudDanger">
+          <th scope="row">Stunned</th>
+          <td>{formatSeconds(stun.remainingSeconds)} left</td>
+        </tr>
+      )}
+      {shield === null ? null : (
+        <>
+          <tr>
+            <th scope="row">Shield</th>
+            <td>{formatShieldProtection(shield)}</td>
+          </tr>
+          <tr>
+            <th scope="row">Shield cooldown</th>
+            <td>{formatCooldown(shield.cooldown)}</td>
+          </tr>
+        </>
+      )}
+      {charge === null ? null : (
+        <tr>
+          <th scope="row">Charge cooldown</th>
+          <td>{formatCooldown(charge)}</td>
+        </tr>
+      )}
+    </>
+  );
 }
 
 const RING_RADIUS = 8;
@@ -268,8 +350,18 @@ function formatThrust(thrust: ThrustDirection): string {
  * arena cannot disagree about who has what. A royale frame carries none of this and renders exactly
  * the rows it always did; placement is royale's ranking and is not shown for the hill, whose ranking
  * is the board.
+ *
+ * The ability rows are the screen-space half of Step 20's combat feedback, and they are here rather
+ * than in a world renderer because a cooldown readout must not pan and scale with the camera. Every
+ * value on them is a published absolute tick read against this frame's own tick, converted to
+ * seconds by the one cadence the configuration publishes; nothing on them counts down locally, so a
+ * dropped frame delays the reading rather than desynchronising it. Two things they never say,
+ * because the wire does not carry them: that charge is *ready*, which only the server's safety
+ * envelope can decide, and how long a shield's authored protection would have been, which a
+ * cancellation makes unknowable from the outside.
  */
 export function SimulationHud({
+  ability,
   aliveCount,
   displayName,
   hill,
@@ -321,6 +413,7 @@ export function SimulationHud({
               <td>{formatZoneExposure(zoneExposure)}</td>
             </tr>
           )}
+          <AbilityRows ability={ability} />
           <tr>
             <th scope="row">Alive</th>
             <td>{aliveCount}</td>

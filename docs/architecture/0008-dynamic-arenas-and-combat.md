@@ -1153,7 +1153,10 @@ ordered named corridors, and ordered named circular holes under existing shape/p
 limits. Clients validate the whole shape, aggregate/containment/segment constraints, and exact
 agreement with v1 configuration bounds before publication or rendering. No geometry repair or
 fallback rectangle is permitted. One world layer draws positive ground minus the union of
-holes through the existing camera projection; race draws objectives only.
+holes through the existing camera projection; race draws objectives only. **Refined 2026-09-12
+(plan Step 20):** that one layer now also draws the cliff rim bounding the supported set and the
+void underneath it, from the same geometry and the same projection; see § "Amendment: cliff and
+combat rendering" below.
 
 Canonical routes are `/api/v3/lobbies` and `/api/v3/lobbies/<lobby_id>/session`, subprotocol
 `blob-royale.session.v3`; no new room-one alias. Recognized old v2 routes fail explicitly before
@@ -1566,3 +1569,59 @@ protocol version bump and no new close code. Visual treatment is Step 20 and key
 are Step 21, so no sender exists yet. This records implementation, not verification, native
 capacity, or release certification.
 See the [Step 19 contract](../reviews/2026-09-12-charge-contract.md).
+
+## Amendment: cliff and combat rendering, 2026-09-12 (plan Step 20)
+
+The client draws what Steps 18 and 19 published and deferred. Nothing on the wire changes: no
+schema, encoder, component, field or server behaviour moves, and the whole step is verified by the
+web gate alone.
+
+**Cliffs are the boundary of the supported set, which is not the arena edge.** A cliff is the
+boundary of *(envelope intersect the positive-ground union) minus the union of holes* -- the same
+set `terrain_supports_point` computes. Two consequences the obvious reading misses. Corridor edges
+are the only real cliffs on any runnable map: no shipped map or browser fixture authors a hole, so a
+rim that covered only holes would leave both race maps' entire drop unmarked. And the envelope is
+not a cliff at all: a hole edge kills, while the map edge folds a blob back under this ADR's own
+outer-map decision, so the border stroke `SimulationCanvas` already draws from `configuration.world`
+keeps its existing neutral treatment. Restyling it would both duplicate a geometry source and tell
+the player the wrong thing about what happens there.
+
+Both rims come from geometry the terrain layer already holds. Hole rims are stroked while the
+accumulated complement clips are still live, so only the ground-side half survives and arcs interior
+to an overlapping neighbour vanish with the clip -- the union outline, correct by construction.
+Corridor rims are an underprint: the same polyline stroked at road width plus twice the rim, then
+the road surface over it, with every rim pass preceding every surface pass. Rim width is authored in
+world units and projected, so it scales with the camera rather than describing it.
+
+**Void feedback is painted on the region, never on a body.** The plan's phrase "void feedback
+beneath entities" reads naturally as a mark under a body whose centre is unsupported, and the client
+must not draw that, for two independent reasons. Deciding it would require a second implementation
+of the canonical support predicate including its asymmetric tolerances, which this ADR and that
+function's own note both forbid. And the state never reaches a snapshot: a ground-bound body
+terminates at its last supported point and loses its body on the same tick, so the only bodies ever
+over void are `floating` hazards, which never fall -- a mark on one would be a confident lie.
+Painting the unsupported region itself satisfies "beneath every entity layer" in the z-order sense
+the layer stack already means, and needs no per-body verdict.
+
+**Ability marks read the tick, not component presence.** `EntityRenderFrame` gains the snapshot tick
+-- the step's one client-contract change -- because every ability window on the wire is a pair of
+absolute ticks and a renderer that cannot see the tick can only draw presence. That reading is
+explicitly forbidden by the published shield schema: a cancelled shield keeps publishing a component
+whose protection has already ended. The shield mark therefore answers three states, not two, and the
+third is the most common by duration: the perfect opening, ordinary protection, and no protection at
+all while the cooldown still runs. Stun draws on the same rule. Charge stays deliberately undrawn in
+world space -- its burst is already on screen as the velocity the body carries -- and its cooldown is
+screen-space feedback.
+
+**Two limits this step cannot exceed, recorded rather than papered over.** A perfect mark is a
+*state* mark and never an event treatment with a designed duration: the opening is 32 ticks at
+400 Hz against a 50 ms snapshot interval at the shipped cadence, so it is truthful whenever drawn
+but can be missed entirely at a lower configured cadence. And the screen-space readout states
+remaining time and never availability: charge readiness depends on the safety envelope, which is not
+on the wire, and only the shield protection length that actually happened is published, never the
+authored one.
+
+This records the client contract, not a judgement that the result reads well. The web gate asserts
+call sequences and geometry arguments; it does not look at pixels, and no shipped map authors a
+hole, so the hole-rim path is exercised only by synthetic fixtures. Whether a cliff reads as a cliff
+is an owner judgement on rendered images.

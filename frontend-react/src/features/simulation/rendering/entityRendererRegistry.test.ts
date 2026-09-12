@@ -6,7 +6,11 @@ import {
   entityRendererRegistry,
   visualEntityRenderers,
 } from './entityRendererRegistry';
-import type { EntityRenderFrame } from './entityRendering';
+import {
+  ENTITY_RENDER_LAYERS,
+  type EntityRenderFrame,
+  entityRenderer,
+} from './entityRendering';
 import { createWorldProjection } from './worldProjection';
 import { HILL_FILL, HILL_STROKE } from './hillRenderer';
 import { LETHAL_HAZARD_RING_COLOR } from './lethalOnContactRenderer';
@@ -18,6 +22,7 @@ import {
 function createFrame(
   ownEntityId: number | null = null,
   eliminationGraceTicks: number | null = null,
+  tickSequence: number | null = null,
 ): {
   readonly arc: ReturnType<typeof vi.fn>;
   readonly arcCenters: readonly (readonly [number, number])[];
@@ -78,6 +83,10 @@ function createFrame(
         1,
       ),
       surface,
+      // Defaults to `null`, the "no snapshot to draw from" case, so every test written before the
+      // tick reached the frame keeps asserting the drawing it always asserted. A case that draws a
+      // timed window names its own tick rather than inheriting one.
+      tickSequence,
     },
     lineDashCalls,
     restore,
@@ -109,6 +118,7 @@ function drawHazard(
       1,
     ),
     surface,
+    tickSequence: null,
   });
 }
 
@@ -182,34 +192,72 @@ describe('entityRendererRegistry', () => {
     expect(entityRendererRegistry.race_progress.renders).toBe(false);
   });
 
-  it('registers charge as non-visual while only its one-shot cooldown is authoritative', () => {
-    // Charge publishes two absolute endpoints and nothing else: the tick it fired on and the tick a
-    // second burst becomes admissible. The burst itself is already on screen -- it is velocity the
-    // physics body carries -- so a charge renderer would either repaint motion that is drawn or
-    // invent an effect the server never published. Step 20 owns the cooldown arc the activation
-    // endpoint supplies a denominator for, so this registration exists to make the absence a
-    // decision rather than an omission -- and the pinned draw order below stays exactly as it was,
-    // because a kind that draws nothing must not move a single existing layer.
+  it('keeps charge non-visual because its burst is already on screen as body velocity', () => {
+    // The earlier version of this test deferred the question to "the cooldown arc Step 20 owns".
+    // Step 20 answered it, and the answer is no arc: charge publishes the tick it fired on and the
+    // tick a second burst becomes admissible, and the burst between them is not missing from the
+    // world -- it is the velocity the physics body already carries. A world-space renderer could
+    // only repaint that motion or invent an effect the server never published. What is left is a
+    // cooldown, and a cooldown is screen-space feedback: it must not pan and scale with the camera,
+    // so the HUD owns it, where `ticks_per_second` can turn ticks into seconds. The registration
+    // stays, because an absence nobody decided is how a kind becomes invisible by accident.
     expect(entityRendererRegistry.charge.renders).toBe(false);
     expect(
       visualEntityRenderers().some((renderer) => renderer.kind === 'charge'),
     ).toBe(false);
   });
 
-  it('registers shield as non-visual while only its windows are authoritative', () => {
-    // Shield publishes four absolute endpoints and a captured stun duration: timing state the HUD
-    // reads, with no geometry of its own. Step 20 owns shield, perfect and stun presentation, so
-    // the registration exists to make that a decision rather than an omission -- and the pinned
-    // draw order below stays exactly as it was, because a kind that draws nothing must not move a
-    // single existing layer.
-    expect(entityRendererRegistry.shield.renders).toBe(false);
-    expect(
-      visualEntityRenderers().some((renderer) => renderer.kind === 'shield'),
-    ).toBe(false);
+  it('draws shield now that the frame carries the tick its windows are measured against', () => {
+    // The earlier version of this test registered shield as non-visual and said Step 20 owned the
+    // presentation. The blocker was never artistic: no renderer could see the snapshot tick, and a
+    // component keyed on presence alone would have painted a protection ring on a shield the status
+    // system already cancelled -- the reading the published schema explicitly forbids, and the
+    // majority of published shield frames by duration, since protection lasts 160 ticks inside a
+    // component that lives at least 360. `EntityRenderFrame.tickSequence` removes that blocker, so
+    // the registration flips here rather than staying a promise.
+    const registration = entityRendererRegistry.shield;
+    if (!registration.renders) {
+      throw new Error('TEST.SHIELD_MUST_BE_A_VISUAL_RENDERER');
+    }
+    expect(registration.layer).toBe(ENTITY_RENDER_LAYERS.status);
   });
 
-  it('registers stun as non-visual while its authoritative window controls input', () => {
-    expect(entityRendererRegistry.stun.renders).toBe(false);
+  it('draws stun on the same status layer, because a peer must be able to read it', () => {
+    // Stun is not only an input lock the stunned player feels: it is the one moment an opponent can
+    // act on, so it has to be legible from outside the body it holds. Same rule as shield -- drawn
+    // only inside its published window, never on component presence.
+    const registration = entityRendererRegistry.stun;
+    if (!registration.renders) {
+      throw new Error('TEST.STUN_MUST_BE_A_VISUAL_RENDERER');
+    }
+    expect(registration.layer).toBe(ENTITY_RENDER_LAYERS.status);
+    // One shared layer, and it is neither `exposure` nor `label`: see the draw-order case below.
+    expect(ENTITY_RENDER_LAYERS.status).not.toBe(ENTITY_RENDER_LAYERS.exposure);
+    expect(ENTITY_RENDER_LAYERS.status).not.toBe(ENTITY_RENDER_LAYERS.label);
+  });
+
+  it('hands a renderer the snapshot tick rather than letting one go looking for it', () => {
+    // Every ability window on the wire is a pair of absolute ticks, so this is the value that
+    // separates "protected" from "a component that is still published". It arrives the way
+    // `ownEntityId` and `eliminationGraceTicks` do -- resolved once per frame and handed down -- so
+    // no renderer can disagree with the caption, or with another renderer, about which tick it is
+    // drawing. `null` is the honest answer before the first snapshot, not a zero to compare against.
+    const observed: (number | null)[] = [];
+    const probe = entityRenderer(
+      'zone',
+      ENTITY_RENDER_LAYERS.zone,
+      ({ frame }) => {
+        observed.push(frame.tickSequence);
+      },
+    );
+    const { frame } = createFrame(null, null, 12_904);
+
+    probe.drawEntity(zoneEntity, frame);
+    probe.drawEntity(zoneEntity, { ...frame, tickSequence: null });
+    // A component the entity does not carry never reaches a draw function at all, tick or no tick.
+    probe.drawEntity(bodilessControllerEntity, frame);
+
+    expect(observed).toEqual([12_904, null]);
   });
 
   it('registers contact-effect admission without adding geometry or a renderer', () => {
@@ -230,7 +278,7 @@ describe('entityRendererRegistry', () => {
     ).toBe(false);
   });
 
-  it('draws the zone beneath bodies and names above them', () => {
+  it('draws the zone beneath bodies, ability marks above the danger rings, and names above all', () => {
     // Both danger rings join between the body and the label: one painted under the disc would be
     // hidden by it, and one painted over the name would strike the name through.
     //
@@ -238,12 +286,30 @@ describe('entityRendererRegistry', () => {
     // player has least time to act on, so it must never be the one that gets overdrawn. The two
     // never land on one entity today -- a hazard carries no exposure counter -- but the order is
     // pinned here so that stops being an accident if one ever does.
+    //
+    // The list moves here by insertion only: `shield` and `stun` enter on the new `status` layer,
+    // above both danger rings and below the label, and no existing kind changes neighbours. Above
+    // the rings because an ability mark is the most perishable thing on an entity -- true for a few
+    // dozen ticks and then not -- so it must not be overdrawn by a ring that has been true for
+    // hundreds. Below the label because a name is how a player knows who they are looking at, and
+    // it still paints last.
+    //
+    // `status` is a new layer rather than a second tenant of `exposure` precisely so that reads as
+    // a decision. Sharing `exposure` would have settled it with a dictionary: the sort falls back to
+    // kind name, `shield` and `stun` both sort before `zone_exposure`, and both ability marks would
+    // have landed underneath the exposure ring for no reason but the alphabet. Within `status` the
+    // spelling tiebreak still applies and puts `shield` before `stun`. One entity really can carry
+    // both -- a stun cancels protection but leaves the shield component published with its cooldown
+    // running -- and on exactly those frames the shield draws nothing, so the pair is an ordering
+    // rule held against a future case rather than a stack anyone sees today.
     expect(visualEntityRenderers().map((renderer) => renderer.kind)).toEqual([
       'hill',
       'zone',
       'physics_body',
       'lethal_on_contact',
       'zone_exposure',
+      'shield',
+      'stun',
       'controllable',
     ]);
   });

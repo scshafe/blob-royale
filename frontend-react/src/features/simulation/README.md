@@ -27,6 +27,49 @@ its temporary track/width wire mirror contributes no pixels. Shared geometry gol
 client schema/semantic and render-trace cases; C++ owns exact support-probe classification. Canvas
 rasterization is a pixel approximation, not another support solver or a physics tolerance.
 
+**The cliff is the edge of the ground, and the void is everything the ground is not.** A cliff is
+the boundary of _(envelope ∩ positive ground) − the union of holes_ — the same set
+`terrain_supports_point` decides — so on every runnable map the corridor edge is the entire cliff,
+and no shipped map or e2e fixture authors a hole at all. `drawTerrain` rims that boundary out of
+geometry it already has, with no second geometry source and no computed region. Hole rims fall out
+of the existing clip: each circle is stroked while the complement clips are still live, after the
+ground pass and before the `restore()` that pops the stack, so the inner half of the stroke is
+clipped away along with any arc interior to an overlapping neighbour, and what survives is the
+outline of the union — correct by construction rather than by extra logic. Corridor rims are an
+underprint, because Canvas exposes no outline operation for a wide stroke and the compiled road
+boundary is `simulation::detail` rather than wire data: every polyline is stroked in the rim colour
+at `2 * half_width + 2 * rim` and then in the road colour at `2 * half_width` over it, so the union
+of the wide strokes minus the union of the narrow ones is exactly the road-union outline and
+overlapping corridors need no special case. All rim passes precede all surface passes — interleaved,
+one road's rim would overprint a crossing road's surface — and one `round` cap/join convention is
+set once for both, because a corridor's positive ground is a union of capsules and the rim
+offsetting it has to be one too. `TERRAIN_CLIFF_RIM_WORLD_UNITS` is authored in **world** units
+beside the fill constants and projected like any other world quantity, so the rim scales with the
+camera rather than describing it; both techniques spend it twice about the boundary and keep half,
+so a hole rim and a road rim read as the same thickness.
+
+**The arena border is not a cliff.** A hole edge kills you; the arena edge folds you back. The map
+boundary keeps exactly the stroke `SimulationCanvas` already draws from `configuration.world`,
+unchanged and unrestyled: restyling it would invent the second geometry source the single-owner rule
+exists to prevent, and would also tell the player the wrong thing about what happens there.
+
+**Void feedback is terrain-side, not per body.** The unsupported region — inside a hole on solid
+ground, off-road on corridor ground — is a recessed mid tone under the near-black rim, and it is not
+drawn by finding it. `TERRAIN_VOID_FILL` covers the whole envelope first, before the hole
+complements, precisely so it shows through them; the ground passes then paint over everything that
+is supported, and what is still showing the underlay is exactly _envelope minus supported ground_.
+That is the whole of the void treatment, it is the bottom of the layer stack, and it is therefore
+"beneath entities" in the z-order sense the stack has always meant. The reading that was rejected
+is worth recording, because it is the one a reader reaches for first: a mark drawn under a body
+whose centre is over void. The client cannot decide that. Answering "this centre is unsupported" is
+a second implementation of `terrain_supports_point` and its asymmetric tolerances, which that
+function's own note and ADR 0008 both forbid, and the antialiasing licence covers inexact _pixels_,
+not a computed boolean. The state also never occurs: a ground-bound body
+terminates at its last supported point and loses its body in the same tick, so no snapshot ever
+carries a ground-bound centre over void, and the only bodies out there are `floating` hazards that
+by definition never fall — marking one would be a confident lie. The registry could not host it in
+any case: one registration per component kind, and the canvas is barred from branching on a kind.
+
 **World space is not the viewport.** `useSimulationCamera` selects a session-local centre and
 `rendering/worldProjection.ts` supplies the single uniform translated projection for all entity
 and mode-state layers, including the race course. The default is **Follow player**, resolving the
@@ -126,11 +169,11 @@ generation, and every held aim update and zero release retains that activation t
 change cancels held and pending input even if every stun snapshot was missed, including old zero
 releases. Sender-only replacement retains the old token for its cancellation zero; same-body
 throttling survives generation changes. Generation survives same-entity returns but does not add
-an identity for invisible entity destruction/replacement. Stun has an explicit non-visual renderer
-registration until the ability presentation step.
+an identity for invisible entity destruction/replacement. Stun is drawn as of Step 20, against this
+same window and this same tick, so the mark on a peer and the lock on the own blob cannot disagree.
 
-`shield` joins it there, as of protocol 3.0's Step 18 row: an explicit non-visual registration with
-a stated reason, until the ability presentation step draws it. The component publishes one
+`shield` arrived in protocol 3.0's Step 18 row, registered non-visually at first and drawn as of
+Step 20 alongside stun. The component publishes one
 `activation_tick` and three absolute endpoints over it — `shield_expiry_tick`,
 `perfect_expiry_tick`, `cooldown_expiry_tick` — plus `parry_stun_duration_ticks`, and
 `sessionProtocolValidation` checks the orderings JSON Schema cannot: activation at most the
@@ -143,9 +186,10 @@ nothing, exactly as with stun. This step adds no sender — keys and buttons are
 `SimulationApi` is still the only file in the domain that writes to a socket, and the outbound
 `SessionCommand` union carries the shield shape without anything constructing one yet.
 
-`charge` joins both of those as of protocol 3.0's Step 19: the third ability component to register
-non-visually with a stated reason, after `stun` and `shield`, and the second outbound command shape
-with no sender behind it. The component publishes only
+`charge` arrived a step later, in protocol 3.0's Step 19, as the second outbound command shape with
+no sender behind it — and it is the one ability component still registered non-visually. As of
+Step 20 that is a settled decision rather than a deferral, and its reason says so instead of
+pointing at the step that would resolve it. The component publishes only
 `activation_tick` and `cooldown_expiry_tick`, and `sessionProtocolValidation` checks the two
 orderings JSON Schema cannot — activation at most the snapshot tick, and `cooldown_expiry_tick`
 **strictly** greater than `activation_tick`. That strictness is the one place a reader must not
@@ -165,5 +209,89 @@ and nothing published bounds that speed: `match.movement`'s ceiling is a propuls
 the server's safety envelope is not on the wire at all. A client that animated a decaying burst, or
 derived a maximum speed from `match.movement`, would be drawing a world the server is not
 simulating.
+
+**Combat feedback, and what it can and cannot promise.** Step 20 turns shield and stun into drawn
+kinds and leaves charge non-visual, and it carries the one client-contract change the wire did not
+force: `EntityRenderFrame` gains `tickSequence: number | null`, threaded from the snapshot in
+`SimulationCanvas` under the rule `eliminationGraceTicks` and `ownEntityId` already follow — a
+renderer receives what it may read and never goes looking. Nothing else widens; terrain in
+particular stays off the frame. Without the tick a renderer could read only component _presence_,
+which is exactly the reading the published shield forbids, and would paint protection on a shield
+the status system already cancelled.
+
+`rendering/shieldRenderer.ts` therefore answers three states rather than two: the perfect opening
+while `activation_tick <= tick < perfect_expiry_tick` as a gold pair of rings straddling the
+ordinary radius, ordinary protection while `activation_tick <= tick < shield_expiry_tick` as one sky
+ring, and **nothing at all** otherwise. The third is the majority of published shield frames by
+duration — 160 protected ticks inside a component that lives at least 360 — and it is the whole
+argument against presence-keyed drawing: a live cooldown is not protection.
+`rendering/stunRenderer.ts` draws a broken violet ring on the same rule over
+`[activation_tick, expiry_tick)`, the identical window `selectThrustInputOptions` locks input
+against, with the break carrying the meaning as a shape rather than a hue. Both take geometry from
+the entity's own `physics_body`, as `zoneExposureRenderer`, `lethalOnContactRenderer` and
+`controllableLabelRenderer` already do, and with the same discipline: a bodyless tick is legal —
+Step 18 declined a `dependentRequired` edge precisely so it would be — so an absent body returns
+silently, neither renderer caches a previous position, and neither constructs a projection input it
+has not checked. A frame that carries no tick draws nothing, because a guessed tick would be a
+guessed state. Their ring widths are logical CSS pixels, deliberately unlike the terrain rim's world
+units: a cliff rim is geometry and must scale with the ground it rims, while a status ring is a
+readability affordance that has to stay visible when the blob is three pixels across. They share a
+`status` layer added between `exposure` and `label`, because `visualEntityRenderers()` falls back to
+the kind's spelling inside a layer, and spelling is not a reason for one mark to paint over another.
+
+**A perfect mark is a state mark, not an event mark.** The perfect opening is
+`shield_perfect_window_seconds=0.08` — thirty-two ticks at the four hundred ticks per second the
+server runs — while what reaches the browser is `presentation.snapshots_per_second`, twenty in the
+checked-in configuration and the configuration's to change. The mark is drawn on the frames that
+land inside the window and on no others, so at a coarser cadence a real perfect parry can produce no
+marked frame at all, and the absence of a mark is not evidence that there was no perfect opening.
+Nothing here interpolates between frames or animates toward the next one: the only clock this client
+may read is the tick the snapshot carries.
+
+**The screen-space readouts state remaining time and never state availability.** A cooldown must not
+pan and scale with the camera, so it is a HUD row rather than a world-space mark, and the HUD is
+also the only place that can reach `ticks_per_second` to turn a tick difference into seconds.
+`sessionSelectors.abilityStatusReport` derives it once per frame from the own blob's components on
+`selectThrustInputOptions`' template — absolute committed ticks read against the tick of the frame
+that carried them — and `SimulationHud` only formats what it returns. Each window reports whether it
+covers the tick, seconds remaining (clamped at zero once the endpoint has passed), and the elapsed
+share of `endpoint - activation_tick`: stun over `expiry_tick`, shield protection, perfect and
+cooldown over their three endpoints minus the one shared `activation_tick`, and charge cooldown over
+`cooldown_expiry_tick`. **A stun fraction is not monotonic**, and nothing may assume it is: a merge
+keeps the original activation and takes the maximum expiry, so the denominator grows while the
+numerator's origin does not, and the share moves backwards. That division is guarded in one place
+rather than trusted at every call site, because an empty window is a legal frame on the shield side
+of the contract — a cancelled protection window, and the `cooldown_expiry_tick == activation_tick` a
+zero authored cooldown publishes — where charge's strictly positive cooldown could never reach it.
+An empty window reports no fraction at all and is never active, so no row renders a ratio it could
+not compute. Two things are **not** derivable and are never implied. **No row says
+charge is ready**: the final refusal belongs to the authored safety envelope, which is deliberately
+server-side and not on the wire, so an elapsed cooldown reads _cooldown over_ and a live one reads
+_cooling_. And **no row shows the shield's authored window length**: only the protection that
+actually happened is published and a cancellation shortens it, so the row counts down the remainder
+of the window in front of it and a "0.4 s of protection" bar could be neither drawn before a first
+activation nor trusted after a cancelled one. The stun row is narrower still — it exists only while
+the window contains the tick, because a published-but-elapsed stun locks nothing and a row saying
+"Stunned" would be false.
+
+Two rules bound every drawing path added here. **Nothing may throw**: there is no error boundary
+anywhere in this client and the draw loop is an unguarded `useEffect`, so one throw from one
+renderer blanks the whole application — an absent body returns, a zero denominator is guarded, and a
+projection input is never constructed before it has been checked. **And a renderer is never where
+something unknown is quietly skipped**: that clause is a validation rule, enforced by
+`assertKnownSnapshotKinds` failing closed ahead of Ajv, and it forbids trimming a frame instead of
+rejecting it. `protocolMutationCorpus.test.ts` carries the strict v3 half of that promise for the
+three components this step reads — a shield window opening after the frame that carries it, a stun
+window that expires on the tick it activated, and a charge cooldown that runs backwards — each
+proving the whole frame is refused rather than handed to a renderer that would draw nothing and look
+correct doing it.
+
+**What the gate establishes, and what it does not.** `verify-web` asserts call sequences and
+geometry arguments; it never looks at a pixel, and no shipped map authors a hole, so the hole-rim
+path is exercised only by synthetic terrain fixtures. A green gate says the right calls happen with
+the right numbers under translation, manual and follow camera, edge view, fractional device pixel
+ratio and resize. It does not say that a cliff reads as a cliff, or that a perfect mark is legible
+in the eighty milliseconds it exists. That judgement is the owner's, from images, not from this
+suite.
 
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v3`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

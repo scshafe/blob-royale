@@ -81,6 +81,23 @@ export function findEntityById(
 }
 
 /**
+ * Half-open containment, `activation_tick <= tick < endpoint`, stated once because every published
+ * ability window is read by it and its readers have to agree: the input lock below, the status
+ * renderers, and every HUD readout. The endpoint is the first tick the window does *not* cover,
+ * which is also what makes an empty window -- `endpoint === activation_tick` -- read as "not now"
+ * rather than as one instant of protection. No wall clock enters the rule: a window is a pair of
+ * absolute committed ticks compared against the tick of the frame that carried them, so a buffered
+ * or late frame still reads true and elapsed browser time readies nothing.
+ */
+function windowContainsTick(
+  activationTick: number,
+  endpointTick: number,
+  tick: number,
+): boolean {
+  return activationTick <= tick && tick < endpointTick;
+}
+
+/**
  * @canonical session_thrust_input_options -- resolves body, authority, lock, and generation for
  * the feature's sole input owner. Validated absolute ticks determine stun availability; no local
  * countdown or render timing can unlock the player. Same-generation frames retain hook lifetime.
@@ -104,10 +121,179 @@ export function selectThrustInputOptions(
     inputLocked:
       stun !== undefined &&
       tick !== undefined &&
-      stun.activation_tick <= tick &&
-      tick < stun.expiry_tick,
+      windowContainsTick(stun.activation_tick, stun.expiry_tick, tick),
     inputGeneration: ownEntity?.components.controllable?.input_generation,
     sendCommand: connection.sendCommand,
+  };
+}
+
+/**
+ * One published ability window resolved against the snapshot tick, in the units a player is shown.
+ *
+ * `spentFraction` is `null` for exactly one reason -- an empty window, `endpoint ===
+ * activation_tick` -- and an empty window is never `isActive`, so no caller has to render a ratio it
+ * could not compute for a state the blob is currently in. That case is not hypothetical: a stun
+ * cancels shield protection by shortening it to the cancelling tick, and a room may author a zero
+ * shield cooldown, which publishes `cooldown_expiry_tick === activation_tick` on a frame the server
+ * is required to be able to send. Charge cannot reach it, because its authored cooldown is validated
+ * strictly positive. That asymmetry is the wire contract rather than an oversight, which is why the
+ * division is guarded here once instead of trusted at four call sites.
+ */
+export interface AbilityWindowReport {
+  /** Whether the window covers the snapshot tick. What that means is the window's own. */
+  readonly isActive: boolean;
+  /** Seconds until the endpoint. Never negative, and exactly zero once the endpoint has passed. */
+  readonly remainingSeconds: number;
+  /** Elapsed share of `endpoint - activation_tick`, in `[0, 1]`, or `null` for an empty window. */
+  readonly spentFraction: number | null;
+}
+
+/**
+ * Resolves one window. A positive `ticksPerSecond` is the caller's precondition:
+ * `abilityStatusReport` is its only caller and refuses a non-positive cadence before reaching here,
+ * so nothing divides by a denominator it has not checked. The clamp is `graceSpentFraction`'s, for
+ * its reason -- a frame is data, and a client must not render a fraction above one because one
+ * arrived saying so.
+ */
+function abilityWindowReport(
+  activationTick: number,
+  endpointTick: number,
+  tick: number,
+  ticksPerSecond: number,
+): AbilityWindowReport {
+  const spanTicks = endpointTick - activationTick;
+  return {
+    isActive: windowContainsTick(activationTick, endpointTick, tick),
+    remainingSeconds: Math.max(0, endpointTick - tick) / ticksPerSecond,
+    spentFraction:
+      spanTicks <= 0
+        ? null
+        : Math.min(1, Math.max(0, (tick - activationTick) / spanTicks)),
+  };
+}
+
+/**
+ * The three readings of one published shield against one tick, kept apart rather than collapsed into
+ * a single state, because protection and cooldown are independent. A stun cancels protection and
+ * leaves the cooldown running, so "no protection, cooldown still live" is the majority of a shield
+ * component's published life by duration; a reader that took mere presence for protection would tell
+ * a stunned player they are safe.
+ *
+ * All three share the component's one `activation_tick` and differ only in their endpoint, which is
+ * exactly why each fraction has its own denominator.
+ */
+export interface ShieldStatusReport {
+  readonly cooldown: AbilityWindowReport;
+  readonly perfect: AbilityWindowReport;
+  readonly protection: AbilityWindowReport;
+}
+
+/** What the own blob's ability components say this frame; a member is `null` when unpublished. */
+export interface AbilityStatusReport {
+  /** The charge cooldown. Absent means no cooldown runs, never that a charge would be admitted. */
+  readonly charge: AbilityWindowReport | null;
+  readonly shield: ShieldStatusReport | null;
+  readonly stun: AbilityWindowReport | null;
+}
+
+export interface AbilityStatusInput {
+  readonly entities: readonly SessionEntitySnapshot[];
+  readonly ownEntityId: number | null;
+  readonly tickSequence: number | null;
+  readonly ticksPerSecond: number;
+}
+
+/** No tick to read against, no cadence, or no own entity: the frame says nothing at all. */
+const NO_ABILITY_STATUS: AbilityStatusReport = Object.freeze({
+  charge: null,
+  shield: null,
+  stun: null,
+});
+
+/**
+ * @canonical session_ability_status -- what the own blob's published ability windows say at the
+ * snapshot tick. `selectThrustInputOptions` is the template: absolute committed ticks read against
+ * the tick of the frame that carried them, never a countdown this client decrements and never
+ * elapsed browser time.
+ *
+ * **Derivable, with the exact denominator of each.** Stun, over `expiry_tick - activation_tick`.
+ * Shield protection, its perfect opening, and its cooldown, over `shield_expiry_tick`,
+ * `perfect_expiry_tick` and `cooldown_expiry_tick` each minus the one shared `activation_tick`.
+ * Charge cooldown, over `cooldown_expiry_tick - activation_tick`.
+ *
+ * **A stun fraction is not monotonic, and no caller may assume it is.** The status system merges a
+ * repeated stun request by keeping the original activation and taking the *maximum* expiry, so a
+ * merge grows the denominator without moving the numerator's origin: the tick that read 0.8 of a
+ * hundred-tick window reads 0.4 of the two hundred it has just become. That is the merged window's
+ * truth, not a glitch, and nothing here smooths it.
+ *
+ * **Not derivable, and not to be implied by anything built on this.** Charge *readiness*: the safety
+ * envelope makes the final refusal, is deliberately server-side, and is not on the wire, so an
+ * elapsed cooldown is "cooldown over" and never "ready". And the shield's *authored* window length:
+ * only the protection that actually happened is published and a cancellation shortens it, so there
+ * is no full-length window to show before a first activation and the one after a cancelled shield
+ * would be wrong. Both readouts state remaining time against a window that really exists.
+ *
+ * Nothing here throws and nothing divides by zero. A missing entity, a missing component, an unknown
+ * tick and a non-positive cadence each return the empty report, and the single division is guarded
+ * in `abilityWindowReport`.
+ */
+export function abilityStatusReport({
+  entities,
+  ownEntityId,
+  tickSequence,
+  ticksPerSecond,
+}: AbilityStatusInput): AbilityStatusReport {
+  if (tickSequence === null || ticksPerSecond <= 0) {
+    return NO_ABILITY_STATUS;
+  }
+  const components = findEntityById(entities, ownEntityId)?.components;
+  if (components === undefined) {
+    return NO_ABILITY_STATUS;
+  }
+  const { charge, shield, stun } = components;
+  return {
+    charge:
+      charge === undefined
+        ? null
+        : abilityWindowReport(
+            charge.activation_tick,
+            charge.cooldown_expiry_tick,
+            tickSequence,
+            ticksPerSecond,
+          ),
+    shield:
+      shield === undefined
+        ? null
+        : {
+            cooldown: abilityWindowReport(
+              shield.activation_tick,
+              shield.cooldown_expiry_tick,
+              tickSequence,
+              ticksPerSecond,
+            ),
+            perfect: abilityWindowReport(
+              shield.activation_tick,
+              shield.perfect_expiry_tick,
+              tickSequence,
+              ticksPerSecond,
+            ),
+            protection: abilityWindowReport(
+              shield.activation_tick,
+              shield.shield_expiry_tick,
+              tickSequence,
+              ticksPerSecond,
+            ),
+          },
+    stun:
+      stun === undefined
+        ? null
+        : abilityWindowReport(
+            stun.activation_tick,
+            stun.expiry_tick,
+            tickSequence,
+            ticksPerSecond,
+          ),
   };
 }
 

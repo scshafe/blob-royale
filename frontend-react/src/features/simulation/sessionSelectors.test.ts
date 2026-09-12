@@ -6,17 +6,33 @@ import {
   STUN_INPUT_SNAPSHOT_TICK,
   STUN_INPUT_WINDOW,
   stunInputConnection,
+  stunInputSnapshotDocument,
 } from './fixtures/stunInputFrames';
+import {
+  CANCELLED_SHIELD_WINDOWS,
+  SHIELD_ACTIVATION_TICK,
+  SHIELD_PARRY_STUN_DURATION_TICKS,
+  SHIELD_SNAPSHOT_TICK,
+  SHIELD_WINDOWS,
+  shieldSnapshotDocument,
+} from './fixtures/shieldFrames';
+import {
+  CHARGE_COOLDOWN,
+  chargeSnapshotDocument,
+} from './fixtures/chargeFrames';
 
 import {
   legacyNpcCatalogue,
   hillSnapshotDocument,
+  type MutableSnapshotDocument,
   raceScenarioDocument,
   type RaceSnapshotScenario,
   snapshotDocument,
 } from './fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import {
+  type AbilityStatusInput,
+  abilityStatusReport,
   countAlivePlayers,
   describeMatchOverlay,
   findOwnEntityId,
@@ -851,5 +867,305 @@ describe('sessionSelectors for the race', () => {
       detail:
         'You finished #1. The other racers can finish until the window closes.',
     });
+  });
+});
+
+/** The cadence `config/blob-royale.cfg` authors and every published example is written against. */
+const ABILITY_TICKS_PER_SECOND = 400;
+
+/**
+ * One published shield, authored here rather than borrowed from `shieldFrames`, for one reason: its
+ * three spans -- 40 perfect ticks, 160 protection ticks and a 400-tick cooldown -- divide every tick
+ * offset in the table below into an exact decimal, so a boundary case pins the arithmetic instead of
+ * a rounding tolerance. The nesting is the wire's own, `activation <= perfect <= shield` and
+ * `activation <= cooldown`, so the validator accepts it exactly as it accepts the shipped corpus.
+ */
+const ABILITY_SHIELD_WINDOWS = Object.freeze({
+  activation_tick: 12800,
+  shield_expiry_tick: 12960,
+  perfect_expiry_tick: 12840,
+  cooldown_expiry_tick: 13200,
+  parry_stun_duration_ticks: SHIELD_PARRY_STUN_DURATION_TICKS,
+});
+
+/** A hundred-tick stun, chosen so the same offsets divide exactly against both its endpoints. */
+const ABILITY_STUN_WINDOW = Object.freeze({
+  activation_tick: 12800,
+  expiry_tick: 12900,
+});
+
+/** A four-hundred-tick charge cooldown, for the same exact-decimal reason as the shield above. */
+const ABILITY_CHARGE_COOLDOWN = Object.freeze({
+  activation_tick: 12800,
+  cooldown_expiry_tick: 13200,
+});
+
+/** Every member null: no tick to read against, no cadence, or no own entity on the frame. */
+const NOTHING_PUBLISHED = { charge: null, shield: null, stun: null };
+
+/**
+ * Ability status read from a frame the real validator accepted. Every case goes through the
+ * validator rather than a hand-built object so that a window no server could publish -- a reversed
+ * stun, a charge cooldown collapsed onto its activation -- fails as a fixture instead of quietly
+ * becoming a selector case that proves nothing.
+ */
+function abilityStatusInput(
+  document: MutableSnapshotDocument,
+): AbilityStatusInput {
+  const frame = validateSessionSnapshotMessage(document, {
+    messageSequence: 1,
+    requestId: document.meta.request_id,
+    tickSequence: null,
+    npcCatalogue: legacyNpcCatalogue,
+    terrain: solidTerrain,
+  }).data;
+  return {
+    entities: frame.entities,
+    ownEntityId: findOwnEntityId(frame.entities, 3),
+    tickSequence: frame.tick_sequence,
+    ticksPerSecond: ABILITY_TICKS_PER_SECOND,
+  };
+}
+
+function abilityStatus(document: MutableSnapshotDocument) {
+  return abilityStatusReport(abilityStatusInput(document));
+}
+
+describe('sessionSelectors for published ability windows', () => {
+  it.each([
+    {
+      tick: 12800,
+      expected: { isActive: true, remainingSeconds: 0.25, spentFraction: 0 },
+    },
+    {
+      tick: 12850,
+      expected: { isActive: true, remainingSeconds: 0.125, spentFraction: 0.5 },
+    },
+    {
+      // The last tick the window covers. Half-open containment is what makes this the last one.
+      tick: 12899,
+      expected: {
+        isActive: true,
+        remainingSeconds: 0.0025,
+        spentFraction: 0.99,
+      },
+    },
+    {
+      tick: 12900,
+      expected: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+    },
+  ])('reads the stun window half-open at tick $tick', ({ tick, expected }) => {
+    expect(
+      abilityStatus(
+        stunInputSnapshotDocument(undefined, ABILITY_STUN_WINDOW, tick),
+      ).stun,
+    ).toEqual(expected);
+  });
+
+  it('lets a stun merge grow the denominator and move the spent fraction backwards', () => {
+    // The status system merges a repeated request by keeping the original activation and taking the
+    // maximum expiry, so the denominator grows while the numerator's origin stays put. Both frames
+    // here are read at the same tick, 80 ticks after one shared activation: those 80 ticks are 0.8
+    // of the first window and 0.4 of the merged one. A fraction that moves backwards is the merged
+    // window's truth, not a glitch, and no caller may assume monotonicity.
+    const beforeMerge = abilityStatus(
+      stunInputSnapshotDocument(undefined, ABILITY_STUN_WINDOW, 12880),
+    );
+    const afterMerge = abilityStatus(
+      stunInputSnapshotDocument(
+        undefined,
+        { ...ABILITY_STUN_WINDOW, expiry_tick: 13000 },
+        12880,
+      ),
+    );
+    expect(beforeMerge.stun?.spentFraction).toBe(0.8);
+    expect(afterMerge.stun?.spentFraction).toBe(0.4);
+    expect(beforeMerge.stun?.remainingSeconds).toBe(0.05);
+    expect(afterMerge.stun?.remainingSeconds).toBe(0.3);
+  });
+
+  it.each([
+    {
+      tick: 12800,
+      cooldown: { isActive: true, remainingSeconds: 1, spentFraction: 0 },
+      perfect: { isActive: true, remainingSeconds: 0.1, spentFraction: 0 },
+      protection: { isActive: true, remainingSeconds: 0.4, spentFraction: 0 },
+    },
+    {
+      // The last tick inside the perfect opening, and every window still running.
+      tick: 12839,
+      cooldown: {
+        isActive: true,
+        remainingSeconds: 0.9025,
+        spentFraction: 0.0975,
+      },
+      perfect: {
+        isActive: true,
+        remainingSeconds: 0.0025,
+        spentFraction: 0.975,
+      },
+      protection: {
+        isActive: true,
+        remainingSeconds: 0.3025,
+        spentFraction: 0.24375,
+      },
+    },
+    {
+      // The opening has closed and ordinary protection continues: two states, not one.
+      tick: 12840,
+      cooldown: { isActive: true, remainingSeconds: 0.9, spentFraction: 0.1 },
+      perfect: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+      protection: {
+        isActive: true,
+        remainingSeconds: 0.3,
+        spentFraction: 0.25,
+      },
+    },
+    {
+      // The third state, and the majority of a shield's published life by duration: no protection
+      // at all, with the component still on the wire because its cooldown is still running.
+      tick: 12960,
+      cooldown: { isActive: true, remainingSeconds: 0.6, spentFraction: 0.4 },
+      perfect: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+      protection: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+    },
+    {
+      tick: 13200,
+      cooldown: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+      perfect: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+      protection: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+    },
+  ])(
+    'reads all three shield windows against tick $tick',
+    ({ tick, cooldown, perfect, protection }) => {
+      expect(
+        abilityStatus(shieldSnapshotDocument(ABILITY_SHIELD_WINDOWS, tick))
+          .shield,
+      ).toEqual({ cooldown, perfect, protection });
+    },
+  );
+
+  it('reads a cancelled shield as no protection with a live cooldown, never as presence', () => {
+    // A stun shortens still-live protection to the cancelling tick and leaves the cooldown running.
+    // Both protection windows are then empty, so both report a null fraction rather than a ratio of
+    // nothing, and neither is active: presence is not protection.
+    const shield = abilityStatus(
+      shieldSnapshotDocument(CANCELLED_SHIELD_WINDOWS, SHIELD_SNAPSHOT_TICK),
+    ).shield;
+    const emptyWindow = {
+      isActive: false,
+      remainingSeconds: 0,
+      spentFraction: null,
+    };
+    expect(shield?.protection).toEqual(emptyWindow);
+    expect(shield?.perfect).toEqual(emptyWindow);
+    expect(shield?.cooldown.isActive).toBe(true);
+    // A cancellation keeps the cooldown whole: 104 of its 360 ticks are spent at tick 12,904, and
+    // the 256 that remain are 0.64 s at 400 ticks per second.
+    expect(shield?.cooldown.remainingSeconds).toBe(0.64);
+    expect(shield?.cooldown.spentFraction).toBeCloseTo(0.288889, 6);
+  });
+
+  it('guards the shield cooldown denominator the zero-cooldown frame collapses', () => {
+    // `cooldown_expiry_tick === activation_tick` is authored tuning the configuration explicitly
+    // permits, so this is a frame the server is required to be able to send. The span is empty, so
+    // the fraction is null rather than Infinity or NaN, and an empty window is never active.
+    const cooldown = abilityStatus(
+      shieldSnapshotDocument(
+        { ...SHIELD_WINDOWS, cooldown_expiry_tick: SHIELD_ACTIVATION_TICK },
+        SHIELD_SNAPSHOT_TICK,
+      ),
+    ).shield?.cooldown;
+    expect(cooldown).toEqual({
+      isActive: false,
+      remainingSeconds: 0,
+      spentFraction: null,
+    });
+
+    // Charge's denominator cannot collapse the same way: its authored cooldown is validated
+    // strictly positive, so the asymmetry with shield is the wire contract rather than an accident.
+    const chargeFraction = abilityStatus(
+      chargeSnapshotDocument(CHARGE_COOLDOWN),
+    ).charge?.spentFraction;
+    expect(chargeFraction).not.toBeNull();
+    expect(chargeFraction).toBeGreaterThan(0);
+    expect(chargeFraction).toBeLessThan(1);
+  });
+
+  it.each([
+    {
+      tick: 12800,
+      expected: { isActive: true, remainingSeconds: 1, spentFraction: 0 },
+    },
+    {
+      tick: 13000,
+      expected: { isActive: true, remainingSeconds: 0.5, spentFraction: 0.5 },
+    },
+    {
+      tick: 13199,
+      expected: {
+        isActive: true,
+        remainingSeconds: 0.0025,
+        spentFraction: 0.9975,
+      },
+    },
+    {
+      // The cooldown has elapsed. That is all this says: whether a charge would be admitted is the
+      // server's safety envelope, which is deliberately not on the wire.
+      tick: 13200,
+      expected: { isActive: false, remainingSeconds: 0, spentFraction: 1 },
+    },
+  ])(
+    'reads the charge cooldown half-open at tick $tick',
+    ({ tick, expected }) => {
+      expect(
+        abilityStatus(chargeSnapshotDocument(ABILITY_CHARGE_COOLDOWN, tick))
+          .charge,
+      ).toEqual(expected);
+    },
+  );
+
+  it('reports nothing for a frame that publishes no ability component at all', () => {
+    expect(abilityStatus(snapshotDocument())).toEqual(NOTHING_PUBLISHED);
+  });
+
+  it('reports nothing without a tick to read against, a cadence, or an own entity', () => {
+    // Each of these is a state the live client really reaches: the frames before the first snapshot
+    // arrives, a configuration a caller has not resolved, and every frame of an eliminated player.
+    // The empty report is what keeps this selector from dividing by a denominator it does not have.
+    const input = abilityStatusInput(
+      shieldSnapshotDocument(ABILITY_SHIELD_WINDOWS),
+    );
+    expect(abilityStatusReport(input).shield).not.toBeNull();
+    expect(abilityStatusReport({ ...input, tickSequence: null })).toEqual(
+      NOTHING_PUBLISHED,
+    );
+    expect(abilityStatusReport({ ...input, ticksPerSecond: 0 })).toEqual(
+      NOTHING_PUBLISHED,
+    );
+    expect(abilityStatusReport({ ...input, ticksPerSecond: -1 })).toEqual(
+      NOTHING_PUBLISHED,
+    );
+    expect(abilityStatusReport({ ...input, ownEntityId: null })).toEqual(
+      NOTHING_PUBLISHED,
+    );
+    expect(abilityStatusReport({ ...input, ownEntityId: 4242 })).toEqual(
+      NOTHING_PUBLISHED,
+    );
+    expect(abilityStatusReport({ ...input, entities: [] })).toEqual(
+      NOTHING_PUBLISHED,
+    );
+  });
+
+  it('reads the own blob only, never a peer carrying the same windows', () => {
+    // Entity 8 is the bot in the golden roster. The HUD answers for the player reading it, and a
+    // peer's cooldown on the player's own row would be a lie about what the player may do.
+    const input = abilityStatusInput(
+      shieldSnapshotDocument(ABILITY_SHIELD_WINDOWS),
+    );
+    expect(abilityStatusReport(input).shield).not.toBeNull();
+    expect(abilityStatusReport({ ...input, ownEntityId: 8 })).toEqual(
+      NOTHING_PUBLISHED,
+    );
   });
 });

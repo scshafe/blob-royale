@@ -10,6 +10,7 @@ import { useSimulationCamera } from './useSimulationCamera';
 import { SimulationDebugPanel } from './SimulationDebugPanel';
 import { SimulationHud } from './SimulationHud';
 import {
+  abilityStatusReport,
   countAlivePlayers,
   describeMatchOverlay,
   eliminationGraceTicks,
@@ -133,6 +134,13 @@ export function SimulationViewer({
               />
             )}
             <SimulationHud
+              ability={abilityStatusReport({
+                entities: connection.entities,
+                ownEntityId: connection.ownEntityId,
+                tickSequence,
+                ticksPerSecond:
+                  connection.configuration.simulation.ticks_per_second,
+              })}
               aliveCount={countAlivePlayers(connection.entities)}
               displayName={connection.session?.displayName ?? null}
               hill={hillHudReport({

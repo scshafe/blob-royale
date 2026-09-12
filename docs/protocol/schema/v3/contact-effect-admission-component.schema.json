@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/contact-effect-admission-component.schema.json",
+  "title": "Blob Royale protocol v3 contact effect admission component",
+  "description": "Body-bound nondefault source-object effect admission. any_touch includes certified grazes and stationary/overlapping contact; physical impulses still require a closing impact. Absence of this component means closing_impact. This does not change collision masks or make cliff support loss a body-rim contact.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policy"],
+  "properties": {
+    "policy": {
+      "type": "string",
+      "const": "any_touch"
+    }
+  },
+  "$comment": "Added with live per-object admission in plan Step 16 under protocol 3.0. closing_impact is deliberately not a stored or transmitted component value; it is represented by absence."
+}

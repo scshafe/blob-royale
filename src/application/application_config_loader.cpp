@@ -1,4 +1,5 @@
 #include "application_config_loader.hpp"
+#include "contact_effect_admission.hpp"
 
 #include "application_input_error.hpp"
 #include "application_text_file_reader.hpp"
@@ -194,6 +195,7 @@ enum class ConfigFamilyField : std::size_t {
   kHazardSpeed,
   kHazardSpawnInterval,
   kHazardLethalOnContact,
+  kHazardContactEffectPolicy,
   kBotProfileObjectiveSeekProbability,
   kBotProfileReactionDelayTicks,
   kBotProfileAimError,
@@ -234,6 +236,7 @@ constexpr std::array<ConfigFamilyFieldSpec, static_cast<std::size_t>(ConfigFamil
                                 {ConfigSectionFamily::kHazard, "speed_world_units_per_second"},
                                 {ConfigSectionFamily::kHazard, "spawn_interval_seconds"},
                                 {ConfigSectionFamily::kHazard, "lethal_on_contact"},
+                                {ConfigSectionFamily::kHazard, "contact_effect_policy"},
                                 {ConfigSectionFamily::kBotProfile, "objective_seek_probability"},
                                 {ConfigSectionFamily::kBotProfile, "reaction_delay_ticks"},
                                 {ConfigSectionFamily::kBotProfile, "aim_error"},
@@ -702,7 +705,10 @@ parse_hazard_archetypes(const StrictIniDocument& document) {
         .spawn_interval_seconds =
             parse_double_family_value(instance, ConfigFamilyField::kHazardSpawnInterval),
         .lethal_on_contact =
-            parse_boolean_family_value(instance, ConfigFamilyField::kHazardLethalOnContact)}));
+            parse_boolean_family_value(instance, ConfigFamilyField::kHazardLethalOnContact),
+        .contact_effect_policy =
+            simulation::parse_contact_effect_policy(*instance.values[static_cast<std::size_t>(
+                ConfigFamilyField::kHazardContactEffectPolicy)])}));
   }
   return archetypes;
 }

@@ -153,11 +153,13 @@ TEST_CASE("BlobRoyaleApplication is a non-transferable RAII composition root",
 
 TEST_CASE("BlobRoyaleApplication factory builds and validates the owned GameSimulation",
           "[unit][application][lifecycle]") {
+  // Step 16 permits centers on the closed envelope, even with radius overlap. A genuinely
+  // outside center preserves this composition-root validation test's rejection intent.
   const simulation::Vector2 zero = simulation::Vector2::create(0.0, 0.0);
   const simulation::GameWorld::EntitySeed outside_player =
       simulation::GameWorld::EntitySeed::create(
           simulation::EntityId::create(1),
-          simulation::PhysicsBody::create(simulation::Vector2::create(0.0, 20.0), zero, zero));
+          simulation::PhysicsBody::create(simulation::Vector2::create(-1.0, 20.0), zero, zero));
   simulation::GameWorld invalid_world = simulation::GameWorld::create({outside_player});
   LogCapture log_capture;
 
@@ -167,7 +169,7 @@ TEST_CASE("BlobRoyaleApplication factory builds and validates the owned GameSimu
                                       map_fixture(), std::move(invalid_world), log_capture.logger));
   } catch (const simulation::SimulationValidationError& error) {
     REQUIRE(error.validation_code() ==
-            simulation::SimulationValidationCode::kSpatialGridPlayerCenterOutOfBounds);
+            simulation::SimulationValidationCode::kGameSimulationBodyOutOfBounds);
     return;
   }
   FAIL("expected BlobRoyaleApplication construction to validate its initial world");

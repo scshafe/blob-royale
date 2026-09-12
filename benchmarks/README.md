@@ -3,12 +3,12 @@
 This directory owns the deterministic, advisory Linux performance baseline. The executable calls
 the canonical public `GameSimulation::step()`, `SpatialGrid::rebuilt()`,
 `GameSimulation::snapshot()`, `encode_snapshot_message()`, and `SnapshotDeliveryState` APIs. It
-also measures the canonical unwired continuous-motion prototype described below. It does not
+also measures the canonical continuous-motion solver directly in the retained prototype cases. It does not
 provide another engine, scheduler, simulation clock, delivery queue, or benchmark framework.
 
 ## What is under measurement, and what is not
 
-The four sparse/clustered engine cases use `GameSimulation::create`, whose three arguments are the
+The `sparse_64` live-kernel case uses `GameSimulation::create`, whose three arguments are the
 configuration, the initial world, and a
 `GameSimulationSetup` that carries every declaration a mode makes. The benchmark passes **no
 setup**, so it runs on `GameSimulationSetup::engine_defaults()`: the reserved mode name `idle`, the
@@ -17,17 +17,31 @@ objective that never starts a match, and an arena synthesized as `MapDefinition:
 `SimulationConfig`'s world scalars. Each world is `GameWorld::create(std::vector<EntitySeed>)`, the
 scenario-seeded path, rather than the production `GameWorld::create(configuration, map, seed)` that
 seats a map's static bodies. `step` is called with `InputBatch::empty()`, the no-input tick. No map
-directory, `GameMode`, gameplay system, or command participates in these four cases. The separate
+directory, `GameMode`, gameplay system, or command participates in this case. The separate
 royale case does use the production gameplay and input-loading targets.
 
-**This is the kernel's floor, not a live match's cost, and the two must not be compared.** A running
-`royale` match additionally pays for its four declared systems, its rotating-ring spawn policy, its
-per-tick zone entity, and its mode-state block, none of which exist here. What the baseline *does*
-now include, because the component registry is closed and its behaviors are generated from it, is
-publication of all seven registered component kinds -- royale's `Zone` and `ZoneExposure` among
-them, empty -- plus the `MatchSnapshot` section and the derived entity roster on every
-`GameSimulation::snapshot()`. Snapshot creation is therefore not comparable across the framework
-cutover even at identical player counts.
+This measures empty-input kernel cost, not the full cost of a live match. A running royale match
+also pays for declared systems, spawning, objectives and mode state. Registry-generated snapshot
+publication includes every currently registered component kind, including empty stores, the match
+and derived roster. Live results before and after Step 16's continuous-kernel adoption have
+different implementation boundaries; identical population alone does not make timings comparable.
+
+The owner-approved Step 16 suite explicitly categorizes its eight cases: one `live_kernel`, one
+`live_gameplay`, three `spatial_grid_only`, and three `pure_motion_solver`. The former full-engine
+`sparse_512`, `sparse_2048`, and `clustered_512` populations exceed the adopted motion envelope.
+They are now `spatial_grid_sparse_512`, `spatial_grid_sparse_2048`, and
+`spatial_grid_clustered_512`. Their original geometry, body counts, layout arithmetic and grid
+rebuild counts remain unchanged. Each names its former identity and retired measurement counts
+under `historical_reference`. Only `SpatialGrid::create/rebuilt` and canonical candidate counts/
+hashes are measured: no live stepping, post-step snapshot creation or JSON encoding is performed
+or replaced with a fabricated final snapshot. Categories are declared explicitly, never chosen
+as a fallback based on the current body cap. Standalone grid capacity is not motion capacity.
+
+Compare these diagnostics only to the old cases' retained grid operation/count/hash fields.
+Whole-case timing, post-step snapshots and encoding results are retired and not comparable.
+Historical Step 4/4a JSON artifacts retain their original suite lists and are never rewritten to
+describe this new composition. The complete pre-cutover prerequisite suite was preserved in the
+Step 16 evidence before changing any reader.
 
 The protocol case measures **v1** `encode_snapshot_message`. Protocol v2 snapshot encoding, command
 decoding, and the `SessionWebSocketSession` path are not measured by this suite.
@@ -46,8 +60,9 @@ The runner passes `--royale-reference-config benchmarks/fixtures/royale-roster.c
 Step 6 strict-schema migration replaces the unused `[race] track_half_width_world_units` key with
 `road=road`; the 2026-09-11 Step 10 migration moves acceleration 400 to `[movement]` and authors
 the fixture ceiling 10000. Fresh benchmark worlds seed that pair as current/default movement.
+Step 16 adds explicit `contact_effect_policy=closing_impact` to its existing hazard sections.
 It is no longer a byte-for-byte historical configuration. Historical workload values remain,
-and the provenance comment and JSON identify both derivations. This migration is not a new
+and the provenance comment and JSON identify these migrations. This migration is not a new
 timing baseline or a claim of native performance certification.
 That commit identifies the **configuration only**; `MapLoader` still loads the named
 `arena-960x640` from the current repository's `maps/`, not a historical map checkout. The
@@ -74,11 +89,12 @@ Native comparison requires the named `cole-ubuntu-pc` runner and comparable reco
 inputs. Read the `platform` and `historical_reference` blocks before comparing results, and record
 new native evidence in ADR 0006 as a dated amendment. Mac-hosted emulated runs remain advisory.
 
-## Unwired continuous-motion prototype cases
+## Retained direct continuous-motion prototype cases
 
 These three Step 4 cases call the same `solve_continuous_motion`, `compose_guarded_pair`, and
-`support_loss_motion_trigger` implementations the later integration will adopt. They do not alter
-or measure the currently live discrete kernel. All use a 960-by-640 envelope, radius-four bodies,
+`support_loss_motion_trigger` implementations. Step 16 adopts the solver; production support
+registration and guarded composition remain Steps 17 and 18 respectively. They do not measure live
+intake, lifecycle or publication; they call the solver directly. All use a 960-by-640 envelope, radius-four bodies,
 the fixed 400 Hz quantum, one warm-up, nine samples, and sixteen independent solves per sample.
 
 - `continuous_motion_charge_speed`: eight independent rows, each with one dynamic body at
@@ -110,7 +126,7 @@ effects. Root counts are canonical public-query budget charges, including charge
 fast returns, not a claim that every charged primitive performed a root solve.
 
 These results are explicitly advisory and certify no native capacity, supported charge speed, or
-production rollout. Step 5's human/native-evidence gate remains independent of passing these cases.
+production rollout. Step 5's human gate is accepted; final native release evidence remains separate.
 The dated Step 4 review and selected prototype baseline are retained under
 `docs/reviews/2026-09-10-continuous-motion-prototype-review.md` and the sibling
 `2026-09-10-continuous-motion-prototype-baseline.json`. They are evidence for that gate, not
@@ -153,7 +169,7 @@ accepted regression thresholds; the complete transient suite output remains unde
   to zero live snapshots and match the warm-up's delivered/coalesced counts, maximum/final tick
   lag, and deterministic delivery-trace hash. Snapshot construction is outside the timed region.
 
-The cases cover 64, 512, and 2,048 spatially sparse players plus a 512-player clustered case. The
+The sparse/clustered categories retain 64, 512, and 2,048 spatially sparse bodies plus a 512-body clustered case. Only the 64-body member runs the live simulation. The
 output includes player-area fraction and canonical candidate-pair count so density is observable
 rather than inferred from a label.
 
@@ -168,7 +184,7 @@ committed and carries the host it ran on in its `platform` block. Read that bloc
 two runs at all. The named `cole-ubuntu-pc` native runner (`docs/operations/tailnet.md`) has dated
 royale evidence recorded in ADR 0006. That evidence remains historical; a new native run with
 comparable workload inputs and recorded implementation boundaries is required before making a new
-performance or regression claim. It does not certify the unwired continuous-motion prototype.
+performance or regression claim. It does not certify continuous-motion capacity.
 
 ## Root CMake registration
 

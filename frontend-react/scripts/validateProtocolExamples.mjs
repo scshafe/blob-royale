@@ -67,6 +67,10 @@ const protocolVersions = [
       ['welcome-profile-message.json', 'welcome-message.schema.json'],
       ['stun-component.json', 'stun-component.schema.json'],
       [
+        'contact-effect-admission-component.json',
+        'contact-effect-admission-component.schema.json',
+      ],
+      [
         'controllable-input-generation-component.json',
         'controllable-component.schema.json',
       ],

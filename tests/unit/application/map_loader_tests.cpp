@@ -1,4 +1,5 @@
 #include "application_input_error.hpp"
+#include "contact_effect_admission.hpp"
 #include "map_loader.hpp"
 
 #include "map_definition.hpp"
@@ -45,8 +46,9 @@ constexpr std::string_view kHoleDeclaration = "\n[terrain.hole.pit]\n"
                                               "radius_world_units=5\n";
 
 constexpr std::string_view kValidStaticBodies =
-    "position_x_world_units,position_y_world_units,collision_layer,collision_mask\n"
-    "20,30,2,1\n";
+    "position_x_world_units,position_y_world_units,collision_layer,collision_mask,contact_effect_"
+    "policy\n"
+    "20,30,2,1,closing_impact\n";
 
 constexpr std::string_view kValidMarkers =
     "marker_kind,position_x_world_units,position_y_world_units,team_id\n"
@@ -97,12 +99,14 @@ TEST_CASE("map loader reads the three authored files into one validated map",
   CHECK(*map.metadata().find("display_name") == "Loader Arena");
 
   REQUIRE(map.static_bodies().size() == 1);
-  CHECK(map.static_bodies()[0].is_static());
-  CHECK(map.static_bodies()[0].position() == simulation::Vector2::create(20.0, 30.0));
-  CHECK(map.static_bodies()[0].collision_layer() == 2);
-  CHECK(map.static_bodies()[0].collision_mask() == 1);
+  CHECK(map.static_bodies()[0].body().is_static());
+  CHECK(map.static_bodies()[0].body().position() == simulation::Vector2::create(20.0, 30.0));
+  CHECK(map.static_bodies()[0].body().collision_layer() == 2);
+  CHECK(map.static_bodies()[0].body().collision_mask() == 1);
   // A map declares no size: the radius is filled in by the world's seating from the configuration.
-  CHECK(map.static_bodies()[0].radius() == simulation::PhysicsBody::kUndeclaredRadius);
+  CHECK(map.static_bodies()[0].body().radius() == simulation::PhysicsBody::kUndeclaredRadius);
+  CHECK(map.static_bodies()[0].contact_effect_policy() ==
+        simulation::ContactEffectPolicy::kClosingImpact);
 
   // Markers keep their authored order, and `spawn_points()` is the derived projection of the ones
   // the engine itself understands.
@@ -117,9 +121,39 @@ TEST_CASE("map loader reads the three authored files into one validated map",
 
 TEST_CASE("map loader publishes the two accepted CSV headers", "[unit][application][map]") {
   CHECK(MapLoader::expected_static_bodies_header() ==
-        "position_x_world_units,position_y_world_units,collision_layer,collision_mask");
+        "position_x_world_units,position_y_world_units,collision_layer,collision_mask,contact_"
+        "effect_policy");
   CHECK(MapLoader::expected_markers_header() ==
         "marker_kind,position_x_world_units,position_y_world_units,team_id");
+}
+
+TEST_CASE("map loader accepts per-object any-touch policy and refuses missing or unknown authoring",
+          "[unit][application][map][contact_effect_admission]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const auto any_touch =
+      replace_once(std::string{kValidStaticBodies}, "closing_impact", "any_touch");
+  const auto map = MapLoader::load(write_map_directory(workspace, "any-touch-map", any_touch));
+  REQUIRE(map.static_bodies().size() == 1);
+  CHECK(map.static_bodies()[0].contact_effect_policy() ==
+        simulation::ContactEffectPolicy::kAnyTouch);
+  CHECK(map.static_bodies()[0].body().position() == simulation::Vector2::create(20.0, 30.0));
+  for (const std::string_view policy : {"", "touch", "Any_Touch", "center_entry"}) {
+    TemporaryApplicationInputWorkspace invalid_workspace;
+    const auto text = replace_once(std::string{kValidStaticBodies}, "closing_impact", policy);
+    const auto directory = write_map_directory(invalid_workspace, "invalid-policy-map", text);
+    CHECK_THROWS_AS(MapLoader::load(directory), simulation::SimulationValidationError);
+  }
+  const auto legacy_header =
+      replace_once(std::string{kValidStaticBodies}, ",contact_effect_policy", "");
+  const auto directory = write_map_directory(workspace, "legacy-policy-map", legacy_header);
+  require_application_input_error_code([&] { static_cast<void>(MapLoader::load(directory)); },
+                                       ApplicationInputErrorCode::kMapHeaderInvalid);
+  const auto missing_policy = replace_once(std::string{kValidStaticBodies}, ",closing_impact", "");
+  const auto missing_directory =
+      write_map_directory(workspace, "missing-policy-map", missing_policy);
+  require_application_input_error_code(
+      [&] { static_cast<void>(MapLoader::load(missing_directory)); },
+      ApplicationInputErrorCode::kMapColumnCountInvalid);
 }
 
 TEST_CASE("map loader builds named corridors and holes through terrain factories",
@@ -129,8 +163,8 @@ TEST_CASE("map loader builds named corridors and holes through terrain factories
       replace_once(std::string{kValidMapConfiguration}, "ground=solid", "ground=corridors");
   configuration.append(kCorridorDeclaration);
   configuration.append(kHoleDeclaration);
-  const std::string supported_bodies =
-      replace_once(std::string{kValidStaticBodies}, "20,30,2,1", "20,50,2,1");
+  const std::string supported_bodies = replace_once(
+      std::string{kValidStaticBodies}, "20,30,2,1,closing_impact", "20,50,2,1,closing_impact");
   const simulation::MapDefinition map = MapLoader::load(
       write_map_directory(workspace, kMapName, supported_bodies, kValidMarkers, configuration));
 
@@ -173,8 +207,8 @@ TEST_CASE("map loader accepts point-pair whitespace and keeps names local to the
   configuration.append(replace_once(std::string{kCorridorDeclaration}, "20,50;100,50;100,20",
                                     " 20 , 50 ;\t100,50 ; 100,20 \t"));
   configuration.append(replace_once(std::string{kHoleDeclaration}, ".pit]", ".road]"));
-  const std::string supported_bodies =
-      replace_once(std::string{kValidStaticBodies}, "20,30,2,1", "20,50,2,1");
+  const std::string supported_bodies = replace_once(
+      std::string{kValidStaticBodies}, "20,30,2,1,closing_impact", "20,50,2,1,closing_impact");
   const simulation::MapDefinition map = MapLoader::load(
       write_map_directory(workspace, kMapName, supported_bodies, kValidMarkers, configuration));
 
@@ -394,15 +428,17 @@ TEST_CASE("map loader rejects a CSV whose header is not the accepted one",
 TEST_CASE("map loader rejects a CSV row with the wrong column count or an unparsable value",
           "[unit][application][map][validation]") {
   TemporaryApplicationInputWorkspace workspace;
-  const std::filesystem::path wrong_columns =
-      write_map_directory(workspace, "wrong-columns",
-                          replace_once(std::string{kValidStaticBodies}, "20,30,2,1", "20,30,2"));
+  const std::filesystem::path wrong_columns = write_map_directory(
+      workspace, "wrong-columns",
+      replace_once(std::string{kValidStaticBodies}, "20,30,2,1,closing_impact", "20,30,2"));
   const std::filesystem::path bad_value =
       write_map_directory(workspace, "bad-value",
-                          replace_once(std::string{kValidStaticBodies}, "20,30,2,1", "20,x,2,1"));
+                          replace_once(std::string{kValidStaticBodies}, "20,30,2,1,closing_impact",
+                                       "20,x,2,1,closing_impact"));
   const std::filesystem::path blank_row = write_map_directory(
       workspace, "blank-row",
-      replace_once(std::string{kValidStaticBodies}, "20,30,2,1\n", "\n20,30,2,1\n"));
+      replace_once(std::string{kValidStaticBodies}, "20,30,2,1,closing_impact\n",
+                   "\n20,30,2,1,closing_impact\n"));
 
   require_application_input_error_code([&] { static_cast<void>(MapLoader::load(wrong_columns)); },
                                        ApplicationInputErrorCode::kMapColumnCountInvalid);

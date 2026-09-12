@@ -29,6 +29,7 @@ add_library(blob_gameplay STATIC
   shared/hazard_archetype.cpp
   shared/hazard_crossing.cpp
   shared/hazard_spawn_system.cpp
+  shared/create_crossing_hazard.cpp
   shared/input_lock.cpp
   shared/lethal_hazard_contact_rule.cpp
   shared/lifetime_expiry_system.cpp

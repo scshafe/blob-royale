@@ -185,6 +185,15 @@ describe('entityRendererRegistry', () => {
     expect(entityRendererRegistry.stun.renders).toBe(false);
   });
 
+  it('registers contact-effect admission without adding geometry or a renderer', () => {
+    expect(entityRendererRegistry.contact_effect_admission.renders).toBe(false);
+    expect(
+      visualEntityRenderers().some(
+        (renderer) => renderer.kind === 'contact_effect_admission',
+      ),
+    ).toBe(false);
+  });
+
   it('registers committed hill velocity as non-visual without adding another hill geometry layer', () => {
     expect(entityRendererRegistry.hill_motion.renders).toBe(false);
     expect(

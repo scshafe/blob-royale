@@ -41,4 +41,17 @@ GameSimulationSetup GameSimulationSetup::with_contact_rules(ContactRuleTable con
   return setup;
 }
 
+GameSimulationSetup GameSimulationSetup::with_motion_triggers(MotionTriggerTable triggers) && {
+  GameSimulationSetup setup = std::move(*this);
+  setup.motion_triggers_ = std::move(triggers);
+  return setup;
+}
+
+GameSimulationSetup GameSimulationSetup::with_motion_limits(MotionLimits limits) && {
+  detail::validate_motion_limits(limits);
+  GameSimulationSetup setup = std::move(*this);
+  setup.motion_limits_ = limits;
+  return setup;
+}
+
 } // namespace blob_royale::simulation

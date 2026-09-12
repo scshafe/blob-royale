@@ -153,10 +153,13 @@ TEST_CASE("Snapshot encoder accepts an empty complete state",
   CHECK(encoded_players.as_array().empty());
 }
 
-TEST_CASE("Snapshot encoder accepts the exact maximum player count within the frame ceiling",
+TEST_CASE("Snapshot encoder accepts the live physical ceiling within the unchanged v1 wire limits",
           "[unit][protocol][encoding][boundary]") {
+  // Step 16 cannot construct a committed 4096-body world. Keep the legacy protocol's declared
+  // ceiling/goldens unchanged while exercising the maximum reachable live player projection.
+  STATIC_REQUIRE(simulation::kMaximumMotionBodyCount <= protocol::kSnapshotPlayerLimit);
   const std::string encoded = protocol::encode_snapshot_message(
-      fixture::maximum_player_snapshot(), fixture::request_id("maximum-state"),
+      fixture::maximum_live_player_snapshot(), fixture::request_id("maximum-state"),
       protocol::kMaximumSafeInteger, "2026-08-05T00:00:00.12345678901Z");
   const boost::json::value parsed = boost::json::parse(encoded);
   REQUIRE(parsed.is_object());
@@ -165,7 +168,7 @@ TEST_CASE("Snapshot encoder accepts the exact maximum player count within the fr
   const boost::json::value& encoded_players = data.as_object().at("players");
   REQUIRE(encoded_players.is_array());
 
-  CHECK(encoded_players.as_array().size() == protocol::kSnapshotPlayerLimit);
+  CHECK(encoded_players.as_array().size() == simulation::kMaximumMotionBodyCount);
   CHECK(encoded.size() <= protocol::kSnapshotFrameMaximumByteCount);
 }
 

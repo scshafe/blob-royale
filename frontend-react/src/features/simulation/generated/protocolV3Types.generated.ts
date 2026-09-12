@@ -367,6 +367,7 @@ interface MutableBlobRoyaleProtocolV3WorldSnapshotData {
 interface MutableBlobRoyaleProtocolV3EntitySnapshot {
   entity_id: number;
   components: {
+    contact_effect_admission?: MutableBlobRoyaleProtocolV3ContactEffectAdmissionComponent;
     controllable?: MutableBlobRoyaleProtocolV3ControllableComponent;
     hill?: MutableBlobRoyaleProtocolV3HillComponent;
     hill_motion?: MutableBlobRoyaleProtocolV3HillMotionComponent;
@@ -382,6 +383,12 @@ interface MutableBlobRoyaleProtocolV3EntitySnapshot {
     zone?: MutableBlobRoyaleProtocolV3ZoneComponent;
     zone_exposure?: MutableBlobRoyaleProtocolV3ZoneExposureComponent;
   };
+}
+/**
+ * Body-bound nondefault source-object effect admission. any_touch includes certified grazes and stationary/overlapping contact; physical impulses still require a closing impact. Absence of this component means closing_impact. This does not change collision masks or make cliff support loss a body-rim contact.
+ */
+interface MutableBlobRoyaleProtocolV3ContactEffectAdmissionComponent {
+  policy: 'any_touch';
 }
 /**
  * Links an entity to the controller that decides for it. controller_id is the durable identity of the deciding agent and is how a client recognizes its own body across matches; entity_id is the identity of one body and does not survive elimination or a match restart. controller_kind is 'session' for a network player and the registered bot kind otherwise. display_name is a sanitized label, never a credential and never an authorization input.
@@ -983,6 +990,8 @@ export type BlobRoyaleProtocolV3WorldSnapshotData =
   DeepReadonly<MutableBlobRoyaleProtocolV3WorldSnapshotData>;
 export type BlobRoyaleProtocolV3EntitySnapshot =
   DeepReadonly<MutableBlobRoyaleProtocolV3EntitySnapshot>;
+export type BlobRoyaleProtocolV3ContactEffectAdmissionComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV3ContactEffectAdmissionComponent>;
 export type BlobRoyaleProtocolV3ControllableComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3ControllableComponent>;
 export type BlobRoyaleProtocolV3HillComponent =

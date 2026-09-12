@@ -2,6 +2,7 @@ add_library(blob_simulation STATIC
   arena_bounds.cpp
   candidate_pair.cpp
   contact_rule_table.cpp
+  contact_effect_admission.cpp
   continuous_motion.cpp
   controller_id.cpp
   entity_id.cpp
@@ -12,6 +13,8 @@ add_library(blob_simulation STATIC
   map_definition.cpp
   match_lifecycle_system.cpp
   motion_triggers.cpp
+  motion_body_envelope.cpp
+  motion_trigger_table.cpp
   movement_tuning.cpp
   npc_catalogue.cpp
   physics.cpp
@@ -21,6 +24,7 @@ add_library(blob_simulation STATIC
   spatial_grid.cpp
   spawn_seating.cpp
   spawn_system.cpp
+  static_body_declaration.cpp
   swept_geometry.cpp
   terrain_definition.cpp
   terrain_queries.cpp

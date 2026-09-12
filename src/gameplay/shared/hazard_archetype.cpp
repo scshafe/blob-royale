@@ -1,5 +1,6 @@
 #include "shared/hazard_archetype.hpp"
 
+#include "contact_effect_admission.hpp"
 #include "gameplay_validation_error.hpp"
 #include "shared/duration_ticks.hpp"
 #include "snake_case_identity.hpp"
@@ -83,17 +84,20 @@ HazardArchetype HazardArchetype::create(const Section& section) {
         std::to_string(section.spawn_interval_seconds) +
             " s rounds to zero ticks, which would spawn one hazard of this kind every tick");
   }
+  simulation::validate_contact_effect_policy(section.contact_effect_policy);
   return HazardArchetype(section.kind_name, section.radius_world_units, section.mass,
                          section.restitution, section.speed_world_units_per_second,
-                         spawn_interval_ticks, section.lethal_on_contact);
+                         spawn_interval_ticks, section.lethal_on_contact,
+                         section.contact_effect_policy);
 }
 
 HazardArchetype::HazardArchetype(std::string kind_name, const double radius, const double mass,
                                  const double restitution, const double speed,
                                  const std::uint64_t spawn_interval_ticks,
-                                 const bool lethal_on_contact)
+                                 const bool lethal_on_contact,
+                                 const simulation::ContactEffectPolicy contact_effect_policy)
     : kind_name_(std::move(kind_name)), radius_(radius), mass_(mass), restitution_(restitution),
       speed_(speed), spawn_interval_ticks_(spawn_interval_ticks),
-      lethal_on_contact_(lethal_on_contact) {}
+      lethal_on_contact_(lethal_on_contact), contact_effect_policy_(contact_effect_policy) {}
 
 } // namespace blob_royale::gameplay

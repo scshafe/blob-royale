@@ -427,10 +427,10 @@ void write_fixture_map(const std::filesystem::path& fixture_directory,
   map_configuration.append("\n[terrain]\nground=solid\n");
   write_fixture_text_file_atomically(map_directory / "map.cfg", map_configuration,
                                      "server_fixture.write_map_configuration");
-  write_fixture_text_file_atomically(
-      map_directory / "static_bodies.csv",
-      "position_x_world_units,position_y_world_units,collision_layer,collision_mask\n",
-      "server_fixture.write_map_static_bodies");
+  write_fixture_text_file_atomically(map_directory / "static_bodies.csv",
+                                     "position_x_world_units,position_y_world_units,collision_"
+                                     "layer,collision_mask,contact_effect_policy\n",
+                                     "server_fixture.write_map_static_bodies");
   // The session workload needs at least `lobby_seat_count` spawn markers for
   // `RoyaleMode::validate_map`, and needs enough of them that two sessions and one bot are all
   // seated at once and never in contact with each other.

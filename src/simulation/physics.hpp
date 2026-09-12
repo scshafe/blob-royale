@@ -167,6 +167,10 @@ public:
   [[nodiscard]] double center_distance() const noexcept { return center_distance_; }
   [[nodiscard]] double relative_normal_speed() const noexcept { return relative_normal_speed_; }
 
+  // Re-orients an existing certificate without classifying geometry or velocity again. Distance,
+  // membership, and relative normal speed are orientation-invariant; only its normal is negated.
+  [[nodiscard]] PlayerPairContact reversed() const;
+
   friend bool operator==(const PlayerPairContact&, const PlayerPairContact&) = default;
 
 private:

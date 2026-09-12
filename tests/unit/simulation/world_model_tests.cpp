@@ -555,11 +555,13 @@ TEST_CASE("GameWorld seats a map's static bodies with the world's own id policy"
   // declared order, so a map's entities are a deterministic function of the map file alone and no
   // caller can choose them. A wall carries a PhysicsBody and nothing else, which is what keeps it
   // out of the protocol v1 player projection.
-  std::vector<simulation::PhysicsBody> static_bodies;
-  static_bodies.push_back(
-      simulation::PhysicsBody::create_static(simulation::Vector2::create(10.0, 20.0)));
-  static_bodies.push_back(
-      simulation::PhysicsBody::create_static(simulation::Vector2::create(30.0, 40.0)));
+  std::vector<simulation::StaticBodyDeclaration> static_bodies;
+  static_bodies.push_back(simulation::StaticBodyDeclaration::create(
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(10.0, 20.0)),
+      simulation::ContactEffectPolicy::kClosingImpact));
+  static_bodies.push_back(simulation::StaticBodyDeclaration::create(
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(30.0, 40.0)),
+      simulation::ContactEffectPolicy::kClosingImpact));
   const simulation::MapDefinition map = simulation::MapDefinition::create(
       "walled_map", simulation::ArenaBounds::create(100.0, 100.0), std::move(static_bodies), {},
       simulation::MapMetadata::none());
@@ -583,13 +585,14 @@ TEST_CASE("GameWorld seats a map's static bodies with the configured player radi
   // measures with `SimulationConfig::player_radius()` -- so seating fills in the radius the kernel
   // actually measures with. `physics-body-component.schema.json` requires a positive radius, and a
   // seated `PhysicsBody::kUndeclaredRadius` made every live match unencodable.
-  std::vector<simulation::PhysicsBody> static_bodies;
-  static_bodies.push_back(
-      simulation::PhysicsBody::create_static(simulation::Vector2::create(10.0, 20.0)));
+  std::vector<simulation::StaticBodyDeclaration> static_bodies;
+  static_bodies.push_back(simulation::StaticBodyDeclaration::create(
+      simulation::PhysicsBody::create_static(simulation::Vector2::create(10.0, 20.0)),
+      simulation::ContactEffectPolicy::kClosingImpact));
   const simulation::MapDefinition map = simulation::MapDefinition::create(
       "radius_map", simulation::ArenaBounds::create(100.0, 100.0), std::move(static_bodies), {},
       simulation::MapMetadata::none());
-  REQUIRE(map.static_bodies()[0].radius() == simulation::PhysicsBody::kUndeclaredRadius);
+  REQUIRE(map.static_bodies()[0].body().radius() == simulation::PhysicsBody::kUndeclaredRadius);
 
   const simulation::GameWorld world = simulation::GameWorld::create(configuration(), map, 0);
 

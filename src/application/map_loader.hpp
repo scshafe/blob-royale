@@ -60,7 +60,7 @@ public:
   static constexpr std::size_t kMaximumMapConfigurationFileBytes = 65'536;
   static constexpr std::size_t kMaximumMapCsvFileBytes = 1'048'576;
   static constexpr std::size_t kMaximumMapRowBytes = 4'096;
-  static constexpr std::size_t kStaticBodyColumnCount = 4;
+  static constexpr std::size_t kStaticBodyColumnCount = 5;
   static constexpr std::size_t kMarkerColumnCount = 4;
 
   // Loads `<map_directory>/map.cfg`, `static_bodies.csv`, and `markers.csv`.

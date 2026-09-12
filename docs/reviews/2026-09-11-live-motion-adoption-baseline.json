@@ -1,0 +1,1104 @@
+{
+  "schema": "blob-royale-live-motion-adoption-baseline-v1",
+  "recorded_on": "2026-09-11",
+  "purpose": "Step 16 explicitly categorized benchmark adoption; preserves earlier artifacts",
+  "command": "./scripts/run-benchmarks-linux",
+  "comparison_class": "Mac-arm64-hosted Linux-amd64 advisory",
+  "native_performance_certified": false,
+  "source_parent_commit": "dbc99ad",
+  "source_manifest": "/tmp/blob-royale-step16.OUzlJW/final-cutover-source.sha256",
+  "source_suite": {
+    "schema": "blob-royale-benchmark-v1",
+    "status": "passed",
+    "suite": "blob_simulation_benchmarks",
+    "measurement_policy": {
+      "lens": "distributional robust summaries",
+      "comparison_class": "advisory",
+      "regression_budgets_enforced": false,
+      "dedicated_native_linux_runner_required_for_budgets": true,
+      "warmup_run_count": 1,
+      "timed_sample_count": 9,
+      "timed_regions_include_correctness_hashing": false,
+      "delivery_backpressure_measured": true
+    },
+    "platform": {
+      "operating_system": "Linux",
+      "architecture": "x86_64",
+      "kernel_release": "6.8.0-100-generic",
+      "distribution": "Ubuntu 24.04.4 LTS",
+      "cpu_model": "VirtualApple @ 2.50GHz",
+      "logical_cpu_count": 8,
+      "physical_memory_bytes": 12513808384,
+      "cpu_governor": "unavailable",
+      "glibc": "2.39",
+      "compiler_id": "GNU",
+      "compiler_version": "13.3.0",
+      "compiler_version_string": "13.3.0",
+      "build_type": "Release",
+      "boost": "1_83",
+      "toolchain_id": "ubuntu-24.04-amd64-20260804",
+      "base_image_digest": "sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467",
+      "execution_environment": "pinned_oci_container"
+    },
+    "cases": [
+      {
+        "category": "live_kernel",
+        "implementation_boundary": "GameSimulation continuous live kernel; empty input",
+        "name": "sparse_64",
+        "player_count": 64,
+        "geometry": {
+          "world_width": 2048,
+          "world_height": 2048,
+          "player_radius": 4,
+          "grid_columns": 32,
+          "grid_rows": 32
+        },
+        "density": {
+          "layout": "sparse",
+          "player_area_fraction": 0.0007669903939428206,
+          "initial_candidate_pair_count": 0
+        },
+        "correctness": {
+          "expected_final_tick_sequence": 400,
+          "expected_player_count": 64,
+          "final_snapshot_hash": "fnv1a64:7d4249196a64ea5e",
+          "encoded_snapshot_hash": "fnv1a64:906d9aa5266618c3",
+          "encoded_snapshot_byte_count": 11580,
+          "initial_candidate_pair_hash": "fnv1a64:a8c7f832281a39c5"
+        },
+        "measurements": {
+          "simulation_step": {
+            "sample_count": 9,
+            "operations_per_sample": 400,
+            "latency": {
+              "unit": "nanoseconds_per_operation",
+              "samples": [
+                59517.9325,
+                58127.4475,
+                57549.41,
+                56314.2975,
+                55909.4825,
+                56699.27,
+                60560.8175,
+                58341.6,
+                57560.4775
+              ],
+              "summary": {
+                "median": 57560.4775,
+                "percentile_25": 56699.27,
+                "percentile_75": 58341.6,
+                "median_absolute_deviation": 861.2075000000041,
+                "minimum": 55909.4825,
+                "maximum": 60560.8175
+              }
+            },
+            "throughput": {
+              "unit": "operations_per_second",
+              "samples": [
+                16801.658894989338,
+                17203.576675201504,
+                17376.372755168122,
+                17757.47979454063,
+                17886.053586705977,
+                17636.911374696712,
+                16512.326637598642,
+                17140.42809933221,
+                17373.03169522873
+              ],
+              "summary": {
+                "median": 17373.03169522873,
+                "percentile_25": 17140.42809933221,
+                "percentile_75": 17636.911374696712,
+                "median_absolute_deviation": 263.8796794679838,
+                "minimum": 16512.326637598642,
+                "maximum": 17886.053586705977
+              }
+            }
+          },
+          "grid_rebuild_and_candidate_pair_generation": {
+            "sample_count": 9,
+            "operations_per_sample": 200,
+            "latency": {
+              "unit": "nanoseconds_per_operation",
+              "samples": [
+                9345.9,
+                9219.77,
+                9486.645,
+                10091.835,
+                10829,
+                10807.07,
+                11500.17,
+                10933.205,
+                11285.915
+              ],
+              "summary": {
+                "median": 10807.07,
+                "percentile_25": 9486.645,
+                "percentile_75": 10933.205,
+                "median_absolute_deviation": 693.1000000000004,
+                "minimum": 9219.77,
+                "maximum": 11500.17
+              }
+            },
+            "throughput": {
+              "unit": "operations_per_second",
+              "samples": [
+                106998.79091366268,
+                108462.57553062603,
+                105411.3440526129,
+                99090.00692143699,
+                92344.63015975621,
+                92532.01839166398,
+                86955.23631389797,
+                91464.48822646242,
+                88606.01909548316
+              ],
+              "summary": {
+                "median": 92532.01839166398,
+                "percentile_25": 91464.48822646242,
+                "percentile_75": 105411.3440526129,
+                "median_absolute_deviation": 5576.782077766009,
+                "minimum": 86955.23631389797,
+                "maximum": 108462.57553062603
+              }
+            }
+          },
+          "snapshot_creation": {
+            "sample_count": 9,
+            "operations_per_sample": 500,
+            "latency": {
+              "unit": "nanoseconds_per_operation",
+              "samples": [
+                1947.95,
+                1577.238,
+                1581.748,
+                1610.9,
+                1597.87,
+                1688.752,
+                1756.328,
+                1742.546,
+                1752.738
+              ],
+              "summary": {
+                "median": 1688.752,
+                "percentile_25": 1597.87,
+                "percentile_75": 1752.738,
+                "median_absolute_deviation": 77.85199999999986,
+                "minimum": 1577.238,
+                "maximum": 1947.95
+              }
+            },
+            "throughput": {
+              "unit": "operations_per_second",
+              "samples": [
+                513360.19918375724,
+                634019.7230855457,
+                632211.9579098567,
+                620770.9975789931,
+                625833.140368115,
+                592153.2587378134,
+                569369.7304831444,
+                573872.9422350974,
+                570535.9272178728
+              ],
+              "summary": {
+                "median": 592153.2587378134,
+                "percentile_25": 570535.9272178728,
+                "percentile_75": 625833.140368115,
+                "median_absolute_deviation": 28617.738841179642,
+                "minimum": 513360.19918375724,
+                "maximum": 634019.7230855457
+              }
+            }
+          },
+          "json_encoding": {
+            "sample_count": 9,
+            "operations_per_sample": 100,
+            "latency": {
+              "unit": "nanoseconds_per_operation",
+              "samples": [
+                67307.85,
+                68533.67,
+                69590.35,
+                67834.52,
+                70319.58,
+                67936,
+                69006.04,
+                69148.47,
+                69225.73
+              ],
+              "summary": {
+                "median": 69006.04,
+                "percentile_25": 67936,
+                "percentile_75": 69225.73,
+                "median_absolute_deviation": 584.3100000000122,
+                "minimum": 67307.85,
+                "maximum": 70319.58
+              }
+            },
+            "throughput": {
+              "unit": "operations_per_second",
+              "samples": [
+                14857.10804906114,
+                14591.368009330305,
+                14369.808457638163,
+                14741.756851821166,
+                14220.790283445947,
+                14719.736222326896,
+                14491.485093188945,
+                14461.63595521347,
+                14445.495916041624
+              ],
+              "summary": {
+                "median": 14491.485093188945,
+                "percentile_25": 14445.495916041624,
+                "percentile_75": 14719.736222326896,
+                "median_absolute_deviation": 121.67663555078252,
+                "minimum": 14220.790283445947,
+                "maximum": 14857.10804906114
+              }
+            }
+          }
+        }
+      },
+      {
+        "historical_reference": {
+          "case_name": "sparse_512",
+          "retired_measurements": [
+            "simulation_step",
+            "snapshot_creation",
+            "json_encoding"
+          ],
+          "retirement_reason": "historical_body_count_exceeds_live_motion_limit",
+          "live_motion_body_limit": 256,
+          "retired_ticks_per_sample": 200,
+          "retired_snapshots_per_sample": 100,
+          "retired_encodings_per_sample": 20
+        },
+        "category": "spatial_grid_only",
+        "implementation_boundary": "SpatialGrid create/rebuilt over unchanged historical initial world; no stepping",
+        "name": "spatial_grid_sparse_512",
+        "player_count": 512,
+        "geometry": {
+          "world_width": 4096,
+          "world_height": 4096,
+          "player_radius": 4,
+          "grid_columns": 64,
+          "grid_rows": 64
+        },
+        "density": {
+          "layout": "sparse",
+          "player_area_fraction": 0.0015339807878856412,
+          "initial_candidate_pair_count": 0
+        },
+        "correctness": {
+          "expected_body_count": 512,
+          "initial_candidate_pair_hash": "fnv1a64:a8c7f832281a39c5"
+        },
+        "measurements": {
+          "grid_rebuild_and_candidate_pair_generation": {
+            "sample_count": 9,
+            "operations_per_sample": 50,
+            "latency": {
+              "unit": "nanoseconds_per_operation",
+              "samples": [
+                78623.84,
+                68616.78,
+                76038.54,
+                74449.78,
+                69069.52,
+                79338.86,
+                70056.04,
+                72234.52,
+                78710.7
+              ],
+              "summary": {
+                "median": 74449.78,
+                "percentile_25": 70056.04,
+                "percentile_75": 78623.84,
+                "median_absolute_deviation": 4260.919999999998,
+                "minimum": 68616.78,
+                "maximum": 79338.86
+              }
+            },
+            "throughput": {
+              "unit": "operations_per_second",
+              "samples": [
+                12718.788601523405,
+                14573.694656030202,
+                13151.225681082253,
+                13431.8731364955,
+                14478.166346023541,
+                12604.163962023149,
+                14274.286699619335,
+                13843.796567070702,
+                12704.752975135529
+              ],
+              "summary": {
+                "median": 13431.8731364955,
+                "percentile_25": 12718.788601523405,
+                "percentile_75": 14274.286699619335,
+                "median_absolute_deviation": 727.1201613599715,
+                "minimum": 12604.163962023149,
+                "maximum": 14573.694656030202
+              }
+            }
+          }
+        }
+      },
+      {
+        "historical_reference": {
+          "case_name": "sparse_2048",
+          "retired_measurements": [
+            "simulation_step",
+            "snapshot_creation",
+            "json_encoding"
+          ],
+          "retirement_reason": "historical_body_count_exceeds_live_motion_limit",
+          "live_motion_body_limit": 256,
+          "retired_ticks_per_sample": 80,
+          "retired_snapshots_per_sample": 25,
+          "retired_encodings_per_sample": 5
+        },
+        "category": "spatial_grid_only",
+        "implementation_boundary": "SpatialGrid create/rebuilt over unchanged historical initial world; no stepping",
+        "name": "spatial_grid_sparse_2048",
+        "player_count": 2048,
+        "geometry": {
+          "world_width": 8192,
+          "world_height": 8192,
+          "player_radius": 4,
+          "grid_columns": 128,
+          "grid_rows": 128
+        },
+        "density": {
+          "layout": "sparse",
+          "player_area_fraction": 0.0015339807878856412,
+          "initial_candidate_pair_count": 0
+        },
+        "correctness": {
+          "expected_body_count": 2048,
+          "initial_candidate_pair_hash": "fnv1a64:a8c7f832281a39c5"
+        },
+        "measurements": {
+          "grid_rebuild_and_candidate_pair_generation": {
+            "sample_count": 9,
+            "operations_per_sample": 20,
+            "latency": {
+              "unit": "nanoseconds_per_operation",
+              "samples": [
+                354348.1,
+                353297.7,
+                366389.15,
+                343752.15,
+                364023.15,
+                388439.35,
+                358088.2,
+                332001.4,
+                330608.55
+              ],
+              "summary": {
+                "median": 354348.1,
+                "percentile_25": 343752.15,
+                "percentile_75": 364023.15,
+                "median_absolute_deviation": 10595.949999999953,
+                "minimum": 330608.55,
+                "maximum": 388439.35
+              }
+            },
+            "throughput": {
+              "unit": "operations_per_second",
+              "samples": [
+                2822.0837080825327,
+                2830.474129891024,
+                2729.33846430769,
+                2909.0727141633874,
+                2747.0780361084176,
+                2574.4044726673546,
+                2792.6080781215355,
+                3012.0354914166023,
+                3024.7251621290497
+              ],
+              "summary": {
+                "median": 2822.0837080825327,
+                "percentile_25": 2747.0780361084176,
+                "percentile_75": 2909.0727141633874,
+                "median_absolute_deviation": 86.98900608085478,
+                "minimum": 2574.4044726673546,
+                "maximum": 3024.7251621290497
+              }
+            }
+          }
+        }
+      },
+      {
+        "historical_reference": {
+          "case_name": "clustered_512",
+          "retired_measurements": [
+            "simulation_step",
+            "snapshot_creation",
+            "json_encoding"
+          ],
+          "retirement_reason": "historical_body_count_exceeds_live_motion_limit",
+          "live_motion_body_limit": 256,
+          "retired_ticks_per_sample": 80,
+          "retired_snapshots_per_sample": 100,
+          "retired_encodings_per_sample": 20
+        },
+        "category": "spatial_grid_only",
+        "implementation_boundary": "SpatialGrid create/rebuilt over unchanged historical initial world; no stepping",
+        "name": "spatial_grid_clustered_512",
+        "player_count": 512,
+        "geometry": {
+          "world_width": 512,
+          "world_height": 512,
+          "player_radius": 4,
+          "grid_columns": 16,
+          "grid_rows": 16
+        },
+        "density": {
+          "layout": "clustered",
+          "player_area_fraction": 0.09817477042468103,
+          "initial_candidate_pair_count": 7369
+        },
+        "correctness": {
+          "expected_body_count": 512,
+          "initial_candidate_pair_hash": "fnv1a64:6d683b8b25a54610"
+        },
+        "measurements": {
+          "grid_rebuild_and_candidate_pair_generation": {
+            "sample_count": 9,
+            "operations_per_sample": 10,
+            "latency": {
+              "unit": "nanoseconds_per_operation",
+              "samples": [
+                173452.8,
+                168591.2,
+                169568.5,
+                170545.9,
+                168695.6,
+                167843.6,
+                167730.8,
+                168570.4,
+                167730.8
+              ],
+              "summary": {
+                "median": 168591.2,
+                "percentile_25": 167843.6,
+                "percentile_75": 169568.5,
+                "median_absolute_deviation": 860.4000000000233,
+                "minimum": 167730.8,
+                "maximum": 173452.8
+              }
+            },
+            "throughput": {
+              "unit": "operations_per_second",
+              "samples": [
+                5765.257176592134,
+                5931.507694351781,
+                5897.321731335714,
+                5863.5241304540305,
+                5927.836884898005,
+                5957.927499171848,
+                5961.934242250082,
+                5932.23958654663,
+                5961.934242250082
+              ],
+              "summary": {
+                "median": 5931.507694351781,
+                "percentile_25": 5897.321731335714,
+                "percentile_75": 5957.927499171848,
+                "median_absolute_deviation": 30.42654789830158,
+                "minimum": 5765.257176592134,
+                "maximum": 5961.934242250082
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "royale_deployed_roster",
+        "category": "live_gameplay",
+        "implementation_boundary": "GameSimulation continuous live kernel with royale gameplay",
+        "player_count": 8,
+        "historical_reference": {
+          "configuration": "/workspace/benchmarks/fixtures/royale-roster.cfg",
+          "source_kind": "schema_migrated_historical_deployment",
+          "source_commit": "a9e0104ca25724ac4660a4fc9031620b8a852d40",
+          "source_path": "deploy/ubuntu-pc/blob-royale.cfg",
+          "source_commit_scope": "configuration_only",
+          "schema_migration": "2026-09-10_race_width_to_named_road;2026-09-11_shared_movement_400_10000;2026-09-11_contact_effect_policy_closing_impact",
+          "measured_royale_inputs_unchanged": true,
+          "map_source": "current_repository_maps",
+          "maps_directory": "/workspace/maps",
+          "represents_current_deployment": false,
+          "mode": "royale",
+          "map": "arena-960x640",
+          "spawn_marker_count": 32,
+          "seed": 1,
+          "drag_per_second": 2,
+          "acceleration_world_units_per_second_squared": 400,
+          "normal_top_speed_world_units_per_second": 10000,
+          "reference_lobby_seat_count": 4,
+          "benchmark_lobby_seat_count": 8,
+          "countdown_ticks": 2000,
+          "hazards": [
+            {
+              "kind": "comet",
+              "radius": 10,
+              "mass": 1,
+              "speed": 260,
+              "spawn_interval_ticks": 2400,
+              "lethal_on_contact": true
+            },
+            {
+              "kind": "boulder",
+              "radius": 26,
+              "mass": 40,
+              "speed": 90,
+              "spawn_interval_ticks": 8000,
+              "lethal_on_contact": false
+            }
+          ]
+        },
+        "correctness": {
+          "first_timed_tick_sequence": 2002,
+          "expected_final_tick_sequence": 8401,
+          "initial_player_count": 8,
+          "final_player_count": 4,
+          "final_entity_count": 7,
+          "final_snapshot_hash": "fnv1a64:36ee7ca01d83ddb5"
+        },
+        "measurements": {
+          "simulation_step_per_tick": {
+            "unit": "nanoseconds_per_tick",
+            "sample_count": 9,
+            "ticks_per_sample": 6400,
+            "samples": [
+              {
+                "mean": 5108.63703125,
+                "median": 4928,
+                "percentile_99": 7641.01,
+                "maximum": 33989
+              },
+              {
+                "mean": 4675.57046875,
+                "median": 4468,
+                "percentile_99": 7224.410000000009,
+                "maximum": 35868
+              },
+              {
+                "mean": 5089.86390625,
+                "median": 4635,
+                "percentile_99": 8768.01,
+                "maximum": 40503
+              },
+              {
+                "mean": 4977.01,
+                "median": 5094,
+                "percentile_99": 6890,
+                "maximum": 21212
+              },
+              {
+                "mean": 5000.75890625,
+                "median": 4552,
+                "percentile_99": 8017.830000000018,
+                "maximum": 23091
+              },
+              {
+                "mean": 5005.039375,
+                "median": 5011,
+                "percentile_99": 7141.410000000009,
+                "maximum": 17496
+              },
+              {
+                "mean": 4967.0496875,
+                "median": 4718,
+                "percentile_99": 7851.410000000009,
+                "maximum": 22256
+              },
+              {
+                "mean": 4937.0259375,
+                "median": 4802,
+                "percentile_99": 7349,
+                "maximum": 18247
+              },
+              {
+                "mean": 4861.93515625,
+                "median": 4635,
+                "percentile_99": 7432.01,
+                "maximum": 15408
+              }
+            ],
+            "summary": {
+              "mean": {
+                "median": 4977.01,
+                "percentile_25": 4937.0259375,
+                "percentile_75": 5005.039375,
+                "median_absolute_deviation": 39.98406250000062,
+                "minimum": 4675.57046875,
+                "maximum": 5108.63703125
+              },
+              "median": {
+                "median": 4718,
+                "percentile_25": 4635,
+                "percentile_75": 4928,
+                "median_absolute_deviation": 166,
+                "minimum": 4468,
+                "maximum": 5094
+              },
+              "percentile_99": {
+                "median": 7432.01,
+                "percentile_25": 7224.410000000009,
+                "percentile_75": 7851.410000000009,
+                "median_absolute_deviation": 290.59999999999127,
+                "minimum": 6890,
+                "maximum": 8768.01
+              },
+              "maximum": {
+                "median": 22256,
+                "percentile_25": 18247,
+                "percentile_75": 33989,
+                "median_absolute_deviation": 4760,
+                "minimum": 15408,
+                "maximum": 40503
+              }
+            }
+          },
+          "snapshot_creation": {
+            "sample_count": 9,
+            "snapshots_per_sample": 200,
+            "latency": {
+              "unit": "nanoseconds_per_snapshot",
+              "samples": [
+                3996.035,
+                477.69,
+                477.895,
+                581.24,
+                488.965,
+                590.43,
+                456.6,
+                504.41,
+                464.745
+              ],
+              "summary": {
+                "median": 488.965,
+                "percentile_25": 477.69,
+                "percentile_75": 581.24,
+                "median_absolute_deviation": 24.21999999999997,
+                "minimum": 456.6,
+                "maximum": 3996.035
+              }
+            },
+            "throughput": {
+              "unit": "snapshots_per_second",
+              "samples": [
+                250248.05838787698,
+                2093407.8586531014,
+                2092509.8609527198,
+                1720459.706833666,
+                2045136.1549395153,
+                1693680.8766492219,
+                2190100.744634253,
+                1982514.224539561,
+                2151717.60858105
+              ],
+              "summary": {
+                "median": 2045136.1549395153,
+                "percentile_25": 1720459.706833666,
+                "percentile_75": 2093407.8586531014,
+                "median_absolute_deviation": 106581.45364153455,
+                "minimum": 250248.05838787698,
+                "maximum": 2190100.744634253
+              }
+            }
+          }
+        },
+        "budget": {
+          "mean_nanoseconds_per_tick_at_most": 250000,
+          "percentile_99_nanoseconds_per_tick_at_most": 1000000,
+          "mean_within_budget": true,
+          "percentile_99_within_budget": true,
+          "stated_in": "docs/architecture/0006-lobbies-as-rooms.md"
+        }
+      },
+      {
+        "name": "continuous_motion_charge_speed",
+        "category": "pure_motion_solver",
+        "implementation_boundary": "direct continuous-motion solve; excludes live intake, lifecycle and publication",
+        "comparison_class": "advisory",
+        "native_capacity_certified": false,
+        "workload_definition": {
+          "world_width_world_units": 960,
+          "world_height_world_units": 640,
+          "body_radius_world_units": 4,
+          "fixed_delta_seconds": 0.0025,
+          "initial_body_count": 16,
+          "terrain_hole_count": 0,
+          "terrain_corridor_count": 0,
+          "terrain_feature_count": 4,
+          "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+          "support_loss_trigger_count": 8,
+          "terrain_compilation_in_timed_region": false,
+          "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+          "layout": "eight independent rows: dynamic x128, static x192; y48+72*row",
+          "dynamic_body_count": 8,
+          "static_body_count": 8,
+          "initial_speed_world_units_per_second": 40000,
+          "unreflected_travel_world_units": 100,
+          "approved_charge_tuning": false
+        },
+        "deterministic_work": {
+          "pair_examinations_per_solve": 1080,
+          "charged_root_queries_per_solve": 144,
+          "events_per_solve": 8,
+          "trigger_queries_per_solve": 16,
+          "broad_phase_rebuilds_per_solve": 9,
+          "maximum_candidate_pairs": 8,
+          "path_segments_per_solve": 16,
+          "effects_per_solve": 8,
+          "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+        },
+        "correctness": {
+          "complete_result_hash": "fnv1a64:53a16ad6bc6a44a0",
+          "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+          "independent_repeat_equal": true,
+          "timed_final_outputs_equal_reference": true,
+          "contact_fact_count": 8,
+          "stun_fact_count": 0,
+          "elimination_fact_count": 0,
+          "terminated_body_count": 0
+        },
+        "measurement": {
+          "sample_count": 9,
+          "solves_per_sample": 16,
+          "latency": {
+            "unit": "nanoseconds_per_solve",
+            "samples": [
+              28227,
+              28386.1875,
+              27780.6875,
+              28208.6875,
+              27718.0625,
+              27973.8125,
+              27642.4375,
+              27958.125,
+              29516.1875
+            ],
+            "summary": {
+              "median": 27973.8125,
+              "percentile_25": 27780.6875,
+              "percentile_75": 28227,
+              "median_absolute_deviation": 253.1875,
+              "minimum": 27642.4375,
+              "maximum": 29516.1875
+            }
+          },
+          "throughput": {
+            "unit": "solves_per_second",
+            "samples": [
+              35427.07336946895,
+              35228.40113699665,
+              35996.22939497088,
+              35450.07189717707,
+              36077.55772972949,
+              35747.719407213444,
+              36176.25978172149,
+              35767.77770326158,
+              33879.714309309085
+            ],
+            "summary": {
+              "median": 35747.719407213444,
+              "percentile_25": 35427.07336946895,
+              "percentile_75": 35996.22939497088,
+              "median_absolute_deviation": 320.6460377444964,
+              "minimum": 33879.714309309085,
+              "maximum": 36176.25978172149
+            }
+          }
+        }
+      },
+      {
+        "name": "continuous_motion_dense_32_holes",
+        "category": "pure_motion_solver",
+        "implementation_boundary": "direct continuous-motion solve; excludes live intake, lifecycle and publication",
+        "comparison_class": "advisory",
+        "native_capacity_certified": false,
+        "workload_definition": {
+          "world_width_world_units": 960,
+          "world_height_world_units": 640,
+          "body_radius_world_units": 4,
+          "fixed_delta_seconds": 0.0025,
+          "initial_body_count": 32,
+          "terrain_hole_count": 32,
+          "terrain_corridor_count": 0,
+          "terrain_feature_count": 36,
+          "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+          "support_loss_trigger_count": 32,
+          "terrain_compilation_in_timed_region": false,
+          "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+          "layout": "8x4 hole centers (128+80*column,128+160*row); one body starts40wu left of each",
+          "dynamic_body_count": 32,
+          "static_body_count": 0,
+          "hole_radius_world_units": 8,
+          "initial_speed_world_units_per_second": 40000,
+          "collision_mask": 0,
+          "authored_hole_limit_exercised": true
+        },
+        "deterministic_work": {
+          "pair_examinations_per_solve": 2118,
+          "charged_root_queries_per_solve": 1680,
+          "events_per_solve": 32,
+          "trigger_queries_per_solve": 32,
+          "broad_phase_rebuilds_per_solve": 33,
+          "maximum_candidate_pairs": 0,
+          "path_segments_per_solve": 32,
+          "effects_per_solve": 32,
+          "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+        },
+        "correctness": {
+          "complete_result_hash": "fnv1a64:8f206d66b10f4e84",
+          "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+          "independent_repeat_equal": true,
+          "timed_final_outputs_equal_reference": true,
+          "contact_fact_count": 0,
+          "stun_fact_count": 0,
+          "elimination_fact_count": 32,
+          "terminated_body_count": 32
+        },
+        "measurement": {
+          "sample_count": 9,
+          "solves_per_sample": 16,
+          "latency": {
+            "unit": "nanoseconds_per_solve",
+            "samples": [
+              594131.375,
+              592727.3125,
+              595402.375,
+              594180.9375,
+              592200.1875,
+              601723.125,
+              612681.4375,
+              612261.25,
+              612678.8125
+            ],
+            "summary": {
+              "median": 595402.375,
+              "percentile_25": 594131.375,
+              "percentile_75": 612261.25,
+              "median_absolute_deviation": 3202.1875,
+              "minimum": 592200.1875,
+              "maximum": 612681.4375
+            }
+          },
+          "throughput": {
+            "unit": "solves_per_second",
+            "samples": [
+              1683.1294257099282,
+              1687.116451209594,
+              1679.536464731099,
+              1682.989030593059,
+              1688.6181752517598,
+              1661.8939150792983,
+              1632.1695726255784,
+              1633.289710887305,
+              1632.176565596513
+            ],
+            "summary": {
+              "median": 1679.536464731099,
+              "percentile_25": 1633.289710887305,
+              "percentile_75": 1683.1294257099282,
+              "median_absolute_deviation": 9.081710520660863,
+              "minimum": 1632.1695726255784,
+              "maximum": 1688.6181752517598
+            }
+          }
+        }
+      },
+      {
+        "name": "continuous_motion_dense_shield_contacts",
+        "category": "pure_motion_solver",
+        "implementation_boundary": "direct continuous-motion solve; excludes live intake, lifecycle and publication",
+        "comparison_class": "advisory",
+        "native_capacity_certified": false,
+        "workload_definition": {
+          "world_width_world_units": 960,
+          "world_height_world_units": 640,
+          "body_radius_world_units": 4,
+          "fixed_delta_seconds": 0.0025,
+          "initial_body_count": 32,
+          "terrain_hole_count": 0,
+          "terrain_corridor_count": 0,
+          "terrain_feature_count": 4,
+          "terrain_feature_count_definition": "four envelope planes plus authored circular holes",
+          "support_loss_trigger_count": 32,
+          "terrain_compilation_in_timed_region": false,
+          "state_reset_policy": "every solve borrows identical committed world, bodies and frozen guard facts",
+          "layout": "eight touching collinear four-body chains; x128+8*member,y64+64*group",
+          "dynamic_body_count": 32,
+          "static_body_count": 0,
+          "group_count": 8,
+          "bodies_per_group": 4,
+          "within_group_center_spacing_world_units": 8,
+          "between_group_spacing_world_units": 64,
+          "initial_x_velocities_per_group": [
+            8000,
+            4000,
+            -4000,
+            -8000
+          ],
+          "frozen_guards_per_group": [
+            "ordinary",
+            "perfect",
+            "perfect",
+            "ordinary"
+          ],
+          "expected_terminal_x_velocities_per_group": [
+            -250,
+            -250,
+            0,
+            0
+          ],
+          "cascade_policy": "stun clears current motion; later external bumps remain physical"
+        },
+        "deterministic_work": {
+          "pair_examinations_per_solve": 17834,
+          "charged_root_queries_per_solve": 1520,
+          "events_per_solve": 40,
+          "trigger_queries_per_solve": 112,
+          "broad_phase_rebuilds_per_solve": 41,
+          "maximum_candidate_pairs": 48,
+          "path_segments_per_solve": 32,
+          "effects_per_solve": 80,
+          "root_counter_policy": "canonical public-query charges, including bounded pre-fast-return charges"
+        },
+        "correctness": {
+          "complete_result_hash": "fnv1a64:8d567eb367dea076",
+          "hash_fields": "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters",
+          "independent_repeat_equal": true,
+          "timed_final_outputs_equal_reference": true,
+          "contact_fact_count": 40,
+          "stun_fact_count": 40,
+          "elimination_fact_count": 0,
+          "terminated_body_count": 0
+        },
+        "measurement": {
+          "sample_count": 9,
+          "solves_per_sample": 16,
+          "latency": {
+            "unit": "nanoseconds_per_solve",
+            "samples": [
+              252015.0625,
+              251010.25,
+              249929.8125,
+              248397.875,
+              242914.8125,
+              242614.6875,
+              241594.3125,
+              243181.0625,
+              252758.8125
+            ],
+            "summary": {
+              "median": 248397.875,
+              "percentile_25": 242914.8125,
+              "percentile_75": 251010.25,
+              "median_absolute_deviation": 4360.9375,
+              "minimum": 241594.3125,
+              "maximum": 252758.8125
+            }
+          },
+          "throughput": {
+            "unit": "solves_per_second",
+            "samples": [
+              3968.0167926470663,
+              3983.9010558333775,
+              4001.1233153707904,
+              4025.799335038595,
+              4116.669501165146,
+              4121.762001733716,
+              4139.170287793923,
+              4112.162311158584,
+              3956.3407902939093
+            ],
+            "summary": {
+              "median": 4025.799335038595,
+              "percentile_25": 3983.9010558333775,
+              "percentile_75": 4116.669501165146,
+              "median_absolute_deviation": 69.4585447446857,
+              "minimum": 3956.3407902939093,
+              "maximum": 4139.170287793923
+            }
+          }
+        }
+      }
+    ],
+    "delivery_backpressure": {
+      "production_component": "blob_royale::server::SnapshotDeliveryState",
+      "policy": {
+        "presentation_slot_count": 4096,
+        "simulated_write_completion_interval_slots": 16,
+        "active_write_maximum_count": 1,
+        "pending_snapshot_maximum_count": 1,
+        "retention_measurement": "tracked_snapshot_object_lifetime"
+      },
+      "correctness": {
+        "published_snapshot_count": 4096,
+        "delivered_snapshot_count": 257,
+        "coalesced_snapshot_count": 3839,
+        "maximum_retained_snapshot_count": 2,
+        "maximum_delivered_tick_lag": 15,
+        "final_delivered_tick_lag": 0,
+        "delivered_tick_trace_hash": "fnv1a64:1409a84da00f300f"
+      },
+      "presentation_slot": {
+        "sample_count": 9,
+        "presentation_slots_per_sample": 4096,
+        "latency": {
+          "unit": "nanoseconds_per_presentation_slot",
+          "samples": [
+            55.490478515625,
+            30.814453125,
+            29.539794921875,
+            29.69287109375,
+            30.54931640625,
+            30.7431640625,
+            30.38623046875,
+            30.233154296875,
+            30.355712890625
+          ],
+          "summary": {
+            "median": 30.38623046875,
+            "percentile_25": 30.233154296875,
+            "percentile_75": 30.7431640625,
+            "median_absolute_deviation": 0.35693359375,
+            "minimum": 29.539794921875,
+            "maximum": 55.490478515625
+          }
+        },
+        "throughput": {
+          "unit": "presentation_slots_per_second",
+          "samples": [
+            18021109.6885463,
+            32452303.98681625,
+            33852638.5387826,
+            33678117.44585683,
+            32733956.685047552,
+            32527556.303802293,
+            32909643.103919268,
+            33076270.844268583,
+            32942728.230534755
+          ],
+          "summary": {
+            "median": 32909643.103919268,
+            "percentile_25": 32527556.303802293,
+            "percentile_75": 33076270.844268583,
+            "median_absolute_deviation": 382086.80011697486,
+            "minimum": 18021109.6885463,
+            "maximum": 33852638.5387826
+          }
+        }
+      }
+    },
+    "process_peak_resident_set_size_bytes": 13549568
+  }
+}

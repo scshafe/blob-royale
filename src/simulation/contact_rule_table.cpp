@@ -93,6 +93,28 @@ ContactRuleTable::first_match(const GameWorld& world, const EntityId canonical_f
   return std::nullopt;
 }
 
+PairMotionResponse<WorldEvent> ContactRuleTable::respond(const GameWorld& world,
+                                                         const ContactRule::Subject& first,
+                                                         const ContactRule::Subject& second,
+                                                         const PairContactObservation& observation,
+                                                         const TickContext& context) const {
+  PairMotionResponse<WorldEvent> result{{first.body}, {second.body}, {}};
+  const auto match = first_match(world, first.entity, second.entity);
+  if (!match) {
+    return result;
+  }
+  const bool swapped = match->orientation == ContactOrientation::kSwapped;
+  const auto row_observation = swapped ? observation.reversed() : observation;
+  const auto response = rows_[match->row_index].response()(
+      world, swapped ? second : first, swapped ? first : second, row_observation, context);
+  if (response.replaces_bodies()) {
+    result.first = swapped ? response.second_result() : response.first_result();
+    result.second = swapped ? response.first_result() : response.second_result();
+  }
+  result.effects.assign(response.events().begin(), response.events().end());
+  return result;
+}
+
 ContactRuleTable::ContactRuleTable(std::vector<ContactRule> rows) noexcept
     : rows_(std::move(rows)) {}
 
@@ -111,75 +133,54 @@ bool body_is_variable_dynamic(const GameWorld& world, const EntityId entity) {
   return body != nullptr && !body->is_static() && !body_has_baseline_physics(*body);
 }
 
-ContactResponse elastic_disc_response(const ContactRule::Subject& first,
+ContactResponse elastic_disc_response(const GameWorld&, const ContactRule::Subject& first,
                                       const ContactRule::Subject& second,
-                                      const PlayerPairContact& contact,
-                                      const TickContext& context) {
-  // The equation is not reimplemented here. `resolve_player_pair_collision` is the one accepted
-  // narrow phase, and this row selects it; that is what makes the built-in row provably the
-  // accepted baseline rather than a second transcription of it.
-  //
-  // The contact distance is `2 * player_radius` from the configuration rather than the sum of the
-  // two bodies' `radius` fields: the accepted baseline carries one common radius on the
-  // configuration, and moving it onto the body is a versioned physics change
-  // (`docs/architecture/0003-deterministic-simulation-contract.md`
-  // § "Justified extension points and what-if stress").
-  const PlayerPairCollisionResult collision = resolve_player_pair_collision(
-      first.body, second.body, context.simulation_config().player_radius());
+                                      const PairContactObservation& observation,
+                                      const TickContext&) {
+  auto first_body = first.body;
+  auto second_body = second.body;
+  if (observation.impact) {
+    const auto collision =
+        resolve_player_pair_collision(first.body, second.body, *observation.impact);
+    first_body = first_body.with_velocity(collision.first_velocity());
+    second_body = second_body.with_velocity(collision.second_velocity());
+  }
   return ContactResponse::create(
-      first.body.with_velocity(collision.first_velocity()),
-      second.body.with_velocity(collision.second_velocity()),
-      {WorldEvent{contact_event_of(first, second, contact,
+      {first_body}, {second_body},
+      {WorldEvent{contact_event_of(first, second, observation.touch,
                                    ContactRuleName::create(kElasticDiscContactRuleName))}});
 }
 
-ContactResponse variable_impulse_response(const ContactRule::Subject& first,
+ContactResponse variable_impulse_response(const GameWorld&, const ContactRule::Subject& first,
                                           const ContactRule::Subject& second,
-                                          const PlayerPairContact& contact,
-                                          const TickContext& context) {
-  // As with `elastic_disc`, the equation is selected rather than transcribed: this row's whole
-  // content is "use the general impulse instead of the equal-unit-mass exchange".
-  //
-  // **Unlike `elastic_disc`, this row measures the contact at the two bodies' own radii.**
-  // `resolve_general_pair_collision` takes the configured radius as the *fallback* for a body that
-  // declares no size, and `pair_contact_distance` is `r_a + r_b`. A hazard drawn at its own radius
-  // has to collide at the edge a player can see; measuring a twenty-six unit boulder at twice a
-  // twelve unit blob would let a player sink into the drawn rock before anything happened.
-  //
-  // This stays an addition rather than the versioned unequal-radii amendment ADR 0003
-  // § "Justified extension points and what-if stress" names, and for the same reason per-body mass
-  // does: the general equation is reachable only through this row, and this row is reachable only
-  // when a body differs from the baseline. `elastic_disc` still calls
-  // `resolve_player_pair_collision` with `2 * player_radius` and keeps its exact arithmetic, so no
-  // accepted horizon moves. Making per-body radius the measure for *every* body -- the growing-blob
-  // change -- is still that versioned amendment, because it would move the baseline itself.
-  //
-  // The two phases that remain on the configured radius are the kernel's own: phase 3's
-  // narrow-phase gate and the broad phase's coverage box both still measure every pair at
-  // `2 * player_radius`, so a body larger than the configured radius is admitted and indexed as if
-  // it were configured-sized. That bounds how large a hazard this row can usefully resolve until
-  // those two follow.
-  const PlayerPairCollisionResult collision = resolve_general_pair_collision(
-      first.body, second.body, context.simulation_config().player_radius());
+                                          const PairContactObservation& observation,
+                                          const TickContext&) {
+  auto first_body = first.body;
+  auto second_body = second.body;
+  if (observation.impact) {
+    const auto collision =
+        resolve_general_pair_collision(first.body, second.body, *observation.impact);
+    first_body = first_body.with_velocity(collision.first_velocity());
+    second_body = second_body.with_velocity(collision.second_velocity());
+  }
   return ContactResponse::create(
-      first.body.with_velocity(collision.first_velocity()),
-      second.body.with_velocity(collision.second_velocity()),
-      {WorldEvent{contact_event_of(first, second, contact,
+      {first_body}, {second_body},
+      {WorldEvent{contact_event_of(first, second, observation.touch,
                                    ContactRuleName::create(kVariableImpulseContactRuleName))}});
 }
 
-ContactResponse reflect_static_response(const ContactRule::Subject& first,
+ContactResponse reflect_static_response(const GameWorld&, const ContactRule::Subject& first,
                                         const ContactRule::Subject& second,
-                                        const PlayerPairContact& contact, const TickContext&) {
-  // `v' = v - 2 (v . n) n` with `n` the row-orientation normal, which negates the normal component
-  // and leaves the tangential component attached to the moving body. That is ADR 0003
-  // § "Wall policy"'s "preserves speed magnitude on the reflected axis and leaves the other
-  // component unchanged", written for an arbitrary normal instead of an axis-aligned edge.
-  const Vector2 reflected_velocity =
-      reflect_static_contact_velocity(first.body.velocity(), contact.normal());
+                                        const PairContactObservation& observation,
+                                        const TickContext&) {
+  auto first_body = first.body;
+  if (observation.impact) {
+    first_body = first_body.with_velocity(
+        reflect_static_contact_velocity(first.body.velocity(), observation.impact->normal()));
+  }
   return ContactResponse::create(
-      first.body.with_velocity(reflected_velocity), second.body,
-      {WorldEvent{contact_event_of(first, second, contact,
+      {first_body}, {second.body},
+      {WorldEvent{contact_event_of(first, second, observation.touch,
                                    ContactRuleName::create(kReflectStaticContactRuleName))}});
 }
 

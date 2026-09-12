@@ -8,6 +8,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationApiError } from './SimulationApiError';
 import {
+  ANY_TOUCH_ADMISSION,
+  INVALID_CONTACT_EFFECT_ADMISSIONS,
+  contactEffectAdmissionSnapshotDocument,
+} from './fixtures/contactEffectAdmissionFrames';
+import {
   INVALID_NPC_CATALOGUES,
   INVALID_NPC_DECLARATIONS,
   MAXIMUM_NPC_CATALOGUE,
@@ -218,6 +223,51 @@ describe('NPC catalogue and profile protocol', () => {
       ).toThrow(SimulationApiError);
     },
   );
+});
+
+describe('per-object contact effect admission protocol', () => {
+  it('accepts and freezes any-touch without manufacturing the default component', () => {
+    const ordinary = validateSessionSnapshotMessage(
+      contactEffectAdmissionSnapshotDocument(),
+      welcomeSequence,
+    );
+    expect(
+      ordinary.data.entities.every(
+        (entity) => entity.components.contact_effect_admission === undefined,
+      ),
+    ).toBe(true);
+    const mutableAdmission = { policy: 'any_touch' };
+    expect(Object.isFrozen(mutableAdmission)).toBe(false);
+    const snapshot = validateSessionSnapshotMessage(
+      contactEffectAdmissionSnapshotDocument(mutableAdmission),
+      welcomeSequence,
+    );
+    const admissions = snapshot.data.entities.flatMap((entity) =>
+      entity.components.contact_effect_admission === undefined
+        ? []
+        : [entity.components.contact_effect_admission],
+    );
+    expect(admissions).toEqual([ANY_TOUCH_ADMISSION]);
+    expect(Object.isFrozen(admissions[0])).toBe(true);
+  });
+
+  it.each(INVALID_CONTACT_EFFECT_ADMISSIONS)('rejects $name', ({ value }) => {
+    expect(() =>
+      validateSessionSnapshotMessage(
+        contactEffectAdmissionSnapshotDocument(value),
+        welcomeSequence,
+      ),
+    ).toThrow(SimulationApiError);
+  });
+
+  it('rejects admission on an entity with no physical body', () => {
+    const document =
+      contactEffectAdmissionSnapshotDocument(ANY_TOUCH_ADMISSION);
+    Reflect.deleteProperty(playerEntity(document).components, 'physics_body');
+    expect(() =>
+      validateSessionSnapshotMessage(document, welcomeSequence),
+    ).toThrow(SimulationApiError);
+  });
 });
 
 describe('stun and input generation protocol', () => {

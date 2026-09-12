@@ -8,7 +8,9 @@
 #include <algorithm>
 #include <bit>
 #include <cstdint>
+#include <functional>
 #include <span>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -285,6 +287,87 @@ Trigger support(std::uint64_t id) {
 Trigger script(std::uint64_t id) {
   return {simulation::EntityId::create(id), 200, 0, 1, query_script, respond_script};
 }
+
+// These borrowed facts were legal before per-trigger overrides: instantiating the solver with
+// the abstract base must not start requiring value construction, copy, or ownership of Facts.
+class AbstractBorrowedFacts {
+public:
+  AbstractBorrowedFacts(const AbstractBorrowedFacts&) = delete;
+  AbstractBorrowedFacts& operator=(const AbstractBorrowedFacts&) = delete;
+  virtual ~AbstractBorrowedFacts() = default;
+  [[nodiscard]] virtual const AbstractBorrowedFacts* original_address() const noexcept = 0;
+  [[nodiscard]] virtual simulation::MotionTime trigger_time() const noexcept = 0;
+  [[nodiscard]] virtual Effect effect() const noexcept = 0;
+
+protected:
+  AbstractBorrowedFacts() = default;
+};
+
+class BorrowedFacts final : public AbstractBorrowedFacts {
+public:
+  BorrowedFacts(Effect effect, double time)
+      : effect_(effect), time_(simulation::MotionTime::create(time)) {}
+  [[nodiscard]] const AbstractBorrowedFacts* original_address() const noexcept override {
+    return this;
+  }
+  [[nodiscard]] simulation::MotionTime trigger_time() const noexcept override { return time_; }
+  [[nodiscard]] Effect effect() const noexcept override { return effect_; }
+
+private:
+  Effect effect_;
+  simulation::MotionTime time_;
+};
+
+using BorrowedTrigger = simulation::MotionTrigger<Effect, AbstractBorrowedFacts>;
+static_assert(std::is_abstract_v<AbstractBorrowedFacts>);
+static_assert(!std::is_copy_constructible_v<BorrowedFacts>);
+static_assert(!std::is_move_constructible_v<BorrowedFacts>);
+static_assert(std::is_copy_constructible_v<BorrowedTrigger>);
+
+std::optional<simulation::MotionTriggerProposal>
+query_borrowed(const simulation::GameWorld&, const Subject&, const simulation::MotionTriggerWindow&,
+               const simulation::TickContext&, const AbstractBorrowedFacts& facts,
+               std::uint64_t cursor, simulation::MotionQueryBudget& budget) {
+  CHECK(&facts == facts.original_address());
+  budget.roots(1);
+  if (cursor != 0) {
+    return std::nullopt;
+  }
+  return simulation::MotionTriggerProposal{facts.trigger_time(),
+                                           simulation::MotionEventPriority::kCheckpoint};
+}
+
+simulation::MotionTriggerResponse<Effect>
+respond_borrowed(const simulation::GameWorld&, const Subject& subject,
+                 const simulation::MotionTriggerEvent& event, const simulation::TickContext&,
+                 const AbstractBorrowedFacts& facts) {
+  CHECK(&facts == facts.original_address());
+  return {{subject.body}, event.cursor + 1, {facts.effect()}};
+}
+
+simulation::PairMotionResponse<Effect>
+respond_borrowed_pair(const simulation::GameWorld& world, const Subject& first,
+                      const Subject& second, const simulation::PairContactObservation& observation,
+                      const simulation::TickContext& context, const AbstractBorrowedFacts& facts) {
+  CHECK(&facts == facts.original_address());
+  auto response = respond_pair(world, first, second, observation, context, Facts{});
+  response.effects = {facts.effect()};
+  return response;
+}
+
+void check_same_result(const Result& first, const Result& second) {
+  CHECK(first.motion.bodies == second.motion.bodies);
+  CHECK(first.motion.paths == second.motion.paths);
+  CHECK(first.motion.events == second.motion.events);
+  CHECK(first.motion.work == second.motion.work);
+  CHECK(first.trigger_cursors == second.trigger_cursors);
+  REQUIRE(first.effects.size() == second.effects.size());
+  for (std::size_t index = 0; index < first.effects.size(); ++index) {
+    CHECK(first.effects[index].event == second.effects[index].event);
+    CHECK(first.effects[index].effect == second.effects[index].effect);
+  }
+}
+
 template <class Action> void rejected(Action&& action, simulation::SimulationValidationCode code) {
   try {
     static_cast<void>(std::forward<Action>(action)());
@@ -295,6 +378,91 @@ template <class Action> void rejected(Action&& action, simulation::SimulationVal
 }
 
 } // namespace
+
+TEST_CASE("absent trigger facts preserve the original abstract reference and complete result",
+          "[unit][simulation][continuous_motion][borrowed_trigger_facts]") {
+  const Fixture fixture;
+  const BorrowedFacts global{777, 0.125};
+  const std::vector input{moving(1, 10, 50, 20000), moving(2, 40, 50)};
+  const std::vector<BorrowedTrigger> original{
+      {simulation::EntityId::create(1), 100, 0, 1, query_borrowed, respond_borrowed}};
+  auto explicit_global = original;
+  explicit_global.front().facts_override =
+      std::cref(static_cast<const AbstractBorrowedFacts&>(global));
+  const auto original_result = simulation::solve_continuous_motion<Effect, AbstractBorrowedFacts>(
+      fixture.world, input, fixture.context, global, respond_borrowed_pair, original);
+  const auto explicit_result = simulation::solve_continuous_motion<Effect, AbstractBorrowedFacts>(
+      fixture.world, input, fixture.context, global, respond_borrowed_pair, explicit_global);
+
+  check_same_result(original_result, explicit_result);
+  CHECK(effects(original_result) == std::vector<Effect>{777, 777});
+  REQUIRE(original_result.effects.size() == 2);
+  CHECK(original_result.effects.front().event.time() == global.trigger_time());
+  CHECK(original_result.effects.back().event.time().value() == Catch::Approx(0.56));
+  CHECK(original_result.trigger_cursors == std::vector<std::uint64_t>{1});
+  CHECK(body(original_result, 1).body.position().x() == Catch::Approx(38));
+  CHECK(body(original_result, 2).body.position().x() == Catch::Approx(62));
+}
+
+TEST_CASE(
+    "same entity triggers borrow independent query and response facts while pairs stay global",
+    "[unit][simulation][continuous_motion][borrowed_trigger_facts]") {
+  const Fixture fixture;
+  const BorrowedFacts global{999, 0.875};
+  const BorrowedFacts early{101, 0.125};
+  const BorrowedFacts later{202, 0.375};
+  const std::vector input{moving(1, 10, 50, 20000), moving(2, 40, 50)};
+  const std::vector<BorrowedTrigger> triggers{
+      {simulation::EntityId::create(1), 200, 0, 1, query_borrowed, respond_borrowed,
+       std::cref(static_cast<const AbstractBorrowedFacts&>(later))},
+      {simulation::EntityId::create(1), 100, 0, 1, query_borrowed, respond_borrowed,
+       std::cref(static_cast<const AbstractBorrowedFacts&>(early))}};
+  const auto copied_triggers = triggers;
+  const auto result = simulation::solve_continuous_motion<Effect, AbstractBorrowedFacts>(
+      fixture.world, input, fixture.context, global, respond_borrowed_pair, triggers);
+  const auto copied_result = simulation::solve_continuous_motion<Effect, AbstractBorrowedFacts>(
+      fixture.world, input, fixture.context, global, respond_borrowed_pair, copied_triggers);
+
+  check_same_result(result, copied_result);
+  CHECK(effects(result) == std::vector<Effect>{101, 202, 999});
+  REQUIRE(result.effects.size() == 3);
+  CHECK(result.effects[0].event.time() == early.trigger_time());
+  CHECK(result.effects[1].event.time() == later.trigger_time());
+  CHECK(result.effects[2].event.time().value() == Catch::Approx(0.56));
+  CHECK(result.trigger_cursors == std::vector<std::uint64_t>{1, 1});
+  REQUIRE(copied_triggers[0].facts_override.has_value());
+  REQUIRE(copied_triggers[1].facts_override.has_value());
+  CHECK(&copied_triggers[0].facts_override->get() == &later);
+  CHECK(&copied_triggers[1].facts_override->get() == &early);
+}
+
+TEST_CASE("shared motion limit validation preserves lower only ceilings for every resource",
+          "[unit][simulation][continuous_motion][promotion]") {
+  const Fixture fixture;
+  const simulation::MotionLimits defaults;
+  simulation::MotionLimits lowered;
+  const auto invalid = simulation::SimulationValidationCode::kContinuousMotionInvalidInput;
+  for (const auto field :
+       {&simulation::MotionLimits::bodies, &simulation::MotionLimits::candidate_pairs,
+        &simulation::MotionLimits::pair_examinations, &simulation::MotionLimits::root_queries,
+        &simulation::MotionLimits::events, &simulation::MotionLimits::trigger_queries,
+        &simulation::MotionLimits::paths, &simulation::MotionLimits::effects,
+        &simulation::MotionLimits::trigger_declarations}) {
+    simulation::MotionLimits excessive;
+    excessive.*field = defaults.*field + 1;
+    rejected([&] { simulation::detail::validate_motion_limits(excessive); }, invalid);
+    rejected([&] { return solve(fixture, {}, {}, {}, excessive); }, invalid);
+    lowered.*field = 0;
+  }
+  simulation::MotionLimits excessive_cursor;
+  excessive_cursor.trigger_cursor = defaults.trigger_cursor + 1;
+  rejected([&] { simulation::detail::validate_motion_limits(excessive_cursor); }, invalid);
+  rejected([&] { return solve(fixture, {}, {}, {}, excessive_cursor); }, invalid);
+  lowered.trigger_cursor = 0;
+  CHECK_NOTHROW(simulation::detail::validate_motion_limits(defaults));
+  CHECK_NOTHROW(simulation::detail::validate_motion_limits(lowered));
+  CHECK_NOTHROW(solve(fixture, {}, {}, {}, lowered));
+}
 
 TEST_CASE("continuous swept candidates prevent high speed tunneling and preserve pure inputs",
           "[unit][simulation][continuous_motion]") {

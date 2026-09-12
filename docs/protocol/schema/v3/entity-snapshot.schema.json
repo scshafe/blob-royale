@@ -15,7 +15,13 @@
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
+      "dependentRequired": {
+        "contact_effect_admission": ["physics_body"]
+      },
       "properties": {
+        "contact_effect_admission": {
+          "$ref": "contact-effect-admission-component.schema.json"
+        },
         "controllable": {
           "$ref": "controllable-component.schema.json"
         },
@@ -59,7 +65,7 @@
           "$ref": "zone-exposure-component.schema.json"
         }
       },
-      "$comment": "@extension-point snapshot_component_kind -- a new component kind adds one property here, one <kind>-component.schema.json file, and one enum member in common.schema.json#/$defs/component_kind, and is a protocol minor version. additionalProperties is false so a 2.0 decoder fails closed on a kind it does not know rather than rendering an incomplete world."
+      "$comment": "@extension-point snapshot_component_kind -- a new component kind adds one property here, one <kind>-component.schema.json file, and one enum member in common.schema.json#/$defs/component_kind. The coordinated development steps remain under 3.0; additions after release require a minor version. additionalProperties is false so decoders fail closed on unknown kinds rather than rendering an incomplete world."
     }
   }
 }

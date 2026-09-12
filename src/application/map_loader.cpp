@@ -2,6 +2,7 @@
 
 #include "application_input_error.hpp"
 #include "application_text_file_reader.hpp"
+#include "contact_effect_admission.hpp"
 #include "map_definition.hpp"
 #include "physics_body.hpp"
 #include "team_id.hpp"
@@ -31,7 +32,8 @@ constexpr std::string_view kStaticBodiesFileName = "static_bodies.csv";
 constexpr std::string_view kMarkersFileName = "markers.csv";
 
 constexpr std::string_view kExpectedStaticBodiesHeader =
-    "position_x_world_units,position_y_world_units,collision_layer,collision_mask";
+    "position_x_world_units,position_y_world_units,collision_layer,collision_mask,contact_effect_"
+    "policy";
 constexpr std::string_view kExpectedMarkersHeader =
     "marker_kind,position_x_world_units,position_y_world_units,team_id";
 
@@ -526,19 +528,22 @@ void read_csv(const std::filesystem::path& source_path, const std::string_view e
   }
 }
 
-[[nodiscard]] std::vector<simulation::PhysicsBody>
+[[nodiscard]] std::vector<simulation::StaticBodyDeclaration>
 load_static_bodies(const std::filesystem::path& source_path) {
-  std::vector<simulation::PhysicsBody> static_bodies;
-  read_csv(
-      source_path, kExpectedStaticBodiesHeader,
-      [&static_bodies, &source_path](const std::string_view row, const std::size_t line) {
-        const auto columns = split_row<MapLoader::kStaticBodyColumnCount>(row, source_path, line);
-        const std::string context = source_line_context(source_path, line);
-        static_bodies.push_back(simulation::PhysicsBody::create_static(
-            simulation::Vector2::create(parse_map_double(columns[0], context),
-                                        parse_map_double(columns[1], context)),
-            parse_collision_mask(columns[2], context), parse_collision_mask(columns[3], context)));
-      });
+  std::vector<simulation::StaticBodyDeclaration> static_bodies;
+  read_csv(source_path, kExpectedStaticBodiesHeader,
+           [&static_bodies, &source_path](const std::string_view row, const std::size_t line) {
+             const auto columns =
+                 split_row<MapLoader::kStaticBodyColumnCount>(row, source_path, line);
+             const std::string context = source_line_context(source_path, line);
+             static_bodies.push_back(simulation::StaticBodyDeclaration::create(
+                 simulation::PhysicsBody::create_static(
+                     simulation::Vector2::create(parse_map_double(columns[0], context),
+                                                 parse_map_double(columns[1], context)),
+                     parse_collision_mask(columns[2], context),
+                     parse_collision_mask(columns[3], context)),
+                 simulation::parse_contact_effect_policy(columns[4])));
+           });
   return static_bodies;
 }
 

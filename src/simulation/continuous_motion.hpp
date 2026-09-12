@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -119,6 +120,9 @@ template <class Effect, class Facts> struct MotionTrigger final {
   std::uint64_t cursor_limit;
   Query query;
   Response response;
+  // Borrows one declaration's immutable facts for both callbacks. The owner must outlive the
+  // synchronous solve; absence preserves the original global facts reference without copying.
+  std::optional<std::reference_wrapper<const Facts>> facts_override = std::nullopt;
 };
 
 template <class Effect, class Facts>
@@ -153,6 +157,9 @@ namespace detail {
 
 [[noreturn]] void fail_motion(SimulationValidationCode code, const char* message);
 void require_motion_budget(std::size_t count, std::size_t maximum, const char* operation);
+// canonical: motion_limit_validation -- lower-only resource configuration shared by solver and
+// binding/setup admission. Raises kContinuousMotionInvalidInput above any declared ceiling.
+void validate_motion_limits(const MotionLimits& limits);
 
 struct MotionGeometryEvent final {
   MotionEventKey key;
@@ -292,8 +299,9 @@ solve_continuous_motion(const GameWorld& committed_world,
       }
       budget.trigger();
       const MotionTriggerWindow window{solver.anchored_motion(cache.body), solver.now()};
+      const Facts& trigger_facts = trigger.facts_override ? trigger.facts_override->get() : facts;
       const auto proposal = trigger.query(committed_world, solver.subject(cache.body, solver.now()),
-                                          window, context, facts, cache.cursor, budget);
+                                          window, context, trigger_facts, cache.cursor, budget);
       cache.event.reset();
       if (proposal) {
         if (proposal->time < solver.now() ||
@@ -325,8 +333,10 @@ solve_continuous_motion(const GameWorld& committed_world,
       auto& cache = caches[*selected_trigger];
       const auto& trigger = triggers[*selected_trigger];
       const auto current = solver.subject(cache.body, selected->time());
-      auto response = trigger.response(committed_world, current,
-                                       MotionTriggerEvent{*selected, cache.cursor}, context, facts);
+      const Facts& trigger_facts = trigger.facts_override ? trigger.facts_override->get() : facts;
+      auto response =
+          trigger.response(committed_world, current, MotionTriggerEvent{*selected, cache.cursor},
+                           context, trigger_facts);
       const bool changes_motion =
           !current.body.is_static() && response.body.body.velocity() != current.body.velocity();
       if (response.cursor < cache.cursor || response.cursor > trigger.cursor_limit ||

@@ -2,6 +2,7 @@
 
 #include "component_lifetime.hpp"
 #include "components/controllable_component.hpp"
+#include "contact_effect_admission.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 #include "spawn_system.hpp"
@@ -69,7 +70,7 @@ GameWorld GameWorld::create(const SimulationConfig& configuration, const MapDefi
   // be played together fail at construction with a named cause.
   require_spawn_points_are_seatable(configuration, map);
 
-  const std::span<const PhysicsBody> static_bodies = map.static_bodies();
+  const std::span<const StaticBodyDeclaration> static_bodies = map.static_bodies();
   if (static_bodies.size() > kMaximumEntityCount ||
       seeded_entities.size() > kMaximumEntityCount - static_bodies.size()) {
     throw SimulationValidationError(
@@ -93,7 +94,7 @@ GameWorld GameWorld::create(const SimulationConfig& configuration, const MapDefi
   for (std::size_t index = 0; index < static_bodies.size(); ++index) {
     bodies.push_back(ComponentStore<PhysicsBody>::Entry{
         EntityId::create(kMinimumEntityId + static_cast<EntityId::Value>(index)),
-        static_bodies[index].with_radius(configuration.player_radius())});
+        static_bodies[index].body().with_radius(configuration.player_radius())});
   }
 
   // The map's block is `[kMinimumEntityId, kMinimumEntityId + static_body_count)`. A seeded entity
@@ -130,7 +131,13 @@ GameWorld GameWorld::create(const SimulationConfig& configuration, const MapDefi
       ComponentStore<PhysicsBody>::create(std::move(bodies));
   std::get<ComponentStore<Controllable>>(stores) =
       ComponentStore<Controllable>::create(std::move(controllables));
-  return GameWorld(std::move(stores), RandomStreams::create(seed));
+  GameWorld world(std::move(stores), RandomStreams::create(seed));
+  for (std::size_t index = 0; index < static_bodies.size(); ++index) {
+    assign_contact_effect_policy(
+        world, EntityId::create(kMinimumEntityId + static_cast<EntityId::Value>(index)),
+        static_bodies[index].contact_effect_policy());
+  }
+  return world;
 }
 
 EntityId GameWorld::create_entity() {

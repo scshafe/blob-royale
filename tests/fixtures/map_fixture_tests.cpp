@@ -170,11 +170,13 @@ TEST_CASE(
 
   const double obstacle_offset = course.track_half_width() - course.checkpoint_radius();
   REQUIRE(map.static_bodies().size() == 2);
-  CHECK(map.static_bodies()[0].position() ==
+  CHECK(map.static_bodies()[0].body().position() ==
         simulation::Vector2::create(kArenaWidth / 2.0, start.y() - obstacle_offset));
-  CHECK(map.static_bodies()[1].position() ==
+  CHECK(map.static_bodies()[1].body().position() ==
         simulation::Vector2::create(bend.x() + obstacle_offset, (bend.y() + finish.y()) / 2.0));
-  for (const simulation::PhysicsBody& obstacle : map.static_bodies()) {
+  for (const simulation::StaticBodyDeclaration& declaration : map.static_bodies()) {
+    const simulation::PhysicsBody& obstacle = declaration.body();
+    CHECK(declaration.contact_effect_policy() == simulation::ContactEffectPolicy::kClosingImpact);
     CHECK(obstacle.is_static());
     CHECK(obstacle.collision_layer() == simulation::PhysicsBody::kDefaultCollisionLayer);
     CHECK(obstacle.collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);

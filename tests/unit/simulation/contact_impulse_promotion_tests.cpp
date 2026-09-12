@@ -9,6 +9,7 @@
 #include "physics_body.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
+#include "simulation_tolerance.hpp"
 #include "simulation_validation_error.hpp"
 #include "spatial_grid.hpp"
 #include "tick_context.hpp"
@@ -246,7 +247,7 @@ TEST_CASE("radius wrappers retain their legacy validation before contact impulse
   }
 }
 
-TEST_CASE("static velocity extraction matches the actual old response and frozen reflection",
+TEST_CASE("static velocity remains frozen-equivalent while live rows require an admitted impact",
           "[unit][simulation][physics][promotion]") {
   const auto configuration = simulation::SimulationConfig::create(
       500.0, 500.0, kConfiguredRadius, simulation::SimulationConfig::kRequiredTicksPerSecond, 10,
@@ -264,18 +265,23 @@ TEST_CASE("static velocity extraction matches the actual old response and frozen
     const auto wall = simulation::PhysicsBody::create_static(test.second.position());
     const auto contact =
         simulation::detect_player_pair_contact(test.first, wall, kConfiguredRadius);
-    const auto original = simulation::reflect_static_response(
-        {simulation::EntityId::create(1), test.first}, {simulation::EntityId::create(2), wall},
-        contact, context);
     const auto promoted =
         simulation::reflect_static_contact_velocity(test.first.velocity(), contact.normal());
     const auto reference =
         frozen::reflect_static_contact_velocity(test.first.velocity(), contact.normal());
-    REQUIRE(original.replaces_bodies());
-    check_vector_bits(promoted, original.first_body().velocity());
     check_vector_bits(promoted, reference);
-    CHECK(original.second_body() == wall);
-    CHECK(original.first_body().position() == test.first.position());
-    CHECK(original.first_body().acceleration() == test.first.acceleration());
+    // The historical pure reflection still accepts every normal, including separating and
+    // noncontact cases. Step 16's live row is narrower: only certified impacts may reflect.
+    // Preserve the full frozen equation corpus; do not forge an impact to call the live row.
+    if (contact.is_contact() && contact.relative_normal_speed() < -simulation::kVelocityTolerance) {
+      const auto response = simulation::reflect_static_response(
+          world, {simulation::EntityId::create(1), test.first},
+          {simulation::EntityId::create(2), wall}, {contact, contact, true, true}, context);
+      REQUIRE(response.replaces_bodies());
+      check_vector_bits(promoted, response.first_body().velocity());
+      CHECK(response.second_body() == wall);
+      CHECK(response.first_body().position() == test.first.position());
+      CHECK(response.first_body().acceleration() == test.first.acceleration());
+    }
   }
 }

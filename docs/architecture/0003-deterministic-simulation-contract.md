@@ -38,7 +38,14 @@ The simulation uses IEEE-754 binary64 values for every physical scalar. All acce
 
 `FixedDelta` is an exact duration value, not a measured floating-point elapsed time. `GameSimulation::step` accepts only this value in the accepted contract. The runtime may wake late and may execute catch-up steps as lifecycle policy, but it must never stretch, shrink, skip within, or combine simulation quanta. Simulated time after tick `N` is exactly `N / 400 s`. A different simulation rate changes observable behavior and requires this ADR to be amended or superseded.
 
-World bounds describe the outer rectangle `[0, width] × [0, height]`. A player is a closed disc with the configured common radius `r`; a committed center lies in `[r, width - r] × [r, height - r]`. Valid configuration requires `r > 0`, `width > 2r`, and `height > 2r`.
+World bounds describe the outer rectangle `[0, width] × [0, height]`. The original baseline used
+the configured common radius `r` and committed centers in `[r, width-r] × [r, height-r]`.
+**Step 16 amendment:** Each body's effective radius drives its wall planes, but startup/commit
+admit the reviewed closed center envelope rather than requiring an inset center. Initial
+radius overlap is legal and does not snap. A folded dynamic disc's diameter must fit each axis;
+an exactly zero-span axis requires zero velocity. Static centers remain inside the closed map,
+even with `kCross`; dynamic crossing bodies are exempt. Configuration still requires positive
+common radius and dimensions larger than its diameter.
 
 Acceleration is stored state. In phase 1 of every tick, each player uses only its already-stored acceleration:
 
@@ -60,9 +67,9 @@ dynamic bodies that replace them, and this contract adds no second body type.
 
 `GameSimulation::step(FixedDelta, const InputBatch&)` evaluates one tick in this exact order. The
 numbered phases are kernel mechanism: no mode may reorder, skip, replace, or add one. Between them
-sit three named hook stages holding the mode's declared systems, and the kernel has exactly two
-policy sockets inside a phase — the mode's `SpawnPolicy` in phase 0 and its `ContactRuleTable` in
-phase 3 (ADR 0004 § "The tick: one fixed kernel, three named stages").
+sit three named hook stages holding the mode's declared systems. As amended in Step 16, the kernel
+has three policy sockets: `SpawnPolicy` at intake, and `ContactRuleTable` plus
+`MotionTriggerTable` inside continuous motion (ADR 0004 § "The tick: one fixed kernel, three named stages").
 
 0. **Apply the tick's validated `InputBatch`.** Apply the batch in this order — despawns, then
    spawns, then the remaining commands — and each group in ascending `EntityId` order. A despawn
@@ -107,23 +114,21 @@ empty.
    non-negative, neither is bounded above, and the clamp at zero keeps the factor total when their
    product with `dt` exceeds one, so a large configured drag stops a body rather than reversing it.
    Positions do not change.
-2. **Build canonical candidate pairs.** Query the grid, which after phase 0 indexes this tick's
-   live roster at its start-of-tick positions. Canonicalize every broad-phase pair as
-   `(lower EntityId, higher EntityId)`, remove duplicate keys without dropping equal-distance keys,
-   then sort lexicographically by the two IDs. Pair distance is not an ordering key.
-3. **Resolve contacts once.** Traverse the frozen canonical pair list once. A pair is admitted only
-   when `(a.collision_mask & b.collision_layer)` and `(b.collision_mask & a.collision_layer)` are
-   both nonzero, a pure integer predicate that adds no ordering
-   (ADR 0004 § "Entities, components, and stores"). The narrow phase rejects non-contacts and
-   separating contacts. An admitted contact takes its response from the mode's `ContactRuleTable`:
-   walk that table's rows in declared order, try the canonical orientation before the swapped one,
-   and take the first matching (row, orientation). A pair matching no row is unchanged, so the table
-   is total without a default row (ADR 0004 § "Contact rules"). A response may write only the two
-   bodies; every other consequence leaves as a `WorldEvent` for a later stage, which is what keeps
-   the kernel's mutation surface exactly what this contract pins. A resolved pair writes both bodies
-   before the next pair is evaluated. Positions and stored accelerations do not change.
-4. **Resolve walls.** Visit players in ascending `EntityId` order. For each player, resolve the x axis before the y axis from its current position and post-pair velocity. Produce a tick-local displacement and terminal velocity; do not publish an intermediate body state.
-5. **Integrate position.** Visit players in ascending `EntityId` order and apply the displacement produced by wall resolution. This is semi-implicit Euler because the displacement derives from the accelerated, collision-resolved velocity.
+2–5. **Resolve continuous motion (amended 2026-09-11, Step 16).** Freeze the working world after
+   phase 0 and `kPreKernel`; phase 1's accelerated/dragged subjects are separate values. The one
+   `solve_continuous_motion` driver owns swept broad-phase candidates, certified touches/optional
+   closing impacts, walls, declared unary triggers, actual path segments and terminal bodies.
+   It does not consume the endpoint grid's candidate list. Both collision-mask directions must
+   admit a pair. Events are ordered by exact stored `MotionTime`, then support loss, body contact,
+   wall x, wall y, checkpoint, then canonical entity/feature identity. Only equal-time events use
+   that priority: an earlier wall precedes a later pair. Canonical pair IDs and first-matching
+   contact-table row/orientation remain deterministic. Responses read the immutable kernel-entry
+   world and current subjects, may replace velocity/acceleration and motion disposition, and emit
+   typed effects without world mutation. A terminated body causes no later contact or trigger in
+   this quantum. Only successful solver effects enter `WorldEvent`; selected-certificate diagnostics
+   are not gameplay events. Bounded work/storage/precision failure rejects the entire tick, never
+   falling back to discrete motion or publishing a partial result. Production support/race trigger
+   registrations follow in Step 17; Step 16 proves the declaration seam with injected policies.
 6. **Rebuild the spatial grid.** Discard old membership and deterministically rebuild it from the new positions in ascending `EntityId` order.
 
 **Hook stage `kPostKernel`.** The mode's `kPostKernel` systems run here, each once, in declared
@@ -187,40 +192,39 @@ membership and ascending in-cell order are identical either way. No tick therefo
 holding a non-live `EntityId`, and when the batch is empty and no system emits a `DespawnEvent`,
 neither point changes the grid at all.
 
-**The built-in contact rows are the accepted baseline, and this is a requirement on them rather than
-a description of them.** `ContactRuleTable::built_in()` carries exactly two rows in this order:
-`elastic_disc` for a dynamic-dynamic pair, then `reflect_static` for a dynamic-static pair
-(ADR 0004 § "Contact rules"). `elastic_disc` must evaluate the equations of § "Player-pair policy"
-and produce, for every canonical pair of equal-radius unit-mass dynamic bodies, the bit-identical
-velocities the accepted narrow phase produced, including the coincident-center fallback, the
-`ε_velocity` separating test, and the visibility of an earlier pair's result to a later pair.
-`reflect_static` must preserve the dynamic body's speed magnitude on the contact normal, leave its
-tangential component unchanged, and leave the static body untouched, which is § "Wall policy"'s
-reflection applied to a body instead of an arena edge. A table whose built-in rows disagree with
-either section is a defect in the table, not a new physics policy; changing an equation is the
-versioned physics amendment § "Justified extension points and what-if stress" already describes. The
-arena fold of phase 4 is not dispatched through the table at all, because that fold is what makes a
-committed center in bounds for arbitrarily large finite overshoot.
+**Built-in equations are retained; live admission and chronology change in Step 16.** The table
+declares `variable_impulse`, `elastic_disc`, then `reflect_static`. Each consumes a certified
+closing impact and calls the existing pure impulse equation. Ordinary equal-unit-mass bodies
+still bypass the general equation. Grazing observations cannot fabricate impulses; per-source
+`any_touch` admission permits that source's gameplay effect without changing the physical mask.
+Arena walls are solver-owned plane events, not contact-table rows.
 
-**The accepted baseline is a special case of this pipeline, not an approximation of one.** At
-`drag_per_second = 0` the product `drag_per_second × dt` is exactly `+0.0`, the drag factor is
-exactly `1.0`, and multiplication by `1.0` is the identity on every finite binary64 value including
-both signed zeros. An empty `InputBatch` makes phase 0 a no-op, a mode whose systems write nothing
-leaves all three stages without effect, and the built-in rows reproduce the accepted narrow phase
-exactly. Under those three conditions the staged kernel commits the same bodies, in the same order,
-at the same tick horizons, as the accepted seven-phase baseline: every fixture horizon and expected
-outcome already in this ADR remains valid unchanged, and no fixture is regenerated. Equivalence is
-asserted over every value the accepted baseline committed; the match section a snapshot now also
-carries has no baseline counterpart to differ from. The `sandbox` mode is the standing witness — its
-one system is steering, which writes nothing when no thrust was recorded — and a mode with no
-systems at all is the stricter one
-(`.claude/plans/2026-09-06-playable-prototype-tailnet.md` Step 17). A seeded fixture that runs under
-`royale` stays in `lobby` unless its command log fills every lobby seat and requests a start, and in
-`lobby` the zone stays at full radius and elimination never evaluates
-(ADR 0005 § "Match lifecycle"). All fixtures and tests run at `drag_per_second = 0`; only the
-deployment configuration sets a nonzero value (same plan, § "Execution constraints").
+**The discrete baseline remains a frozen oracle, not a universal live equivalence claim.** The
+original framework proved bit identity with the seven-phase kernel under zero drag, empty input,
+and no-writing systems. Step 16 deliberately supersedes that claim: continuous chronology catches
+between-endpoint crossings and can change contact order, collision positions, and subsequent
+trajectory. Pure legacy wrappers and frozen equation tests remain unchanged; live tests identify
+continuity cases and explain each intended divergence. Historical fixture descriptions and dated
+amendments below describe their original contract unless explicitly superseded here. Arbitrarily
+large finite motion is no longer promised: the reviewed representability and work budgets fail
+transactionally instead of falling back to discrete motion.
 
 ### Player-pair policy
+
+**Amended 2026-09-11 (Step 16):** Live admission is the reviewed continuous certificate path,
+not the legacy proximity detector described historically below. Effective radii are summed per
+pair. The canonical circle polynomial and exact-sign topology establish a closed geometric touch
+and, separately, optional closing impact. Distinct centers retain their certified geometric
+normal; only exact coincidence uses the deterministic relative-velocity fallback. A frozen
+per-object source policy defaults to closing impact; sparse `any_touch` also admits grazing,
+stationary and overlapping effects. Touch alone cannot grant an impulse. Contact-taking physics
+overloads consume the certificate without re-detection; swapping negates normals and swaps source
+eligibility/results while preserving certified distances and relative normal speeds.
+
+The equal-unit-mass exchange equations below and general/static response equations remain the
+canonical physical equations. The legacy detector wrappers and their frozen tests remain truthful
+diagnostics, not a second live solver. The following proximity-band bullet definitions describe
+those retained wrappers, not live hit membership.
 
 The narrow phase models frictionless, perfectly elastic collisions between equal-radius, equal-unit-mass discs. This section defines the `elastic_disc` row, which is the response for a pair of ordinary bodies and is unchanged by the 2026-09-07 amendment below; a pair in which either body declares its own mass or restitution is answered by the `variable_impulse` row above it and never reaches this equation. For canonical pair `(a, b)`, where `a.id < b.id`:
 
@@ -237,11 +241,29 @@ The narrow phase models frictionless, perfectly elastic collisions between equal
 
 Tangential components remain attached to their original players. Each applied impulse therefore preserves pair momentum and kinetic energy within the floating-point tolerance. The baseline performs no penetration correction. An overlapping separating pair keeps its velocities and integrates apart; an exactly coincident pair with equal velocities remains coincident without producing an arbitrary impulse.
 
-Every candidate pair is evaluated once. A player may participate in multiple pairs during the same tick. Equal distance does not select a winner: if `(1, 2)` and `(1, 3)` are both contacts, both remain in the list and `(1, 2)` resolves first. The second pair observes player 1's velocity from the first response. This sequential result is deterministic but intentionally not a simultaneous constraint solution.
+Live observations are consumed at both bodies' post-response revisions, including no-op touches.
+An external trajectory change can re-enable a pair within the same bounded quantum. Later events
+observe prior motion responses; equal-time pairs use canonical IDs, not distance or discovery order.
+This is a chronological sequential solution, not a simultaneous constraint solve.
 
-Player-pair detection is discrete at the positions committed at the start of the tick. A pair that first reaches contact during position integration becomes eligible on the next tick. A pair that crosses completely between two committed positions does not collide in this baseline. Scenarios must not rely on swept player-player collision until a continuous-collision amendment is accepted.
+The live solver resolves certified within-tick crossings at their event times; it no longer delays
+first contact until the next tick or ignores a pair that crosses between committed positions.
+Initial-overlap/revision repeat semantics and fail-visible representability limits remain those
+accepted at Step 5, not an exact-real or unbounded-capacity guarantee.
 
 ### Wall policy
+
+**Amended 2026-09-11 (Step 16):** Live walls are certified plane events in the same chronological
+solver as pairs, using each body's effective radius. The retained triangular-fold helper described
+below is historical/discrete diagnostic behavior, not a live alternate path. Reflection preserves
+the normal-axis speed and tangential component, with x before y only at equal times. No endpoint
+snapping or depenetration is added. Static centers must lie in the closed map envelope, even if
+flagged crossing. Dynamic crossing bodies have no wall events. Other dynamic centers must be in
+the closed envelope and their diameter must fit both axes; a zero-span axis requires zero velocity
+on that axis. Initial radius overlap with a wall is legal. One promoted body-envelope guard is
+shared by solver, startup, grid admission and commit; stricter spawn clearance remains separate.
+
+The following fold description is retained for the standalone legacy helper and its exact tests:
 
 Wall resolution is frictionless and perfectly elastic per axis. It preserves speed magnitude on the reflected axis and leaves the other component unchanged. It considers the complete proposed motion for the tick, so a committed result never remains outside the center interval and high-speed overshoot cannot tunnel through a wall.
 
@@ -260,6 +282,10 @@ an exact upper-wall state to the lower wall.
 The tick-local displacement is `folded_endpoint - position`; phase 5 applies it while retaining the terminal velocity from phase 4. This defines one bounce, multiple bounces, starting exactly at a wall, and arbitrarily large finite overshoot without iteration-count behavior. If x and y contacts occur at the same simulated instant, x resolves first and y second. The independent-axis result is the same, but the order governs diagnostics and any future non-axis-aligned extension. If a player-pair contact and wall contact occur in the same tick, the canonical pair response precedes the wall response.
 
 ### Spatial-grid policy and partition boundaries
+
+As of Step 16 this remains the endpoint/stage query index. The continuous solver owns its swept
+candidate generation separately; it never treats endpoint-grid candidates as the whole sweep.
+Stage invalidation compares body identity, position and radius because all affect indexed coverage.
 
 `SpatialGrid` is a broad-phase index, not physical state. It must produce a superset of all pairs whose committed discs can touch; the narrow phase alone decides contact.
 
@@ -287,6 +313,13 @@ Contact, separating, wall-snap, expected-value, and conservation comparisons use
 The same executable, configuration, and fixture must produce bit-identical ordered snapshots across 100 fresh runs. GCC-versus-Clang and other accepted-toolchain comparisons require exact IDs/order/ticks and `approximately_equal` physical components plus the stated physical invariants; accidental cross-toolchain bit identity is not required. A NaN or infinity at input or after any phase is a hard error, never a comparison miss or silent clamp.
 
 ### Fixture contract and expected outcomes
+
+The table and three seed horizons below retain the historical discrete contract. Step 16's live
+tests supersede its one-evaluation-per-pair, next-tick-contact, high-speed-crossing, and universal
+baseline-preservation rows with certified continuous chronology. The legacy wrapper/oracle still
+tests those historical rules independently; changing live expectations must name the physical
+reason, not rewrite that oracle. Stable input values, deterministic repeatability, conservation,
+canonical identities, stage ordering, and unchanged gameplay timing remain requirements.
 
 Simulation fixtures are specifications, not recordings of the prototype. Each fixed-tick case must declare the accepted simulation quantum, world dimensions, common radius, explicit unique `EntityId` values, initial position/velocity/stored acceleration, tick count, and either expected ordered snapshots or named invariants. Row order may not provide runtime precedence; IDs do. The migrated CSV seeds use explicit IDs assigned once in their prior row order and interpret all velocity and acceleration numbers in the units above. They do not multiply values by 400 to imitate the prototype's per-tick displacement accident.
 
@@ -428,7 +461,9 @@ These are seams in the pure-function and phase boundaries, not plugin registries
 * **Mitigation:** One stated invariant covers both points: each leaves the grid equal to a phase 6 rebuild over the roster it produced, and the commit's fixed internal order puts removal before the rebuild and the rebuild before publication. The despawn fixture row asserts that equality against the exhaustive all-pairs reference.
 * **Negative:** Sequential multi-contact response is ID-order-dependent and may not preserve geometric symmetry for piles.
 * **Mitigation:** Accept the deterministic artifact for the current moving-disc game; require a versioned simultaneous-contact amendment when gameplay demonstrates the need.
-* **Negative:** Discrete player-pair detection permits tunneling between committed positions.
+* **Bounded limitation (Step 16):** Continuous pair/wall detection removes discrete between-tick
+  tunneling for admitted representable sweeps. Precision loss and resource exhaustion fail the
+  whole tick explicitly; no exact-real or unbounded-work claim is made.
 * **Mitigation:** Keep fixture speeds/radii/timestep within the discrete model's needs and pin the limitation with a high-speed crossing fixture; adopt swept collision only through the documented amendment path.
 * **Negative:** Fixing the quantum at 400 Hz couples physics behavior, fixture horizons, and now every gameplay duration to that rate: a countdown, a restart delay, and every duration a mode declares are integer tick counts converted once at load (ADR 0004 § "Determinism obligations for framework code"), so a match's felt pacing is expressed in ticks rather than seconds.
 * **Mitigation:** Keep wall-clock scheduling and presentation cadence outside simulation; supersede this ADR deliberately if measured Linux cost or gameplay requirements demand another quantum. A superseding quantum regenerates every mode's tick counts alongside fixture horizons; both follow from configuration and this contract, neither from a clock.
@@ -630,3 +665,20 @@ survives declaration, join, leave, and publication. The selection catalogue is a
 not a policy callback; runtime checks SeatNpc membership before mailbox insertion. No command
 kind, existing relative application rank, kernel phase, or policy socket changes. All accepted
 unprofiled physics/replay values and command sequences remain subject to the unchanged fixture gates.
+
+## Amended 2026-09-11: Live continuous motion (Step 16)
+
+The owner accepted Step 5 and approved preserving oversized benchmark layouts as explicit
+grid-only diagnostics. Canonical tick phases 2–5, player-pair policy, wall policy, body legality,
+and the tunneling consequence above now adopt the reviewed solver. Historical discrete
+equivalence claims in earlier dated amendments are historical, not a second live path.
+One body-envelope validator governs solver, factory, endpoint grid, and final survivors;
+grid invalidation includes effective radius. At most 256 physical bodies (including statics)
+enter or survive the live kernel. Lower-only test limits and all solver work/storage ceilings
+fail visibly and roll back the whole tick; standalone spatial-grid diagnostics keep their
+existing larger capacity. No performance certification follows from these correctness limits.
+
+The exact integration boundary and pure-move prerequisites are recorded in
+[`2026-09-11-live-motion-integration-contract.md`](../reviews/2026-09-11-live-motion-integration-contract.md)
+and [`2026-09-11-live-motion-prerequisite-review.md`](../reviews/2026-09-11-live-motion-prerequisite-review.md).
+Production support/race triggers and guarded pair composition remain Steps 17 and 18.

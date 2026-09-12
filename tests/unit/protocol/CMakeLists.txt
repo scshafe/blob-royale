@@ -1,5 +1,6 @@
 add_executable(blob_protocol_unit_tests
   command_decoding_tests.cpp
+  contact_effect_admission_encoding_tests.cpp
   http_error_tests.cpp
   movement_tuning_wire_result_tests.cpp
   movement_tuning_encoding_tests.cpp

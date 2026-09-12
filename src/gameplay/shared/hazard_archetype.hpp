@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_GAMEPLAY_SHARED_HAZARD_ARCHETYPE_HPP
 #define BLOB_ROYALE_GAMEPLAY_SHARED_HAZARD_ARCHETYPE_HPP
 
+#include "motion_contact_observation.hpp"
 #include "simulation_limits.hpp"
 
 #include <cstddef>
@@ -87,6 +88,10 @@ public:
     // select rather than carrying a bare adjective, so a reader of the configuration knows which
     // rule a `true` here turns on.
     bool lethal_on_contact;
+    // Required in authored configuration. Programmatic declarations without an override retain
+    // the historical impact-only default; one created instance may override it.
+    simulation::ContactEffectPolicy contact_effect_policy =
+        simulation::ContactEffectPolicy::kClosingImpact;
 
     friend bool operator==(const Section&, const Section&) = default;
   };
@@ -127,12 +132,16 @@ public:
   }
   // Whether contact with a player eliminates that player.
   [[nodiscard]] bool lethal_on_contact() const noexcept { return lethal_on_contact_; }
+  [[nodiscard]] simulation::ContactEffectPolicy contact_effect_policy() const noexcept {
+    return contact_effect_policy_;
+  }
 
   friend bool operator==(const HazardArchetype&, const HazardArchetype&) = default;
 
 private:
   HazardArchetype(std::string kind_name, double radius, double mass, double restitution,
-                  double speed, std::uint64_t spawn_interval_ticks, bool lethal_on_contact);
+                  double speed, std::uint64_t spawn_interval_ticks, bool lethal_on_contact,
+                  simulation::ContactEffectPolicy contact_effect_policy);
 
   std::string kind_name_;
   double radius_;
@@ -141,6 +150,7 @@ private:
   double speed_;
   std::uint64_t spawn_interval_ticks_;
   bool lethal_on_contact_;
+  simulation::ContactEffectPolicy contact_effect_policy_;
 };
 
 } // namespace blob_royale::gameplay

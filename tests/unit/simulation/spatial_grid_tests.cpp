@@ -254,17 +254,17 @@ TEST_CASE("SpatialGrid candidate order and membership are stable across shuffled
         std::vector<simulation::EntityId::Value>{1, 2, 3, 4});
 }
 
-TEST_CASE("SpatialGrid rejects player centers that cannot contain the configured disc",
+TEST_CASE("SpatialGrid admits initial wall overlap and rejects centers outside the envelope",
           "[unit][simulation][spatial_grid]") {
   const simulation::SimulationConfig configuration = grid_configuration(100.0, 100.0, 5.0, 4, 4);
 
+  CHECK_NOTHROW(simulation::SpatialGrid::create(
+      configuration, simulation::GameWorld::create({stationary_player(1, 4.99, 50.0)})));
+  CHECK_NOTHROW(simulation::SpatialGrid::create(
+      configuration, simulation::GameWorld::create({stationary_player(1, 50.0, 95.01)})));
   CHECK_THROWS_AS(
       simulation::SpatialGrid::create(
-          configuration, simulation::GameWorld::create({stationary_player(1, 4.99, 50.0)})),
-      simulation::SimulationValidationError);
-  CHECK_THROWS_AS(
-      simulation::SpatialGrid::create(
-          configuration, simulation::GameWorld::create({stationary_player(1, 50.0, 95.01)})),
+          configuration, simulation::GameWorld::create({stationary_player(1, -0.01, 50.0)})),
       simulation::SimulationValidationError);
 }
 

@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_COMPONENT_REGISTRY_HPP
 
 #include "component_list.hpp"
+#include "components/contact_effect_admission_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
@@ -52,9 +53,10 @@ namespace blob_royale::simulation {
 // two headers and this one line (`components/hill_component.hpp`). `RaceProgress` is race's
 // ordered gate counter, retained while its racer awaits a body
 // (`components/race_progress_component.hpp`).
-using ComponentRegistry = ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone,
-                                        ZoneExposure, LethalOnContact, RespawnTimer, Hill,
-                                        HillPresence, RaceProgress, HillMotion, Stun>;
+using ComponentRegistry =
+    ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
+                  LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun,
+                  ContactEffectAdmission>;
 
 } // namespace blob_royale::simulation
 

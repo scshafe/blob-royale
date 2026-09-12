@@ -190,7 +190,7 @@ TEST_CASE("a hazard cannot eliminate a wall or the zone entity",
   CHECK_FALSE(table.first_match(world, entity(1), entity(3)).has_value());
 }
 
-TEST_CASE("lethal_hazard eliminates the player and leaves both bodies untouched",
+TEST_CASE("eligible lethal_hazard terminates the player and preserves both stored body values",
           "[unit][gameplay][shared][lethal_hazard]") {
   const simulation::GameWorld world = player_then_hazard_world();
   const testing::TickHarness harness{simulation::TickSequence::create(7)};
@@ -205,13 +205,16 @@ TEST_CASE("lethal_hazard eliminates the player and leaves both bodies untouched"
       hazard, player, simulation::pair_contact_distance(hazard, player, 10.0));
 
   const simulation::ContactResponse response =
-      gameplay::lethal_hazard_response(hazard_subject, player_subject, contact, harness.context());
+      gameplay::lethal_hazard_response(world, hazard_subject, player_subject,
+                                       {contact, std::nullopt, true, false}, harness.context());
 
   REQUIRE(response.replaces_bodies());
   // The hazard keeps travelling: a comet that staggered off what it killed would read as a bug to
   // anyone watching, and the player's velocity is about to stop existing.
   CHECK(response.first_body() == hazard);
   CHECK(response.second_body() == player);
+  CHECK(response.first_result().disposition == simulation::MotionDisposition::kContinue);
+  CHECK(response.second_result().disposition == simulation::MotionDisposition::kTerminate);
 
   const std::vector<simulation::WorldEvent> events{response.events().begin(),
                                                    response.events().end()};
@@ -238,10 +241,11 @@ TEST_CASE("lethal_hazard eliminates during the zone grace period",
   const simulation::PhysicsBody hazard = hazard_body(130.0, 100.0);
   const simulation::PhysicsBody player = player_body(100.0, 100.0);
   const simulation::ContactResponse response = gameplay::lethal_hazard_response(
-      simulation::ContactRule::Subject{entity(2), hazard},
+      world, simulation::ContactRule::Subject{entity(2), hazard},
       simulation::ContactRule::Subject{entity(1), player},
-      simulation::detect_pair_contact(hazard, player,
-                                      simulation::pair_contact_distance(hazard, player, 10.0)),
+      {simulation::detect_pair_contact(hazard, player,
+                                       simulation::pair_contact_distance(hazard, player, 10.0)),
+       std::nullopt, true, false},
       harness.context());
 
   // Lethality and the zone are two different rules with two different causes. A grace period on
@@ -251,6 +255,28 @@ TEST_CASE("lethal_hazard eliminates during the zone grace period",
                                                    response.events().end()};
   CHECK(elimination_count(events) == 1);
   CHECK(world.store<simulation::ZoneExposure>().find(entity(1))->outside_ticks == 0);
+}
+
+TEST_CASE("lethal hazard eligibility belongs to the hazard source not the recipient player",
+          "[unit][gameplay][shared][lethal_hazard][contact_effect_policy]") {
+  const auto world = player_then_hazard_world();
+  const testing::TickHarness harness{simulation::TickSequence::create(7)};
+  const auto hazard = hazard_body(130, 100);
+  const auto player = player_body(100, 100);
+  const auto contact = simulation::detect_pair_contact(
+      hazard, player, simulation::pair_contact_distance(hazard, player, 10));
+  const auto declined =
+      gameplay::lethal_hazard_response(world, {entity(2), hazard}, {entity(1), player},
+                                       {contact, std::nullopt, false, true}, harness.context());
+  CHECK_FALSE(declined.replaces_bodies());
+  CHECK(declined.events().empty());
+  const auto admitted =
+      gameplay::lethal_hazard_response(world, {entity(2), hazard}, {entity(1), player},
+                                       {contact, std::nullopt, true, false}, harness.context());
+  REQUIRE(admitted.replaces_bodies());
+  CHECK(admitted.first_result().disposition == simulation::MotionDisposition::kContinue);
+  CHECK(admitted.second_result().disposition == simulation::MotionDisposition::kTerminate);
+  CHECK(admitted.events().size() == 2);
 }
 
 TEST_CASE("lethal_hazard matches only while the match is running",

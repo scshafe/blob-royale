@@ -32,6 +32,7 @@ add_executable(blob_gameplay_unit_tests
   royale/zone_shrink_system_tests.cpp
   sandbox/sandbox_mode_tests.cpp
   shared/disc_geometry_tests.cpp
+  shared/create_crossing_hazard_tests.cpp
   shared/duration_ticks_tests.cpp
   shared/guarded_pair_contact_tests.cpp
   shared/hazard_archetype_tests.cpp

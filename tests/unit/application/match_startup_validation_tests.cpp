@@ -45,11 +45,13 @@ constexpr double kArenaHeight = 640.0;
 }
 
 [[nodiscard]] simulation::MapDefinition map_with_static_bodies(const std::size_t body_count) {
-  std::vector<simulation::PhysicsBody> static_bodies;
+  std::vector<simulation::StaticBodyDeclaration> static_bodies;
   static_bodies.reserve(body_count);
   for (std::size_t index = 0; index < body_count; ++index) {
-    static_bodies.push_back(simulation::PhysicsBody::create_static(
-        simulation::Vector2::create(static_cast<double>(index % 900) + 1.0, 1.0)));
+    static_bodies.push_back(simulation::StaticBodyDeclaration::create(
+        simulation::PhysicsBody::create_static(
+            simulation::Vector2::create(static_cast<double>(index % 900) + 1.0, 1.0)),
+        simulation::ContactEffectPolicy::kClosingImpact));
   }
   return simulation::MapDefinition::create(
       "budget-arena", simulation::ArenaBounds::create(kArenaWidth, kArenaHeight),

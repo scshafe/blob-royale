@@ -88,8 +88,9 @@ inline constexpr std::string_view kLethalHazardContactRuleName = "lethal_hazard"
 // row's name so a diagnostic can see which rule fired. `first` is the hazard and `second` the
 // player, which is the row orientation the predicates above fix.
 [[nodiscard]] simulation::ContactResponse lethal_hazard_response(
-    const simulation::ContactRule::Subject& first, const simulation::ContactRule::Subject& second,
-    const simulation::PlayerPairContact& contact, const simulation::TickContext& context);
+    const simulation::GameWorld& world, const simulation::ContactRule::Subject& first,
+    const simulation::ContactRule::Subject& second,
+    const simulation::PairContactObservation& observation, const simulation::TickContext& context);
 
 // The complete row, so a mode declares it by name rather than by re-pairing the three parts and
 // risking a predicate in the wrong position.

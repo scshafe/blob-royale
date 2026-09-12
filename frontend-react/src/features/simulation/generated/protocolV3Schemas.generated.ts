@@ -306,6 +306,7 @@ export const protocolV3Schemas = {
       component_kind: {
         type: 'string',
         enum: [
+          'contact_effect_admission',
           'controllable',
           'hill',
           'hill_motion',
@@ -504,6 +505,25 @@ export const protocolV3Schemas = {
       },
     },
   },
+  contactEffectAdmissionComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/contact-effect-admission-component.schema.json',
+    title: 'Blob Royale protocol v3 contact effect admission component',
+    description:
+      'Body-bound nondefault source-object effect admission. any_touch includes certified grazes and stationary/overlapping contact; physical impulses still require a closing impact. Absence of this component means closing_impact. This does not change collision masks or make cliff support loss a body-rim contact.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['policy'],
+    properties: {
+      policy: {
+        type: 'string',
+        const: 'any_touch',
+      },
+    },
+    $comment:
+      'Added with live per-object admission in plan Step 16 under protocol 3.0. closing_impact is deliberately not a stored or transmitted component value; it is represented by absence.',
+  },
   controllableComponent: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/controllable-component.schema.json',
@@ -551,7 +571,13 @@ export const protocolV3Schemas = {
         type: 'object',
         additionalProperties: false,
         minProperties: 1,
+        dependentRequired: {
+          contact_effect_admission: ['physics_body'],
+        },
         properties: {
+          contact_effect_admission: {
+            $ref: 'contact-effect-admission-component.schema.json',
+          },
           controllable: {
             $ref: 'controllable-component.schema.json',
           },
@@ -596,7 +622,7 @@ export const protocolV3Schemas = {
           },
         },
         $comment:
-          '@extension-point snapshot_component_kind -- a new component kind adds one property here, one <kind>-component.schema.json file, and one enum member in common.schema.json#/$defs/component_kind, and is a protocol minor version. additionalProperties is false so a 2.0 decoder fails closed on a kind it does not know rather than rendering an incomplete world.',
+          '@extension-point snapshot_component_kind -- a new component kind adds one property here, one <kind>-component.schema.json file, and one enum member in common.schema.json#/$defs/component_kind. The coordinated development steps remain under 3.0; additions after release require a minor version. additionalProperties is false so decoders fail closed on unknown kinds rather than rendering an incomplete world.',
       },
     },
   },

@@ -148,9 +148,12 @@ private:
 };
 
 enum class Layout { kSparse, kClustered };
+enum class ScenarioCategory { kLiveKernel, kSpatialGridOnly };
 
 struct Scenario final {
   std::string_view name;
+  ScenarioCategory category;
+  std::string_view historical_name;
   std::size_t player_count;
   Layout layout;
   double world_width;
@@ -989,7 +992,8 @@ private:
   reference_configuration.emplace("source_commit_scope", "configuration_only");
   reference_configuration.emplace(
       "schema_migration",
-      "2026-09-10_race_width_to_named_road;2026-09-11_shared_movement_400_10000");
+      "2026-09-10_race_width_to_named_road;2026-09-11_shared_movement_400_10000;"
+      "2026-09-11_contact_effect_policy_closing_impact");
   reference_configuration.emplace("measured_royale_inputs_unchanged", true);
   reference_configuration.emplace("map_source", "current_repository_maps");
   reference_configuration.emplace("maps_directory", inputs.maps_directory.string());
@@ -1019,6 +1023,9 @@ private:
 
   json::object result;
   result.emplace("name", kRoyaleCaseName);
+  result.emplace("category", "live_gameplay");
+  result.emplace("implementation_boundary",
+                 "GameSimulation continuous live kernel with royale gameplay");
   result.emplace("player_count", kRoyaleSeatCount);
   result.emplace("historical_reference", std::move(reference_configuration));
   result.emplace("correctness", std::move(correctness));
@@ -1269,36 +1276,88 @@ void run_warmup(const Scenario& scenario, const WorldSnapshot& reference_snapsho
 }
 
 [[nodiscard]] json::object benchmark_scenario(const Scenario& scenario) {
-  const WorldSnapshot reference_snapshot = run_to_final_snapshot(scenario);
-  require(reference_snapshot.tick_sequence().value() == scenario.ticks_per_sample,
-          "BENCHMARK.REFERENCE_TICK_MISMATCH", "reference simulation ended at the wrong tick");
-  require(reference_snapshot.players().size() == scenario.player_count,
-          "BENCHMARK.REFERENCE_PLAYER_COUNT_MISMATCH",
-          "reference simulation ended with the wrong player count");
-  const std::string final_snapshot_hash = snapshot_hash(reference_snapshot);
-  require(snapshot_hash(run_to_final_snapshot(scenario)) == final_snapshot_hash,
-          "BENCHMARK.REFERENCE_SNAPSHOT_HASH_MISMATCH",
-          "independent untimed simulations produced different final snapshots");
-
   const SimulationConfig configuration = make_configuration(scenario);
   const GameWorld world = make_world(scenario);
   const SpatialGrid reference_grid = SpatialGrid::create(configuration, world);
   const std::size_t candidate_pair_count = reference_grid.candidate_pairs().size();
   const std::string expected_candidate_hash = candidate_pair_hash(reference_grid);
 
-  const protocol::RequestId request_id = protocol::RequestId::create("benchmark-request");
-  const std::string reference_encoding =
-      protocol::encode_snapshot_message(reference_snapshot, request_id, 1U, kProtocolTimestamp);
-  const std::string expected_encoding_hash = byte_string_hash(reference_encoding);
-
-  run_warmup(scenario, reference_snapshot);
-
-  const Measurement simulation_steps = measure_simulation_steps(scenario, final_snapshot_hash);
-  const Measurement grid_rebuilds =
-      measure_grid_rebuilds(scenario, candidate_pair_count, expected_candidate_hash);
-  const Measurement snapshots = measure_snapshot_creation(scenario, final_snapshot_hash);
-  const Measurement encodings = measure_json_encoding(
-      scenario, reference_snapshot, expected_encoding_hash, reference_encoding.size());
+  json::object correctness;
+  json::object measurements;
+  json::object result;
+  // Categories are authored, not a population-dependent fallback. Oversized historical cases
+  // retain only the original grid operation; no final simulation snapshot is manufactured.
+  switch (scenario.category) {
+  case ScenarioCategory::kLiveKernel: {
+    const WorldSnapshot reference_snapshot = run_to_final_snapshot(scenario);
+    require(reference_snapshot.tick_sequence().value() == scenario.ticks_per_sample,
+            "BENCHMARK.REFERENCE_TICK_MISMATCH", "reference simulation ended at the wrong tick");
+    require(reference_snapshot.players().size() == scenario.player_count,
+            "BENCHMARK.REFERENCE_PLAYER_COUNT_MISMATCH",
+            "reference simulation ended with the wrong player count");
+    const std::string final_snapshot_hash = snapshot_hash(reference_snapshot);
+    require(snapshot_hash(run_to_final_snapshot(scenario)) == final_snapshot_hash,
+            "BENCHMARK.REFERENCE_SNAPSHOT_HASH_MISMATCH",
+            "independent untimed simulations produced different final snapshots");
+    const protocol::RequestId request_id = protocol::RequestId::create("benchmark-request");
+    const std::string reference_encoding =
+        protocol::encode_snapshot_message(reference_snapshot, request_id, 1U, kProtocolTimestamp);
+    const std::string expected_encoding_hash = byte_string_hash(reference_encoding);
+    run_warmup(scenario, reference_snapshot);
+    const Measurement simulation_steps = measure_simulation_steps(scenario, final_snapshot_hash);
+    const Measurement grid_rebuilds =
+        measure_grid_rebuilds(scenario, candidate_pair_count, expected_candidate_hash);
+    const Measurement snapshots = measure_snapshot_creation(scenario, final_snapshot_hash);
+    const Measurement encodings = measure_json_encoding(
+        scenario, reference_snapshot, expected_encoding_hash, reference_encoding.size());
+    correctness.emplace("expected_final_tick_sequence", scenario.ticks_per_sample);
+    correctness.emplace("expected_player_count", scenario.player_count);
+    correctness.emplace("final_snapshot_hash", final_snapshot_hash);
+    correctness.emplace("encoded_snapshot_hash", expected_encoding_hash);
+    correctness.emplace("encoded_snapshot_byte_count", reference_encoding.size());
+    measurements.emplace("simulation_step", encode_measurement(simulation_steps));
+    measurements.emplace("grid_rebuild_and_candidate_pair_generation",
+                         encode_measurement(grid_rebuilds));
+    measurements.emplace("snapshot_creation", encode_measurement(snapshots));
+    measurements.emplace("json_encoding", encode_measurement(encodings));
+    result.emplace("category", "live_kernel");
+    result.emplace("implementation_boundary", "GameSimulation continuous live kernel; empty input");
+    break;
+  }
+  case ScenarioCategory::kSpatialGridOnly: {
+    require(!scenario.historical_name.empty(), "BENCHMARK.GRID_PROVENANCE_MISSING",
+            "grid-only diagnostics must name their original historical workload");
+    require(world.store<simulation::PhysicsBody>().size() == scenario.player_count,
+            "BENCHMARK.REFERENCE_PLAYER_COUNT_MISMATCH",
+            "grid-only reference must retain the entire historical body population");
+    for (std::size_t warmup = 0; warmup < kWarmupRunCount; ++warmup) {
+      static_cast<void>(reference_grid.rebuilt(world));
+    }
+    const Measurement grid_rebuilds =
+        measure_grid_rebuilds(scenario, candidate_pair_count, expected_candidate_hash);
+    correctness.emplace("expected_body_count", scenario.player_count);
+    measurements.emplace("grid_rebuild_and_candidate_pair_generation",
+                         encode_measurement(grid_rebuilds));
+    json::object historical;
+    historical.emplace("case_name", scenario.historical_name);
+    historical.emplace("retired_measurements",
+                       json::array{"simulation_step", "snapshot_creation", "json_encoding"});
+    historical.emplace("retirement_reason", "historical_body_count_exceeds_live_motion_limit");
+    historical.emplace("live_motion_body_limit", simulation::kMaximumMotionBodyCount);
+    historical.emplace("retired_ticks_per_sample", scenario.ticks_per_sample);
+    historical.emplace("retired_snapshots_per_sample", scenario.snapshots_per_sample);
+    historical.emplace("retired_encodings_per_sample", scenario.encodings_per_sample);
+    result.emplace("historical_reference", std::move(historical));
+    result.emplace("category", "spatial_grid_only");
+    result.emplace(
+        "implementation_boundary",
+        "SpatialGrid create/rebuilt over unchanged historical initial world; no stepping");
+    break;
+  }
+  default:
+    throw BenchmarkError("BENCHMARK.SCENARIO_CATEGORY_INVALID",
+                         "unknown benchmark workload category");
+  }
 
   json::object geometry;
   geometry.emplace("world_width", scenario.world_width);
@@ -1314,22 +1373,7 @@ void run_warmup(const Scenario& scenario, const WorldSnapshot& reference_snapsho
                                               (scenario.world_width * scenario.world_height));
   density.emplace("initial_candidate_pair_count", candidate_pair_count);
 
-  json::object correctness;
-  correctness.emplace("expected_final_tick_sequence", scenario.ticks_per_sample);
-  correctness.emplace("expected_player_count", scenario.player_count);
-  correctness.emplace("final_snapshot_hash", final_snapshot_hash);
   correctness.emplace("initial_candidate_pair_hash", expected_candidate_hash);
-  correctness.emplace("encoded_snapshot_hash", expected_encoding_hash);
-  correctness.emplace("encoded_snapshot_byte_count", reference_encoding.size());
-
-  json::object measurements;
-  measurements.emplace("simulation_step", encode_measurement(simulation_steps));
-  measurements.emplace("grid_rebuild_and_candidate_pair_generation",
-                       encode_measurement(grid_rebuilds));
-  measurements.emplace("snapshot_creation", encode_measurement(snapshots));
-  measurements.emplace("json_encoding", encode_measurement(encodings));
-
-  json::object result;
   result.emplace("name", scenario.name);
   result.emplace("player_count", scenario.player_count);
   result.emplace("geometry", std::move(geometry));
@@ -1761,8 +1805,9 @@ validate_motion_prototype_result(const MotionPrototypeCase& inputs,
 
   json::object result;
   result.emplace("name", inputs.name);
+  result.emplace("category", "pure_motion_solver");
   result.emplace("implementation_boundary",
-                 "pure continuous-motion prototype; live kernel remains unwired");
+                 "direct continuous-motion solve; excludes live intake, lifecycle and publication");
   result.emplace("comparison_class", "advisory");
   result.emplace("native_capacity_certified", false);
   result.emplace("workload_definition", std::move(definition));
@@ -1821,6 +1866,8 @@ validate_motion_prototype_result(const MotionPrototypeCase& inputs,
 [[nodiscard]] json::object run_benchmarks(const RoyaleCaseInputs& royale_inputs) {
   constexpr Scenario scenarios[] = {
       {.name = "sparse_64",
+       .category = ScenarioCategory::kLiveKernel,
+       .historical_name = "",
        .player_count = 64,
        .layout = Layout::kSparse,
        .world_width = 2048.0,
@@ -1832,7 +1879,9 @@ validate_motion_prototype_result(const MotionPrototypeCase& inputs,
        .grid_rebuilds_per_sample = 200,
        .snapshots_per_sample = 500,
        .encodings_per_sample = 100},
-      {.name = "sparse_512",
+      {.name = "spatial_grid_sparse_512",
+       .category = ScenarioCategory::kSpatialGridOnly,
+       .historical_name = "sparse_512",
        .player_count = 512,
        .layout = Layout::kSparse,
        .world_width = 4096.0,
@@ -1844,7 +1893,9 @@ validate_motion_prototype_result(const MotionPrototypeCase& inputs,
        .grid_rebuilds_per_sample = 50,
        .snapshots_per_sample = 100,
        .encodings_per_sample = 20},
-      {.name = "sparse_2048",
+      {.name = "spatial_grid_sparse_2048",
+       .category = ScenarioCategory::kSpatialGridOnly,
+       .historical_name = "sparse_2048",
        .player_count = 2048,
        .layout = Layout::kSparse,
        .world_width = 8192.0,
@@ -1856,7 +1907,9 @@ validate_motion_prototype_result(const MotionPrototypeCase& inputs,
        .grid_rebuilds_per_sample = 20,
        .snapshots_per_sample = 25,
        .encodings_per_sample = 5},
-      {.name = "clustered_512",
+      {.name = "spatial_grid_clustered_512",
+       .category = ScenarioCategory::kSpatialGridOnly,
+       .historical_name = "clustered_512",
        .player_count = 512,
        .layout = Layout::kClustered,
        .world_width = 512.0,

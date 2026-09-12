@@ -27,21 +27,22 @@ bool body_is_player_driven(const simulation::GameWorld& world, const simulation:
   return world.store<simulation::Controllable>().find(entity) != nullptr;
 }
 
-simulation::ContactResponse lethal_hazard_response(const simulation::ContactRule::Subject& first,
-                                                   const simulation::ContactRule::Subject& second,
-                                                   const simulation::PlayerPairContact& contact,
-                                                   const simulation::TickContext&) {
-  // Both bodies verbatim: the hazard keeps its course and the player keeps the velocity it had.
-  // Neither is `unchanged()`, which emits no events, and this row's whole purpose is its event.
-  //
-  // `second` is the player, fixed by the row's predicates: the first predicate is the hazard marker
-  // and the second is the driver, so whichever orientation matched, the kernel presents the
-  // arguments in row order and this function never has to ask which side it is holding.
+simulation::ContactResponse
+lethal_hazard_response(const simulation::GameWorld&, const simulation::ContactRule::Subject& first,
+                       const simulation::ContactRule::Subject& second,
+                       const simulation::PairContactObservation& observation,
+                       const simulation::TickContext&) {
+  // Eligibility belongs to the source hazard, never the recipient player's policy. First-match
+  // semantics still apply when this row declines. Death ends the player's remaining motion now;
+  // the existing elimination consumer applies its world changes after the pure solve succeeds.
+  if (!observation.first_effect_eligible) {
+    return simulation::ContactResponse::unchanged();
+  }
   return simulation::ContactResponse::create(
-      first.body, second.body,
+      {first.body}, {second.body, simulation::MotionDisposition::kTerminate},
       {simulation::WorldEvent{simulation::EliminationEvent{second.entity}},
        simulation::WorldEvent{simulation::contact_event_of(
-           first, second, contact,
+           first, second, observation.touch,
            simulation::ContactRuleName::create(kLethalHazardContactRuleName))}});
 }
 

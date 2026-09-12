@@ -1,4 +1,5 @@
 #include "spatial_grid.hpp"
+#include "motion_body_envelope.hpp"
 
 #include "component_store.hpp"
 #include "physics_body.hpp"
@@ -98,22 +99,23 @@ void validate_cell_extent(const double world_extent, const std::size_t cell_coun
   return first - 1;
 }
 
-// A body's coverage over the map's arena. A dynamic body's centre must keep its complete closed
-// disc inside the arena, which is the interval phase 4 folds into; a static body's centre need only
-// lie inside the closed rectangle, because a wall legitimately sits on the edge. Both are indexed,
-// because `reflect_static` cannot see a wall the broad phase did not offer it.
+// A body's coverage over the map's arena. Admission uses the canonical motion-envelope guard:
+// static centers must lie in the closed rectangle (including static bodies marked crossing);
+// dynamic folding centers also lie in that rectangle, their effective diameter must fit, and a
+// zero-span axis requires zero velocity. An initially wall-overlapping disc is legal and is not
+// snapped into the radius inset. Both static and dynamic bodies are indexed.
 //
-// **A crossing body is exempt from the interval and is still indexed, clamped to the edge cells it
-// is nearest.** The grid has no cell for a point outside the arena, so the choice is between
-// leaving such a body out of the index while it is outside and clamping its coverage. Clamping is
-// taken, and the reason is the broad-phase guarantee itself: ADR 0003 § "Spatial-grid policy and
-// partition boundaries" requires the index to be a *superset* of the pairs whose committed discs
-// can touch, and a hazard whose centre is one step outside the wall has a disc that already
-// overlaps a blob just inside it. An absent body would make that a missed contact rather than a
-// deferred one, which is a hole in the narrow phase's input and not merely a scheduling delay.
-// The clamps below already produce this: a coverage box that lies entirely outside collapses to the
-// edge row or column on that side, and one that straddles the edge keeps its interior part, so two
-// nearby bodies land in a shared cell whether they are inside, outside, or one of each.
+// **A dynamic crossing body is exempt from the envelope and is still indexed, clamped to the edge
+// cells it is nearest.** The grid has no cell for a point outside the arena, so the choice is
+// between leaving such a body out of the index while it is outside and clamping its coverage.
+// Clamping is taken, and the reason is the broad-phase guarantee itself: ADR 0003 § "Spatial-grid
+// policy and partition boundaries" requires the index to be a *superset* of the pairs whose
+// committed discs can touch, and a hazard whose centre is one step outside the wall has a disc that
+// already overlaps a blob just inside it. An absent body would make that a missed contact rather
+// than a deferred one, which is a hole in the narrow phase's input and not merely a scheduling
+// delay. The clamps below already produce this: a coverage box that lies entirely outside collapses
+// to the edge row or column on that side, and one that straddles the edge keeps its interior part,
+// so two nearby bodies land in a shared cell whether they are inside, outside, or one of each.
 //
 // **What it costs.** A body far outside the arena is a member of the edge cells it clamps to, so it
 // is offered as a candidate against everything else in those cells and counts against the
@@ -121,51 +123,27 @@ void validate_cell_extent(const double world_extent, const std::size_t cell_coun
 // those pairs on distance. That is bounded work proportional to the edge cells' population and it
 // buys back the superset guarantee; the alternative bought a little work and sold a contact.
 //
-// **The coverage box is sized from the body's own radius, and the bounds rule is not.** The two ask
-// different questions and take different radii on purpose.
-//
-// *Coverage* answers "which cells can this disc touch something in", and ADR 0003
-// § "Spatial-grid policy and partition boundaries" requires the result to be a **superset** of the
-// pairs whose committed discs can touch. Covering a twenty-six unit body as if it were the twelve
-// unit configured radius is not a superset: the pair is never offered at separations where the
-// discs genuinely overlap, so the contact is not deferred to a later tick, it never happens. That
-// is the silent miss the ADR's "replacing the grid with an exhaustive all-pairs broad phase must
-// produce the same canonical pair list" clause exists to catch, and it is a correctness bug rather
-// than a cost.
-//
-// *The bounds rule* answers "may this body's centre be committed here", which is the
-// `[r, extent - r]` interval of § "Wall policy" that phase 4 folds into. It stays on the configured
-// radius, because giving it a per-body radius would change where every existing body may stand and
-// would regenerate every accepted wall fixture -- the growing-blob change, and a versioned physics
-// amendment.
-//
-// **This is an addition, and the proof is arithmetic.** Every body that exists today has an
-// effective radius equal to the configured one -- either it declares that radius or it declares
-// none and `effective_radius` defers to it -- so `coverage_radius` is
-// `configuration.player_radius()` and every box, every padding, and every membership is the value
-// it always was, bit for bit. What changes is only a body that declares a *different* radius, which
-// nothing did before this.
+// Coverage and folding-envelope fit both use the declared radius, falling back to the configured
+// radius only when it is undeclared. Coverage answers which cells the complete disc can touch;
+// admission asks whether its center and effective diameter form a legal motion envelope. They do
+// not impose the same positional interval. The conservative coverage/padding arithmetic below is
+// unchanged by the Step 16 promotion of the previously proved admission guard.
 [[nodiscard]] CellCoverage body_coverage(const SimulationConfig& configuration,
                                          const ArenaBounds& bounds,
                                          const ComponentStore<PhysicsBody>::Entry& body_entry) {
   const Vector2& position = body_entry.value.position();
   const double configured_radius = configuration.player_radius();
   const double coverage_radius = effective_radius(body_entry.value, configured_radius);
-  if (body_entry.value.is_static()) {
-    if (!bounds.contains(position)) {
-      throw SimulationValidationError(
-          SimulationValidationCode::kSpatialGridStaticBodyOutOfBounds,
-          "spatial_grid.bodies[entity_id=" + std::to_string(body_entry.entity.value()) +
-              "].position",
-          "static body center must lie inside the closed arena rectangle");
-    }
-  } else if (!body_entry.value.crosses_bounds() &&
-             !bounds.contains_disc_center(position, configured_radius)) {
+  const auto violation =
+      motion_body_envelope_violation(body_entry.value, bounds, configured_radius);
+  if (violation) {
+    const bool is_static = *violation == MotionBodyEnvelopeViolation::kStaticOutsideEnvelope;
     throw SimulationValidationError(
-        SimulationValidationCode::kSpatialGridPlayerCenterOutOfBounds,
-        "spatial_grid.players[entity_id=" + std::to_string(body_entry.entity.value()) +
-            "].position",
-        "player center must keep the complete closed disc inside the world bounds");
+        is_static ? SimulationValidationCode::kSpatialGridStaticBodyOutOfBounds
+                  : SimulationValidationCode::kSpatialGridPlayerCenterOutOfBounds,
+        "spatial_grid.bodies[entity_id=" + std::to_string(body_entry.entity.value()) + "].position",
+        is_static ? "static body center must lie inside the closed arena rectangle"
+                  : "folding body must fit its motion envelope");
   }
 
   const double world_width = bounds.width();

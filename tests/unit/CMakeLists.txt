@@ -8,6 +8,7 @@ add_executable(blob_simulation_unit_tests
   simulation/component_lifetime_tests.cpp
   simulation/component_registry_tests.cpp
   simulation/component_store_tests.cpp
+  simulation/contact_effect_admission_tests.cpp
   simulation/contact_impulse_promotion_tests.cpp
   simulation/continuous_motion_tests.cpp
   simulation/swept_circle_topology_promotion_tests.cpp
@@ -15,6 +16,7 @@ add_executable(blob_simulation_unit_tests
   simulation/deterministic_random_tests.cpp
   simulation/entity_id_reservation_tests.cpp
   simulation/game_simulation_tests.cpp
+  simulation/game_simulation_motion_tests.cpp
   simulation/hill_motion_component_tests.cpp
   simulation/input_batch_tests.cpp
   simulation/input_generation_tests.cpp
@@ -23,6 +25,8 @@ add_executable(blob_simulation_unit_tests
   simulation/match_lifecycle_tests.cpp
   simulation/mode_states/race_mode_state_tests.cpp
   simulation/motion_event_order_tests.cpp
+  simulation/motion_body_envelope_tests.cpp
+  simulation/motion_trigger_table_tests.cpp
   simulation/movement_tuning_tests.cpp
   simulation/movement_tuning_command_tests.cpp
   simulation/npc_catalogue_tests.cpp
@@ -35,6 +39,7 @@ add_executable(blob_simulation_unit_tests
   simulation/spatial_grid_tests.cpp
   simulation/spawn_seating_tests.cpp
   simulation/spawn_system_tests.cpp
+  simulation/static_body_declaration_tests.cpp
   simulation/swept_geometry_tests.cpp
   simulation/terrain_definition_tests.cpp
   simulation/terrain_projection_promotion_tests.cpp

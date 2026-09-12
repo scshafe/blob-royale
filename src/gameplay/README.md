@@ -26,8 +26,9 @@ src/gameplay/
     locomotion.*               canonical normalization, scaling, and finite-step propulsion cap
     duration_ticks.*            the one conversion from an authored duration to tick counts
     hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
-    hazard_spawn_system.*       seats a crossing body per archetype whose interval is due
-    lethal_hazard_contact_rule.* touching a lethal hazard eliminates the player, while a match runs
+    hazard_spawn_system.*       schedules crossing births with pre-draw reservation/capacity checks
+    create_crossing_hazard.*    canonical birth, lifetime, marker, and per-instance effect policy
+    lethal_hazard_contact_rule.* admitted source effect terminates player motion and emits elimination
     lifetime_expiry_system.*    decrements `Lifetime` and despawns what runs out
     roster.hpp                  the two populations a rule reads: who is alive, who is playing
     lobby_start_rule.hpp        every seat filled and a start requested
@@ -38,7 +39,7 @@ src/gameplay/
     match_reset_system.*        the restart wipe of every participant, on the lobby tick after ended
   king_of_the_hill/             a touring or randomly roaming capture zone (ADRs 0007/0008)
     king_of_the_hill_configuration.*  the validated `[king_of_the_hill]` section, in the units systems read
-    king_of_the_hill_mode.*     the seven declarations
+    king_of_the_hill_mode.*     the eight declarations (motion triggers currently default empty)
     hill_geometry.*             where the hill is, as a pure function of the map's `hill` markers and one integer
     hill_roaming.*              deterministic heading/speed/retarget sampling and outer-axis cancellation
     hill_movement_system.*      creates the hill entity once and writes its `Hill` each tick
@@ -48,7 +49,7 @@ src/gameplay/
     king_of_the_hill_mode_state.hpp  the one answer to "what if the world holds another arm"
   race/                         an ordered course, checkpoint returns, and recorded finishes (ADR 0007)
     race_configuration.*        the validated `[race]` section
-    race_mode.*                 the seven declarations, binding the course before systems are built
+    race_mode.*                 the eight declarations (motion triggers currently default empty), binding the course before systems are built
     race_course.*               marker projection, validation, and point-to-centreline distance
     checkpoint_progress_system.*  advances at most one ordered gate per tick
     track_bounds_system.*       leaving the corridor emits an elimination
@@ -59,10 +60,10 @@ src/gameplay/
     course_publisher_system.*   immutable course and durations on every frame
     race_mode_state.hpp         the one answer to "what if the world holds another arm"
   sandbox/                      free play: thrust, bump, and nothing ever ends
-    sandbox_mode.*              the seven declarations
+    sandbox_mode.*              the eight declarations (motion triggers currently default empty)
     free_play_objective.hpp     always startable, never decided, zero durations
   royale/                       thrust and drag inside a shrinking zone, last blob standing
-    royale_mode.*               the seven declarations
+    royale_mode.*               the eight declarations (motion triggers currently default empty)
     royale_configuration.*      the validated `[royale]` section, in the units systems read
     zone_shrink_system.*        the zone's geometry, and the component it writes each tick
     zone_elimination_system.*   grace against the zone, and who is out
@@ -100,7 +101,8 @@ mode); `disc_geometry.hpp` (`zone_elimination`'s centre-outside-a-circle predica
 `spawn_point_probe.hpp` (the forward probe both spawn policies had written out); and
 `next_free_spawn_point_policy.hpp` (sandbox's open-field policy, which now also defers on the one
 `lobby` tick after `ended` so a restart wipe never destroys what the same tick seated -- a phase
-sandbox never reaches). Every royale fixture and the accepted baseline are unchanged by the five.
+sandbox never reaches). Those five historical promotions preserved their accepted royale fixtures
+and discrete baseline; that evidence is not a universal equivalence claim for Step 16's live solver.
 
 ## Adding a game
 
@@ -130,6 +132,14 @@ defaults-only overload a test or a diagnostic uses — is for.
 
 Four implementations are registered: `sandbox`, `royale`, `king_of_the_hill`, and `race`.
 
+`GameSimulation::create` reads all eight mode declarations once and destroys the mode. The new
+`motion_triggers()` declaration returns an independently owned `MotionTriggerTable`; its default
+is empty, which all current production modes inherit. Together with spawn policy and contact rules,
+it is the third kernel policy socket, not a fourth stage or a mode-owned event loop. Step 16 supplies
+injected support-capable trigger tests; production ground attachment, falling, and chronological
+race triggers remain Step 17. Shield/parry composition and its production stun requests remain
+Step 18. No current mode acquires those mechanics merely by inheriting the declaration.
+
 Hill motion is selected through the existing `HillMovementSystem`, not a second scoring path.
 `marker_tour` keeps its original arithmetic and zero hill-stream draws. `random_roam` commits
 `HillMotion` velocity and a private schedule; its pure sampler reads only the world's named hill
@@ -147,7 +157,7 @@ configuration for each server workload. A new required section must reach that b
 ## `sandbox`
 
 Free play. It accepts `spawn`, `despawn`, and `thrust`; seats every joiner at the next free spawn
-point in every phase; uses the engine's two built-in contact rows unchanged; declares one
+point in every phase; uses the engine's three built-in contact rows; declares one
 `kPreKernel` system, `thrust_steering`; and never leaves `running` because its objective can always
 start and is never decided. It contributes no component kind, no contact rule, no world event, no
 mode-state block, or `kLifecycle` system. The shared `status` system is its sole PostKernel
@@ -168,7 +178,7 @@ nowhere to seat a joiner would silently defer every spawn command forever.
 
 **A hazard kind is a configuration section and no C++ at all.** `hazard_archetype.hpp` is the
 validated form of one `[hazard.<kind>]` section — radius, mass, restitution, speed, spawn interval,
-and lethality — and the *kind name is the section's own instance name*, so nothing in `src/` names a
+lethality, and required `contact_effect_policy` — and the *kind name is the section's own instance name*, so nothing in `src/` names a
 kind. The table hangs off `GameModeConfiguration` beside `royale`, because hazards are a
 mode-agnostic mechanic: any mode may declare the systems that read the table, and a mode that
 declares none never reads it, which is the same relationship `sandbox` already has with `[royale]`.
@@ -194,30 +204,56 @@ and a designer wanting an edge the enumeration does not name would be back to wr
 the bar the whole mechanic exists to clear.
 
 That stream retains the original match seed and draw order: edge, entry fraction, exit fraction.
-Reservation and capacity admission still precede every draw. The separate `hill` stream cannot
-advance hazard state; it is initialized without drawing and remains unused by hill motion until
-the roaming implementation. Both streams roll back with the working world on any failed tick.
+`HazardSpawnSystem` keeps phase/interval, declaration-order, reservation, and body-store admission
+before every draw, then delegates the whole birth to `create_crossing_hazard`. The promoted
+operation uses the unchanged crossing and lifetime arithmetic, seats a dynamic `kCross` body with
+zero drag, attaches its lifetime and optional lethal marker, and assigns its sparse effect policy.
+An optional typed instance override wins over the archetype default; explicit `closing_impact`
+removes a nondefault rather than inheriting `any_touch`. Invalid overrides fail before draws/IDs.
+The frozen old creation/RNG references remain independent of this operation.
+
+Every authored hazard section requires exactly `contact_effect_policy=closing_impact` or
+`contact_effect_policy=any_touch`; existing configurations explicitly retain closing impact.
+Programmatic archetype sections retain the historical closing default. Simulation's
+`ContactEffectAdmission` component stores only `any_touch`, belongs to the body, and is published
+in v3; absence means closing impact. This is source eligibility for gameplay effects, not a switch
+that gives a tangent or separating contact an impulse.
+
+The live `lethal_hazard` row reads that source eligibility. During a running match, an admitted
+hazard effect emits elimination and immediately terminates the victim's remaining motion, so it
+cannot continue to later contacts/triggers in that solve. Existing elimination consumers still
+remove or respawn bodies after successful solving. The row remains first-match; production guard
+composition and its replacement are Step 18 work.
+
+The live motion cap is 256 physical bodies, including static objects, independently of the larger
+component-store and publication limits. The spawner's historical store check does not bypass that
+cap: excess final survivors fail the whole tick transactionally. No hazards or physics bodies are
+silently dropped to meet a motion budget. These correctness ceilings are not a certified operating
+capacity. The separate `hill` stream cannot advance hazards; marker tours draw nothing while
+`random_roam` uses its own stream. Both streams roll back with the working world on failure.
 
 ## `royale`
 
 Thrust and drag inside a linearly shrinking circular safe zone, last blob standing
 (`docs/architecture/0005-royale-mode.md`). It accepts `spawn`, `despawn`, and `thrust`; uses the
-engine's built-in contact rows unchanged beneath one row of its own, `lethal_hazard`, which computes
-no physics at all, so it is still structurally incapable of reaching a different collision equation
-for a pair of ordinary blobs; declares `thrust_steering` at `kPreKernel`, `zone_shrink` then
+engine's built-in contact rows beneath `lethal_hazard`, which emits an eligible source effect and
+terminates victim motion without selecting another impulse equation for ordinary blobs; declares
+`thrust_steering` at `kPreKernel`, `zone_shrink` then
 `zone_elimination`, then shared `status` at `kPostKernel`, and `placement_recorder`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn` then `elimination_grace_publisher` at `kLifecycle`; seats joiners on a rotating ring
 and only between matches; and ends when one blob or none is alive.
 
-`RoyaleMode` is **137 lines** — a 69-line class block plus 68 lines of definitions — of which **89
+A historical pre-Step-16 mode-shape measurement recorded `RoyaleMode` as **137 lines** — a 69-line
+class block plus 68 lines of definitions — of which **89
 are code**, against `SandboxMode`'s 89 and 58 measured the same way. Their class blocks are 35 and
-30 lines of code, because every one of the seven declarations is still one line in both and the
+30 lines of code in that measurement, when the interface had seven declarations. The
 whole of royale's excess there is two extra `create` overloads for its hazard table; the rest of the
 difference is in the definitions, which are `systems()`'s seven rows instead of one and
 `validate_map`'s two rejections instead of one. That is the seam holding: a second, far richer game
 — a shrinking zone, elimination with a published grace, and crossing hazards — cost the mode class
 five lines of code and its definitions twenty-six, and everything else it needed went into new
-files.
+files. These are historical measurements, not current source counts after the eighth declaration
+and later shared systems.
 
 What it contributed outside its own directory is two component headers plus one line in
 `component_registry.hpp`, one mode-state header plus one type and one schema id in
@@ -255,8 +291,8 @@ tick `N` with delay `D` is offered to the mode's spawn policy at phase 0 of tick
 `D = 0`, on `N + 1`. A policy defers an entity that carries a timer, which is one predicate
 (`shared/next_free_spawn_point_policy.hpp`). At the end of the same lifecycle pass, the canonical
 registry sweep erases every `ComponentLifetime<C>::bound_to_body` kind on every bodyless entity.
-`HillPresence` and `ZoneExposure` declare that trait; their systems perform no separate body-loss
-cleanup. Score, checkpoint progress, controller identity, and the timer survive. Royale still
+`HillPresence`, `ZoneExposure`, `Stun`, and `ContactEffectAdmission` declare that trait; their
+consumers perform no separate body-loss cleanup. Score, checkpoint progress, controller identity, and the timer survive. Royale still
 destroys whole entities, so its elimination path requires no additional sweep.
 
 `shared/match_reset_system` is royale's restart wipe generalized: on the single `lobby` tick whose
@@ -324,14 +360,16 @@ raises `GAMEPLAY.RACE_COURSE_UNBOUND` instead of constructing incomplete systems
 node/shape validation; race requires the named road, a checkpoint, a spawn marker, and checkpoint/
 spawn centres satisfying the old exact distance <= width convention. It does not require every
 point of a gate disc to be on the road or apply the full terrain support/holes predicate;
-progress can advance and an off-road elimination can occur on the same tick.
+progress can advance and an off-road elimination can occur on the same tick. These are the
+current pre-Step-17 production registrations, not the new unary trigger mechanism; Step 17 owns
+their replacement with support/fall and chronological gate/finish behavior.
 
 The configuration factory validates the road name and bounds checkpoint radius to `(0, 10^12]`.
 Binding checks that radius is no greater than the selected terrain half-width, whose terrain
 authoring bound is `(0, 10^9]`. Equality with the selected width is accepted. `course_publisher`
-temporarily derives the existing race track/width wire fields from that same corridor; Step 8
-removes this mirror after clients receive terrain. Duration conversion and default balance
-values are unchanged.
+publishes the selected road identity, gates, and timing. The client reads road geometry from the
+shared terrain; the old track/width wire mirror was removed in Step 8. Duration conversion and
+default balance values are unchanged.
 
 A fallen racer keeps its entity, controller, and `RaceProgress`. With zero gates taken it returns
 through `GridSpawnPolicy`; after a gate it returns to that checkpoint through the public
@@ -417,7 +455,8 @@ visible. Integration, drag, and external collision momentum retain their origina
 
 The independent frozen arithmetic and real-system sequence proof remains after delegation.
 Legacy gameplay/replay construction explicitly retains its prior acceleration and an unreachable
-normal ceiling of `10000`; the complete accepted horizons, not a replaced oracle, prove inactivity.
+normal ceiling of `10000`; its retained promotion evidence proves cap inactivity for those
+horizons. This does not imply live continuous trajectories equal the discrete oracle.
 
 ## Determinism obligations
 
@@ -427,9 +466,15 @@ configuration and nothing else, every value it mutates is world-owned, every ite
 ascending component store or the canonical two-store join (`component_join.hpp`), and no mode reads
 a clock, an unordered container, a pointer order, or a global.
 
-Every declaration a mode returns is **independently owned**: the engine reads the seven declarations
-once at construction and then destroys the mode, so a system, policy, or objective holding a pointer
-back into its mode would dangle on the first tick.
+Every declaration a mode returns is **independently owned**: `GameSimulation::create` reads the eight
+declarations once and then destroys the mode, so a system, trigger policy, spawn policy, or objective
+holding a pointer back into its mode would dangle. Motion predicates, binding and responses read the
+same frozen post-intake/post-PreKernel world; their supplied subjects carry current resolved motion.
+They return bodies/dispositions and typed effects without writing world state during solving.
+The canonical solver owns swept candidates, contact/wall/trigger chronology, actual paths, and work
+budgets. Source-effect admission never substitutes for its certified closing-impact requirement.
+`GameSimulation` applies returned effects only after success and commits all world/RNG/tuning state
+atomically after the remaining stages and validations.
 
 ## Verification
 
@@ -459,6 +504,9 @@ royale-transition-per-tick    one phase per tick and a terminating cycle under a
 royale-scripted-match         the multi-entity match 100 fresh runs must reproduce bit-identically
 ```
 
-`royale-drag-decay` is **the one fixture in the tree that runs at a nonzero drag**, which is what the
-ADR's scenario table asks of it. Every other fixture keeps `drag_per_second = 0`, so every accepted
-ADR 0003 horizon stays bit-identical.
+`royale-drag-decay` pins the historical per-tick nonzero-drag equation requested by that ADR.
+Zero drag elsewhere does not imply discrete/live equivalence: Step 16 deliberately changes swept
+contact and wall chronology. Retain the independent old detector/oracle and explain each affected
+live expectation; do not regenerate historical references to make them agree. Mac-hosted
+Linux/amd64 verification and benchmark results are advisory, not native release/performance
+certification.

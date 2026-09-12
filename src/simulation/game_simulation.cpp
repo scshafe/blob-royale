@@ -4,12 +4,15 @@
 #include "command_registry.hpp"
 #include "component_store.hpp"
 #include "components/controllable_component.hpp"
+#include "contact_effect_admission.hpp"
 #include "contact_rule.hpp"
+#include "continuous_motion.hpp"
 #include "idle_match_objective.hpp"
 #include "idle_spawn_policy.hpp"
 #include "match_lifecycle_system.hpp"
 #include "match_phase.hpp"
 #include "match_state.hpp"
+#include "motion_body_envelope.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
 #include "seat_roster.hpp"
@@ -35,18 +38,12 @@ namespace {
 
 using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 
-[[nodiscard]] std::size_t body_index(const std::vector<BodyEntry>& bodies, const EntityId id) {
-  const auto match = std::lower_bound(bodies.cbegin(), bodies.cend(), id,
-                                      [](const BodyEntry& entry, const EntityId searched_id) {
-                                        return entry.entity < searched_id;
-                                      });
-  if (match == bodies.cend() || match->entity != id) {
-    throw SimulationValidationError(
-        SimulationValidationCode::kGameSimulationSpatialIndexUnknownEntityId,
-        "game_simulation.contacts.pairs[entity_id=" + std::to_string(id.value()) + "]",
-        "the spatial index named an EntityId the committed body store does not hold");
-  }
-  return static_cast<std::size_t>(std::distance(bodies.cbegin(), match));
+// The canonical solver receives only immutable capabilities and returns all consequences as values.
+PairMotionResponse<WorldEvent>
+respond_live_pair(const GameWorld& world, const ContactRule::Subject& first,
+                  const ContactRule::Subject& second, const PairContactObservation& observation,
+                  const TickContext& context, const LiveMotionFacts& facts) {
+  return facts.require_contacts().respond(world, first, second, observation, context);
 }
 
 // Phase 0. The batch arrives canonical -- despawns, then spawns, then every remaining kind, each
@@ -442,209 +439,38 @@ apply_stored_acceleration_and_drag(const GameWorld& world, const double drag_per
   return accelerated_bodies;
 }
 
-// Phase 3. Traverses the frozen canonical pair list once, in lexicographic order, and resolves
-// each admitted contact through the mode's ContactRuleTable. A resolved pair writes both bodies
-// before the next pair is evaluated, so a later pair observes an earlier pair's result -- the
-// sequential result ADR 0003 § "Player-pair policy" specifies rather than a simultaneous
-// constraint solution.
-//
-// Three gates, in this fixed order:
-//
-//   1. the collision admission predicate, a pure integer test over the two masks;
-//   2. the narrow phase, which rejects non-contacts and separating contacts. This is exactly the
-//      test `resolve_player_pair_collision` applies internally, so a pair the baseline resolved to
-//      "no impulse" is now skipped and left with the identical velocities it already had;
-//   3. the table, walked in declared row order, canonical orientation before swapped, first match
-//      wins. A pair matching no row is unchanged, which makes the table total without a default
-//      row.
-//
-// A matched swapped row receives its arguments and its contact in row orientation, and the
-// returned bodies are mapped back onto the canonical pair here.
-//
-// **The gate measures each pair at its own contact distance, `r_a + r_b`.** This is an addition and
-// not an amendment, and the proof is arithmetic rather than argument: every body that exists today
-// has an effective radius equal to the configured one -- either it declares that radius or it
-// declares none and `effective_radius` defers to it -- so `pair_contact_distance` returns
-// `configured + configured`, and `x + x` is exactly `2 * x` in binary64 for every finite `x`,
-// with no rounding at any magnitude. The gate therefore admits and rejects exactly the pairs it
-// always did, and the accepted fixtures and the baseline oracle are untouched. What changes is only
-// a body that declares a *different* radius, which nothing did before this.
-//
-// **Why the narrow phase moved and the wall did not.** This gate and the broad phase both answer
-// "can these two discs touch", a question about the pair's own geometry, so both take the pair's
-// own radii. Phase 4's arena fold and phase 10's disc-centre interval answer "where may this body's
-// centre be committed", which is the accepted `[r, extent - r]` interval of
-// `docs/architecture/0003-deterministic-simulation-contract.md` § "Wall policy" -- moving *that* to
-// a per-body radius changes where every existing body may stand, which is the growing-blob change
-// and a versioned physics amendment. The asymmetry is deliberate: contact is per-pair, the arena is
-// per-configuration.
-void resolve_contacts(GameWorld& world, std::vector<BodyEntry>& bodies,
-                      const std::span<const CandidatePair> candidate_pairs,
-                      const ContactRuleTable& contact_rules, const TickContext& context) {
-  const double configured_radius = context.simulation_config().player_radius();
-  for (const CandidatePair& pair : candidate_pairs) {
-    const std::size_t lower_index = body_index(bodies, pair.lower_id());
-    const std::size_t higher_index = body_index(bodies, pair.higher_id());
-    const PhysicsBody lower_body = bodies[lower_index].value;
-    const PhysicsBody higher_body = bodies[higher_index].value;
-
-    if (!collision_masks_admit(lower_body, higher_body)) {
-      continue;
-    }
-
-    // One contact distance for both orientations. Addition is commutative in binary64, so
-    // `r_a + r_b` and `r_b + r_a` are the same value, but computing it once says so structurally.
-    const double contact_distance =
-        pair_contact_distance(lower_body, higher_body, configured_radius);
-    const PlayerPairContact canonical_contact =
-        detect_pair_contact(lower_body, higher_body, contact_distance);
-    if (!canonical_contact.is_contact() ||
-        greater_than_or_approximately_equal(canonical_contact.relative_normal_speed(), 0.0,
-                                            kVelocityTolerance)) {
-      continue;
-    }
-
-    const std::optional<ContactRuleTable::Match> match =
-        contact_rules.first_match(world, pair.lower_id(), pair.higher_id());
-    if (!match.has_value()) {
-      continue;
-    }
-
-    const bool swapped = match->orientation == ContactOrientation::kSwapped;
-    const ContactRule::Subject row_first{swapped ? pair.higher_id() : pair.lower_id(),
-                                         swapped ? higher_body : lower_body};
-    const ContactRule::Subject row_second{swapped ? pair.lower_id() : pair.higher_id(),
-                                          swapped ? lower_body : higher_body};
-    // Detection is orientation-symmetric -- reversing the argument order negates the normal and
-    // reverses two signs in each relative-velocity product -- so re-detecting in row orientation
-    // costs a pure recomputation and never a different number.
-    const PlayerPairContact row_contact =
-        swapped ? detect_pair_contact(row_first.body, row_second.body, contact_distance)
-                : canonical_contact;
-
-    const ContactRule& row = contact_rules.rows()[match->row_index];
-    const ContactResponse response = row.response()(row_first, row_second, row_contact, context);
-    if (response.replaces_bodies()) {
-      bodies[swapped ? higher_index : lower_index].value = response.first_body();
-      bodies[swapped ? lower_index : higher_index].value = response.second_body();
-    }
-    for (const WorldEvent& event : response.events()) {
-      world.emit(event);
-    }
+// All allocations and callbacks finish before the transaction publishes either bodies or events.
+// Solver paths stay owned by this result through effect application; diagnostic events never
+// enter the gameplay event list.
+void apply_motion_result(GameWorld& world, const ContinuousMotionResult<WorldEvent>& result) {
+  std::vector<BodyEntry> bodies;
+  bodies.reserve(result.motion.bodies.size());
+  for (const auto& body : result.motion.bodies) {
+    bodies.push_back({body.entity, body.result.body});
   }
+  auto replacement = ComponentStore<PhysicsBody>::create(std::move(bodies));
+  for (const auto& effect : result.effects) {
+    world.emit(effect.effect);
+  }
+  world.mutable_store<PhysicsBody>() = std::move(replacement);
 }
 
-// Phase 4. The arena comes from the map, which is the single authoring home for arena size.
-//
-// The fold measures with `SimulationConfig::player_radius()` and keeps doing so, unlike the narrow
-// phase and the broad phase: see the note on `require_committed_bodies_in_bounds` below for why
-// contact moved to a per-body radius while the arena interval did not.
-//
-// A static body has no wall motion at all: its centre may sit on or past the disc-centre interval
-// the fold is defined over, so folding it would be both meaningless and a validation failure. The
-// absent motion is nullopt rather than a zero displacement, so phase 5 cannot confuse "did not
-// move" with "was not moved".
-//
-// A **crossing** body -- one whose `BoundsBehavior` is `kCross` -- has a motion but no walls: it
-// takes `resolve_unbounded_motion`, which is the proposed `velocity * dt` unfolded and the velocity
-// unchanged. That is the whole of "phase 4 must not fold it", and it is a different answer from the
-// static body's nullopt because a hazard that crossed the screen without moving would not be a
-// hazard. Every body that does not say otherwise still folds by exactly the accepted equation.
-[[nodiscard]] std::vector<std::optional<WallMotionResult>>
-resolve_walls(const std::vector<BodyEntry>& bodies, const ArenaBounds& bounds,
-              const SimulationConfig& configuration, const FixedDelta fixed_delta) {
-  std::vector<std::optional<WallMotionResult>> wall_motions;
-  wall_motions.reserve(bodies.size());
-  for (const BodyEntry& entry : bodies) {
-    if (entry.value.is_static()) {
-      wall_motions.emplace_back();
-      continue;
-    }
-    if (entry.value.crosses_bounds()) {
-      wall_motions.push_back(resolve_unbounded_motion(entry.value.velocity(), fixed_delta));
-      continue;
-    }
-    wall_motions.push_back(
-        resolve_player_wall_motion(entry.value.position(), entry.value.velocity(), bounds.width(),
-                                   bounds.height(), configuration.player_radius(), fixed_delta));
-  }
-  return wall_motions;
-}
-
-// Phase 5. Replaces only the working world's bodies, so every other registered component survives
-// the tick without this function naming a single component kind beyond PhysicsBody.
-void integrate_bodies_into(GameWorld& world, std::vector<BodyEntry> bodies,
-                           const std::vector<std::optional<WallMotionResult>>& wall_motions) {
-  if (bodies.size() != wall_motions.size()) {
-    throw SimulationValidationError(SimulationValidationCode::kGameSimulationWallMotionIncoherent,
-                                    "game_simulation.integrate.wall_motions",
-                                    "the wall-motion list holds " +
-                                        std::to_string(wall_motions.size()) + " results for " +
-                                        std::to_string(bodies.size()) + " bodies");
-  }
-
-  for (std::size_t index = 0; index < bodies.size(); ++index) {
-    const std::optional<WallMotionResult>& wall_motion = wall_motions[index];
-    // A static body is never integrated. It keeps the position the map placed it at and the
-    // velocity it was constructed with, whatever a contact rule did to the body it met.
-    if (!wall_motion.has_value()) {
-      continue;
-    }
-    const PhysicsBody& body = bodies[index].value;
-    const Vector2 integrated_position =
-        integrate_position(body.position(), wall_motion->displacement());
-    const PhysicsBody terminal_body = body.with_velocity(wall_motion->terminal_velocity());
-    bodies[index].value = terminal_body.with_position(integrated_position);
-  }
-
-  world.mutable_store<PhysicsBody>() = ComponentStore<PhysicsBody>::create(std::move(bodies));
-}
-
-// Phase 10 validation. Vector2 makes a non-finite component unconstructible, and phases 4 and 5
-// fold every integrated center into the legal interval, so what remains to reject is a body a
-// kPostKernel or kLifecycle system wrote outside the world after phase 6 already indexed it.
-//
-// The body kinds obey different rules, which is the subtle part. A **dynamic** centre must
-// keep its complete closed disc inside the arena, because that is the interval phase 4 folds into
-// and the interval the broad phase indexes. A **static** centre must lie in the closed arena
-// rectangle and nothing more: a wall legitimately sits on or past the disc-centre interval, and
-// requiring otherwise would make the obvious boundary obstacle unrepresentable. A **crossing**
-// centre is unconstrained: phase 4 applied its proposed motion unfolded, so rejecting it here for
-// being outside would reject exactly the motion the body declares. It is not unchecked -- Vector2
-// makes a non-finite component unconstructible and phase 4 already rejected a non-finite endpoint
-// -- it is simply not held to an interval it opted out of.
-//
-// **This interval stays on the configured radius even though the narrow phase and the broad phase
-// now measure contact per body, and that is deliberate rather than an oversight.** The interval is
-// `[r, extent - r]` from ADR 0003 § "Wall policy", the same one phase 4 folds into; giving it a
-// per-body radius would change where every existing body may stand and would regenerate every
-// accepted wall fixture, which is the growing-blob change and a versioned physics amendment.
-// Contact is a question about a pair's own geometry; the arena is a question about the
-// configuration.
+// Startup and final survivors obey the same body envelope as the canonical solver. Initial
+// wall-radius overlap is legal; this does not introduce depenetration or weaken spawn clearance.
 void require_committed_bodies_in_bounds(const GameWorld& world, const MapDefinition& map,
                                         const SimulationConfig& configuration) {
   for (const BodyEntry& entry : world.store<PhysicsBody>().entries()) {
-    if (entry.value.crosses_bounds()) {
-      continue;
-    }
-    if (entry.value.is_static()) {
-      if (map.bounds().contains(entry.value.position())) {
-        continue;
-      }
-      throw SimulationValidationError(
-          SimulationValidationCode::kGameSimulationBodyOutOfBounds,
-          "game_simulation.commit.bodies[entity_id=" + std::to_string(entry.entity.value()) +
-              "].position",
-          "committed static body center must lie inside the closed arena rectangle");
-    }
-    if (map.bounds().contains_disc_center(entry.value.position(), configuration.player_radius())) {
+    const auto violation =
+        motion_body_envelope_violation(entry.value, map.bounds(), configuration.player_radius());
+    if (!violation) {
       continue;
     }
     throw SimulationValidationError(
         SimulationValidationCode::kGameSimulationBodyOutOfBounds,
-        "game_simulation.commit.bodies[entity_id=" + std::to_string(entry.entity.value()) +
-            "].position",
-        "committed center must keep the complete closed disc inside the world bounds");
+        "game_simulation.commit.bodies[entity_id=" + std::to_string(entry.entity.value()) + "]",
+        *violation == MotionBodyEnvelopeViolation::kStaticOutsideEnvelope
+            ? "committed static body center must lie inside the closed arena rectangle"
+            : "committed folding body must fit its motion envelope");
   }
 }
 
@@ -668,19 +494,21 @@ void require_committed_bodies_in_bounds(const GameWorld& world, const MapDefinit
 
 // canonical: indexed_body -- the part of a body the spatial index is a function of.
 //
-// The index partitions the arena by **body position**, so an id plus a position is exactly what
-// determines it. Comparing this and not the entity roster is what makes the rebuild decision
+// Grid coverage depends on body position and effective radius, so both join identity in this
+// snapshot. Comparing this and not the entity roster is what makes the rebuild decision
 // correct: a stage may insert a body, destroy an entity directly rather than by emitting a
 // DespawnEvent, or move one, and the first two change the roster while the third does not -- yet
-// all three invalidate the index. A stage that writes only velocity or stored acceleration, which
-// is what a steering system does, leaves the index correct and pays no rebuild.
+// all three, and radius changes, invalidate the index. A stage that writes only velocity or stored
+// acceleration, which is what a steering system does, leaves the index correct and pays no rebuild.
 struct IndexedBody final {
   EntityId entity;
   Vector2 position;
+  double radius;
 };
 
 [[nodiscard]] bool same_indexed_body(const IndexedBody& indexed, const BodyEntry& entry) noexcept {
-  return indexed.entity == entry.entity && indexed.position == entry.value.position();
+  return indexed.entity == entry.entity && indexed.position == entry.value.position() &&
+         indexed.radius == entry.value.radius();
 }
 
 [[nodiscard]] std::vector<IndexedBody> indexed_bodies_of(const GameWorld& world) {
@@ -688,7 +516,7 @@ struct IndexedBody final {
   std::vector<IndexedBody> indexed;
   indexed.reserve(bodies.size());
   for (const BodyEntry& entry : bodies) {
-    indexed.push_back(IndexedBody{entry.entity, entry.value.position()});
+    indexed.push_back(IndexedBody{entry.entity, entry.value.position(), entry.value.radius()});
   }
   return indexed;
 }
@@ -710,7 +538,8 @@ struct IndexedBody final {
   return std::equal(left.begin(), left.end(), right.begin(), right.end(),
                     [](const BodyEntry& first_entry, const BodyEntry& second_entry) {
                       return first_entry.entity == second_entry.entity &&
-                             first_entry.value.position() == second_entry.value.position();
+                             first_entry.value.position() == second_entry.value.position() &&
+                             first_entry.value.radius() == second_entry.value.radius();
                     });
 }
 
@@ -756,12 +585,18 @@ void require_mode_accepts_server_issued_kinds(const CommandKindMask accepted,
 
 GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld initial_world,
                                       GameSimulationSetup setup) {
-  if (setup.has_mode() && (setup.has_systems() || setup.has_contact_rules())) {
+  if (setup.has_mode() &&
+      (setup.has_systems() || setup.has_contact_rules() || setup.has_motion_triggers())) {
     throw SimulationValidationError(
         SimulationValidationCode::kGameSimulationSetupConflict, "game_simulation.setup",
-        "a setup that declares a GameMode may not also declare a system pipeline or a contact "
-        "rule table; the mode declares both");
+        "a setup that declares a GameMode may not also declare systems, contact rules, or motion "
+        "triggers; the mode declares them");
   }
+  const MotionLimits limits = setup.motion_limits_;
+  detail::validate_motion_limits(limits);
+  detail::require_motion_budget(initial_world.store<PhysicsBody>().size(), limits.bodies,
+                                "initial motion body budget exhausted");
+  static_cast<void>(project_contact_effect_policies(initial_world));
 
   // The bare rectangular arena the configuration still publishes. Every caller written before maps
   // existed lands here, which is why no accepted fixture had to change to gain a map.
@@ -777,6 +612,7 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
   std::string mode_name{GameSimulation::kEngineDefaultModeName};
   SystemPipeline declared_systems = SystemPipeline::empty();
   ContactRuleTable contact_rules = ContactRuleTable::built_in();
+  MotionTriggerTable motion_triggers = MotionTriggerTable::empty();
   CommandKindMask accepted_command_kinds = CommandKindMask::all();
   std::unique_ptr<const SpawnPolicy> spawn_policy = std::make_unique<const IdleSpawnPolicy>();
   std::unique_ptr<const MatchObjective> objective = std::make_unique<const IdleMatchObjective>();
@@ -786,8 +622,9 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
     mode_name = std::string(mode.name());
     declared_systems = mode.systems();
     contact_rules = mode.contact_rules();
+    motion_triggers = mode.motion_triggers();
     accepted_command_kinds = mode.accepted_command_kinds();
-    require_mode_accepts_server_issued_kinds(accepted_command_kinds, mode.name());
+    require_mode_accepts_server_issued_kinds(accepted_command_kinds, mode_name);
     spawn_policy = mode.spawn_policy();
     objective = mode.objective();
   } else {
@@ -797,6 +634,9 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
     if (setup.has_contact_rules()) {
       contact_rules = std::move(*setup.contact_rules_);
     }
+    if (setup.has_motion_triggers()) {
+      motion_triggers = std::move(*setup.motion_triggers_);
+    }
   }
 
   // A spawn point that cannot seat a disc of the configured radius is a startup rejection rather
@@ -804,6 +644,7 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
   // already run this inside `GameWorld::create(configuration, map, seed)`; running it again here
   // is what covers every other way a map reaches a simulation.
   require_spawn_points_are_seatable(configuration, map);
+  require_committed_bodies_in_bounds(initial_world, map, configuration);
 
   // The engine's lifecycle system is appended last at kLifecycle and is not removable, so a mode's
   // own lifecycle systems always run before this tick's phase transition is evaluated.
@@ -820,8 +661,9 @@ GameSimulation GameSimulation::create(SimulationConfig configuration, GameWorld 
       std::make_shared<const MapDefinition>(std::move(map));
   return GameSimulation(configuration, std::move(retained_map), std::move(initial_world),
                         std::move(initial_grid), std::move(system_pipeline),
-                        std::move(contact_rules), SpawnSystem(std::move(spawn_policy)),
-                        std::move(mode_name), accepted_command_kinds, TickSequence::zero());
+                        std::move(contact_rules), std::move(motion_triggers), limits,
+                        SpawnSystem(std::move(spawn_policy)), std::move(mode_name),
+                        accepted_command_kinds, TickSequence::zero());
 }
 
 MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
@@ -846,6 +688,8 @@ MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
   // The map's spawn-marker count is the lobby's ceiling at run time, as it is at startup.
   apply_input_batch(next_world, input_batch, map().spawn_points().size(), next_tick_sequence,
                     tuning_decisions);
+  detail::require_motion_budget(next_world.store<PhysicsBody>().size(), motion_limits_.bodies,
+                                "intake motion body budget exhausted");
 
   // The batch's own index: the bodies the despawns of this batch left, at this tick's
   // start-of-tick positions. It is derived before seating because the SpawnSystem's policy socket
@@ -863,6 +707,8 @@ MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
   // SpawnPolicy and performs the seatings it chose. A seated entity is indexed at its marker, so
   // the intake index is re-derived exactly when something was seated.
   const std::size_t seated_count = spawn_system_.seat_pending_entities(next_world, seating_context);
+  detail::require_motion_budget(next_world.store<PhysicsBody>().size(), motion_limits_.bodies,
+                                "seated motion body budget exhausted");
 
   // The intake index: the index of the bodies phase 0 left, at this tick's start-of-tick
   // positions. The committed index already is that value whenever phase 0 changed no indexed body,
@@ -882,8 +728,9 @@ MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
   const TickContext intake_context =
       TickContext::create(next_tick_sequence, fixed_delta, configuration_, map(), intake_grid);
 
-  // A kPreKernel system may create an entity carrying a body -- a projectile or a zone -- so the
-  // index phase 2 queries has to be re-derived when the stage changed one. The snapshot is taken
+  // A kPreKernel system may create or resize a physical body. Rebuild the index exposed through
+  // the kernel context when its coverage changed; the solver builds its own swept candidates.
+  // The snapshot is taken
   // only when the mode declared such a system at all, so a mode with an empty stage, which is
   // every accepted fixture, allocates nothing here.
   std::vector<IndexedBody> intake_indexed_bodies;
@@ -892,6 +739,8 @@ MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
     intake_indexed_bodies = indexed_bodies_of(next_world);
   }
   apply_stage(system_pipeline_, SystemStage::kPreKernel, next_world, intake_context);
+  detail::require_motion_budget(next_world.store<PhysicsBody>().size(), motion_limits_.bodies,
+                                "kernel-entry motion body budget exhausted");
 
   std::optional<SpatialGrid> reindexed_pair_grid;
   if (pre_kernel_declared && !still_indexes(intake_indexed_bodies, next_world)) {
@@ -901,14 +750,23 @@ MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
   const TickContext kernel_context =
       TickContext::create(next_tick_sequence, fixed_delta, configuration_, map(), pair_grid);
 
-  // Phases 1 through 6, unchanged in content and in number.
-  std::vector<BodyEntry> next_bodies =
+  // Freeze the post-intake/post-pre-kernel world. Phase 1 derives motion separately, so policies
+  // observe this same immutable state throughout the solve, never partially applied effects.
+  const GameWorld& kernel_world = next_world;
+  const auto effect_policies = project_contact_effect_policies(kernel_world);
+  const auto triggers = motion_triggers_.bind(kernel_world, kernel_context, motion_limits_);
+  const auto facts = LiveMotionFacts::for_contacts(contact_rules_);
+  const std::vector<BodyEntry> next_bodies =
       apply_stored_acceleration_and_drag(next_world, configuration_.drag_per_second(), fixed_delta);
-  const std::span<const CandidatePair> candidate_pairs = pair_grid.candidate_pairs();
-  resolve_contacts(next_world, next_bodies, candidate_pairs, contact_rules_, kernel_context);
-  const std::vector<std::optional<WallMotionResult>> wall_motions =
-      resolve_walls(next_bodies, map().bounds(), configuration_, fixed_delta);
-  integrate_bodies_into(next_world, std::move(next_bodies), wall_motions);
+  std::vector<ContactRule::Subject> subjects;
+  subjects.reserve(next_bodies.size());
+  for (const auto& body : next_bodies) {
+    subjects.push_back({body.entity, body.value});
+  }
+  const auto motion = solve_continuous_motion<WorldEvent, LiveMotionFacts>(
+      kernel_world, subjects, kernel_context, facts, respond_live_pair, triggers.rows(),
+      motion_limits_, effect_policies);
+  apply_motion_result(next_world, motion);
   SpatialGrid next_grid = pair_grid.rebuilt(next_world);
 
   // From here the index a system reads is this tick's phase 6 rebuild, over the positions phase 5
@@ -943,6 +801,9 @@ MovementTuningDecisions GameSimulation::step(const FixedDelta fixed_delta,
   // publication, no committed grid holds a non-live EntityId, and no snapshot observes a
   // half-applied removal. ADR 0003 owes this reordering an amendment.
   const bool roster_removed = apply_despawn_events(next_world);
+  detail::require_motion_budget(next_world.store<PhysicsBody>().size(), motion_limits_.bodies,
+                                "surviving motion body budget exhausted");
+  static_cast<void>(project_contact_effect_policies(next_world));
   require_committed_bodies_in_bounds(next_world, map(), configuration_);
   if (roster_removed ||
       (late_stage_declared && !still_indexes(committed_indexed_bodies, next_world))) {
@@ -976,12 +837,14 @@ WorldSnapshot GameSimulation::snapshot() const {
 GameSimulation::GameSimulation(SimulationConfig configuration,
                                std::shared_ptr<const MapDefinition> map, GameWorld world,
                                SpatialGrid grid, SystemPipeline system_pipeline,
-                               ContactRuleTable contact_rules, SpawnSystem spawn_system,
+                               ContactRuleTable contact_rules, MotionTriggerTable motion_triggers,
+                               MotionLimits motion_limits, SpawnSystem spawn_system,
                                std::string mode_name, const CommandKindMask accepted_command_kinds,
                                const TickSequence tick_sequence) noexcept
     : configuration_(configuration), map_(std::move(map)), world_(std::move(world)),
       grid_(std::move(grid)), system_pipeline_(std::move(system_pipeline)),
-      contact_rules_(std::move(contact_rules)), spawn_system_(std::move(spawn_system)),
+      contact_rules_(std::move(contact_rules)), motion_triggers_(std::move(motion_triggers)),
+      motion_limits_(motion_limits), spawn_system_(std::move(spawn_system)),
       mode_name_(std::move(mode_name)), accepted_command_kinds_(accepted_command_kinds),
       tick_sequence_(tick_sequence) {}
 

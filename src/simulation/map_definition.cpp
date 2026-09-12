@@ -116,14 +116,14 @@ MapDefinition::Marker MapDefinition::Marker::spawn(Vector2 position) {
 }
 
 MapDefinition MapDefinition::create(std::string name, const ArenaBounds bounds,
-                                    std::vector<PhysicsBody> static_bodies,
+                                    std::vector<StaticBodyDeclaration> static_bodies,
                                     std::vector<Marker> markers, MapMetadata metadata) {
   return create(std::move(name), TerrainDefinition::solid(bounds), std::move(static_bodies),
                 std::move(markers), std::move(metadata));
 }
 
 MapDefinition MapDefinition::create(std::string name, TerrainDefinition terrain,
-                                    std::vector<PhysicsBody> static_bodies,
+                                    std::vector<StaticBodyDeclaration> static_bodies,
                                     std::vector<Marker> markers, MapMetadata metadata) {
   const ArenaBounds& bounds = terrain.bounds();
   if (name.size() > kMaximumMapNameLength || !is_map_name(name)) {
@@ -147,7 +147,7 @@ MapDefinition MapDefinition::create(std::string name, TerrainDefinition terrain,
   }
 
   for (std::size_t index = 0; index < static_bodies.size(); ++index) {
-    const PhysicsBody& body = static_bodies[index];
+    const PhysicsBody& body = static_bodies[index].body();
     // A dynamic body in the static list would be integrated by the kernel from a position the map
     // chose and never re-chose, so it is rejected rather than silently promoted.
     if (!body.is_static()) {
@@ -200,8 +200,9 @@ MapDefinition MapDefinition::bare_arena(const ArenaBounds bounds) {
 }
 
 MapDefinition::MapDefinition(std::string name, TerrainDefinition terrain,
-                             std::vector<PhysicsBody> static_bodies, std::vector<Marker> markers,
-                             std::vector<Marker> spawn_points, MapMetadata metadata) noexcept
+                             std::vector<StaticBodyDeclaration> static_bodies,
+                             std::vector<Marker> markers, std::vector<Marker> spawn_points,
+                             MapMetadata metadata) noexcept
     : name_(std::move(name)), terrain_(std::move(terrain)),
       static_bodies_(std::move(static_bodies)), markers_(std::move(markers)),
       spawn_points_(std::move(spawn_points)), metadata_(std::move(metadata)) {}

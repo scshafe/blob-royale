@@ -48,7 +48,8 @@ inline constexpr std::string_view kHazardSection = "\n[hazard.porcelain_otter]\n
                                                    "restitution=1\n"
                                                    "speed_world_units_per_second=260\n"
                                                    "spawn_interval_seconds=6\n"
-                                                   "lethal_on_contact=true\n";
+                                                   "lethal_on_contact=true\n"
+                                                   "contact_effect_policy=closing_impact\n";
 inline const controllers::TacticalProfile::Section kFirstProfileValues{
     .profile_name = "porcelain_otter",
     .objective_seek_probability = 1,

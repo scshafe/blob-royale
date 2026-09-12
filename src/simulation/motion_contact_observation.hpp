@@ -32,6 +32,12 @@ struct PairContactObservation final {
   std::optional<PlayerPairContact> impact;
   bool first_effect_eligible;
   bool second_effect_eligible;
+
+  // Canonical row-orientation reversal; never re-detect a retained geometric certificate.
+  [[nodiscard]] PairContactObservation reversed() const {
+    return {touch.reversed(), impact ? std::optional{impact->reversed()} : std::nullopt,
+            second_effect_eligible, first_effect_eligible};
+  }
 };
 
 } // namespace blob_royale::simulation

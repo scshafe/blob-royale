@@ -11,6 +11,7 @@
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_test_fixture.hpp"
+#include "simulation_tolerance.hpp"
 #include "simulation_validation_error.hpp"
 #include "spatial_grid.hpp"
 #include "tick_context.hpp"
@@ -130,9 +131,17 @@ private:
 }
 
 [[nodiscard]] simulation::ContactResponse
-declining_response(const simulation::ContactRule::Subject&, const simulation::ContactRule::Subject&,
-                   const simulation::PlayerPairContact&, const simulation::TickContext&) {
+declining_response(const simulation::GameWorld&, const simulation::ContactRule::Subject&,
+                   const simulation::ContactRule::Subject&,
+                   const simulation::PairContactObservation&, const simulation::TickContext&) {
   return simulation::ContactResponse::unchanged();
+}
+
+simulation::PairContactObservation
+impact_observation(const simulation::PlayerPairContact& contact) {
+  REQUIRE(contact.is_contact());
+  REQUIRE(contact.relative_normal_speed() < -simulation::kVelocityTolerance);
+  return {contact, contact, true, true};
 }
 
 [[nodiscard]] const simulation::ContactEvent&
@@ -340,6 +349,58 @@ TEST_CASE("an unchanged response names no body", "[unit][simulation][contact_rul
   CHECK(response.events().empty());
   CHECK_THROWS_AS(response.first_body(), simulation::SimulationValidationError);
   CHECK_THROWS_AS(response.second_body(), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(response.first_result(), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(response.second_result(), simulation::SimulationValidationError);
+}
+
+TEST_CASE("certificate reversal preserves membership distance speed and optional impact without "
+          "detection",
+          "[unit][simulation][contact_rule_table][orientation]") {
+  const auto first = moving_body(100, 100, 3, 1);
+  const auto second = moving_body(112, 116, -2, 0);
+  const auto contact = simulation::detect_player_pair_contact(first, second, kPlayerRadius);
+  const auto reversed = contact.reversed();
+  CHECK(reversed.normal() == -contact.normal());
+  CHECK(reversed.is_contact() == contact.is_contact());
+  CHECK(reversed.center_distance() == contact.center_distance());
+  CHECK(reversed.relative_normal_speed() == contact.relative_normal_speed());
+  CHECK(reversed.reversed() == contact);
+  const simulation::PairContactObservation touch{contact, std::nullopt, true, false};
+  const auto row_touch = touch.reversed();
+  CHECK_FALSE(row_touch.impact.has_value());
+  CHECK_FALSE(row_touch.first_effect_eligible);
+  CHECK(row_touch.second_effect_eligible);
+  const simulation::PairContactObservation impact{contact, contact, true, true};
+  const auto row_impact = impact.reversed();
+  REQUIRE(row_impact.impact.has_value());
+  CHECK(*row_impact.impact == reversed);
+}
+
+TEST_CASE(
+    "built in rows preserve nonimpulsive touch bodies while publishing the certified observation",
+    "[unit][simulation][contact_rule_table][built_in][contact_effect_policy]") {
+  for (const auto response_function :
+       {simulation::elastic_disc_response, simulation::variable_impulse_response,
+        simulation::reflect_static_response}) {
+    const auto first = moving_body(100, 100, -3, 1);
+    const auto second = response_function == simulation::reflect_static_response
+                            ? simulation::PhysicsBody::create_static(point(120, 100))
+                            : moving_body(120, 100, 0, 0);
+    const auto world = world_of({simulation::GameWorld::EntitySeed::create(entity(1), first),
+                                 simulation::GameWorld::EntitySeed::create(entity(2), second)});
+    const ContextFixture fixture(world);
+    const auto contact = simulation::detect_player_pair_contact(first, second, kPlayerRadius);
+    REQUIRE(contact.is_contact());
+    const auto response =
+        response_function(world, {entity(1), first}, {entity(2), second},
+                          {contact, std::nullopt, true, false}, fixture.context());
+    REQUIRE(response.replaces_bodies());
+    CHECK(response.first_body() == first);
+    CHECK(response.second_body() == second);
+    CHECK(response.first_result().disposition == simulation::MotionDisposition::kContinue);
+    CHECK(response.second_result().disposition == simulation::MotionDisposition::kContinue);
+    CHECK(only_contact_event(response).normal == contact.normal());
+  }
 }
 
 TEST_CASE("the collision admission predicate is symmetric and defaults to admitting",
@@ -381,8 +442,9 @@ TEST_CASE("elastic_disc reproduces resolve_player_pair_collision exactly",
   REQUIRE(expected.impulse_applied());
 
   const simulation::ContactResponse response = simulation::elastic_disc_response(
-      simulation::ContactRule::Subject{entity(1), first_body},
-      simulation::ContactRule::Subject{entity(2), second_body}, contact, fixture.context());
+      world, simulation::ContactRule::Subject{entity(1), first_body},
+      simulation::ContactRule::Subject{entity(2), second_body}, impact_observation(contact),
+      fixture.context());
 
   REQUIRE(response.replaces_bodies());
   CHECK(response.first_body().velocity() == expected.first_velocity());
@@ -403,8 +465,9 @@ TEST_CASE("elastic_disc publishes one canonical contact event",
       simulation::detect_player_pair_contact(first_body, second_body, kPlayerRadius);
 
   const simulation::ContactResponse response = simulation::elastic_disc_response(
-      simulation::ContactRule::Subject{entity(1), first_body},
-      simulation::ContactRule::Subject{entity(2), second_body}, contact, fixture.context());
+      world, simulation::ContactRule::Subject{entity(1), first_body},
+      simulation::ContactRule::Subject{entity(2), second_body}, impact_observation(contact),
+      fixture.context());
 
   const simulation::ContactEvent& event = only_contact_event(response);
   CHECK(event.pair == simulation::CandidatePair::create(entity(1), entity(2)));
@@ -429,8 +492,9 @@ TEST_CASE("reflect_static reflects the normal component and leaves the static bo
   REQUIRE(contact.normal() == point(1.0, 0.0));
 
   const simulation::ContactResponse response = simulation::reflect_static_response(
-      simulation::ContactRule::Subject{entity(1), dynamic_body},
-      simulation::ContactRule::Subject{entity(2), static_body}, contact, fixture.context());
+      world, simulation::ContactRule::Subject{entity(1), dynamic_body},
+      simulation::ContactRule::Subject{entity(2), static_body}, impact_observation(contact),
+      fixture.context());
 
   REQUIRE(response.replaces_bodies());
   CHECK(response.first_body().velocity() == point(-3.0, 1.5));
@@ -451,8 +515,9 @@ TEST_CASE("reflect_static preserves speed on an oblique contact normal",
   REQUIRE(contact.is_contact());
 
   const simulation::ContactResponse response = simulation::reflect_static_response(
-      simulation::ContactRule::Subject{entity(1), dynamic_body},
-      simulation::ContactRule::Subject{entity(2), static_body}, contact, fixture.context());
+      world, simulation::ContactRule::Subject{entity(1), dynamic_body},
+      simulation::ContactRule::Subject{entity(2), static_body}, impact_observation(contact),
+      fixture.context());
 
   REQUIRE(response.replaces_bodies());
   const simulation::Vector2& reflected = response.first_body().velocity();
@@ -482,8 +547,9 @@ TEST_CASE("a swapped match still publishes the canonical pair and normal",
   REQUIRE(row_contact.normal() == point(-1.0, 0.0));
 
   const simulation::ContactResponse response = simulation::reflect_static_response(
-      simulation::ContactRule::Subject{entity(2), dynamic_body},
-      simulation::ContactRule::Subject{entity(1), static_body}, row_contact, fixture.context());
+      world, simulation::ContactRule::Subject{entity(2), dynamic_body},
+      simulation::ContactRule::Subject{entity(1), static_body}, impact_observation(row_contact),
+      fixture.context());
 
   REQUIRE(response.replaces_bodies());
   CHECK(response.first_body().velocity() == point(3.0, 0.0));
@@ -598,8 +664,9 @@ TEST_CASE("variable_impulse reproduces resolve_general_pair_collision exactly",
   REQUIRE(expected.impulse_applied());
 
   const simulation::ContactResponse response = simulation::variable_impulse_response(
-      simulation::ContactRule::Subject{entity(1), first_body},
-      simulation::ContactRule::Subject{entity(2), second_body}, contact, fixture.context());
+      world, simulation::ContactRule::Subject{entity(1), first_body},
+      simulation::ContactRule::Subject{entity(2), second_body}, impact_observation(contact),
+      fixture.context());
 
   REQUIRE(response.replaces_bodies());
   CHECK(response.first_body().velocity() == expected.first_velocity());

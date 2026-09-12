@@ -29,7 +29,8 @@ that change which ids a store holds. The tick has only ever needed the values.
 
 `component_registry.hpp` is the closed, ordered list of kinds:
 `ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
-LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun>`, where `Zone` and `ZoneExposure`
+LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun,
+ContactEffectAdmission>`, where `Zone` and `ZoneExposure`
 are royale's, `Hill` and `HillPresence` describe hill scoring, and `RaceProgress` counts ordered
 gates; `HillMotion` carries roaming velocity and private scheduling, while `LethalOnContact` and
 `RespawnTimer` support shared mechanics. Because it is a type list,
@@ -38,7 +39,7 @@ four behaviors are **generated rather than maintained** — structural world equ
 publication of every kind — so a new kind cannot forget to participate in any of them.
 
 `component_lifetime.hpp` owns the default-false `ComponentLifetime<C>::bound_to_body` trait.
-`HillPresence`, `ZoneExposure`, and `Stun` declare it beside their values. The one registry-generated,
+`HillPresence`, `ZoneExposure`, `Stun`, and `ContactEffectAdmission` declare it beside their values. The one registry-generated,
 allocation-free `GameWorld::erase_body_bound_components_without_body()` sweep removes those
 kinds from every bodyless entity, including non-participants and already-bodyless entities.
 Shared respawn calls it after body removal, before commit; arbitrary intermediate store edits do
@@ -51,21 +52,41 @@ wall, a projectile, a pickup, and a zone each take a seat and none of them is a 
 `src/protocol/protocol_json_encoding.cpp` pins to `kSnapshotPlayerLimit` with a `static_assert` and
 which nothing but a publication reads. Protocol v3 bounds a snapshot's *entities* at 1,024, which is
 below both; `src/application/match_startup_validation.hpp` is what refuses a configuration whose
-worst-case published population could cross it, because the kernel's seat count alone would not.
+worst-case published population could cross it, because the world's seat count alone would not.
+The live motion kernel has a separate maximum of 256 physical bodies, including static objects.
+`GameSimulation::create` rejects a larger initial body store, and tick admission/commit checks
+reject excessive growth transactionally. `GameSimulationSetup::with_motion_limits` can lower,
+never raise, the existing resource ceilings. These are fail-visible correctness limits, not a
+native-certified capacity or permission to silently skip bodies.
 
 A **player** is not a type: it is an entity carrying both a `PhysicsBody` and a `Controllable`.
-`PhysicsBody` is the one body value in the game and carries position, velocity, stored acceleration,
-radius, mass, restitution, the collision layer and mask pair, `is_static`, and a `BoundsBehavior`;
-the accepted physics phases still read the one common radius from `SimulationConfig`, so radius is
-carried but not consulted. Mass and restitution *are* consulted, by the `variable_impulse` row and
-nothing else: both default to the accepted baseline — unit mass, perfectly elastic — and
-`body_has_baseline_physics` is the predicate that keeps a pair of ordinary blobs on the accepted
-equal-unit-mass equation. `BoundsBehavior` defaults to `kFold`, which is the accepted wall policy;
-`kCross` is what a body that travels through the arena rather than bouncing inside it declares, and
-it changes exactly three places — phase 4 resolves its motion unfolded, the commit-time bounds check
-does not hold it to the disc-centre interval, and the broad phase clamps its coverage to the edge
-cells rather than rejecting it. `ControllerId` is the durable identity of the deciding agent and
-outlives the entities it drives; `Controllable` is the only place the two identity spaces meet.
+`PhysicsBody` carries position, velocity, stored acceleration, radius, mass, restitution, drag
+scale, collision layer/mask, `is_static`, and `BoundsBehavior`. Live pair geometry and walls use
+each body's effective radius: an undeclared radius defers to the configured player radius.
+Mass and restitution select the existing contact-taking impulse equations; the ordinary
+unit-mass/perfectly elastic equation remains the baseline equation, not a promise of discrete
+kernel trajectory equivalence. Static bodies never accelerate, drag, or travel.
+
+`BoundsBehavior::kFold` enables continuous outer-wall responses; dynamic `kCross` bodies travel
+through the envelope and their grid coverage is clamped to edge cells. The shared
+`motion_body_envelope.hpp` guard validates startup, the solver, grid coverage, and final commit:
+static centers must lie inside closed bounds even with a cross flag; dynamic crossing bodies are
+exempt; other dynamic centers must be inside, their effective diameter must fit both dimensions,
+and a zero-span axis requires zero velocity on that axis. An initial radius overlap with a wall
+is legal and does not snap or depenetrate the body. Spawn clearance remains a separate, stricter
+placement rule.
+
+`ContactEffectAdmission` is sparse body-bound source policy: a stored `any_touch` permits that
+object's effects on its counterpart at a certified graze, stationary touch, or separating overlap.
+Absence means `closing_impact`; it never grants an impulse without a certified closing impact.
+`contact_effect_admission.hpp` owns enum/string validation, assignment, effective lookup, and
+ascending-ID solver projection. Instance override wins over archetype default, then closing impact;
+explicit closing removes a nondefault row. Unknown values, bodyless rows, and redundantly stored
+closing defaults fail visibly. The v3 component publishes only `{"policy":"any_touch"}`; there is
+no arbitrary component-edit command or center-entry policy in this vocabulary.
+
+`ControllerId` is the durable deciding-agent identity and outlives the entities it drives;
+`Controllable` is where the two identity spaces meet.
 
 ## The command vocabulary
 
@@ -178,22 +199,22 @@ systems:
                      seats them through the mode's SpawnPolicy; remaining commands recorded
   ---- kPreKernel -- the mode's systems, declared order
   phase 1            stored acceleration, then drag
-  phase 2            canonical candidate pairs
-  phase 3            admission, narrow phase, then the mode's ContactRuleTable
-  phases 4-6         world bounds, integration, spatial reindex
+  phases 2-5         one continuous solve: swept candidates, contact/wall/unary-trigger chronology,
+                     certified responses, actual paths, and immediate motion termination
+  phase 6            spatial reindex over the solved bodies
   ---- kPostKernel - the mode's systems, declared order
   ---- kLifecycle -- the mode's systems, declared order, then the engine MatchLifecycleSystem
   phase 10           apply DespawnEvent removals, validate the survivors, reindex, clear the
                      tick-local state, publish
 ```
 
-**Removal precedes validation at the commit**, which deviates from the written order of ADR 0003
-§ "Canonical tick" phase 10 and is deliberate: validating first makes an entity that a system both
+**Removal precedes validation at the commit**, as recorded by ADR 0003 § "Canonical tick":
+validating first makes an entity that a system both
 pushed out of bounds and marked for despawn stop the match, and royale's elimination pairs exactly
 those two. The question the commit asks is whether the world it is about to *publish* is legal.
 Everything the original order guaranteed still holds — removal precedes the rebuild, the rebuild
 precedes publication, no committed grid holds a non-live `EntityId`, and no snapshot observes a
-half-applied removal. ADR 0003 owes this reordering an amendment.
+half-applied removal.
 
 A `SimulationSystem` is one interface with `name()` and `apply(GameWorld&, const TickContext&)
 const`. **`apply` is `const` on purpose:** a system holds immutable configuration and nothing else,
@@ -205,14 +226,33 @@ describes: during `kPreKernel` it is the index of the bodies phase 0 left at sta
 positions, and from `kPostKernel` onward it is this tick's phase 6 rebuild. It never reflects the
 reading stage's own writes, so a system that must see those reads the component stores instead.
 
-The kernel has exactly **two policy sockets**, both evaluated at a fixed point against declared
-data: the mode's `SpawnPolicy` in phase 0 and its `ContactRuleTable` in phase 3. There is
-no third. Phase 3 applies three gates in a fixed order -- the pure integer collision-admission
-predicate over the two bodies' layers and masks, the narrow phase that rejects non-contacts and
-separating contacts, then the table walked in declared row order with the canonical orientation
-tried before the swapped one. The first matching (row, orientation) wins and a pair matching no row
-is unchanged, which makes the table total without a default row. A response may write only the two
-bodies; every other consequence leaves as a `WorldEvent`.
+The kernel has exactly **three policy sockets**: `SpawnPolicy` at phase 0, and
+`ContactRuleTable` plus unary `MotionTriggerTable` within the continuous solve. Freeze the working
+world after intake and `kPreKernel`; phase 1 derives accelerated/dragged subjects separately.
+Predicates, policy projection, trigger binding, and responses read this same immutable kernel-entry
+world. Current motion comes from the supplied subject, not a reread of the frozen body's velocity.
+
+`solve_continuous_motion` owns swept candidates, exact `MotionEventKey` chronology, root work,
+velocity epochs, actual paths, and bounded no-progress checks; the grid does not supply its candidate
+pairs. Body collision filters still apply. Contact responses receive a certified touch and optional
+closing impact, with independent source-effect eligibility. The table preserves first-match and
+canonical-before-swapped orientation order; reversal maps certified normals, eligibility, bodies,
+and dispositions without re-detecting contact. Built-in impulse/reflection rows use only the optional
+impact certificate. A response may replace current bodies, terminate their remaining motion, and
+return typed effects; it cannot mutate the frozen world.
+
+Trigger declarations independently own immutable policies. Each tick binds body IDs in ascending
+order, then policies in authored order, to bounded cursor/feature rows. Move-only
+`BoundMotionTriggers` owns stable per-row facts loans; both query and response borrow the matching
+policy while pair callbacks retain global contact facts. Tables and bindings outlive the synchronous
+solve. Production modes currently inherit an empty trigger table; support-capable injected
+declarations exercise the mechanism. Ground attachment, falling, and race trigger registration
+remain Step 17; production shield/parry composition remains Step 18.
+
+Only successfully solved typed `effects` enter the world event list; the selected-certificate
+diagnostic trace is not a gameplay event source. Existing pre-kernel events count against the world
+event capacity. Failed callbacks, invalid replacements, exhausted work/storage, or later stage/index
+failure leave the previous world, RNG, reservation, tuning, and tick/index commit unchanged.
 
 The **spatial index is a function of the body store, not of the entity roster**, so every rebuild
 decision compares the ids and positions the index was built from. A stage that creates a body,
@@ -224,12 +264,13 @@ declared order inside each stage, so precedence is a property of the mode's writ
 of insertion, allocation, or static-initialization order. It rejects a null system, an empty name,
 and a duplicate name.
 
-Drag is kernel mechanism, not mode configuration: `SimulationConfig::drag_per_second` is validated
-finite and non-negative and phase 1 scales the accelerated velocity by
-`max(0, 1 - drag_per_second * dt)`. At the accepted `drag_per_second = 0` the factor is exactly
-`1.0`, so **an empty pipeline, zero drag, and an empty batch reproduce every accepted horizon
-bit-for-bit** -- asserted against a second, in-test implementation of the accepted seven-phase tick
-in `tests/unit/simulation/game_simulation_tests.cpp`.
+Drag remains phase-1 mechanism: after stored acceleration, velocity is scaled by
+`max(0, 1 - (drag_per_second * body.drag_scale()) * dt)`, preserving its written operation order.
+Zero drag preserves this acceleration/drag phase's historical arithmetic. It does not make the
+live continuous solver identical to the retained discrete seven-phase oracle: swept collisions,
+earlier wall contacts, and chronological recontacts intentionally change applicable horizons.
+Historical detector wrappers and oracles remain independent; current live expectations must state
+each intentional difference rather than retargeting those references.
 
 ## Maps and the arena
 
@@ -256,13 +297,13 @@ The bounded selected-ray correction is neither an exhaustive nearby-point search
 exact-real interval certificate (ADR 0008).
 Shape, temporary-work, and cache limits live in `simulation_limits.hpp`; exhaustion or lost
 precision is a named failure, never partial terrain. `swept_geometry.hpp` and
-`motion_event_order.hpp` own every root and exact event order. Live swept-kernel adoption still
-requires the ADR 0008 physics gate. Race, controllers, and the session client already read the
+`motion_event_order.hpp` own every root and exact event order. Step 5's accepted ADR 0008 boundary
+permits the Step 16 live integration; native release/performance certification remains separate. Race, controllers, and the session client already read the
 shared terrain. One centreline projection core preserves authored ties and written arithmetic for
 the racer's point/distance query and the no-throw distance-only query; the latter never acquires
 point-materialization validation on standalone signed/extreme corridors.
 
-**The map is the arena source.** Phase 4's fold, the commit-time bounds validation, and `SpatialGrid`
+**The map is the arena source.** Continuous wall queries, commit-time bounds validation, and `SpatialGrid`
 all read `MapDefinition::bounds()`. `SimulationConfig` keeps `world_width` and `world_height`
 because protocol v1's `/api/v1/config` publishes them through `PublicConfiguration` and
 `ScenarioLoader` validates seeded centres against them; no kernel phase reads them any more. The
@@ -272,23 +313,25 @@ the `[world]` rectangle protocol v1 publishes, so the duplication cannot silentl
 overloads that take no map synthesize `MapDefinition::bare_arena` from those same scalars, which is
 why no accepted fixture had to change to gain a map.
 
-A **static body** takes part in the broad phase and in contact resolution and is never integrated,
-accelerated, or dragged: phases 1, 4, and 5 skip it. Its centre obeys the closed arena rectangle
-rather than the disc-centre interval a dynamic body is folded into, because a wall legitimately sits
-on or past the arena edge -- and getting that distinction wrong is what would make the obvious
-boundary obstacle unrepresentable. `MapDefinition::static_bodies()` is declared content, and
-`GameWorld::create(configuration, map, seed)` seats it: the world owns the id policy for map
-content and numbers a map's bodies `kMinimumEntityId + index` in declared order, so a map's
-entities are a deterministic function of the map file alone. That factory also rejects a map whose
-spawn points cannot seat a disc of the configured radius inside the envelope and over supported
-terrain, which is the one place a spawn point meets a radius. A static body's center must also be
-supported at map construction; this adds no new dynamic-body or live contact policy.
+A **static body** takes part in swept broad phase and contact resolution but never travels. Its
+center must be inside the closed arena, including the edge but not beyond it.
+`MapDefinition::static_bodies()` holds `StaticBodyDeclaration` values pairing a static body with
+explicit contact-effect policy, in authored order. The strict CSV header is
+`position_x_world_units,position_y_world_units,collision_layer,collision_mask,contact_effect_policy`;
+each row requires `closing_impact` or `any_touch`. No legacy header or missing policy is defaulted.
+
+`GameWorld::create(configuration, map, seed)` assigns IDs `kMinimumEntityId + index` and applies
+each declaration's sparse policy. Static-map authoring still declares no radius column; seating
+continues to normalize even a programmatic static radius to the configured player radius.
+A static center must be supported at map construction. Spawn points must seat a configured-radius
+disc inside the envelope and on supported terrain. These authoring/placement checks do not
+register production falling or center-entry effects.
 
 ## Ownership and invariants
 
 `GameSimulation` owns one `GameWorld`, one `MapDefinition`, one `SpatialGrid`, one `SystemPipeline`
 with the engine's `MatchLifecycleSystem` appended last at `kLifecycle`, one `ContactRuleTable`, one
-`SpawnSystem` holding the mode's `SpawnPolicy`, and the mode's declared name and accepted command
+`MotionTriggerTable`, validated `MotionLimits`, one `SpawnSystem` holding the mode's `SpawnPolicy`, and the mode's declared name and accepted command
 kinds. **Every declaration is read exactly once, at construction, and the mode object is then
 destroyed**, so "nothing calls into the mode during a tick" is structural rather than a rule to
 remember; the corresponding obligation on a mode author is that every declaration it returns is
@@ -308,7 +351,7 @@ for wire compatibility; gameplay reads the engine field. The objective now recei
 with the world, so a time limit uses committing ticks without publishing a second current tick.
 
 `GameWorld` owns one `ComponentStore` per registered component kind reached through `store<C>()`
-and `mutable_store<C>()`, `MatchState`, `DeterministicRandom`, the tick's `WorldEvent` list, and the
+and `mutable_store<C>()`, `MatchState`, `RandomStreams`, the tick's `WorldEvent` list, and the
 tick's `EntityIdReservation`. **`entities()` is derived from the stores, not stored beside them**:
 an entity exists exactly while some registered store holds its id, so "which entities exist" has
 one answer and a store write cannot desynchronize a roster. `create_entity()` draws an id from the
@@ -316,8 +359,9 @@ tick's reservation and the entity comes into existence when its first component 
 exhaustion is a hard failure. A world outside a tick holds the empty reservation, so nothing but a
 tick can create.
 
-Grid cells contain non-owning `EntityId` values and are rebuilt deterministically after a committed
-tick. A `GameWorld&` exists only inside `step`, so nothing outside a tick can obtain one.
+Grid cells contain non-owning `EntityId` values and are rebuilt deterministically before the
+world/grid/tick commit. The mutable production world is available only within `step`; snapshots
+own immutable publication values.
 
 **There is one exception vocabulary.** Every rejection and every violated invariant in this domain is
 a `SimulationValidationError` carrying one greppable `SIMULATION.*` code, including the engine
@@ -330,8 +374,8 @@ than the exception type. A mode in `blob_gameplay` raises `GameplayValidationErr
 Constructors and named factories reject invalid values before they enter the world. A tick computes
 against a working copy of the committed world, so if any phase or stage fails, no partial tick
 becomes observable and the previous commit stands unchanged. The numbered phases read and write only
-the `PhysicsBody` store and the `Controllable` command lists, so every other registered component
-survives a tick unless a system writes it.
+the motion bodies and input/match state at their declared boundaries. Motion callbacks read
+component facts without mutating them; typed effects are applied only after a successful solve.
 
 `simulation_limits.hpp` owns the bounds shared by input and publication: physical component
 magnitudes at most `10^12`, protocol-safe integers at most `2^53 - 1`. The hill and race
@@ -445,31 +489,33 @@ sub-step.
 systems, and every other mode are untouched. Two implementations beyond the engine set:
 `zone_shrink` for royale, `hill_scoring` for king of the hill. `SystemStage` decides what a system
 may see, not when it happens to have been registered: `kPreKernel` sees start-of-tick positions and
-this tick's recorded commands, `kPostKernel` sees committed positions and this tick's events, and
+this tick's recorded commands, `kPostKernel` sees solved positions and this tick's events, and
 `kLifecycle` sees the tick's final world.
 
 `@extension-point contact_rule` — `contact_rule.hpp`, ordered by `contact_rule_table.hpp`. An
 interaction is a new row: two `Predicate` free-function pointers and one `Response` free-function
 pointer, plus one line in a mode's `contact_rules()`. Function pointers rather than `std::function`
-are what make purity structural -- a predicate or a response cannot capture state. `physics.hpp` and
-phase 3 are untouched; the equations stay named pure functions and the table selects among them and
+prevent captured closure state. Registering a new row changes neither `physics.hpp` nor the
+continuous solver; the equations stay named pure functions and the table selects among them and
 contains no physics. Row order is the declared precedence, and a mode that wants the defaults writes
 them into its own order, so precedence between mode rows and built-in rows is visible in the mode's
 source. Two implementations beyond `elastic_disc`: `reflect_static` for a dynamic body meeting a
 wall, and a `flag_pickup` pass-through row that changes no body and emits one event. The built-in
 table declares three rows — `variable_impulse`, then `elastic_disc`, then `reflect_static` — and
-that order is the whole reason per-body mass and restitution are an addition rather than a versioned
-physics change: `variable_impulse` matches only a dynamic pair in which a body differs from the
-baseline, so an ordinary pair falls through to `elastic_disc` and the accepted arithmetic.
+`variable_impulse` matches only a dynamic pair with nonbaseline physical parameters, so an ordinary
+pair falls through to `elastic_disc` and the retained equal-unit-mass arithmetic. The continuous
+solver supplies the certified impact and chronology; retaining an equation does not retain the
+old discrete kernel's contact schedule.
 
 `@extension-point game_mode` — `game_mode.hpp`, with the mode-state seam in
-`mode_match_state_registry.hpp`. A `GameMode` is the complete declared ruleset of one playable game
-and the one accepted inheritance hierarchy here. Its seven declarations — `name`, `systems`,
-`contact_rules`, `accepted_command_kinds`, `spawn_policy`, `objective`, `validate_map` — are read
-once at construction through `GameSimulationSetup::of_mode(map, mode)`, and the two sub-interfaces a
-mode declares are `SpawnPolicy` (which index into `map.spawn_points()`, or defer) and
-`MatchObjective` (`can_start`, `outcome`, `durations`). Everything else about seating and the match
-machine is engine mechanism: `SpawnSystem` owns iteration, the policy call, and the rotation
+`mode_match_state_registry.hpp`. `GameMode` is the base interface for the complete declared ruleset
+of one playable game. Its eight declarations — `name`, `systems`,
+`contact_rules`, `motion_triggers`, `accepted_command_kinds`, `spawn_policy`, `objective`,
+`validate_map` — are read once by `GameSimulation::create`. `GameSimulationSetup::of_mode` only
+stores the setup; it does not read declarations. `SpawnPolicy` chooses a spawn index or deferral,
+`MatchObjective` supplies `can_start`/`outcome`/`durations`, and independently owned
+`MotionTriggerPolicy` instances supply unary binding/query/response behavior. Everything else about
+seating and the match machine is engine mechanism: `SpawnSystem` owns iteration, the policy call, and the rotation
 counter, and seats through the occupancy predicate and at-rest write of `spawn_seating.hpp`, which a
 mode system that returns a player to a point of its own uses too. `point_is_occupied` scans the live
 body store with the existing `2 * player_radius` contact range and position tolerance;
@@ -516,11 +562,19 @@ ordering are decided at the application and protocol boundary, before a batch ex
 source stamps the entity it owns, so no controller can command a foreign entity, and the simulation
 never learns whether a command came from a human session or a bot.
 
+`@extension-point motion_trigger_policy` — `motion_trigger_policy.hpp`, owned by
+`motion_trigger_table.hpp`. Add an independently owned immutable unary policy and a declaration
+row, not another event loop or kernel phase. Feature ranges, cursors, row/body capacity, charged
+queries, response progress, and immediate termination use the canonical continuous solver guards.
+
 ## Verification
 
 The canonical gate is `./scripts/verify-linux pr`. Focused tests are registered under the
 `blob_simulation_unit_tests` CTest target. Linux performance measurements use
 `./scripts/run-benchmarks-linux`; benchmark hashes are correctness assertions, not a second engine.
+Mac-hosted Linux/amd64 runs are advisory, never native release/performance certification. Retained
+pure-solver and historical discrete baselines keep their identities; oversized former live cases
+are explicit spatial-grid diagnostics, not motion workloads that bypass the 256-body cap.
 
 ### Immutable terrain publication (2026-09-10)
 

@@ -29,6 +29,10 @@ import { drawZoneExposure } from './zoneExposureRenderer';
  * invisible entity and an invisible entity is an incorrect world.
  */
 export const entityRendererRegistry = Object.freeze({
+  contact_effect_admission: nonVisualComponent(
+    'contact_effect_admission',
+    'Source-effect eligibility adds no geometry; the body and hazard components own their visuals.',
+  ),
   controllable: entityRenderer(
     'controllable',
     ENTITY_RENDER_LAYERS.label,

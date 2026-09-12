@@ -41,11 +41,13 @@ constexpr std::uint64_t kWorldSeed = 20260907;
 }
 
 [[nodiscard]] simulation::MapDefinition map_with_static_bodies_fixture() {
-  std::vector<simulation::PhysicsBody> static_bodies;
+  std::vector<simulation::StaticBodyDeclaration> static_bodies;
   static_bodies.reserve(kStaticBodyCount);
   for (std::uint64_t index = 0; index < kStaticBodyCount; ++index) {
-    static_bodies.push_back(simulation::PhysicsBody::create_static(
-        simulation::Vector2::create(10.0 + static_cast<double>(index) * 10.0, 10.0)));
+    static_bodies.push_back(simulation::StaticBodyDeclaration::create(
+        simulation::PhysicsBody::create_static(
+            simulation::Vector2::create(10.0 + static_cast<double>(index) * 10.0, 10.0)),
+        simulation::ContactEffectPolicy::kClosingImpact));
   }
   return simulation::MapDefinition::create(
       "entity_id_allocator_floor_map", simulation::ArenaBounds::create(kWorldWidth, kWorldHeight),

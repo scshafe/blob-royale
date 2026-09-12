@@ -153,29 +153,45 @@ TEST_CASE("WorldSnapshot copies complete player data in canonical EntityId order
       simulation::Vector2::create(kHigherIdPlayer.acceleration_x, kHigherIdPlayer.acceleration_y));
 }
 
-TEST_CASE("WorldSnapshot supports empty and maximum-sized validated worlds",
+TEST_CASE("WorldSnapshot separates the live physical limit from the maximum entity population",
           "[unit][simulation][snapshot]") {
   const simulation::WorldSnapshot empty_snapshot =
       simulation_from_world(simulation::GameWorld::create({})).snapshot();
 
   std::vector<simulation::GameWorld::EntitySeed> maximum_seeds;
-  maximum_seeds.reserve(simulation::kMaximumPlayerCount);
-  for (std::size_t index = 0; index < simulation::kMaximumPlayerCount; ++index) {
+  maximum_seeds.reserve(simulation::kMaximumEntityCount);
+  for (std::size_t index = 0; index < simulation::kMaximumEntityCount; ++index) {
     const double x = 1.0 + (2.0 * static_cast<double>(index % 64));
     const double y = 1.0 + (2.0 * static_cast<double>(index / 64));
     maximum_seeds.push_back(
         positioned_seed(static_cast<simulation::EntityId::Value>(index + 1), x, y));
   }
+  auto maximum_world = simulation::GameWorld::create(std::move(maximum_seeds));
+  // Step 16 bounds live physical bodies independently of entity/snapshot storage. Preserve the
+  // complete historical entity population as bodyless controller identities beyond that limit;
+  // do not add a snapshot-only constructor or bypass live admission to retain 4096 moving bodies.
+  for (std::size_t index = simulation::kMaximumMotionBodyCount;
+       index < simulation::kMaximumEntityCount; ++index) {
+    maximum_world.mutable_store<simulation::PhysicsBody>().erase(
+        simulation::EntityId::create(static_cast<simulation::EntityId::Value>(index + 1)));
+  }
   const simulation::WorldSnapshot maximum_snapshot =
-      simulation_from_world(simulation::GameWorld::create(std::move(maximum_seeds)),
+      simulation_from_world(std::move(maximum_world),
                             snapshot_configuration(130.0, 130.0, 0.25, 64, 64))
           .snapshot();
 
   CHECK(empty_snapshot.players().empty());
   CHECK(empty_snapshot.tick_sequence() == simulation::TickSequence::zero());
-  REQUIRE(maximum_snapshot.players().size() == simulation::kMaximumPlayerCount);
+  REQUIRE(maximum_snapshot.entities().size() == simulation::kMaximumEntityCount);
+  REQUIRE(maximum_snapshot.components<simulation::Controllable>().size() ==
+          simulation::kMaximumEntityCount);
+  REQUIRE(maximum_snapshot.components<simulation::PhysicsBody>().size() ==
+          simulation::kMaximumMotionBodyCount);
+  REQUIRE(maximum_snapshot.players().size() == simulation::kMaximumMotionBodyCount);
   CHECK(maximum_snapshot.players().front().entity_id().value() == simulation::kMinimumEntityId);
-  CHECK(maximum_snapshot.players().back().entity_id().value() == simulation::kMaximumPlayerCount);
+  CHECK(maximum_snapshot.players().back().entity_id().value() ==
+        simulation::kMaximumMotionBodyCount);
+  CHECK(maximum_snapshot.entities().back().value() == simulation::kMaximumEntityCount);
   CHECK(maximum_snapshot.tick_sequence() == simulation::TickSequence::zero());
 }
 

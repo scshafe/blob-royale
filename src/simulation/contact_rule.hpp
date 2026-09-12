@@ -5,6 +5,8 @@
 #include "contact_rule_name.hpp"
 #include "entity_id.hpp"
 #include "events/contact_event.hpp"
+#include "motion_contact_observation.hpp"
+#include "motion_response.hpp"
 #include "physics.hpp"
 #include "physics_body.hpp"
 #include "simulation_validation_error.hpp"
@@ -41,7 +43,8 @@ public:
   [[nodiscard]] static ContactResponse unchanged() noexcept { return ContactResponse{}; }
 
   // The two replacement bodies plus every event this contact produces, in production order.
-  [[nodiscard]] static ContactResponse create(PhysicsBody first_body, PhysicsBody second_body,
+  [[nodiscard]] static ContactResponse create(MotionBodyResult first_body,
+                                              MotionBodyResult second_body,
                                               std::vector<WorldEvent> events) {
     return ContactResponse{BodyPair{first_body, second_body}, std::move(events)};
   }
@@ -55,9 +58,13 @@ public:
   // Whether this response names replacement bodies. False exactly for `unchanged()`.
   [[nodiscard]] bool replaces_bodies() const noexcept { return bodies_.has_value(); }
 
-  [[nodiscard]] const PhysicsBody& first_body() const& { return require_bodies().first; }
+  [[nodiscard]] const MotionBodyResult& first_result() const& { return require_bodies().first; }
+  [[nodiscard]] const MotionBodyResult& first_result() const&& = delete;
+  [[nodiscard]] const MotionBodyResult& second_result() const& { return require_bodies().second; }
+  [[nodiscard]] const MotionBodyResult& second_result() const&& = delete;
+  [[nodiscard]] const PhysicsBody& first_body() const& { return first_result().body; }
   [[nodiscard]] const PhysicsBody& first_body() const&& = delete;
-  [[nodiscard]] const PhysicsBody& second_body() const& { return require_bodies().second; }
+  [[nodiscard]] const PhysicsBody& second_body() const& { return second_result().body; }
   [[nodiscard]] const PhysicsBody& second_body() const&& = delete;
 
   [[nodiscard]] std::span<const WorldEvent> events() const& noexcept { return events_; }
@@ -67,8 +74,8 @@ public:
 
 private:
   struct BodyPair final {
-    PhysicsBody first;
-    PhysicsBody second;
+    MotionBodyResult first;
+    MotionBodyResult second;
 
     friend bool operator==(const BodyPair&, const BodyPair&) = default;
   };
@@ -93,11 +100,9 @@ private:
 // canonical: contact_rule -- one row of the contact chain of responsibility.
 // @extension-point contact_rule
 //
-// Phase 3 keeps every guarantee ADR 0003 § "Player-pair policy" makes about *mechanism* --
-// canonical `(lower id, higher id)` pairs, lexicographic order, one evaluation per pair,
-// sequential writes visible to later pairs, the epsilon comparisons, and the coincident-centre
-// fallback. What becomes policy is only *which pure equation a matched pair uses*: the equations
-// stay named pure functions in `physics.hpp` and this table contains no physics.
+// The continuous solver owns chronological contact admission and bounded re-observation after
+// external trajectory changes. This table owns only policy precedence and row orientation;
+// equations stay named pure functions in physics.hpp and must consume the certified impact.
 //
 // **Evaluation is a chain of responsibility.** For each canonical pair `(a, b)` with `a.id < b.id`
 // the kernel walks the table's rows in declared order. A row matches in the canonical orientation
@@ -129,13 +134,13 @@ public:
   // Free function pointers, not std::function: a predicate or a response structurally cannot
   // capture state, which is how purity is enforced rather than merely requested.
   //
-  // A predicate reads the **committed** world, so it may only test structural properties -- the
-  // static flag, the collision masks, a component's presence -- that phase 1 and phase 3 do not
-  // change within a tick. Reading a velocity here would read the start-of-tick value, which is why
-  // no built-in predicate does.
+  // Both callbacks read the frozen post-phase-0/post-kPreKernel world. Current resolved motion
+  // comes only from Subject; frozen body velocity is not a contact-time velocity. Responses may
+  // replace velocity/acceleration/disposition and emit typed events, never mutate that world.
   using Predicate = bool (*)(const GameWorld& world, EntityId entity);
-  using Response = ContactResponse (*)(const Subject& first, const Subject& second,
-                                       const PlayerPairContact& contact,
+  using Response = ContactResponse (*)(const GameWorld& world, const Subject& first,
+                                       const Subject& second,
+                                       const PairContactObservation& observation,
                                        const TickContext& context);
 
   // Creates a validated row or throws SimulationValidationError for an empty or non-snake_case

@@ -282,10 +282,8 @@ can reorder, skip, or replace it. The stages are policy and hold the mode's orde
   kernel intake      phase 0   despawn, spawn seating (SpawnPolicy), record commands
   ---- kPreKernel ----         mode systems, declared order
   kernel physics     phase 1   stored acceleration and drag
-                     phase 2   canonical candidate pairs
-                     phase 3   contact resolution (ContactRuleTable)
-                     phase 4   world bounds
-                     phase 5   position integration
+                     phases 2–5 continuous pair/wall/trigger chronology
+                                (ContactRuleTable, MotionTriggerTable)
                      phase 6   spatial reindex
   ---- kPostKernel ---         mode systems, declared order
   ---- kLifecycle ----         mode systems, declared order, then MatchLifecycleSystem
@@ -297,9 +295,10 @@ zone radius, elimination, and the single match transition — are not deleted; t
 as the `royale` mode's `kPostKernel` and `kLifecycle` systems in the same relative order, so the
 committed physical values are identical (§ "Consequences").
 
-The kernel has exactly **two policy sockets**, both evaluated at a fixed point against declared
-data: the mode's `SpawnPolicy` in phase 0 and the mode's `ContactRuleTable` in phase 3. There is no
-third. A mode that wants to change anything else changes it with a system at a stage.
+**Amended 2026-09-11 (Step 16):** The kernel has three policy sockets: `SpawnPolicy` at intake,
+`ContactRuleTable` for certified pair observations, and `MotionTriggerTable` for certified unary
+motion events. The latter two share one chronological solver. A mode changes other behavior with
+systems at the existing stages; no stage or general callback bus was added.
 
 A system is one interface with one operation:
 
@@ -441,13 +440,12 @@ wrong tick.
 
 ### Contact rules
 
-Phase 3 keeps every guarantee ADR 0003 § "Player-pair policy" makes about *mechanism* — canonical
-`(lower id, higher id)` pairs, lexicographic order, one evaluation per pair, sequential writes
-visible to later pairs, `ε_position` and `ε_velocity` comparisons, and the coincident-center
-fallback. What becomes policy is only *which pure equation a matched pair uses*. The equations
-themselves stay named pure functions in `physics.hpp`; the table selects among them and contains no
-physics. The wall and integration phases are not dispatched through the table at all
-(`0002-simulation-architecture.md` § "Extension points").
+**Amended 2026-09-11 (Step 16):** The solver owns swept admission, exact event-time ordering,
+certificates, and bounded re-observation after external trajectory changes. Canonical pair identity
+remains `(lower id, higher id)`; pair order alone no longer chooses chronology. The table owns only
+row precedence and orientation. Impulse equations remain named pure functions in `physics.hpp` and
+consume the certified impact without repeating proximity detection. Walls and unary triggers do
+not dispatch through the contact table.
 
 ```cpp
 // canonical: contact_rule -- one row of the contact chain of responsibility.
@@ -462,8 +460,10 @@ public:
   // Free function pointers, not std::function: a predicate or response structurally cannot
   // capture state, which is how purity is enforced rather than merely requested.
   using Predicate = bool (*)(const GameWorld& world, EntityId entity);
-  using Response = ContactResponse (*)(const Subject& first, const Subject& second,
-                                       const PlayerPairContact& contact, const TickContext& context);
+  using Response = ContactResponse (*)(const GameWorld& world, const Subject& first,
+                                       const Subject& second,
+                                       const PairContactObservation& observation,
+                                       const TickContext& context);
 
   [[nodiscard]] static ContactRule create(std::string_view name, Predicate first_predicate,
                                           Predicate second_predicate, Response response);
@@ -478,9 +478,11 @@ public:
 class ContactResponse final {
 public:
   [[nodiscard]] static ContactResponse unchanged() noexcept;
-  [[nodiscard]] static ContactResponse create(PhysicsBody first_body, PhysicsBody second_body,
+  [[nodiscard]] static ContactResponse create(MotionBodyResult first_body, MotionBodyResult second_body,
                                               std::vector<WorldEvent> events);
 
+  [[nodiscard]] const MotionBodyResult& first_result() const&;
+  [[nodiscard]] const MotionBodyResult& second_result() const&;
   [[nodiscard]] const PhysicsBody& first_body() const& noexcept;
   [[nodiscard]] const PhysicsBody& second_body() const& noexcept;
   [[nodiscard]] std::span<const WorldEvent> events() const& noexcept;
@@ -492,39 +494,43 @@ public:
   // Rejects an empty name and a duplicate name. Row order is the declared precedence.
   [[nodiscard]] static ContactRuleTable create(std::vector<ContactRule> rows);
 
-  // The two ADR 0003 rows: elastic_disc, then reflect_static.
+  // variable_impulse, elastic_disc, then reflect_static.
   [[nodiscard]] static ContactRuleTable built_in();
 
   [[nodiscard]] std::span<const ContactRule> rows() const& noexcept;
 };
 ```
 
-**A response may change only the two bodies.** Every other consequence leaves as an event for a
-`kPostKernel` system to apply. That is what keeps the kernel's mutation surface exactly what ADR
-0003 pinned, and it is why a flag pickup is expressible without giving the contact phase write
-access to scores, teams, or the roster.
+**A response may change only velocity, acceleration, and per-body motion disposition.** Geometry
+replacement is rejected. `kTerminate` immediately excludes the body from subsequent motion/contact
+work this tick; gameplay consequences remain typed events for later stages. Predicates and responses
+read one frozen post-intake/post-PreKernel world; contact-time motion comes from `Subject`, never
+from that world's stale velocity. The solver's complete result and effects are transferred only
+after successful resolution, and the outer world/grid/tick transaction remains all-or-nothing.
 
 **Evaluation is a chain of responsibility, stated explicitly.** For each canonical pair `(a, b)`
 with `a.id < b.id`, the kernel walks `rows()` in order. A row matches in the canonical orientation
 when `first_predicate(a) && second_predicate(b)`, and in the swapped orientation when
 `first_predicate(b) && second_predicate(a)`. **Canonical orientation is tried before swapped
 orientation, and the first matching (row, orientation) wins.** A matched swapped row receives its
-arguments in row orientation and the kernel maps the returned bodies back to the canonical pair. A
+arguments and source eligibility in row orientation; its certified normal is reversed without
+redetection. The table maps returned results back to the canonical pair. A
 pair that matches no row is unchanged, which makes the table total without a default row.
 
-The two built-in rows are the accepted baseline:
+The three built-in rows preserve the accepted equations, on certified closing impacts only:
 
 | Row | First predicate | Second predicate | Response |
 |---|---|---|---|
+| `variable_impulse` | nonbaseline dynamic pair, either orientation | dynamic body | Existing general mass/restitution impulse, plus one `ContactEvent`. |
 | `elastic_disc` | dynamic body | dynamic body | ADR 0003's equal-mass frictionless normal-component exchange, plus one `ContactEvent`. |
 | `reflect_static` | dynamic body | static body | Reflect the dynamic body's normal component about the contact normal; the static body is unchanged; plus one `ContactEvent`. |
 
-`PhysicsBody` carries `radius` and `mass` so the framework's shape does not have to change when
-unequal discs arrive, but the accepted baseline still requires every dynamic body to carry the
-configured common radius and unit mass, and `elastic_disc` is defined only for that case. A
-general-impulse row for unequal masses is a versioned physics change on the path ADR 0003
-§ "Justified extension points and what-if stress" already documents; it is a new row, not a new
-seam.
+`PhysicsBody` radius, mass, and restitution are effective values. Each folded dynamic body uses its
+own radius against the closed outer envelope; static and crossing bodies retain their explicit
+exemptions. Sparse body-bound `ContactEffectAdmission{any_touch}` changes only its owner's effect
+eligibility. Absence means `closing_impact`; storing that default, an unknown value, or a bodyless
+entry is invalid. Canonical assignment implements instance override, archetype default, then
+implicit closing impact. Static CSV and hazard configuration require explicit authoring policy.
 
 The mode returns the whole table. The engine never appends a row the mode did not list, so a mode
 that wants the defaults writes them into its own declared order —
@@ -551,6 +557,9 @@ public:
   [[nodiscard]] virtual std::string_view name() const noexcept = 0;
   [[nodiscard]] virtual SystemPipeline systems() const = 0;
   [[nodiscard]] virtual ContactRuleTable contact_rules() const = 0;
+  [[nodiscard]] virtual MotionTriggerTable motion_triggers() const {
+    return MotionTriggerTable::empty();
+  }
   [[nodiscard]] virtual CommandKindMask accepted_command_kinds() const noexcept = 0;
   [[nodiscard]] virtual std::unique_ptr<const SpawnPolicy> spawn_policy() const = 0;
   [[nodiscard]] virtual std::unique_ptr<const MatchObjective> objective() const = 0;
@@ -572,7 +581,13 @@ discipline.
 A mode is constructed with its own validated configuration and holds it; that configuration is what
 it hands to the systems it builds. `validate_map` is the seventh member and earns its place by
 turning "capture the flag needs two flag homes" from a runtime surprise into a startup rejection
-with a named cause.
+with a named cause. Step 16 adds `motion_triggers` as the eighth declaration. Its default is an
+empty table, so existing modes opt in explicitly. The engine owns independently allocated const
+policies after destroying the mode. Per-tick bindings own their frozen facts before exposing
+borrowed solver rows; temporary-table/temporary-binding borrows are forbidden. Binding may select
+eligibility and initialize a cursor, but geometric queries run through the solver's budget. Step 16
+tests this socket with injected policies; production support/race registration follows in Step 17,
+and guarded pair composition follows in Step 18.
 
 The two sub-interfaces a mode declares are each as small as their capability allows:
 
@@ -1165,7 +1180,7 @@ rather than foresight.
 | Component kind | `entity_component` | A value struct plus a `ComponentKindName` specialization | `component_registry.hpp` | `Flag` for capture the flag; `Health` for projectile damage |
 | System | `simulation_system` | `apply(GameWorld&, const TickContext&) const` plus `name()` | the mode's declared staged list | `zone_shrink` for royale; `hill_scoring` for king of the hill |
 | Contact rule | `contact_rule` | `(predicate, predicate, pure response)` returning bodies plus events | the mode's `contact_rules()` row order | `elastic_disc` for blob-on-blob; `flag_pickup` as a pass-through trigger |
-| Game mode | `game_mode` | Seven declarations read once at construction | `game_mode_registry.hpp` and `[match] mode=` | `royale`; `capture_the_flag` |
+| Game mode | `game_mode` | Eight declarations read once at construction (Step 16) | `game_mode_registry.hpp` and `[match] mode=` | `royale`; `capture_the_flag` |
 | Map | `map_definition` | Bounds, static bodies, markers, metadata; data only | a directory under `maps/` and `[match] map=` | the 960x640 arena; an obstacle course |
 | Command kind | `command_kind` | A value type in the `Command` variant with validation and a consuming system | `command_registry.hpp` | `ThrustCommand`; `FireCommand` |
 | Controller | `controller` | The in-process form of the command-source role, in `blob_controllers`: `kind()`, `entity()`, non-blocking `decide(const Observation&)` | `controller_registry.hpp` and `[match] bots=` | seeded `WandererController`; an off-thread LLM-driven controller |
@@ -1489,3 +1504,21 @@ committed after success, and duplicate/stale admission before base-controller mu
 uses raw match seed, room, authored seat, profile name, and public running-start tick, not controller
 allocation or simulation RNG. Exact bounds, ordered mixing/draws, cancellation, and limitations are
 specified in `docs/reviews/2026-09-11-tactical-profile-contract.md`. Combat settings remain deferred.
+
+## Amended 2026-09-11: Live continuous motion composition (Step 16)
+
+The tick and contact-rule sections above now implement ADR 0008's third kernel socket and eighth
+mode declaration. All eight declarations are read exactly once before mode destruction; returned
+objects must own their immutable policy state independently. Pair and unary callbacks share one
+post-intake/post-PreKernel frozen world and read current motion from subjects. The solver is the
+only owner of event-time geometry and ordering, and its borrowed facts remain alive throughout
+the synchronous call. No ninth declaration, fourth stage, alternative solver, or public path bus
+was added. The older seven-declaration/two-socket descriptions in historical rationale are
+superseded by this amendment.
+
+Sparse body-bound `ContactEffectAdmission` is registered and published completely under the
+coordinated v3.0 contract. It admits its owner's effects on any touch, not an opponent's effects,
+and does not change collision masks or create an impulse. Existing authored objects explicitly
+retain closing-impact behavior. The implementation contract and pre-cutover proofs are in
+[`2026-09-11-live-motion-integration-contract.md`](../reviews/2026-09-11-live-motion-integration-contract.md)
+and [`2026-09-11-live-motion-prerequisite-review.md`](../reviews/2026-09-11-live-motion-prerequisite-review.md).

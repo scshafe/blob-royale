@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_TESTING_COMPONENT_LIFETIME_FIXTURE_HPP
 #define BLOB_ROYALE_TESTING_COMPONENT_LIFETIME_FIXTURE_HPP
 
+#include "components/contact_effect_admission_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
 #include "components/hill_presence_component.hpp"
@@ -42,6 +43,8 @@ inline constexpr std::uint64_t kStunDuration = 50;
 
 inline void attach_bound_components(simulation::GameWorld& world,
                                     const simulation::EntityId target) {
+  world.mutable_store<simulation::ContactEffectAdmission>().insert_or_assign(
+      target, simulation::ContactEffectAdmission{});
   world.mutable_store<simulation::HillPresence>().insert_or_assign(
       target, simulation::HillPresence{kPresenceTicks});
   world.mutable_store<simulation::ZoneExposure>().insert_or_assign(

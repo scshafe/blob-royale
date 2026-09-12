@@ -26,8 +26,10 @@ namespace {
   return simulation::Vector2::create(x, y);
 }
 
-[[nodiscard]] simulation::PhysicsBody wall(const double x, const double y) {
-  return simulation::PhysicsBody::create_static(point(x, y));
+[[nodiscard]] simulation::StaticBodyDeclaration wall(const double x, const double y) {
+  return simulation::StaticBodyDeclaration::create(
+      simulation::PhysicsBody::create_static(point(x, y)),
+      simulation::ContactEffectPolicy::kClosingImpact);
 }
 
 [[nodiscard]] simulation::MapDefinition::Marker marker(std::string kind, const double x,
@@ -37,7 +39,7 @@ namespace {
 }
 
 [[nodiscard]] simulation::MapDefinition
-map(std::vector<simulation::PhysicsBody> static_bodies = {},
+map(std::vector<simulation::StaticBodyDeclaration> static_bodies = {},
     std::vector<simulation::MapDefinition::Marker> markers = {},
     simulation::MapMetadata metadata = simulation::MapMetadata::none()) {
   return simulation::MapDefinition::create("arena-500x400", bounds(), std::move(static_bodies),
@@ -202,7 +204,8 @@ TEST_CASE("MapDefinition rejects a dynamic body in its static body list",
       simulation::PhysicsBody::create(point(100.0, 100.0), point(0.0, 0.0), point(0.0, 0.0));
 
   try {
-    static_cast<void>(map({dynamic_body}));
+    static_cast<void>(map({simulation::StaticBodyDeclaration::create(
+        dynamic_body, simulation::ContactEffectPolicy::kClosingImpact)}));
     FAIL("a dynamic body in the static body list must be rejected");
   } catch (const simulation::SimulationValidationError& error) {
     CHECK(rejection_code_of(error) ==
@@ -251,7 +254,7 @@ TEST_CASE("MapDefinition rejects an unusable name",
 
 TEST_CASE("MapDefinition rejects more static bodies or markers than the world has seats",
           "[unit][simulation][map_definition][validation]") {
-  std::vector<simulation::PhysicsBody> bodies;
+  std::vector<simulation::StaticBodyDeclaration> bodies;
   bodies.reserve(simulation::kMaximumMapStaticBodyCount + 1);
   for (std::size_t index = 0; index <= simulation::kMaximumMapStaticBodyCount; ++index) {
     bodies.push_back(wall(100.0, 100.0));

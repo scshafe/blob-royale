@@ -239,8 +239,11 @@ TEST_CASE("map validation rejects a static body center on void",
   const auto body = simulation::PhysicsBody::create_static(point(50.0, 50.0));
   require_rejected(
       [&] {
-        return simulation::MapDefinition::create("unsupported_obstacle", terrain, {body}, {},
-                                                 simulation::MapMetadata::none());
+        return simulation::MapDefinition::create(
+            "unsupported_obstacle", terrain,
+            {simulation::StaticBodyDeclaration::create(
+                body, simulation::ContactEffectPolicy::kClosingImpact)},
+            {}, simulation::MapMetadata::none());
       },
       simulation::SimulationValidationCode::kTerrainGeometryOutOfBounds);
 }

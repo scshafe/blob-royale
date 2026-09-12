@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_MAP_DEFINITION_HPP
 
 #include "physics_body.hpp"
+#include "static_body_declaration.hpp"
 #include "team_id.hpp"
 #include "terrain_definition.hpp"
 #include "vector2.hpp"
@@ -134,13 +135,13 @@ public:
   // `require_spawn_points_are_seatable` in `spawn_system.hpp` is the one place they meet, and it
   // runs at construction so a mismatch is a startup rejection rather than a mid-match failure.
   [[nodiscard]] static MapDefinition create(std::string name, ArenaBounds bounds,
-                                            std::vector<PhysicsBody> static_bodies,
+                                            std::vector<StaticBodyDeclaration> static_bodies,
                                             std::vector<Marker> markers, MapMetadata metadata);
 
   // The authored terrain factory. The bounds overload above explicitly delegates to solid ground
   // for programmatic rectangles; bundled replay maps use MapLoader's explicit terrain format.
   [[nodiscard]] static MapDefinition create(std::string name, TerrainDefinition terrain,
-                                            std::vector<PhysicsBody> static_bodies,
+                                            std::vector<StaticBodyDeclaration> static_bodies,
                                             std::vector<Marker> markers, MapMetadata metadata);
 
   // The degenerate map: an empty rectangle with no static bodies, no markers, and no metadata.
@@ -164,10 +165,10 @@ public:
   [[nodiscard]] const TerrainDefinition& terrain() const& noexcept { return terrain_; }
   [[nodiscard]] const TerrainDefinition& terrain() const&& = delete;
 
-  [[nodiscard]] std::span<const PhysicsBody> static_bodies() const& noexcept {
+  [[nodiscard]] std::span<const StaticBodyDeclaration> static_bodies() const& noexcept {
     return static_bodies_;
   }
-  [[nodiscard]] std::span<const PhysicsBody> static_bodies() const&& = delete;
+  [[nodiscard]] std::span<const StaticBodyDeclaration> static_bodies() const&& = delete;
 
   // Every declared marker, in the order the map declared it.
   [[nodiscard]] std::span<const Marker> markers() const& noexcept { return markers_; }
@@ -183,13 +184,13 @@ public:
   friend bool operator==(const MapDefinition&, const MapDefinition&) = default;
 
 private:
-  MapDefinition(std::string name, TerrainDefinition terrain, std::vector<PhysicsBody> static_bodies,
-                std::vector<Marker> markers, std::vector<Marker> spawn_points,
-                MapMetadata metadata) noexcept;
+  MapDefinition(std::string name, TerrainDefinition terrain,
+                std::vector<StaticBodyDeclaration> static_bodies, std::vector<Marker> markers,
+                std::vector<Marker> spawn_points, MapMetadata metadata) noexcept;
 
   std::string name_;
   TerrainDefinition terrain_;
-  std::vector<PhysicsBody> static_bodies_;
+  std::vector<StaticBodyDeclaration> static_bodies_;
   std::vector<Marker> markers_;
   // Materialized once, because every mode needs it and a per-tick filter would be a scan the
   // ordering contract does not need.

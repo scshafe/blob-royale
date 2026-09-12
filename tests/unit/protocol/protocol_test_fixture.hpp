@@ -13,6 +13,7 @@
 #include "public_configuration.hpp"
 #include "request_id.hpp"
 #include "simulation_config.hpp"
+#include "simulation_limits.hpp"
 #include "vector2.hpp"
 #include "world_snapshot.hpp"
 
@@ -117,10 +118,10 @@ snapshot_after_steps(simulation::SimulationConfig configuration,
   return snapshot_after_steps(default_simulation_config(), {}, 1);
 }
 
-[[nodiscard]] inline simulation::WorldSnapshot maximum_player_snapshot() {
+[[nodiscard]] inline simulation::WorldSnapshot maximum_live_player_snapshot() {
   std::vector<simulation::GameWorld::EntitySeed> players;
-  players.reserve(kSnapshotPlayerLimit);
-  for (std::size_t index = 0; index < kSnapshotPlayerLimit; ++index) {
+  players.reserve(simulation::kMaximumMotionBodyCount);
+  for (std::size_t index = 0; index < simulation::kMaximumMotionBodyCount; ++index) {
     constexpr std::size_t kPlayersPerRow = 64;
     constexpr double kCellExtent = 1'000.0 / static_cast<double>(kPlayersPerRow);
     const std::size_t column = index % kPlayersPerRow;

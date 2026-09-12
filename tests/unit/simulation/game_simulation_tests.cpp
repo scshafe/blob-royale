@@ -143,10 +143,11 @@ TEST_CASE("GameSimulation has one movable owner and exposes a coherent committed
   CHECK(simulation_game.configuration() == configuration());
 }
 
-TEST_CASE("GameSimulation rejects an initial disc outside the configured world",
+TEST_CASE("GameSimulation permits initial wall overlap but rejects a center outside the envelope",
           "[unit][simulation][game_simulation][validation]") {
-  CHECK_THROWS_AS(game({player(1, 9.999, 50.0)}, configuration(100.0, 100.0, 10.0, 4, 4)),
+  CHECK_THROWS_AS(game({player(1, -0.001, 50.0)}, configuration(100.0, 100.0, 10.0, 4, 4)),
                   simulation::SimulationValidationError);
+  CHECK_NOTHROW(game({player(1, 9.999, 50.0)}, configuration(100.0, 100.0, 10.0, 4, 4)));
   CHECK_NOTHROW(game({player(1, 10.0, 90.0)}, configuration(100.0, 100.0, 10.0, 4, 4)));
 }
 
@@ -169,22 +170,23 @@ TEST_CASE("one tick applies stored acceleration before pair response and integra
   check_vector(first.acceleration(), 400.0, 0.0);
 }
 
-TEST_CASE("equal-distance contacts resolve once in lexicographic EntityId order",
+TEST_CASE("equal-time contacts use EntityId order and external changes reenable earlier pairs",
           "[unit][simulation][game_simulation][collision][order]") {
   simulation::GameSimulation simulation_game = game(equal_distance_players(true));
 
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
 
-  check_vector(snapshot_player(snapshot, 1).velocity(), 2.0, 0.0);
-  check_vector(snapshot_player(snapshot, 2).velocity(), 0.0, 0.0);
+  // Step 16: the (1,3) response changes body 1 and re-enables its touching (1,2) pair.
+  check_vector(snapshot_player(snapshot, 1).velocity(), 0.0, 0.0);
+  check_vector(snapshot_player(snapshot, 2).velocity(), 2.0, 0.0);
   check_vector(snapshot_player(snapshot, 3).velocity(), -1.0, 0.0);
-  check_vector(snapshot_player(snapshot, 1).position(), 50.005, 50.0);
-  check_vector(snapshot_player(snapshot, 2).position(), 70.0, 50.0);
+  check_vector(snapshot_player(snapshot, 1).position(), 50.0, 50.0);
+  check_vector(snapshot_player(snapshot, 2).position(), 70.005, 50.0);
   check_vector(snapshot_player(snapshot, 3).position(), 29.9975, 50.0);
 }
 
-TEST_CASE("pair response precedes wall resolution in the same canonical tick",
+TEST_CASE("pair wins a wall tie and the wall response can reenable the touching pair",
           "[unit][simulation][game_simulation][collision][wall]") {
   simulation::GameSimulation simulation_game =
       game({player(1, 10.0, 50.0), player(2, 30.0, 50.0, -400.0, 0.0)},
@@ -193,10 +195,11 @@ TEST_CASE("pair response precedes wall resolution in the same canonical tick",
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
 
-  check_vector(snapshot_player(snapshot, 1).position(), 11.0, 50.0);
-  check_vector(snapshot_player(snapshot, 1).velocity(), 400.0, 0.0);
-  check_vector(snapshot_player(snapshot, 2).position(), 30.0, 50.0);
-  check_vector(snapshot_player(snapshot, 2).velocity(), 0.0, 0.0);
+  // Step 16: reflection transfers back through the re-enabled pair at this same instant.
+  check_vector(snapshot_player(snapshot, 1).position(), 10.0, 50.0);
+  check_vector(snapshot_player(snapshot, 1).velocity(), 0.0, 0.0);
+  check_vector(snapshot_player(snapshot, 2).position(), 31.0, 50.0);
+  check_vector(snapshot_player(snapshot, 2).velocity(), 400.0, 0.0);
 }
 
 TEST_CASE("corner and multi-wall overshoot commit bounded inward-facing state",
@@ -219,8 +222,9 @@ TEST_CASE("corner and multi-wall overshoot commit bounded inward-facing state",
   check_vector(overshoot.velocity(), -148'000.0, 0.0);
 }
 
-TEST_CASE("player crossing during integration receives no swept collision impulse",
-          "[unit][simulation][game_simulation][collision][discrete]") {
+TEST_CASE(
+    "player crossing receives a swept impulse at the certified contact before integration ends",
+    "[unit][simulation][game_simulation][collision][continuous]") {
   simulation::GameSimulation simulation_game =
       game({player(1, 30.0, 50.0, 10'000.0, 0.0), player(2, 70.0, 50.0, -10'000.0, 0.0)},
            configuration(100.0, 100.0, 5.0, 4, 4));
@@ -228,10 +232,11 @@ TEST_CASE("player crossing during integration receives no swept collision impuls
   simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
   const simulation::WorldSnapshot snapshot = simulation_game.snapshot();
 
-  check_vector(snapshot_player(snapshot, 1).position(), 55.0, 50.0);
-  check_vector(snapshot_player(snapshot, 1).velocity(), 10'000.0, 0.0);
-  check_vector(snapshot_player(snapshot, 2).position(), 45.0, 50.0);
-  check_vector(snapshot_player(snapshot, 2).velocity(), -10'000.0, 0.0);
+  // Relative travel reaches the summed radius at t=.6; both discs reverse for the remaining .4.
+  check_vector(snapshot_player(snapshot, 1).position(), 35.0, 50.0);
+  check_vector(snapshot_player(snapshot, 1).velocity(), -10'000.0, 0.0);
+  check_vector(snapshot_player(snapshot, 2).position(), 65.0, 50.0);
+  check_vector(snapshot_player(snapshot, 2).velocity(), 10'000.0, 0.0);
 }
 
 TEST_CASE("migrated pair fixture reaches contact on tick 1600 and resolves on tick 1601",
@@ -263,7 +268,7 @@ TEST_CASE("migrated pair fixture reaches contact on tick 1600 and resolves on ti
                simulation::kPositionTolerance);
 }
 
-TEST_CASE("migrated wall fixture reaches the lower wall inward on tick 2000",
+TEST_CASE("migrated wall fixture preserves the positive gap at tick 2000 and reflects on tick 2001",
           "[unit][simulation][game_simulation][fixture][horizon]") {
   simulation::GameSimulation simulation_game =
       game({player(1, 15.0, 70.0, -1.0, 3.2), player(2, 500.0, 400.0, 2.5, 1.8)},
@@ -275,8 +280,22 @@ TEST_CASE("migrated wall fixture reaches the lower wall inward on tick 2000",
 
   CHECK(snapshot.tick_sequence().value() == 2'000);
   check_vector(wall_player.position(), 10.0, 86.0, simulation::kPositionTolerance);
-  check_vector(wall_player.velocity(), 1.0, 3.2);
+  // Repeated integration leaves a positive substep gap. The continuous wall rule does not
+  // snap this tolerance-near endpoint to the wall or reflect before the exact crossing.
+  const double remaining_gap = wall_player.position().x() - 10.0;
+  CAPTURE(remaining_gap);
+  CHECK(remaining_gap > 0.0);
+  CHECK(remaining_gap < simulation::FixedDelta::canonical().seconds());
+  check_vector(wall_player.velocity(), -1.0, 3.2);
   check_vector(snapshot_player(snapshot, 2).position(), 512.5, 409.0,
+               simulation::kPositionTolerance);
+
+  simulation_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+  const auto reflected = simulation_game.snapshot();
+  CHECK(reflected.tick_sequence().value() == 2'001);
+  check_vector(snapshot_player(reflected, 1).velocity(), 1.0, 3.2);
+  check_vector(snapshot_player(reflected, 1).position(),
+               10.0 + simulation::FixedDelta::canonical().seconds() - remaining_gap, 86.008,
                simulation::kPositionTolerance);
 }
 
@@ -519,7 +538,7 @@ controllable_of(const simulation::WorldSnapshot& snapshot,
 
 inline constexpr std::size_t kMigratedPairFixtureHorizon = 1'601;
 
-// canonical: accepted_baseline_tick -- the seven-phase tick this kernel must still reproduce.
+// canonical: accepted_baseline_tick -- the retained pre-continuous seven-phase historical oracle.
 //
 // This is ADR 0003's accepted tick written out again, exactly as it stood before the kernel gained
 // stages: stored acceleration, canonical pairs, wall resolution, position integration, reindex. It
@@ -601,25 +620,70 @@ private:
 
 } // namespace
 
-TEST_CASE("an empty pipeline, zero drag, and an empty batch reproduce the accepted fixture horizon "
-          "bit-for-bit",
-          "[unit][simulation][game_simulation][fixture][horizon][determinism]") {
+TEST_CASE(
+    "continuous motion first differs from the independent legacy oracle at the exact pair crossing",
+    "[unit][simulation][game_simulation][fixture][horizon][determinism]") {
   simulation::GameSimulation kernel_game = game(migrated_pair_fixture_players());
   AcceptedBaselineTick baseline(configuration(),
                                 simulation::GameWorld::create(migrated_pair_fixture_players()));
   REQUIRE(kernel_game.configuration().drag_per_second() == 0.0);
 
   std::size_t first_divergent_tick = 0;
+  auto before_contact = kernel_game.snapshot();
   for (std::size_t tick = 1; tick <= kMigratedPairFixtureHorizon; ++tick) {
+    if (tick == kMigratedPairFixtureHorizon) {
+      before_contact = kernel_game.snapshot();
+      CHECK(bodies_are_bit_identical(before_contact, baseline.bodies()));
+    }
     kernel_game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
     baseline.step();
     if (first_divergent_tick == 0 &&
         !bodies_are_bit_identical(kernel_game.snapshot(), baseline.bodies())) {
       first_divergent_tick = tick;
+      const auto actual = kernel_game.snapshot();
+      for (std::size_t index = 0; index < baseline.bodies().size(); ++index) {
+        const auto& live = actual.components<simulation::PhysicsBody>()[index].value;
+        const auto& legacy = baseline.bodies()[index].value;
+        CAPTURE(tick, index, live.position().x(), live.position().y(), live.velocity().x(),
+                live.velocity().y(), legacy.position().x(), legacy.position().y(),
+                legacy.velocity().x(), legacy.velocity().y());
+        CHECK(tick == kMigratedPairFixtureHorizon);
+      }
     }
   }
 
-  CHECK(first_divergent_tick == 0);
+  // Both independent ticks remain exactly equal through 1600. The remaining positive gap is
+  // below this tick's relative travel: the legacy tolerance admits contact at its start,
+  // while continuous motion first traverses the gap and only then reverses the velocities.
+  CAPTURE(first_divergent_tick);
+  CHECK(first_divergent_tick == kMigratedPairFixtureHorizon);
+  const auto& before_first = snapshot_player(before_contact, 1);
+  const auto& before_second = snapshot_player(before_contact, 2);
+  const double remaining_gap = before_second.position().y() - before_first.position().y() - 20.0;
+  CAPTURE(remaining_gap);
+  CHECK(remaining_gap > 0.0);
+  CHECK(remaining_gap < 5.0 * simulation::FixedDelta::canonical().seconds());
+  check_vector(before_first.velocity(), 0.0, 2.5);
+  check_vector(before_second.velocity(), 0.0, -2.5);
+  const auto after_contact = kernel_game.snapshot();
+  const auto& live_first = snapshot_player(after_contact, 1);
+  const auto& live_second = snapshot_player(after_contact, 2);
+  check_vector(live_first.velocity(), 0.0, -2.5);
+  check_vector(live_second.velocity(), 0.0, 2.5);
+  check_vector(baseline.bodies()[0].value.velocity(), 0.0, -2.5);
+  check_vector(baseline.bodies()[1].value.velocity(), 0.0, 2.5);
+  CAPTURE(live_first.position().y(), baseline.bodies()[0].value.position().y(),
+          live_second.position().y(), baseline.bodies()[1].value.position().y());
+  CHECK(live_first.position().y() > baseline.bodies()[0].value.position().y());
+  CHECK(live_second.position().y() < baseline.bodies()[1].value.position().y());
+  for (std::size_t index = 0; index < 2; ++index) {
+    const auto& live = after_contact.components<simulation::PhysicsBody>()[index].value;
+    const auto& legacy = baseline.bodies()[index].value;
+    CHECK(live.position().x() == legacy.position().x());
+    CHECK(live.with_position(legacy.position()) == legacy);
+  }
+  CHECK(after_contact.components<simulation::PhysicsBody>()[2] == baseline.bodies()[2]);
+  CHECK(after_contact.components<simulation::PhysicsBody>()[3] == baseline.bodies()[3]);
   CHECK(kernel_game.tick_sequence().value() == kMigratedPairFixtureHorizon);
 }
 
@@ -1037,8 +1101,9 @@ TEST_CASE("a DespawnEvent emitted at a stage leaves the roster at that tick's co
 
 TEST_CASE("a body a stage writes outside the world fails the tick and commits nothing",
           "[unit][simulation][game_simulation][exception_safety][validation]") {
-  // Phase 10 validates before it removes, replaces, or increments, so a system that wrote an
-  // impossible body leaves the previous commit exactly as it was.
+  // Phase 10 validates the surviving world before committing, so a system that wrote an
+  // impossible surviving body leaves the previous commit exactly as it was. The continuous envelope
+  // permits an initially wall-overlapping disc, so the rejected center must be outside [0,100].
   class OutOfBoundsSystem final : public simulation::SimulationSystem {
   public:
     [[nodiscard]] std::string_view name() const noexcept override { return "out_of_bounds"; }
@@ -1049,7 +1114,7 @@ TEST_CASE("a body a stage writes outside the world fails the tick and commits no
         return;
       }
       world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
-          entity, body->with_position(simulation::Vector2::create(1.0, 50.0)));
+          entity, body->with_position(simulation::Vector2::create(-1.0, 50.0)));
     }
   };
 
@@ -1590,7 +1655,7 @@ TEST_CASE("an entity pushed out of bounds and marked for despawn is removed rath
   // stopped the match. Royale's elimination pairs exactly those two: an entity that left the safe
   // zone is frequently one a contact has just pushed past the arena edge. Removal precedes
   // validation now, so the question the commit asks is whether the world it is about to *publish*
-  // is legal.
+  // is legal. Use a center outside the closed arena, not a permitted initial wall overlap.
   class EliminatingSystem final : public simulation::SimulationSystem {
   public:
     [[nodiscard]] std::string_view name() const noexcept override { return "eliminator"; }
@@ -1601,7 +1666,7 @@ TEST_CASE("an entity pushed out of bounds and marked for despawn is removed rath
         return;
       }
       world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
-          entity, body->with_position(at(1.0, 50.0)));
+          entity, body->with_position(at(-1.0, 50.0)));
       world.emit(simulation::DespawnEvent{entity});
     }
   };
@@ -1625,7 +1690,8 @@ TEST_CASE("an entity pushed out of bounds and marked for despawn is removed rath
 TEST_CASE("a surviving body written out of bounds still fails the tick",
           "[unit][simulation][game_simulation][world_event][validation]") {
   // The other half of finding 14: reordering removal before validation must not weaken the check
-  // for the bodies that actually survive to publication.
+  // for the bodies that actually survive to publication. A wall-overlapping center is legal;
+  // this surviving center is genuinely outside the closed arena instead.
   class OutOfBoundsSurvivorSystem final : public simulation::SimulationSystem {
   public:
     [[nodiscard]] std::string_view name() const noexcept override { return "out_of_bounds_keeper"; }
@@ -1636,7 +1702,7 @@ TEST_CASE("a surviving body written out of bounds still fails the tick",
         return;
       }
       world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
-          entity, body->with_position(at(1.0, 50.0)));
+          entity, body->with_position(at(-1.0, 50.0)));
       world.emit(simulation::DespawnEvent{simulation::EntityId::create(2)});
     }
   };

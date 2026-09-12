@@ -5,6 +5,7 @@
 #include "contact_rule_table.hpp"
 #include "map_definition.hpp"
 #include "match_objective.hpp"
+#include "motion_trigger_table.hpp"
 #include "spawn_policy.hpp"
 #include "system_pipeline.hpp"
 
@@ -26,7 +27,7 @@ namespace blob_royale::simulation {
 // property of the engine rather than of every mode author's discipline: a mode can participate in
 // a tick only through the systems, rules, policy, and objective it declared.
 //
-// **The engine destroys the mode once it has read the seven declarations.** "Nothing calls into
+// **The engine destroys the mode once it has read the eight declarations.** "Nothing calls into
 // the mode during a tick" is therefore structurally true rather than a rule to be remembered, and
 // it makes one obligation on an implementor explicit: every value a declaration returns must be
 // **independently owned**. A system, policy, or objective may not hold a pointer or reference back
@@ -66,6 +67,12 @@ public:
   // The complete contact table, in declared row order. A mode that wants the defaults returns
   // `ContactRuleTable::built_in()`; the engine never appends a row a mode did not list.
   [[nodiscard]] virtual ContactRuleTable contact_rules() const = 0;
+
+  // Independently owned unary motion policies. The solver binds them per tick and combines their
+  // certified events with pair/wall chronology; no mode object survives to supply callbacks.
+  [[nodiscard]] virtual MotionTriggerTable motion_triggers() const {
+    return MotionTriggerTable::empty();
+  }
 
   // The command kinds this mode accepts. Published in the protocol `welcome` and enforced at the
   // boundary and again in `InputBatch::create`.

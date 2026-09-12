@@ -124,6 +124,10 @@ PlayerPairContact::PlayerPairContact(const bool is_contact, Vector2 normal,
     : is_contact_(is_contact), normal_(normal), center_distance_(center_distance),
       relative_normal_speed_(relative_normal_speed) {}
 
+PlayerPairContact PlayerPairContact::reversed() const {
+  return PlayerPairContact{is_contact_, -normal_, center_distance_, relative_normal_speed_};
+}
+
 PlayerPairCollisionResult::PlayerPairCollisionResult(PlayerPairContact contact,
                                                      const bool impulse_applied,
                                                      Vector2 first_velocity,

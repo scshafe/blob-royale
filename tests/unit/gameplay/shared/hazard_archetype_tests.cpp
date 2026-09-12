@@ -1,6 +1,7 @@
 #include "shared/hazard_archetype.hpp"
 
 #include "gameplay_validation_error.hpp"
+#include "simulation_validation_error.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -10,6 +11,7 @@
 #include <string_view>
 
 namespace gameplay = blob_royale::gameplay;
+namespace simulation = blob_royale::simulation;
 
 namespace {
 
@@ -23,7 +25,9 @@ namespace {
                                             .restitution = 1.0,
                                             .speed_world_units_per_second = 260.0,
                                             .spawn_interval_seconds = 6.0,
-                                            .lethal_on_contact = true};
+                                            .lethal_on_contact = true,
+                                            .contact_effect_policy =
+                                                simulation::ContactEffectPolicy::kClosingImpact};
 }
 
 [[nodiscard]] gameplay::GameplayValidationCode
@@ -71,9 +75,23 @@ TEST_CASE("a declared hazard kind becomes the archetype it authored",
   CHECK(archetype.restitution() == 1.0);
   CHECK(archetype.speed() == 260.0);
   CHECK(archetype.lethal_on_contact());
+  CHECK(archetype.contact_effect_policy() == simulation::ContactEffectPolicy::kClosingImpact);
   // The one authored duration arrives already in ticks, so no spawner ever sees a value in seconds
   // and nothing multiplies by the tick rate at runtime: 6 s at 400 ticks per second.
   CHECK(archetype.spawn_interval_ticks() == 2'400);
+}
+
+TEST_CASE("hazard archetypes validate and retain their explicit contact effect default",
+          "[unit][gameplay][hazard][configuration][contact_effect_admission]") {
+  auto section = valid_section();
+  section.contact_effect_policy = simulation::ContactEffectPolicy::kAnyTouch;
+  CHECK(gameplay::HazardArchetype::create(section).contact_effect_policy() ==
+        simulation::ContactEffectPolicy::kAnyTouch);
+  CHECK(gameplay::HazardArchetype::create(section) !=
+        gameplay::HazardArchetype::create(valid_section()));
+  section.contact_effect_policy = static_cast<simulation::ContactEffectPolicy>(73);
+  CHECK_THROWS_AS(gameplay::HazardArchetype::create(section),
+                  simulation::SimulationValidationError);
 }
 
 TEST_CASE("restitution is accepted across its whole closed interval and refused outside it",

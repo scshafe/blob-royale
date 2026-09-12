@@ -1,4 +1,6 @@
 #include "continuous_motion.hpp"
+#include "contact_effect_admission.hpp"
+#include "motion_body_envelope.hpp"
 
 #include "simulation_tolerance.hpp"
 #include "swept_geometry.hpp"
@@ -53,15 +55,8 @@ void MotionQueryBudget::trigger() {
 }
 
 namespace detail {
-namespace {
 
-[[nodiscard]] Vector2 zero() { return Vector2::create(0.0, 0.0); }
-
-[[nodiscard]] Vector2 geometric_velocity(const PhysicsBody& body) {
-  return body.is_static() ? zero() : body.velocity();
-}
-
-void validate_limits(const MotionLimits& limits) {
+void validate_motion_limits(const MotionLimits& limits) {
   const std::array requested{
       limits.bodies,       limits.candidate_pairs, limits.pair_examinations,
       limits.root_queries, limits.events,          limits.trigger_queries,
@@ -85,6 +80,14 @@ void validate_limits(const MotionLimits& limits) {
     fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
                 "requested trigger cursor ceiling exceeds the declared prototype envelope");
   }
+}
+
+namespace {
+
+[[nodiscard]] Vector2 zero() { return Vector2::create(0.0, 0.0); }
+
+[[nodiscard]] Vector2 geometric_velocity(const PhysicsBody& body) {
+  return body.is_static() ? zero() : body.velocity();
 }
 
 [[nodiscard]] double relative_speed(const PhysicsBody& first, const PhysicsBody& second,
@@ -405,7 +408,7 @@ ContinuousMotionSolver::ContinuousMotionSolver(
     const std::span<const ContactRule::Subject> input, const TickContext& context,
     const MotionLimits limits, const std::span<const MotionContactEffectPolicy> effect_policies)
     : state_(std::make_unique<State>(context, limits)) {
-  validate_limits(limits);
+  validate_motion_limits(limits);
   require_motion_budget(input.size(), limits.bodies, "motion body budget exhausted");
   for (const auto& subject : input) {
     state_->bodies.push_back({subject, MotionTime::start(), 0, MotionDisposition::kContinue});
@@ -420,20 +423,13 @@ ContinuousMotionSolver::ContinuousMotionSolver(
       fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
                   "duplicate motion body identity");
     }
-    const double radius = effective_radius(subject.body, state_->radius);
-    if (subject.body.is_static()) {
-      if (!state_->bounds.contains(subject.body.position())) {
-        fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
-                    "static motion geometry lies outside the envelope");
-      }
-    } else if (!subject.body.crosses_bounds()) {
-      if (!state_->bounds.contains(subject.body.position()) ||
-          state_->bounds.width() < 2.0 * radius || state_->bounds.height() < 2.0 * radius ||
-          (state_->bounds.width() == 2.0 * radius && subject.body.velocity().x() != 0.0) ||
-          (state_->bounds.height() == 2.0 * radius && subject.body.velocity().y() != 0.0)) {
-        fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
-                    "folding motion body does not fit its envelope");
-      }
+    const auto violation =
+        motion_body_envelope_violation(subject.body, state_->bounds, state_->radius);
+    if (violation) {
+      fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
+                  *violation == MotionBodyEnvelopeViolation::kStaticOutsideEnvelope
+                      ? "static motion geometry lies outside the envelope"
+                      : "folding motion body does not fit its envelope");
     }
     for (std::size_t second = index + 1; second < state_->bodies.size(); ++second) {
       state_->pairs.push_back({index, second});
@@ -445,11 +441,7 @@ ContinuousMotionSolver::ContinuousMotionSolver(
   }
   std::vector<bool> assigned(state_->bodies.size(), false);
   for (const auto& policy : effect_policies) {
-    if (policy.policy != ContactEffectPolicy::kClosingImpact &&
-        policy.policy != ContactEffectPolicy::kAnyTouch) {
-      fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,
-                  "undeclared motion contact effect policy");
-    }
+    validate_contact_effect_policy(policy.policy);
     const auto index = index_of(policy.entity);
     if (assigned[index]) {
       fail_motion(SimulationValidationCode::kContinuousMotionInvalidInput,

@@ -71,6 +71,7 @@ constexpr std::string_view kHazardSections = "\n"
                                              "speed_world_units_per_second=260\n"
                                              "spawn_interval_seconds=6\n"
                                              "lethal_on_contact=true\n"
+                                             "contact_effect_policy=closing_impact\n"
                                              "\n"
                                              "[hazard.velvet_boulder]\n"
                                              "radius_world_units=26\n"
@@ -78,7 +79,8 @@ constexpr std::string_view kHazardSections = "\n"
                                              "restitution=0.35\n"
                                              "speed_world_units_per_second=90\n"
                                              "spawn_interval_seconds=20\n"
-                                             "lethal_on_contact=false\n";
+                                             "lethal_on_contact=false\n"
+                                             "contact_effect_policy=closing_impact\n";
 
 [[nodiscard]] std::string configuration_with_hazards() {
   std::string configuration{test_fixture::kValidConfiguration};
@@ -993,6 +995,27 @@ TEST_CASE("a configuration that declares no hazard section has no hazards",
   CHECK(configuration.royale == gameplay::RoyaleConfiguration::defaults());
 }
 
+TEST_CASE("hazard configuration accepts any-touch defaults and rejects unknown policy spellings",
+          "[unit][application][config][hazard][contact_effect_admission]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const auto text = test_fixture::replace_once(configuration_with_hazards(),
+                                               "contact_effect_policy=closing_impact",
+                                               "contact_effect_policy=any_touch");
+  const auto configuration = load_game_mode_configuration(workspace, text);
+  REQUIRE(configuration.hazards.size() == 2);
+  CHECK(configuration.hazards[0].contact_effect_policy() ==
+        simulation::ContactEffectPolicy::kAnyTouch);
+  CHECK(configuration.hazards[1].contact_effect_policy() ==
+        simulation::ContactEffectPolicy::kClosingImpact);
+  for (const std::string_view policy : {"touch", "Any_Touch", "center_entry"}) {
+    const auto invalid = test_fixture::replace_once(configuration_with_hazards(),
+                                                    "contact_effect_policy=closing_impact",
+                                                    "contact_effect_policy=" + std::string(policy));
+    CHECK_THROWS_AS(load_game_mode_configuration(workspace, invalid),
+                    simulation::SimulationValidationError);
+  }
+}
+
 TEST_CASE("an unknown key inside a hazard section is rejected like one in a fixed section",
           "[unit][application][config][hazard][validation]") {
   // The instance *name* is open; the key schema inside it is not. This is the same
@@ -1052,13 +1075,14 @@ TEST_CASE("a hazard section that omits any one of its keys is rejected",
   // No key has a silent default, which is the same rule every fixed section already answers to. The
   // fragments carry their surrounding newlines so removing `radius_world_units` cannot accidentally
   // strike `[world] player_radius_world_units`.
-  constexpr std::array<std::string_view, 6> required_lines = {
+  constexpr std::array<std::string_view, 7> required_lines = {
       "\nradius_world_units=10\n",
       "\nmass=1\n",
       "\nrestitution=1\n",
       "\nspeed_world_units_per_second=260\n",
       "\nspawn_interval_seconds=6\n",
-      "\nlethal_on_contact=true\n"};
+      "\nlethal_on_contact=true\n",
+      "\ncontact_effect_policy=closing_impact\n"};
 
   TemporaryApplicationInputWorkspace workspace;
   for (const std::string_view required_line : required_lines) {

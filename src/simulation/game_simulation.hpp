@@ -35,10 +35,8 @@ namespace blob_royale::simulation {
 //                      joins, leaves, command recording
 //   ---- kPreKernel -- the mode's systems, declared order
 //   phase 1            stored acceleration, then drag
-//   phase 2            canonical candidate pairs
-//   phase 3            contact resolution through the ContactRuleTable
-//   phase 4            world bounds
-//   phase 5            position integration
+//   phases 2–5         pure continuous motion: swept candidates, chronological pair/trigger/wall
+//                      responses, actual paths, and bounded typed effects
 //   phase 6            spatial reindex
 //   ---- kPostKernel - the mode's systems, declared order
 //   ---- kLifecycle -- the mode's systems, declared order, then MatchLifecycleSystem
@@ -49,11 +47,11 @@ namespace blob_royale::simulation {
 // systems receive the mutable reference the tick already holds and nothing outside a tick can
 // obtain one.
 //
-// The kernel has exactly two policy sockets, both evaluated at a fixed point against declared
-// data: the mode's SpawnPolicy in phase 0 and its ContactRuleTable in phase 3. There is no third;
-// a mode that wants to change anything else changes it with a system at a stage.
+// The kernel's declared policies are SpawnPolicy, ContactRuleTable and MotionTriggerTable. The
+// eighth mode declaration supplies unary triggers; the continuous solver owns their chronology
+// and resource limits. Systems retain their fixed stages rather than introducing another tick.
 //
-// The map is the arena source. Phase 4's fold, the commit-time bounds validation, and the spatial
+// The map is the arena source. Continuous walls, commit-time bounds validation, and the spatial
 // index all read `MapDefinition::bounds()`; SimulationConfig's world scalars stay the published
 // geometry protocol v1 serves and are no longer read by any phase.
 // related: game_simulation_setup.hpp -- the one value every declaration arrives through.
@@ -73,14 +71,13 @@ public:
   // exactly once, builds the initial spatial index, and commits tick zero.
   //
   // The default setup is the engine's own declarations, so `create(configuration, world)` is the
-  // accepted seven-phase baseline: with no declared system, zero drag, an empty batch, and a map
-  // with no static bodies, the staged kernel commits exactly the bodies the baseline committed at
-  // the same tick horizons. The production shape is
-  // `create(configuration, world, GameSimulationSetup::of_mode(map, std::move(mode)))`.
+  // engine-default continuous kernel with no unary trigger policies. Historical discrete fixture
+  // horizons are independent references, not a promise of unchanged chronology. The production
+  // shape is `create(configuration, world, GameSimulationSetup::of_mode(map, std::move(mode)))`.
   //
   // Throws SimulationValidationError when the setup declares a mode together with an explicit
-  // system pipeline or contact table, when the mode rejects the map, and when the map's spawn
-  // points cannot seat a disc of the configured radius.
+  // system pipeline, contact table, or trigger table, when the mode rejects the map, and when the
+  // map's spawn points cannot seat a disc of the configured radius.
   [[nodiscard]] static GameSimulation
   create(SimulationConfig configuration, GameWorld initial_world,
          GameSimulationSetup setup = GameSimulationSetup::engine_defaults());
@@ -97,6 +94,12 @@ public:
   [[nodiscard]] const MapDefinition& map() const&& = delete;
   [[nodiscard]] const ContactRuleTable& contact_rules() const& noexcept { return contact_rules_; }
   [[nodiscard]] const ContactRuleTable& contact_rules() const&& = delete;
+  [[nodiscard]] const MotionTriggerTable& motion_triggers() const& noexcept {
+    return motion_triggers_;
+  }
+  [[nodiscard]] const MotionTriggerTable& motion_triggers() const&& = delete;
+  [[nodiscard]] const MotionLimits& motion_limits() const& noexcept { return motion_limits_; }
+  [[nodiscard]] const MotionLimits& motion_limits() const&& = delete;
   [[nodiscard]] TickSequence tick_sequence() const noexcept { return tick_sequence_; }
 
   // The running mode's declared name, read once at construction. `idle` when no mode was declared.
@@ -124,7 +127,8 @@ public:
 private:
   GameSimulation(SimulationConfig configuration, std::shared_ptr<const MapDefinition> map,
                  GameWorld world, SpatialGrid grid, SystemPipeline system_pipeline,
-                 ContactRuleTable contact_rules, SpawnSystem spawn_system, std::string mode_name,
+                 ContactRuleTable contact_rules, MotionTriggerTable motion_triggers,
+                 MotionLimits motion_limits, SpawnSystem spawn_system, std::string mode_name,
                  CommandKindMask accepted_command_kinds, TickSequence tick_sequence) noexcept;
 
   SimulationConfig configuration_;
@@ -136,6 +140,8 @@ private:
   // kLifecycle, so the kernel runs one list and the engine's own system is not a special case.
   SystemPipeline system_pipeline_;
   ContactRuleTable contact_rules_;
+  MotionTriggerTable motion_triggers_;
+  MotionLimits motion_limits_;
   SpawnSystem spawn_system_;
   std::string mode_name_;
   CommandKindMask accepted_command_kinds_;

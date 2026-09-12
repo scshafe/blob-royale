@@ -119,6 +119,15 @@ public:
   [[nodiscard]] std::optional<Match> first_match(const GameWorld& world, EntityId canonical_first,
                                                  EntityId canonical_second) const;
 
+  // Dispatches one solver-certified canonical pair. Predicates and responses read the same frozen
+  // kernel-entry world; swapped rows receive a reversed certificate and both results map back.
+  // No match/unchanged means continuing current bodies and no effects. Solver validates results.
+  [[nodiscard]] PairMotionResponse<WorldEvent> respond(const GameWorld& world,
+                                                       const ContactRule::Subject& canonical_first,
+                                                       const ContactRule::Subject& canonical_second,
+                                                       const PairContactObservation& observation,
+                                                       const TickContext& context) const;
+
   friend bool operator==(const ContactRuleTable&, const ContactRuleTable&) = default;
 
 private:
@@ -158,26 +167,29 @@ inline constexpr std::string_view kReflectStaticContactRuleName = "reflect_stati
 // exchange of normal velocity components, delegated verbatim to
 // `resolve_player_pair_collision`, plus one ContactEvent. Published so a mode can reuse the
 // accepted equation under its own row name.
-[[nodiscard]] ContactResponse elastic_disc_response(const ContactRule::Subject& first,
+[[nodiscard]] ContactResponse elastic_disc_response(const GameWorld& world,
+                                                    const ContactRule::Subject& first,
                                                     const ContactRule::Subject& second,
-                                                    const PlayerPairContact& contact,
+                                                    const PairContactObservation& observation,
                                                     const TickContext& context);
 
 // The general impulse of `resolve_general_pair_collision` applied to two dynamic discs, plus one
 // ContactEvent. This is the same shape as `elastic_disc_response` and delegates the equation the
 // same way; what differs is only which pure function it selects. Published so a mode can reuse the
 // general equation under its own row name.
-[[nodiscard]] ContactResponse variable_impulse_response(const ContactRule::Subject& first,
+[[nodiscard]] ContactResponse variable_impulse_response(const GameWorld& world,
+                                                        const ContactRule::Subject& first,
                                                         const ContactRule::Subject& second,
-                                                        const PlayerPairContact& contact,
+                                                        const PairContactObservation& observation,
                                                         const TickContext& context);
 
 // ADR 0003 § "Wall policy" applied to a body instead of an arena edge: reflect the dynamic body's
 // normal component about the contact normal, leave its tangential component attached to it, and
 // leave the static body untouched. `first` is the dynamic body and `second` the static one.
-[[nodiscard]] ContactResponse reflect_static_response(const ContactRule::Subject& first,
+[[nodiscard]] ContactResponse reflect_static_response(const GameWorld& world,
+                                                      const ContactRule::Subject& first,
                                                       const ContactRule::Subject& second,
-                                                      const PlayerPairContact& contact,
+                                                      const PairContactObservation& observation,
                                                       const TickContext& context);
 
 } // namespace blob_royale::simulation

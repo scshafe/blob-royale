@@ -205,6 +205,12 @@ kind needs no per-system knockout cleanup. The sweep also handles older bodyless
 without allocation, in ascending entity order within each registered store. Entity destruction
 continues to erase all kinds independently of this trait.
 
+**Amended 2026-09-11 (ADR 0008, plan Step 14):** Stun's canonical absolute `TickWindow` is a
+simulation value; gameplay owns its interpretation and the shared input lock. Controllable's
+public optional input generation persists independently of the body and is retained at
+publication; commands and normalized intent remain private. This changes neither world
+ownership nor the kernel's policy sockets.
+
 `GameWorld` keeps its name and becomes the complete mutable state of one simulated match: it owns
 entities, every component store, `MatchState`, the tick's event list, and the seeded generator.
 
@@ -414,6 +420,15 @@ above each have a producer: the contact phase emits `ContactEvent`, royale's `zo
 emits `EliminationEvent`, and royale's `placement_recorder` emits `DespawnEvent`, which the commit
 applies. Re-adding a kind is its header plus four registry lines, so the rule this states is "every
 registered kind has a producer", not "the list is fixed".
+
+**Bounded foundation exception, 2026-09-11 (ADR 0008, plan Step 14):** `StunRequest` is registered
+with its shared PostKernel consumer and an injected in-tick test producer before Step 18 supplies
+the production parry-contact producer. This explicitly staged foundation is the sole exception;
+it does not authorize unused event slots, a production stun command, or early combat/kernel
+adoption. It carries target and duration only; the status consumer owns activation tick and
+generation. Missing/bodyless/static targets and zero duration are no-ops; invalid applicable
+windows fail before mutation. Status never writes velocity: the later impact response owns
+momentum cancellation. Existing event ordering, bounded storage, and commit clearing remain.
 
 `ContactEvent` carries the canonical pair, the contact normal, the relative normal speed, and the
 name of the rule row that matched, which is what lets one generic contact phase feed many different

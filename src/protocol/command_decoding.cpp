@@ -63,7 +63,25 @@ namespace json = boost::json;
   return std::nullopt;
 }
 
-// One `set_thrust` payload: `{x, y}`, closed, each component a finite number in [-1, 1].
+// One JSON number read as an exact unsigned integer inside an inclusive bound.
+// Floating-point spellings, fractions, and negative values are rejected, never coerced.
+[[nodiscard]] std::optional<std::uint64_t>
+bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
+                    const std::uint64_t maximum) noexcept {
+  std::optional<std::uint64_t> parsed;
+  if (value.is_uint64()) {
+    parsed = value.get_uint64();
+  } else if (value.is_int64() && value.get_int64() >= 0) {
+    parsed = static_cast<std::uint64_t>(value.get_int64());
+  }
+  if (!parsed.has_value() || *parsed < minimum || *parsed > maximum) {
+    return std::nullopt;
+  }
+  return parsed;
+}
+
+// One closed `set_thrust` payload: `{x, y, input_generation?}`. Direction components are finite
+// numbers in [-1, 1]; a present generation is a positive exact protocol-safe integer.
 //
 // The per-component bound admits `(1, 1)`, whose magnitude is sqrt(2). **Clamping the magnitude is
 // a mode rule** applied by `thrust_steering`, not a wire rule, so this decoder must not clamp:
@@ -71,7 +89,8 @@ namespace json = boost::json;
 // once (`docs/protocol/v3.md` § "set_thrust"; `src/simulation/commands/thrust_command.hpp`).
 [[nodiscard]] CommandDecodeResult decode_set_thrust(const json::object& payload,
                                                     const simulation::EntityId stamped_entity) {
-  if (payload.size() != 2) {
+  const json::value* const encoded_generation = payload.if_contains("input_generation");
+  if (payload.size() != (encoded_generation == nullptr ? 2U : 3U)) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
   const json::value* const encoded_x = payload.if_contains("x");
@@ -90,30 +109,16 @@ namespace json = boost::json;
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
 
+  std::optional<simulation::TickSequence> generation;
+  if (encoded_generation != nullptr) {
+    const auto value = bounded_unsigned_of(*encoded_generation, 1, kMaximumSafeInteger);
+    if (!value.has_value()) {
+      return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+    }
+    generation = simulation::TickSequence::create(*value);
+  }
   return CommandDecodeResult::accepted(
-      simulation::ThrustCommand{stamped_entity, simulation::Vector2::create(*x, *y)});
-}
-
-// One JSON number read as an exact unsigned integer inside an inclusive bound.
-//
-// **A fractional or negative value is a rejection rather than a truncation.** `seat_index: 1.5` and
-// `seat_index: -1` are both a client saying something it cannot mean, and rounding either into a
-// seat would seat somebody somewhere they did not ask for. `is_double()` is therefore refused
-// outright rather than checked for integrality: the schema types these members as integers, and a
-// decoder that accepted `2.0` would accept a value the published contract does not describe.
-[[nodiscard]] std::optional<std::uint64_t>
-bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
-                    const std::uint64_t maximum) noexcept {
-  std::optional<std::uint64_t> parsed;
-  if (value.is_uint64()) {
-    parsed = value.get_uint64();
-  } else if (value.is_int64() && value.get_int64() >= 0) {
-    parsed = static_cast<std::uint64_t>(value.get_int64());
-  }
-  if (!parsed.has_value() || *parsed < minimum || *parsed > maximum) {
-    return std::nullopt;
-  }
-  return parsed;
+      simulation::ThrustCommand{stamped_entity, simulation::Vector2::create(*x, *y), generation});
 }
 
 // One `{seat_index}` payload, shared by `clear_seat` and `seat_npc`'s first member. The bound is

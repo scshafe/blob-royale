@@ -36,6 +36,7 @@ add_executable(blob_gameplay_unit_tests
   shared/guarded_pair_contact_tests.cpp
   shared/hazard_archetype_tests.cpp
   shared/hazard_spawn_system_tests.cpp
+  shared/input_lock_tests.cpp
   shared/hazard_stream_promotion_tests.cpp
   shared/lethal_hazard_contact_rule_tests.cpp
   shared/lifetime_expiry_system_tests.cpp
@@ -45,6 +46,7 @@ add_executable(blob_gameplay_unit_tests
   shared/match_reset_system_tests.cpp
   shared/next_free_spawn_point_policy_tests.cpp
   shared/respawn_system_tests.cpp
+  shared/status_system_tests.cpp
   shared/roster_tests.cpp
   shared/spawn_point_probe_tests.cpp
   shared/thrust_steering_system_tests.cpp

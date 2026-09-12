@@ -931,3 +931,18 @@ kernel drag retain their existing owners. Every accepted fixture keeps its old a
 authors an unreachable normal-speed ceiling; full replay comparison, not a changed expectation,
 must establish retention. This dated contract accompanies Step 10 implementation and does not
 claim its verification complete.
+
+## Amendment: shared stun and input admission, 2026-09-11 (plan Step 14)
+
+Shared steering now checks the canonical active-stun predicate before interpreting commands or
+preserving authored acceleration. Stun clears explicit intent and self-propulsion, not velocity.
+Unlocked thrust and zero release require exact optional input-generation equality; an old token
+does not resume movement after expiry. The generation is the latest applicable positive stun
+request's committing tick and remains on Controllable until entity destruction. Absence means
+never invalidated, preserving the existing unstunned fixtures and arithmetic.
+
+Royale appends the shared status consumer last at PostKernel, after zone elimination, without
+changing lifecycle order or its whole-entity elimination. Status application validates windows,
+merges active expiry, and never freezes later collision motion or hazard lifetime. The production
+impact producer remains Step 18 under the separate human physics gate. ADR 0008 owns the complete
+window/input contract; ADR 0004 records the narrow test-foundation event exception.

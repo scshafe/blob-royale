@@ -29,7 +29,7 @@ that change which ids a store holds. The tick has only ever needed the values.
 
 `component_registry.hpp` is the closed, ordered list of kinds:
 `ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
-LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion>`, where `Zone` and `ZoneExposure`
+LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun>`, where `Zone` and `ZoneExposure`
 are royale's, `Hill` and `HillPresence` describe hill scoring, and `RaceProgress` counts ordered
 gates; `HillMotion` carries roaming velocity and private scheduling, while `LethalOnContact` and
 `RespawnTimer` support shared mechanics. Because it is a type list,
@@ -38,7 +38,7 @@ four behaviors are **generated rather than maintained** — structural world equ
 publication of every kind — so a new kind cannot forget to participate in any of them.
 
 `component_lifetime.hpp` owns the default-false `ComponentLifetime<C>::bound_to_body` trait.
-`HillPresence` and `ZoneExposure` declare it beside their values. The one registry-generated,
+`HillPresence`, `ZoneExposure`, and `Stun` declare it beside their values. The one registry-generated,
 allocation-free `GameWorld::erase_body_bound_components_without_body()` sweep removes those
 kinds from every bodyless entity, including non-participants and already-bodyless entities.
 Shared respawn calls it after body removal, before commit; arbitrary intermediate store edits do
@@ -133,7 +133,7 @@ system reads it — `thrust_steering` in `src/gameplay/shared/`.
 ## The event vocabulary
 
 `world_event_registry.hpp` is the closed, ordered list of in-tick event kinds: the variant
-`WorldEvent = ContactEvent | DespawnEvent | EliminationEvent`, the `WorldEventKind` enumerators, and
+`WorldEvent = ContactEvent | DespawnEvent | EliminationEvent | StunRequest`, the `WorldEventKind` enumerators, and
 each kind's diagnostic name. An event is a value struct in its own header under `events/`.
 
 **Every registered kind has a producer, and the list is kept that way rather than kept full.** An
@@ -143,6 +143,20 @@ and were removed in plan Step 21 (engine review finding 17). Today the contact p
 `ContactEvent`, royale's `zone_elimination` emits `EliminationEvent`, and royale's
 `placement_recorder` emits `DespawnEvent`, which the commit applies. Re-adding a kind is its header
 plus four lines in the registry, so removing an unused one costs nothing to reverse.
+
+Step 14's explicitly bounded exception is `StunRequest`: its PostKernel consumer and injected
+in-tick test producer land before Step 18's production parry producer. It is not a production
+command or permission to reserve unused events. ADR 0004 records this foundation exception.
+
+`TickWindow` is the canonical simulation value for absolute half-open status intervals, with
+checked activation-plus-duration through `TickSequence`'s safe-integer maximum. It admits empty
+mathematical windows; gameplay ignores zero-duration stun requests and owns active-window merge.
+`Stun` carries this window and publishes both endpoints. `Controllable.input_generation` is a
+separate persistent public token: absent means never invalidated, present means the positive
+committing tick of its latest applicable stun request. Publication retains the token while
+stripping commands and intent. Thrust echoes that exact optional value; gameplay admits it only
+when unlocked and matching, including zero release. New generations outlive temporary Stun and
+same-entity body return; destruction ends the guarantee. No kernel contact behavior changes.
 
 Systems within one tick communicate through the bounded, ordered list `GameWorld` owns.
 `GameWorld::emit` appends in production order and `GameWorld::events()` publishes it; the list is

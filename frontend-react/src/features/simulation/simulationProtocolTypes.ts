@@ -19,6 +19,7 @@ export type {
   BlobRoyaleProtocolV3MatchSection as SessionMatchSection,
   BlobRoyaleProtocolV3PhysicsBodyComponent as SessionPhysicsBodyComponent,
   BlobRoyaleProtocolV3ScoreComponent as SessionScoreComponent,
+  BlobRoyaleProtocolV3StunComponent as SessionStunComponent,
   BlobRoyaleProtocolV3TeamComponent as SessionTeamComponent,
   BlobRoyaleProtocolV3WebSocketSnapshotMessage as SessionSnapshotMessage,
   BlobRoyaleProtocolV3WebSocketWelcomeMessage as SessionWelcomeMessage,
@@ -93,7 +94,11 @@ export type MovementTuningExchangeState =
  */
 export interface SessionSetThrustCommand {
   readonly kind: 'set_thrust';
-  readonly payload: { readonly x: number; readonly y: number };
+  readonly payload: {
+    readonly x: number;
+    readonly y: number;
+    readonly input_generation?: number;
+  };
 }
 
 /** A count, not a delta: two clients who both choose four agree rather than compounding. */

@@ -6,6 +6,7 @@
 #include "entity_id.hpp"
 #include "observation.hpp"
 #include "tick_sequence.hpp"
+#include "vector2.hpp"
 
 #include <optional>
 #include <string_view>
@@ -129,6 +130,12 @@ protected:
   // A controller that has been seated since its last request forgets it, so an elimination is
   // followed by an immediate request rather than by a wait.
   [[nodiscard]] std::vector<simulation::Command> request_body(const Observation& observation);
+
+  // canonical: controller_thrust_request -- active bots author from this public observation.
+  // Returns zero or one command for an owned dynamic body, suppressing an observed active stun.
+  // Copies direction and the observed optional generation verbatim; no timing, RNG, or retry.
+  [[nodiscard]] std::vector<simulation::Command>
+  request_thrust(const Observation& observation, const simulation::Vector2& direction) const;
 
 private:
   // The behavior half, and the one function a new bot writes. It is called with an observation

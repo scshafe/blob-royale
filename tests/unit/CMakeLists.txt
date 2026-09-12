@@ -17,6 +17,7 @@ add_executable(blob_simulation_unit_tests
   simulation/game_simulation_tests.cpp
   simulation/hill_motion_component_tests.cpp
   simulation/input_batch_tests.cpp
+  simulation/input_generation_tests.cpp
   simulation/lobby_command_tests.cpp
   simulation/map_definition_tests.cpp
   simulation/match_lifecycle_tests.cpp
@@ -39,6 +40,7 @@ add_executable(blob_simulation_unit_tests
   simulation/terrain_queries_tests.cpp
   simulation/system_pipeline_tests.cpp
   simulation/tick_context_tests.cpp
+  simulation/tick_window_tests.cpp
   simulation/world_event_registry_tests.cpp
   simulation/world_model_tests.cpp
 )

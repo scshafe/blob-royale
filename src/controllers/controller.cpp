@@ -1,8 +1,12 @@
 #include "controller.hpp"
 
 #include "commands/spawn_command.hpp"
+#include "commands/thrust_command.hpp"
+#include "components/controllable_component.hpp"
+#include "components/stun_component.hpp"
 #include "controllers_limits.hpp"
 #include "controllers_validation_error.hpp"
+#include "physics_body.hpp"
 
 #include <string>
 #include <vector>
@@ -43,6 +47,38 @@ std::vector<simulation::Command> Controller::request_body(const Observation& obs
   commands.reserve(1);
   commands.push_back(simulation::Command{simulation::SpawnCommand{controller_}});
   return commands;
+}
+
+std::vector<simulation::Command>
+Controller::request_thrust(const Observation& observation,
+                           const simulation::Vector2& direction) const {
+  if (observation.controller() != controller_ || !observation.entity().has_value()) {
+    return {};
+  }
+  const auto self = *observation.entity();
+  const auto& snapshot = observation.snapshot();
+  const simulation::PhysicsBody* body = nullptr;
+  for (const auto& entry : snapshot.components<simulation::PhysicsBody>()) {
+    if (entry.entity == self) {
+      body = &entry.value;
+      break;
+    }
+  }
+  if (body == nullptr || body->is_static()) {
+    return {};
+  }
+  for (const auto& entry : snapshot.components<simulation::Stun>()) {
+    if (entry.entity == self && entry.value.window.contains(observation.tick_sequence())) {
+      return {};
+    }
+  }
+  for (const auto& entry : snapshot.components<simulation::Controllable>()) {
+    if (entry.entity == self && entry.value.controller_id == controller_) {
+      return {simulation::Command{
+          simulation::ThrustCommand{self, direction, entry.value.input_generation}}};
+    }
+  }
+  return {};
 }
 
 } // namespace blob_royale::controllers

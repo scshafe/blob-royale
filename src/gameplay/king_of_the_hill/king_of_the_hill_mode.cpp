@@ -10,6 +10,7 @@
 #include "shared/lifetime_expiry_system.hpp"
 #include "shared/match_reset_system.hpp"
 #include "shared/respawn_system.hpp"
+#include "shared/status_system.hpp"
 #include "shared/thrust_steering_system.hpp"
 
 #include <memory>
@@ -49,6 +50,8 @@ simulation::SystemPipeline KingOfTheHillMode::systems() const {
       simulation::SystemStage::kPostKernel, HillMovementSystem::create(configuration_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, HillScoringSystem::create(configuration_)});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
+                                                              StatusSystem::create()});
   // Remove, reset, expire, add, publish.
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kLifecycle,

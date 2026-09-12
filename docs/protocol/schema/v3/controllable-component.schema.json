@@ -16,6 +16,10 @@
     },
     "display_name": {
       "$ref": "common.schema.json#/$defs/display_name"
+    },
+    "input_generation": {
+      "$ref": "common.schema.json#/$defs/tick_sequence",
+      "description": "Optional persistent input-invalidation generation: the positive committed tick of the latest applicable stun request. Omitted means this entity has never been invalidated, not a wildcard. Survives status expiry and same-entity body return; must not exceed the enclosing snapshot tick."
     }
   },
   "$comment": "Controllable::commands_this_tick (ADR 0004) is deliberately NOT published. Publishing this tick's commands would disclose every player's live input to every other peer, which is a same-frame reaction advantage and a class of leak no rate limit can undo."

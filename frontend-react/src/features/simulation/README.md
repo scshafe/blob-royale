@@ -102,4 +102,15 @@ pointer is re-evaluated when the body, camera, or viewport changes. Left drag re
 not propulsion, and WASD/arrows no longer generate thrust. An observed body/session change discards
 old activation; the wire cannot reveal same-entity body recreation wholly between snapshots.
 
+`selectThrustInputOptions` is the shared feature/test composition for owned body availability,
+session authority, observed stun containment, and persistent `controllable.input_generation`.
+Stun locks against the authoritative snapshot's `[activation_tick, expiry_tick)` window; elapsed
+browser time cannot unlock it. A fresh non-repeat Space press captures the exact optional
+generation, and every held aim update and zero release retains that activation token. A generation
+change cancels held and pending input even if every stun snapshot was missed, including old zero
+releases. Sender-only replacement retains the old token for its cancellation zero; same-body
+throttling survives generation changes. Generation survives same-entity returns but does not add
+an identity for invisible entity destruction/replacement. Stun has an explicit non-visual renderer
+registration until the ability presentation step.
+
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v3`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

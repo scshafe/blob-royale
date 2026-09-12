@@ -102,7 +102,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
                 std::abs(command.direction.x()) >
                     simulation::kMaximumThrustDirectionComponentMagnitude ||
                 std::abs(command.direction.y()) >
-                    simulation::kMaximumThrustDirectionComponentMagnitude) {
+                    simulation::kMaximumThrustDirectionComponentMagnitude ||
+                (command.input_generation.has_value() &&
+                 (command.input_generation->value() == 0 ||
+                  command.input_generation->value() > simulation::kMaximumProtocolSafeInteger))) {
               std::abort();
             }
           } else if constexpr (std::is_same_v<CommandType, simulation::SetSeatCountCommand> ||

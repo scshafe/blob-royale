@@ -115,11 +115,17 @@ enum class SimulationValidationCode {
   kMovementTuningOutOfRange,
   kInputBatchTuningRequestIdOutOfRange,
   kInputBatchTuningRevisionOutOfRange,
+  kTickWindowExpiryOverflow,
+  kInputBatchInputGenerationZero,
 };
 
 [[nodiscard]] constexpr std::string_view
 simulation_validation_code_name(const SimulationValidationCode code) noexcept {
   switch (code) {
+  case SimulationValidationCode::kTickWindowExpiryOverflow:
+    return "SIMULATION.TICK_WINDOW_EXPIRY_OVERFLOW";
+  case SimulationValidationCode::kInputBatchInputGenerationZero:
+    return "SIMULATION.INPUT_BATCH_INPUT_GENERATION_ZERO";
   case SimulationValidationCode::kInputBatchTuningRequestIdOutOfRange:
     return "SIMULATION.INPUT_BATCH_TUNING_REQUEST_ID_OUT_OF_RANGE";
   case SimulationValidationCode::kInputBatchTuningRevisionOutOfRange:

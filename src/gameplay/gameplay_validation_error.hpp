@@ -73,11 +73,14 @@ enum class GameplayValidationCode {
   kRaceProgressBeyondCourse,
   kRaceStandingLimitExceeded,
   kLocomotionPrecisionLost,
+  kStatusActivationTickZero,
 };
 
 [[nodiscard]] constexpr std::string_view
 gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
   switch (code) {
+  case GameplayValidationCode::kStatusActivationTickZero:
+    return "GAMEPLAY.STATUS_ACTIVATION_TICK_ZERO";
   case GameplayValidationCode::kGameModeNameUnknown:
     return "GAMEPLAY.GAME_MODE_NAME_UNKNOWN";
   case GameplayValidationCode::kThrustMaximumNotFinite:

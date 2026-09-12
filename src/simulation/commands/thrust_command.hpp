@@ -2,7 +2,10 @@
 #define BLOB_ROYALE_SIMULATION_COMMANDS_THRUST_COMMAND_HPP
 
 #include "entity_id.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
+
+#include <optional>
 
 namespace blob_royale::simulation {
 
@@ -29,6 +32,8 @@ namespace blob_royale::simulation {
 struct ThrustCommand final {
   EntityId entity;
   Vector2 direction;
+  // Exact activation token, including absence. Present zero is rejected by InputBatch.
+  std::optional<TickSequence> input_generation{};
 
   friend bool operator==(const ThrustCommand&, const ThrustCommand&) = default;
 };

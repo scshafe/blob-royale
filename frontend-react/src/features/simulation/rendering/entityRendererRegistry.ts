@@ -69,6 +69,10 @@ export const entityRendererRegistry = Object.freeze({
     'score',
     'A scoreboard cell belongs to the HUD, not to the arena.',
   ),
+  stun: nonVisualComponent(
+    'stun',
+    'Absolute status ticks lock input; stun presentation belongs to the later ability UI.',
+  ),
   team: nonVisualComponent(
     'team',
     'No accepted mode fields teams yet; a team renderer without a mode to render is a guess.',

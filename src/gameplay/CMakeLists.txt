@@ -29,11 +29,13 @@ add_library(blob_gameplay STATIC
   shared/hazard_archetype.cpp
   shared/hazard_crossing.cpp
   shared/hazard_spawn_system.cpp
+  shared/input_lock.cpp
   shared/lethal_hazard_contact_rule.cpp
   shared/lifetime_expiry_system.cpp
   shared/locomotion.cpp
   shared/match_reset_system.cpp
   shared/respawn_system.cpp
+  shared/status_system.cpp
   shared/thrust_steering_system.cpp
 )
 

@@ -8,7 +8,7 @@ import { useRoomNavigation } from './useRoomNavigation';
 import { useSimulationConnection } from './useSimulationConnection';
 import { useThrustInput } from './useThrustInput';
 import { useMovementTuning } from './useMovementTuning';
-import { findEntityById } from './sessionSelectors';
+import { selectThrustInputOptions } from './sessionSelectors';
 
 /**
  * The root of the feature, and deliberately the only place its three long-lived things meet: where
@@ -31,20 +31,9 @@ export function SimulationFeature() {
   const directory = useLobbyDirectory({
     enabled: navigation.lobbyId === null,
   });
-  const thrust = useThrustInput({
-    // A session that owns no body this frame steers nothing: the commands would be admitted, cost a
-    // rate token, and then be discarded because there is no entity to stamp.
-    enabled:
-      connection.status === 'connected' &&
-      findEntityById(connection.entities, connection.ownEntityId)?.components
-        .physics_body !== undefined &&
-      connection.session !== null &&
-      connection.session.lobbyId === navigation.lobbyId &&
-      connection.session.acceptedCommandKinds.includes('set_thrust'),
-    session: connection.session,
-    ownEntityId: connection.ownEntityId,
-    sendCommand: connection.sendCommand,
-  });
+  const thrust = useThrustInput(
+    selectThrustInputOptions(connection, navigation.lobbyId),
+  );
 
   const { leave } = navigation;
   const refusal = connection.status === 'refused' ? connection.error : null;

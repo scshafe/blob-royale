@@ -30,22 +30,20 @@ namespace {
 
 [[nodiscard]] std::vector<simulation::WorldEvent> one_of_each_kind() {
   return {contact_event(), simulation::DespawnEvent{entity(5)},
-          simulation::EliminationEvent{entity(6)}};
+          simulation::EliminationEvent{entity(6)}, simulation::StunRequest{entity(7), 3}};
 }
 
 } // namespace
 
 TEST_CASE("the WorldEvent variant carries exactly the declared event kinds",
           "[unit][simulation][world_event_registry]") {
-  // Three kinds, not five: `SpawnEvent` and `ScoreEvent` were registered ahead of any producer and
-  // are gone, because a registered kind nothing emits is a switch arm no reader can reach (engine
-  // review finding 17; `world_event_registry.hpp`). Every kind below has a producer -- the kernel's
-  // contact phase, royale's `placement_recorder`, and royale's `zone_elimination`.
+  // StunRequest is the Step 14 foundation exception, with an injected in-tick test producer.
   STATIC_REQUIRE(std::variant_size_v<simulation::WorldEvent> == simulation::kWorldEventKindCount);
-  STATIC_REQUIRE(simulation::kWorldEventKindCount == 3);
+  STATIC_REQUIRE(simulation::kWorldEventKindCount == 4);
   CHECK(simulation::kWorldEventKinds[0] == simulation::WorldEventKind::kContact);
   CHECK(simulation::kWorldEventKinds[1] == simulation::WorldEventKind::kDespawn);
   CHECK(simulation::kWorldEventKinds[2] == simulation::WorldEventKind::kElimination);
+  CHECK(simulation::kWorldEventKinds[3] == simulation::WorldEventKind::kStunRequest);
 }
 
 TEST_CASE("every WorldEvent alternative answers with its own kind and name",
@@ -61,6 +59,8 @@ TEST_CASE("every WorldEvent alternative answers with its own kind and name",
   CHECK(simulation::world_event_kind_name_of(simulation::WorldEventKind::kDespawn) == "despawn");
   CHECK(simulation::world_event_kind_name_of(simulation::WorldEventKind::kElimination) ==
         "elimination");
+  CHECK(simulation::world_event_kind_name_of(simulation::WorldEventKind::kStunRequest) ==
+        "stun_request");
 }
 
 TEST_CASE("a WorldEvent is a comparable value that is never valueless by exception",

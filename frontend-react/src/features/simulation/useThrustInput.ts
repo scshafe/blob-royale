@@ -20,6 +20,10 @@ export interface ThrustInputOptions {
   readonly enabled: boolean;
   readonly session: SimulationSessionIdentity | null;
   readonly ownEntityId: number | null;
+  /** Authoritative snapshot containment; elapsed browser time never unlocks input. */
+  readonly inputLocked: boolean;
+  /** Absence means this entity has never invalidated input; a present token is positive. */
+  readonly inputGeneration: number | undefined;
   readonly sendCommand: SimulationCommandSender;
 }
 
@@ -48,6 +52,8 @@ interface ThrustTransmission {
   readonly session: SimulationSessionIdentity | null;
   readonly ownEntityId: number | null;
   readonly enabled: boolean;
+  readonly observedInputGeneration: number | undefined;
+  inputGeneration: number | undefined;
   direction: ThrustDirection;
   sentAtMilliseconds: number;
 }
@@ -128,6 +134,9 @@ function blocksGameplayInput(target: EventTarget | null): boolean {
  * observed availability delimit input lifetime; fresh snapshot/body objects do not. Replacement
  * or disconnect discards pending work and remembered aim, never replaying it into a new body.
  * Between-snapshot same-entity recreation has no wire identity and cannot be inferred here.
+ * A generation change retires held input and every pending command, including zero releases,
+ * even if the entire stun was missed. Only a fresh Space press captures the current generation;
+ * its aim updates and release retain that token until retirement.
  *
  * The layout effect establishes this owner before Canvas publishes passive-effect geometry;
  * pointer handlers call the stable observer directly. Invalid numeric geometry raises
@@ -137,6 +146,8 @@ export function useThrustInput({
   enabled,
   session,
   ownEntityId,
+  inputLocked,
+  inputGeneration,
   sendCommand,
 }: ThrustInputOptions): ThrustInputControls {
   const [view, setView] = useState<ThrustInputView>(EMPTY_INPUT_VIEW);
@@ -150,7 +161,8 @@ export function useThrustInput({
   );
 
   useLayoutEffect(() => {
-    const canSend = enabled && session !== null && ownEntityId !== null;
+    const bodyAvailable = enabled && session !== null && ownEntityId !== null;
+    const canSend = bodyAvailable && !inputLocked;
     let active = true;
     let hasObservation = false;
     let cameraGestureActive = false;
@@ -161,17 +173,28 @@ export function useThrustInput({
     let lastNonzeroAimDirection: ThrustDirection | null = null;
     const previousTransmission = transmission.current;
     const sameBody =
-      canSend &&
+      bodyAvailable &&
       previousTransmission?.enabled === true &&
       previousTransmission.session === session &&
       previousTransmission.ownEntityId === ownEntityId;
-    // Only replacing the sender leaves the same body's last command in force. Cancel it with the
-    // new capability, preserving its throttle; a newly seated body already starts at rest.
+    const sameGeneration =
+      sameBody &&
+      previousTransmission.observedInputGeneration === inputGeneration;
+    // Sender-only replacement cancels the old command with its original activation token. A
+    // generation change instead discards it: even an old zero must never reach the new generation.
+    let activationGeneration = sameGeneration
+      ? previousTransmission.inputGeneration
+      : undefined;
     const currentTransmission: ThrustTransmission = {
       session,
       ownEntityId,
-      enabled: canSend,
-      direction: sameBody ? previousTransmission.direction : ZERO_THRUST,
+      enabled: bodyAvailable,
+      observedInputGeneration: inputGeneration,
+      inputGeneration: activationGeneration,
+      direction:
+        sameGeneration && !inputLocked
+          ? previousTransmission.direction
+          : ZERO_THRUST,
       sentAtMilliseconds: sameBody
         ? previousTransmission.sentAtMilliseconds
         : Number.NEGATIVE_INFINITY,
@@ -213,7 +236,8 @@ export function useThrustInput({
         !canSend ||
         awaitingFreshActivation ||
         (!sendRequiredAfterRefusal &&
-          sameDirection(currentTransmission.direction, desired))
+          sameDirection(currentTransmission.direction, desired) &&
+          currentTransmission.inputGeneration === activationGeneration)
       ) {
         clearPendingSend();
         return;
@@ -232,15 +256,27 @@ export function useThrustInput({
         return;
       }
       clearPendingSend();
-      const submitted = sendCommand({ kind: 'set_thrust', payload: desired });
+      // Reserve the interval before invoking a capability that may synchronously retire this
+      // closure. A same-body replacement must inherit the attempt's timestamp, even before return.
+      const previousSentAtMilliseconds = currentTransmission.sentAtMilliseconds;
+      currentTransmission.sentAtMilliseconds = now;
+      const submitted = sendCommand({
+        kind: 'set_thrust',
+        payload:
+          activationGeneration === undefined
+            ? desired
+            : { ...desired, input_generation: activationGeneration },
+      });
       // The capability may synchronously replace this welcome/body while reporting its result.
       // A retired closure cannot publish old aim or mutate the replacement lifetime afterward.
       if (!active) return;
       if (submitted) {
         currentTransmission.direction = desired;
+        currentTransmission.inputGeneration = activationGeneration;
         currentTransmission.sentAtMilliseconds = now;
         sendRequiredAfterRefusal = false;
       } else {
+        currentTransmission.sentAtMilliseconds = previousSentAtMilliseconds;
         goHeld = false;
         awaitingFreshActivation = true;
         sendRequiredAfterRefusal = true;
@@ -294,6 +330,7 @@ export function useThrustInput({
         return;
       }
       awaitingFreshActivation = false;
+      activationGeneration = inputGeneration;
       goHeld = true;
       flush();
     };
@@ -335,7 +372,14 @@ export function useThrustInput({
       window.removeEventListener('contextmenu', cancelActivation);
       clearPendingSend();
     };
-  }, [enabled, session, ownEntityId, sendCommand]);
+  }, [
+    enabled,
+    session,
+    ownEntityId,
+    inputLocked,
+    inputGeneration,
+    sendCommand,
+  ]);
 
   return { ...view, observeAim };
 }

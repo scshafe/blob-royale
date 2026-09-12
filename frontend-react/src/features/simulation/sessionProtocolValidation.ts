@@ -294,6 +294,39 @@ function assertSnapshotEntityInvariants(
     }
     previousEntityId = entity.entity_id;
 
+    const generation = entity.components.controllable?.input_generation;
+    if (generation !== undefined && generation > snapshot.data.tick_sequence) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'Controllable input_generation must be covered by its snapshot tick.',
+        {
+          context: {
+            entity_id: entity.entity_id,
+            input_generation: generation,
+            tick_sequence: snapshot.data.tick_sequence,
+          },
+        },
+      );
+    }
+    const stun = entity.components.stun;
+    if (
+      stun !== undefined &&
+      (stun.activation_tick >= stun.expiry_tick ||
+        stun.activation_tick > snapshot.data.tick_sequence)
+    ) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'Stun requires an ordered window activated by its snapshot tick.',
+        {
+          context: {
+            entity_id: entity.entity_id,
+            ...stun,
+            tick_sequence: snapshot.data.tick_sequence,
+          },
+        },
+      );
+    }
+
     const body = entity.components.physics_body;
     if (body !== undefined) {
       assertNoNegativeZero(body.position.x, 'position.x', entity.entity_id);

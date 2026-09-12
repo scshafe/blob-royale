@@ -57,11 +57,7 @@ WandererController::decide_from_observation(const Observation& observation) {
   heading_ = draw_heading();
   passes_until_new_heading_ = personality_.reaction_delay_frames;
 
-  std::vector<simulation::Command> commands;
-  commands.reserve(1);
-  commands.push_back(simulation::Command{
-      simulation::ThrustCommand{.entity = *observation.entity(), .direction = heading_}});
-  return commands;
+  return request_thrust(observation, heading_);
 }
 
 simulation::Vector2 WandererController::draw_heading() {

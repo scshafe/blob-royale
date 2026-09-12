@@ -3,6 +3,7 @@
 
 #include "component_encoding.hpp"
 #include "controller_directory_view.hpp"
+#include "protocol_encoding_error.hpp"
 #include "protocol_v3_constants.hpp"
 
 #include "components/controllable_component.hpp"
@@ -32,6 +33,11 @@ namespace blob_royale::protocol {
 template <> struct ComponentWireEncoding<simulation::Controllable> {
   static void encode(const simulation::Controllable& controllable,
                      const ComponentEncodingContext& context, ComponentObjectSink& sink) {
+    if (controllable.input_generation.has_value() && controllable.input_generation->value() == 0) {
+      throw ProtocolEncodingError(ProtocolEncodingErrorCode::kComponentValueOutOfRange,
+                                  "controllable.input_generation",
+                                  "a present input generation must be positive");
+    }
     const std::optional<PublishedController> published =
         context.directory->find_controller(controllable.controller_id);
 
@@ -39,11 +45,14 @@ template <> struct ComponentWireEncoding<simulation::Controllable> {
     if (published.has_value()) {
       sink.set_string("controller_kind", published->controller_kind);
       sink.set_string("display_name", published->display_name);
-      return;
+    } else {
+      sink.set_string("controller_kind", kUnknownControllerKind);
+      sink.set_string("display_name", std::string{kFallbackDisplayNamePrefix} +
+                                          std::to_string(context.entity.value()));
     }
-    sink.set_string("controller_kind", kUnknownControllerKind);
-    sink.set_string("display_name", std::string{kFallbackDisplayNamePrefix} +
-                                        std::to_string(context.entity.value()));
+    if (controllable.input_generation.has_value()) {
+      sink.set_unsigned("input_generation", controllable.input_generation->value());
+    }
   }
 };
 

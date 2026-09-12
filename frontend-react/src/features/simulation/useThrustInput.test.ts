@@ -20,6 +20,10 @@ import {
   thrustInputOptions,
 } from './fixtures/thrustInputFrames';
 import { cameraSessionIdentity } from './fixtures/simulationCameraFrames';
+import {
+  STUN_INPUT_GENERATION,
+  STUN_INPUT_NEXT_GENERATION,
+} from './fixtures/stunInputFrames';
 import type { SessionCommand } from './simulationProtocolTypes';
 import { useThrustInput, type ThrustInputOptions } from './useThrustInput';
 
@@ -489,6 +493,191 @@ describe('useThrustInput', () => {
       payload: THRUST_ZERO,
     });
   });
+
+  it('retains the captured generation for held aim updates and the zero release', async () => {
+    const { result, sendCommand } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    act(() => result.current.observeAim(thrustAim(THRUST_UP)));
+    await advance();
+    releaseGo();
+    await advance();
+    expect(sendCommand.mock.calls.map(([command]) => command)).toEqual([
+      {
+        kind: 'set_thrust',
+        payload: { ...THRUST_RIGHT, input_generation: STUN_INPUT_GENERATION },
+      },
+      {
+        kind: 'set_thrust',
+        payload: { ...THRUST_UP, input_generation: STUN_INPUT_GENERATION },
+      },
+      {
+        kind: 'set_thrust',
+        payload: { ...THRUST_ZERO, input_generation: STUN_INPUT_GENERATION },
+      },
+    ]);
+  });
+
+  it.each(['pending nonzero', 'pending zero'] as const)(
+    'discards %s on generation-only invalidation and keeps the same-body throttle',
+    async (pending) => {
+      const { result, rerender, options, sendCommand } = renderInput({
+        inputGeneration: STUN_INPUT_GENERATION,
+      });
+      act(() => result.current.observeAim(thrustAim()));
+      pressGo();
+      if (pending === 'pending zero') releaseGo();
+      else act(() => result.current.observeAim(thrustAim(THRUST_UP)));
+      rerender({ ...options, inputGeneration: STUN_INPUT_NEXT_GENERATION });
+      expect(result.current.direction).toEqual(THRUST_ZERO);
+      act(() => result.current.observeAim(thrustAim()));
+      pressGo(window, { repeat: true });
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      releaseGo();
+      pressGo();
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      await advance();
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+      expect(sendCommand).toHaveBeenLastCalledWith({
+        kind: 'set_thrust',
+        payload: {
+          ...THRUST_RIGHT,
+          input_generation: STUN_INPUT_NEXT_GENERATION,
+        },
+      });
+    },
+  );
+
+  it('cancels an absent-generation activation across an entirely missed stun without geometry or repeats rearming it', async () => {
+    const { result, rerender, options, sendCommand } = renderInput();
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    act(() => result.current.observeAim(thrustAim(THRUST_UP)));
+    rerender({ ...options, inputGeneration: STUN_INPUT_GENERATION });
+    act(() => result.current.observeAim(thrustAim(THRUST_LEFT)));
+    pressGo(window, { repeat: true });
+    await advance(1000);
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    expect(result.current.direction).toEqual(THRUST_ZERO);
+    releaseGo();
+    pressGo();
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_LEFT, input_generation: STUN_INPUT_GENERATION },
+    });
+  });
+
+  it('discards an old zero release without sending any command for the new generation', async () => {
+    const { result, rerender, options, sendCommand } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    releaseGo();
+    rerender({ ...options, inputGeneration: STUN_INPUT_NEXT_GENERATION });
+    act(() => result.current.observeAim(thrustAim()));
+    await advance(1000);
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_RIGHT, input_generation: STUN_INPUT_GENERATION },
+    });
+  });
+
+  it('keeps a same-generation hold alive across new option objects', async () => {
+    const { result, rerender, options, sendCommand } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    rerender({ ...options });
+    act(() => result.current.observeAim(thrustAim(THRUST_UP)));
+    await advance();
+    expect(result.current.direction).toEqual(THRUST_UP);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_UP, input_generation: STUN_INPUT_GENERATION },
+    });
+  });
+
+  it('keeps the original generation on a sender-only cancellation zero', async () => {
+    const { result, rerender, options } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    const nextSender = createSender();
+    rerender({ ...options, sendCommand: nextSender });
+    expect(nextSender).not.toHaveBeenCalled();
+    await advance();
+    expect(nextSender).toHaveBeenCalledExactlyOnceWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_ZERO, input_generation: STUN_INPUT_GENERATION },
+    });
+  });
+
+  it('never retags a timer fired before the generation render commits', async () => {
+    const { result, rerender, options, sendCommand } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    act(() => result.current.observeAim(thrustAim(THRUST_UP)));
+    await advance();
+    rerender({ ...options, inputGeneration: STUN_INPUT_NEXT_GENERATION });
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_UP, input_generation: STUN_INPUT_GENERATION },
+    });
+    await advance();
+    expect(sendCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([false, true])(
+    'retires synchronous generation replacement before a sender returns %s',
+    async (submitted) => {
+      let invalidateInput: (() => void) | null = null;
+      let invalidated = false;
+      const sender = vi.fn((command: SessionCommand) => {
+        void command;
+        if (invalidated) return true;
+        if (invalidateInput === null)
+          throw new Error('TEST.INPUT_INVALIDATION_MISSING');
+        invalidated = true;
+        invalidateInput();
+        return submitted;
+      });
+      const { result, rerender, options, sendCommand } = renderInput(
+        { inputGeneration: STUN_INPUT_GENERATION },
+        sender,
+      );
+      invalidateInput = () => {
+        flushSync(() =>
+          rerender({ ...options, inputGeneration: STUN_INPUT_NEXT_GENERATION }),
+        );
+        result.current.observeAim(thrustAim(THRUST_UP));
+      };
+      act(() => result.current.observeAim(thrustAim()));
+      pressGo();
+      expect(result.current.direction).toEqual(THRUST_ZERO);
+      expect(result.current.aimDirection).toEqual(THRUST_UP);
+      expect(result.current.lastNonzeroAimDirection).toEqual(THRUST_UP);
+      expect(sendCommand).toHaveBeenCalledExactlyOnceWith({
+        kind: 'set_thrust',
+        payload: { ...THRUST_RIGHT, input_generation: STUN_INPUT_GENERATION },
+      });
+      releaseGo();
+      pressGo();
+      expect(sendCommand).toHaveBeenCalledTimes(1);
+      await advance();
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+      expect(sendCommand).toHaveBeenLastCalledWith({
+        kind: 'set_thrust',
+        payload: { ...THRUST_UP, input_generation: STUN_INPUT_NEXT_GENERATION },
+      });
+    },
+  );
 
   it('does not retry a refused send on observation feedback and requires a fresh activation', async () => {
     const sender = createSender();

@@ -112,6 +112,12 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
 
   if (const auto* thrust = std::get_if<ThrustCommand>(&command); thrust != nullptr) {
     validate_thrust_direction(*thrust, submission_index);
+    if (thrust->input_generation == TickSequence::zero()) {
+      throw SimulationValidationError(SimulationValidationCode::kInputBatchInputGenerationZero,
+                                      "input_batch.commands.thrust.input_generation",
+                                      "a present input generation must be positive" +
+                                          command_position(submission_index));
+    }
   }
   if (const auto* despawn = std::get_if<DespawnCommand>(&command); despawn != nullptr) {
     validate_despawn_target(*despawn, entity_id_reservation, submission_index);

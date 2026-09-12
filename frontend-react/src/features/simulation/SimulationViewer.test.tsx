@@ -14,7 +14,13 @@ import {
   installCanvasAimSurface,
 } from './fixtures/canvasAimObservations';
 import { cursorSteeringConnection } from './fixtures/cursorSteeringFrames';
-import { findEntityById } from './sessionSelectors';
+import {
+  STUN_INPUT_GENERATION,
+  STUN_INPUT_NEXT_GENERATION,
+  STUN_INPUT_WINDOW,
+  stunInputConnection,
+} from './fixtures/stunInputFrames';
+import { selectThrustInputOptions } from './sessionSelectors';
 import { THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS } from './simulationConstants';
 import type { SessionCommand } from './simulationProtocolTypes';
 import {
@@ -104,15 +110,7 @@ function CursorViewer({
 }: {
   readonly connection: SimulationConnection;
 }) {
-  const thrust = useThrustInput({
-    enabled:
-      connection.status === 'connected' &&
-      findEntityById(connection.entities, connection.ownEntityId)?.components
-        .physics_body !== undefined,
-    session: connection.session,
-    ownEntityId: connection.ownEntityId,
-    sendCommand: connection.sendCommand,
-  });
+  const thrust = useThrustInput(selectThrustInputOptions(connection, 1));
   return (
     <SimulationViewer
       lobbyId={1}
@@ -264,6 +262,121 @@ describe('SimulationViewer', () => {
     });
   });
 
+  it('cancels held input across a missed stun through the production selector and accepts fresh same-direction activation', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    const identity = cameraSessionIdentity();
+    const view = render(
+      <CursorViewer
+        connection={stunInputConnection(sender, identity, undefined)}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    fireEvent.pointerMove(canvas, aimPointer(580, 270));
+    view.rerender(
+      <CursorViewer
+        connection={stunInputConnection(
+          sender,
+          identity,
+          STUN_INPUT_GENERATION,
+        )}
+      />,
+    );
+    fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.keyDown(canvas, { code: 'Space', repeat: true });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(1);
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0, input_generation: STUN_INPUT_GENERATION },
+    });
+    view.rerender(
+      <CursorViewer
+        connection={stunInputConnection(
+          sender,
+          identity,
+          STUN_INPUT_GENERATION,
+        )}
+      />,
+    );
+    fireEvent.pointerMove(canvas, aimPointer(580, 270));
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 0, y: -1, input_generation: STUN_INPUT_GENERATION },
+    });
+  });
+
+  it('keeps observed stun locked until authoritative expiry and then requires fresh Space', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const sender = vi.fn((command: SessionCommand) => {
+      void command;
+      return true;
+    });
+    const identity = cameraSessionIdentity();
+    const view = render(
+      <CursorViewer
+        connection={stunInputConnection(
+          sender,
+          identity,
+          STUN_INPUT_GENERATION,
+        )}
+      />,
+    );
+    const canvas = screen.getByRole<HTMLCanvasElement>('img');
+    installCanvasAimSurface(canvas);
+    fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    view.rerender(
+      <CursorViewer
+        connection={stunInputConnection(
+          sender,
+          identity,
+          STUN_INPUT_NEXT_GENERATION,
+          STUN_INPUT_WINDOW,
+        )}
+      />,
+    );
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenCalledTimes(1);
+    view.rerender(
+      <CursorViewer
+        connection={stunInputConnection(
+          sender,
+          identity,
+          STUN_INPUT_NEXT_GENERATION,
+          STUN_INPUT_WINDOW,
+          STUN_INPUT_WINDOW.expiry_tick,
+        )}
+      />,
+    );
+    fireEvent.keyDown(canvas, { code: 'Space', repeat: true });
+    await advanceThrustInterval();
+    expect(sender).toHaveBeenCalledTimes(1);
+    fireEvent.keyUp(canvas, { code: 'Space' });
+    fireEvent.keyDown(canvas, { code: 'Space' });
+    expect(sender).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { x: 1, y: 0, input_generation: STUN_INPUT_NEXT_GENERATION },
+    });
+  });
+
   it('updates stationary-cursor aim as a body moves in manual view without treating new snapshot objects as a new body', async () => {
     vi.useFakeTimers();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
@@ -395,12 +508,7 @@ describe('SimulationViewer', () => {
       },
     });
     function EditableViewer() {
-      const thrust = useThrustInput({
-        enabled: true,
-        session: connection.session,
-        ownEntityId: connection.ownEntityId,
-        sendCommand: connection.sendCommand,
-      });
+      const thrust = useThrustInput(selectThrustInputOptions(connection, 1));
       return (
         <SimulationViewer
           lobbyId={1}
@@ -458,12 +566,7 @@ describe('SimulationViewer', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const connection = createConnection();
     function SteerableViewer() {
-      const thrust = useThrustInput({
-        enabled: true,
-        session: connection.session,
-        ownEntityId: connection.ownEntityId,
-        sendCommand: connection.sendCommand,
-      });
+      const thrust = useThrustInput(selectThrustInputOptions(connection, 1));
       return (
         <SimulationViewer
           lobbyId={1}

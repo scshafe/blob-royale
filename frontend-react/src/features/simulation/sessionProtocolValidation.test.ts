@@ -45,6 +45,15 @@ import {
   tuningSnapshotDocument,
   TUNING_RESULT_STATUSES,
 } from './fixtures/tuningFrames';
+import {
+  INVALID_INPUT_GENERATIONS,
+  INVALID_STUN_WINDOWS,
+  STUN_INPUT_GENERATION,
+  STUN_INPUT_SNAPSHOT_TICK,
+  STUN_INPUT_WINDOW,
+  THRUST_GENERATION_COMMAND_CASES,
+  stunInputSnapshotDocument,
+} from './fixtures/stunInputFrames';
 
 const welcomeSequence: SessionSequenceState = Object.freeze({
   messageSequence: 1,
@@ -83,6 +92,111 @@ function silenceProtocolWarnings() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('stun and input generation protocol', () => {
+  it.each([
+    undefined,
+    1,
+    STUN_INPUT_GENERATION,
+    STUN_INPUT_SNAPSHOT_TICK,
+    Number.MAX_SAFE_INTEGER,
+  ])(
+    'accepts the exact optional generation %s without inventing absent values',
+    (generation) => {
+      const tick =
+        generation === Number.MAX_SAFE_INTEGER
+          ? generation
+          : STUN_INPUT_SNAPSHOT_TICK;
+      const snapshot = validateSessionSnapshotMessage(
+        stunInputSnapshotDocument(generation, undefined, tick),
+        welcomeSequence,
+      );
+      const own = snapshot.data.entities.find(
+        (entity) => entity.entity_id === 7,
+      );
+      expect(own?.components.controllable?.input_generation).toBe(generation);
+      expect(
+        Object.hasOwn(own?.components.controllable ?? {}, 'input_generation'),
+      ).toBe(generation !== undefined);
+    },
+  );
+
+  it.each(INVALID_INPUT_GENERATIONS)(
+    'rejects $name generation on published controllable',
+    ({ value }) => {
+      expect(() =>
+        validateSessionSnapshotMessage(
+          stunInputSnapshotDocument(value),
+          welcomeSequence,
+        ),
+      ).toThrow(SimulationApiError);
+    },
+  );
+
+  it('rejects a generation after its covering snapshot tick', () => {
+    expect(() =>
+      validateSessionSnapshotMessage(
+        stunInputSnapshotDocument(STUN_INPUT_SNAPSHOT_TICK + 1),
+        welcomeSequence,
+      ),
+    ).toThrow(SimulationApiError);
+  });
+
+  it.each([STUN_INPUT_SNAPSHOT_TICK, STUN_INPUT_WINDOW.expiry_tick])(
+    'accepts and freezes published stun endpoints at snapshot tick %s',
+    (tick) => {
+      const snapshot = validateSessionSnapshotMessage(
+        stunInputSnapshotDocument(
+          STUN_INPUT_GENERATION,
+          STUN_INPUT_WINDOW,
+          tick,
+        ),
+        welcomeSequence,
+      );
+      const stun = snapshot.data.entities.find(
+        (entity) => entity.entity_id === 7,
+      )?.components.stun;
+      expect(stun).toEqual(STUN_INPUT_WINDOW);
+      expect(Object.isFrozen(stun)).toBe(true);
+    },
+  );
+
+  it('accepts expiry at the maximum exact integer', () => {
+    const window = { activation_tick: 1, expiry_tick: Number.MAX_SAFE_INTEGER };
+    expect(() =>
+      validateSessionSnapshotMessage(
+        stunInputSnapshotDocument(STUN_INPUT_GENERATION, window),
+        welcomeSequence,
+      ),
+    ).not.toThrow();
+  });
+
+  it.each(INVALID_STUN_WINDOWS)('rejects $name stun', ({ value }) => {
+    expect(() =>
+      validateSessionSnapshotMessage(
+        stunInputSnapshotDocument(STUN_INPUT_GENERATION, value),
+        welcomeSequence,
+      ),
+    ).toThrow(SimulationApiError);
+  });
+
+  it.each(THRUST_GENERATION_COMMAND_CASES)('accepts $name', ({ command }) => {
+    expect(() => validateSessionCommand(command)).not.toThrow();
+  });
+
+  it.each(INVALID_INPUT_GENERATIONS)(
+    'rejects $name generation in a zero release',
+    ({ value }) => {
+      const command = structuredClone(sessionCommandEnvelopeExample);
+      Reflect.set(command.payload, 'x', 0);
+      Reflect.set(command.payload, 'y', 0);
+      Reflect.set(command.payload, 'input_generation', value);
+      expect(() => validateSessionCommand(command as SessionCommand)).toThrow(
+        SimulationApiError,
+      );
+    },
+  );
 });
 
 describe('hill motion protocol', () => {

@@ -21,6 +21,8 @@ src/gameplay/
   gameplay_validation_error.hpp the one exception vocabulary of this library
   shared/                       mechanics and values more than one mode or section uses
     thrust_steering_system.*    held intent and current match tuning become stored acceleration
+    input_lock.*               canonical active-stun admission predicate for self-propulsion
+    status_system.*            absolute stun windows, input invalidation, and expiry at PostKernel
     locomotion.*               canonical normalization, scaling, and finite-step propulsion cap
     duration_ticks.*            the one conversion from an authored duration to tick counts
     hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
@@ -148,9 +150,10 @@ Free play. It accepts `spawn`, `despawn`, and `thrust`; seats every joiner at th
 point in every phase; uses the engine's two built-in contact rows unchanged; declares one
 `kPreKernel` system, `thrust_steering`; and never leaves `running` because its objective can always
 start and is never decided. It contributes no component kind, no contact rule, no world event, no
-mode-state block, and no `kPostKernel` or `kLifecycle` system.
+mode-state block, or `kLifecycle` system. The shared `status` system is its sole PostKernel
+declaration; with no Stun or StunRequest it changes nothing.
 
-`SandboxMode` is **89 lines** — a 52-line class block plus 37 lines of definitions — of which **58
+The historical pre-status `SandboxMode` measurement was **89 lines** — a 52-line class block plus 37 lines of definitions — of which **58
 are code** once blank and `//` lines are removed. The measurement is the `class SandboxMode final`
 block in the header and everything between the namespace braces in the `.cpp`, so anyone can rerun
 it. That is what ADR 0004's claim that "a mode is a declaration, not machinery" is answerable to,
@@ -202,7 +205,7 @@ Thrust and drag inside a linearly shrinking circular safe zone, last blob standi
 engine's built-in contact rows unchanged beneath one row of its own, `lethal_hazard`, which computes
 no physics at all, so it is still structurally incapable of reaching a different collision equation
 for a pair of ordinary blobs; declares `thrust_steering` at `kPreKernel`, `zone_shrink` then
-`zone_elimination` at `kPostKernel`, and `placement_recorder`, `match_reset`, `lifetime_expiry`,
+`zone_elimination`, then shared `status` at `kPostKernel`, and `placement_recorder`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn` then `elimination_grace_publisher` at `kLifecycle`; seats joiners on a rotating ring
 and only between matches; and ends when one blob or none is alive.
 
@@ -272,7 +275,7 @@ the next point; a contested hill scores nobody unless `contested_hill_scores` sa
 the first to `points_to_win`, or the leader when the clock runs out, wins
 (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill"). It accepts
 royale's ten command kinds; uses the engine's built-in contact rows beneath `lethal_hazard`;
-declares `thrust_steering` at `kPreKernel`, `hill_movement` then `hill_scoring` at `kPostKernel`,
+declares `thrust_steering` at `kPreKernel`, `hill_movement`, `hill_scoring`, then shared `status` at `kPostKernel`,
 and `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `hill_rules_publisher` at
 `kLifecycle`; seats joiners at the next free point in every phase, because the field is open; and
 returns a knocked-out player after the configured respawn delay with its score intact.
@@ -307,7 +310,8 @@ mode-owned production implementation, not the total cross-domain cost.
 
 The course binds `[race] road` to a named terrain corridor and uses ordered `checkpoint` markers
 as gates, with the last gate as the finish. `checkpoint_progress` takes at most one gate per tick and
-`track_bounds` then emits an elimination for an off-road centre. The lifecycle systems run in this
+`track_bounds` then emits an elimination for an off-road centre, followed by shared `status` as
+the last PostKernel system. The lifecycle systems run in this
 order: `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn`, `course_publisher`; the engine evaluates the objective afterwards. The mode uses
 shared steering and lethal-hazard contact, and accepts the same ten command kinds as royale.
@@ -356,7 +360,8 @@ or numbered kernel phase.
 `steered_acceleration` delegates normalization and scaling while retaining its wider standalone
 scalar domain. The magnitude clamp happens exactly once per new command, and the normalized
 intent is retained privately on `Controllable`. `ThrustCommand` carries the submitted direction
-verbatim and `InputBatch::create` only range-checks each component against `[-1, 1]`, because
+verbatim and `InputBatch::create` range-checks each component against `[-1, 1]` and rejects a
+present zero input generation, because
 clamping at construction and again in the system would scale twice and is not bit-identical to
 scaling once. The written operation order is the contract of
 `docs/architecture/0005-royale-mode.md` § "Steering":
@@ -384,6 +389,21 @@ coast, not absence. Each later tick scales the retained intent without reclampin
 tuning change affects held input immediately. `seat_body_at_rest` clears previous-body intent,
 including zero-delay replacements, without discarding newly recorded commands. Publication strips
 private intent with the command list; room tuning remains public and survives round resets.
+
+`input_is_locked` is the one active-stun predicate. Steering checks it before command handling
+or the absent-intent early return, clearing intent to explicit zero and self-propulsion to zero.
+Outside the lock, commands (including zero release) require exact optional `input_generation`
+equality; a stale command does not replace a valid retained intent. Absent generation means never
+invalidated and stays absent for all unchanged fixtures.
+
+`status` runs last at PostKernel in all four modes. It validates and aggregates applicable
+positive `StunRequest`s before any mutation, merges active windows by maximum expiry, replaces
+expired windows without bridging gaps, and assigns the positive committing tick as generation.
+Zero duration and missing/bodyless/static targets are no-ops. Expired status is erased; body loss
+is cleaned only through the Step 13 trait. Neither first application nor later locked ticks
+zero velocity: Step 18's impact owns momentum cancellation, and later bumps/lifetime continue.
+The `StunRequest` producer is test-injected until Step 18, a narrow ADR 0004 foundation exception,
+not a production stun command. `simulation::TickWindow` owns the checked half-open interval.
 
 The propulsion cap constrains the canonical requested Euler endpoint to the computed squared
 speed bound `max(normal_top_speed², current_velocity·current_velocity)`, returning acceleration,

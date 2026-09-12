@@ -1,5 +1,12 @@
 import { raceTerrain, solidTerrain } from './fixtures/terrainFrames';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { cameraSessionIdentity } from './fixtures/simulationCameraFrames';
+import {
+  STUN_INPUT_NEXT_GENERATION,
+  STUN_INPUT_SNAPSHOT_TICK,
+  STUN_INPUT_WINDOW,
+  stunInputConnection,
+} from './fixtures/stunInputFrames';
 
 import {
   hillSnapshotDocument,
@@ -25,6 +32,7 @@ import {
   respawnCountdownSeconds,
   runningTimeRemainingSeconds,
   scoreboard,
+  selectThrustInputOptions,
   zoneExposureReport,
 } from './sessionSelectors';
 import type {
@@ -38,6 +46,73 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   tickSequence: null,
   terrain: solidTerrain,
 }).data;
+
+describe('selectThrustInputOptions', () => {
+  it.each([
+    [STUN_INPUT_WINDOW.activation_tick, true],
+    [STUN_INPUT_SNAPSHOT_TICK, true],
+    [STUN_INPUT_WINDOW.expiry_tick, false],
+  ] as const)(
+    'uses authoritative half-open stun containment at tick %s',
+    (tick, locked) => {
+      const connection = stunInputConnection(
+        vi.fn(() => true),
+        cameraSessionIdentity(),
+        STUN_INPUT_NEXT_GENERATION,
+        STUN_INPUT_WINDOW,
+        tick,
+      );
+      const options = selectThrustInputOptions(
+        connection,
+        connection.session?.lobbyId ?? null,
+      );
+      expect(options.enabled).toBe(true);
+      expect(options.inputLocked).toBe(locked);
+      expect(options.inputGeneration).toBe(STUN_INPUT_NEXT_GENERATION);
+    },
+  );
+
+  it('retains the authoritative generation after the entire stun component disappears', () => {
+    const connection = stunInputConnection(
+      vi.fn(() => true),
+      cameraSessionIdentity(),
+      STUN_INPUT_NEXT_GENERATION,
+    );
+    expect(selectThrustInputOptions(connection, 1)).toMatchObject({
+      enabled: true,
+      inputLocked: false,
+      inputGeneration: STUN_INPUT_NEXT_GENERATION,
+      ownEntityId: connection.ownEntityId,
+    });
+  });
+
+  it('requires the current room, accepted thrust capability, live connection, and actual owned body', () => {
+    const connection = stunInputConnection(
+      vi.fn(() => true),
+      cameraSessionIdentity(),
+      STUN_INPUT_NEXT_GENERATION,
+    );
+    expect(selectThrustInputOptions(connection, null).enabled).toBe(false);
+    expect(
+      selectThrustInputOptions({ ...connection, ownEntityId: null }, 1).enabled,
+    ).toBe(false);
+    expect(
+      selectThrustInputOptions({ ...connection, entities: [] }, 1).enabled,
+    ).toBe(false);
+    expect(
+      selectThrustInputOptions({ ...connection, status: 'connecting' }, 1)
+        .enabled,
+    ).toBe(false);
+    const session = connection.session;
+    if (session === null) throw new Error('TEST.STUN_INPUT_SESSION_MISSING');
+    expect(
+      selectThrustInputOptions(
+        { ...connection, session: { ...session, acceptedCommandKinds: [] } },
+        1,
+      ).enabled,
+    ).toBe(false);
+  });
+});
 
 function matchWith(
   overrides: Partial<SessionMatchSection>,

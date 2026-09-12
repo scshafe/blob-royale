@@ -46,6 +46,9 @@
         "score": {
           "$ref": "score-component.schema.json"
         },
+        "stun": {
+          "$ref": "stun-component.schema.json"
+        },
         "team": {
           "$ref": "team-component.schema.json"
         },

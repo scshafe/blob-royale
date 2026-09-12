@@ -10,6 +10,7 @@
 #include "shared/hazard_spawn_system.hpp"
 #include "shared/lifetime_expiry_system.hpp"
 #include "shared/match_reset_system.hpp"
+#include "shared/status_system.hpp"
 #include "shared/thrust_steering_system.hpp"
 
 #include <memory>
@@ -45,6 +46,8 @@ simulation::SystemPipeline RoyaleMode::systems() const {
       simulation::SystemStage::kPostKernel, ZoneShrinkSystem::create(configuration_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, ZoneEliminationSystem::create(configuration_)});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
+                                                              StatusSystem::create()});
   // The five `kLifecycle` systems are ordered remove, reset, then add, then publish, and the order
   // is load-bearing. `placement_recorder` destroys this tick's eliminated entities; `match_reset`
   // wipes every participant on the one lobby tick after a match ended; `lifetime_expiry` emits the

@@ -23,6 +23,10 @@ import {
 } from './fixtures/sessionFrames';
 import { namedRaceTerrain, raceTerrain } from './fixtures/terrainFrames';
 import {
+  STUN_INPUT_GENERATION,
+  THRUST_GENERATION_COMMAND_CASES,
+} from './fixtures/stunInputFrames';
+import {
   tuningCommand,
   tuningSnapshotDocument,
   TUNING_RESULT_STATUSES,
@@ -1105,6 +1109,49 @@ describe('SimulationApi session lifecycle', () => {
     api.dispose();
     expect(api.sendCommand(thrust)).toBe(false);
     expect(socket.send).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(THRUST_GENERATION_COMMAND_CASES)(
+    'serializes $name verbatim through the API',
+    async ({ command, serialized }) => {
+      const { api, configuration, sockets } = await createJoinedApi();
+      api.openSession(configuration, 1, createCallbacks());
+      const socket = requireSocket(sockets);
+      socket.open();
+      socket.receive(JSON.stringify(welcomeDocument()));
+      expect(api.sendCommand(command)).toBe(true);
+      expect(socket.sentMessages).toEqual([serialized]);
+    },
+  );
+
+  it('refuses a present zero generation rather than serializing it as absent', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { api, configuration, sockets } = await createJoinedApi();
+    api.openSession(configuration, 1, createCallbacks());
+    const socket = requireSocket(sockets);
+    socket.open();
+    socket.receive(JSON.stringify(welcomeDocument()));
+    const command = THRUST_GENERATION_COMMAND_CASES.find(
+      ({ name }) => name === 'present generation zero release',
+    )?.command;
+    if (command === undefined)
+      throw new Error('TEST.STUN_INPUT_COMMAND_MISSING');
+    expect(
+      api.sendCommand({
+        ...command,
+        payload: { ...command.payload, input_generation: 0 },
+      }),
+    ).toBe(false);
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(
+      api.sendCommand({
+        ...command,
+        payload: {
+          ...command.payload,
+          input_generation: STUN_INPUT_GENERATION,
+        },
+      }),
+    ).toBe(true);
   });
 
   it('refuses a command whose payload the closed schema would reject', async () => {

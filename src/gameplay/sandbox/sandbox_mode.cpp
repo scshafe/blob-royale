@@ -2,6 +2,7 @@
 
 #include "game_mode_configuration.hpp"
 #include "gameplay_validation_error.hpp"
+#include "shared/status_system.hpp"
 #include "shared/thrust_steering_system.hpp"
 
 #include <memory>
@@ -23,6 +24,8 @@ simulation::SystemPipeline SandboxMode::systems() const {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               ThrustSteeringSystem::create()});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
+                                                              StatusSystem::create()});
   return simulation::SystemPipeline::create(std::move(declared));
 }
 

@@ -90,6 +90,8 @@ export function thrustInputOptions(
     enabled: true,
     session,
     ownEntityId: session.firstEntityId,
+    inputLocked: false,
+    inputGeneration: undefined,
     sendCommand,
     ...overrides,
   };

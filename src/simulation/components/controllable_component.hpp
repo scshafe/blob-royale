@@ -5,6 +5,7 @@
 #include "component_kind_name.hpp"
 #include "component_publication.hpp"
 #include "controller_id.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 
 #include <optional>
@@ -42,6 +43,9 @@ struct Controllable final {
   // snapshot builder (engine review finding 4).
   std::vector<Command> commands_this_tick{};
   std::optional<Vector2> normalized_thrust_intent{};
+  // Public cancellation token; absence means this entity has never had input invalidated.
+  // It survives expiry and same-entity body replacement. Only destruction ends its lifetime.
+  std::optional<TickSequence> input_generation{};
 
   friend bool operator==(const Controllable&, const Controllable&) = default;
 };
@@ -50,13 +54,13 @@ template <> struct ComponentKindName<Controllable> {
   static constexpr std::string_view value = "controllable";
 };
 
-// A published Controllable is the controller link and nothing else: both recorded commands and
+// A published Controllable retains the controller link and generation: both recorded commands and
 // persistent normalized intent are private. Discarding rather than copying the vector also
 // removes the per-entity allocation a publication used to pay.
 // related: component_publication.hpp -- why a kind declares this beside its own struct.
 template <> struct ComponentPublication<Controllable> {
   [[nodiscard]] static Controllable published(Controllable value) {
-    return Controllable{value.controller_id};
+    return Controllable{value.controller_id, {}, {}, value.input_generation};
   }
 };
 

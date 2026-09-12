@@ -313,6 +313,7 @@ export const protocolV3Schemas = {
           'race_progress',
           'respawn_timer',
           'score',
+          'stun',
           'team',
           'zone',
           'zone_exposure',
@@ -520,6 +521,11 @@ export const protocolV3Schemas = {
       display_name: {
         $ref: 'common.schema.json#/$defs/display_name',
       },
+      input_generation: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+        description:
+          'Optional persistent input-invalidation generation: the positive committed tick of the latest applicable stun request. Omitted means this entity has never been invalidated, not a wildcard. Survives status expiry and same-entity body return; must not exceed the enclosing snapshot tick.',
+      },
     },
     $comment:
       "Controllable::commands_this_tick (ADR 0004) is deliberately NOT published. Publishing this tick's commands would disclose every player's live input to every other peer, which is a same-frame reaction advantage and a class of leak no rate limit can undo.",
@@ -572,6 +578,9 @@ export const protocolV3Schemas = {
           },
           score: {
             $ref: 'score-component.schema.json',
+          },
+          stun: {
+            $ref: 'stun-component.schema.json',
           },
           team: {
             $ref: 'team-component.schema.json',
@@ -1642,6 +1651,11 @@ export const protocolV3Schemas = {
       y: {
         $ref: 'common.schema.json#/$defs/unit_interval_scalar',
       },
+      input_generation: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+        description:
+          'The exact optional generation observed and captured for this activation, retained for its aim updates and zero release. Omit only for a never-invalidated entity. Server admission requires exact optional equality and no active stun; never retag queued input with a newer token.',
+      },
     },
     $comment:
       'The per-component bound admits (1, 1), whose magnitude is sqrt(2). Magnitude clamping to 1 is a mode rule applied by thrust_steering (ADR 0005), not a wire rule, so a client cannot gain 41 percent acceleration by thrusting diagonally. A decoder MUST reject non-standard JSON number literals such as NaN and Infinity.',
@@ -1768,6 +1782,27 @@ export const protocolV3Schemas = {
     properties: {},
     $comment:
       "It records a request; it does not start a match. The server commits lobby -> countdown only when the running mode's objective also says the field is complete, so a press into a lobby with an empty seat is remembered and changes no phase. The request is one-shot and is cleared on every arrival in lobby, so a finished match cannot restart itself. Added in 2.3.",
+  },
+  stunComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/stun-component.schema.json',
+    title: 'Blob Royale protocol v3 stun component',
+    description:
+      'Body-bound temporary self-propulsion lock over the absolute half-open interval [activation_tick, expiry_tick). Both endpoints are public to browser and in-process observers. expiry_tick must exceed activation_tick, and activation_tick must not exceed the enclosing snapshot tick. Status application never restores or repeatedly zeroes velocity; later external impulses remain effective.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['activation_tick', 'expiry_tick'],
+    properties: {
+      activation_tick: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+      },
+      expiry_tick: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+      },
+    },
+    $comment:
+      'Cross-field ordering and enclosing-tick relationships require semantic validation after JSON Schema. Added with the Step 14 status foundation under protocol 3.0; no production stun command is introduced.',
   },
   teamComponent: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',

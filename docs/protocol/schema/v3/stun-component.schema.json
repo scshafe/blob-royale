@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/stun-component.schema.json",
+  "title": "Blob Royale protocol v3 stun component",
+  "description": "Body-bound temporary self-propulsion lock over the absolute half-open interval [activation_tick, expiry_tick). Both endpoints are public to browser and in-process observers. expiry_tick must exceed activation_tick, and activation_tick must not exceed the enclosing snapshot tick. Status application never restores or repeatedly zeroes velocity; later external impulses remain effective.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["activation_tick", "expiry_tick"],
+  "properties": {
+    "activation_tick": {
+      "$ref": "common.schema.json#/$defs/tick_sequence"
+    },
+    "expiry_tick": {
+      "$ref": "common.schema.json#/$defs/tick_sequence"
+    }
+  },
+  "$comment": "Cross-field ordering and enclosing-tick relationships require semantic validation after JSON Schema. Added with the Step 14 status foundation under protocol 3.0; no production stun command is introduced."
+}

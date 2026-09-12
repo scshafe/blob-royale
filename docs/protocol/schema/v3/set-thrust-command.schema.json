@@ -13,6 +13,10 @@
     },
     "y": {
       "$ref": "common.schema.json#/$defs/unit_interval_scalar"
+    },
+    "input_generation": {
+      "$ref": "common.schema.json#/$defs/tick_sequence",
+      "description": "The exact optional generation observed and captured for this activation, retained for its aim updates and zero release. Omit only for a never-invalidated entity. Server admission requires exact optional equality and no active stun; never retag queued input with a newer token."
     }
   },
   "$comment": "The per-component bound admits (1, 1), whose magnitude is sqrt(2). Magnitude clamping to 1 is a mode rule applied by thrust_steering (ADR 0005), not a wire rule, so a client cannot gain 41 percent acceleration by thrusting diagonally. A decoder MUST reject non-standard JSON number literals such as NaN and Infinity."

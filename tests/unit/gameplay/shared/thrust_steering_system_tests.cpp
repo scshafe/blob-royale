@@ -1,5 +1,6 @@
 #include "shared/thrust_steering_system.hpp"
 
+#include "fixtures/status_fixture.hpp"
 #include "fixtures/thrust_steering_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
 
@@ -24,6 +25,7 @@ namespace gameplay = blob_royale::gameplay;
 namespace simulation = blob_royale::simulation;
 namespace testing = blob_royale::testing;
 namespace fixture = blob_royale::testing::thrust_steering_fixture;
+namespace status_fixture = blob_royale::testing::status_fixture;
 
 namespace {
 
@@ -375,4 +377,88 @@ TEST_CASE(
   CHECK(unchanged.match().movement().current == testing::gameplay_movement_tuning());
   CHECK(unchanged.match().movement().revision == 0);
   CHECK(unchanged_body->acceleration() == simulation::Vector2::create(100.0, -300.0));
+}
+
+TEST_CASE("active stun clears absent authored intent before steering can return or read commands",
+          "[unit][gameplay][thrust_steering][stun]") {
+  for (const bool has_command : {false, true}) {
+    auto world = status_fixture::world_with_status();
+    auto* controllable =
+        world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+    controllable->normalized_thrust_intent.reset();
+    if (has_command) {
+      controllable->commands_this_tick = {status_fixture::command(status_fixture::tick())};
+    }
+    const testing::TickHarness harness{status_fixture::tick()};
+    gameplay::ThrustSteeringSystem::create()->apply(world, harness.context());
+    CHECK(controllable->normalized_thrust_intent == status_fixture::zero());
+    CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() ==
+          status_fixture::zero());
+    CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->velocity() ==
+          status_fixture::velocity());
+  }
+}
+
+TEST_CASE("exact stun expiry accepts matching thrust before PostKernel removes the component",
+          "[unit][gameplay][thrust_steering][stun]") {
+  auto world = status_fixture::world_with_status();
+  auto* controllable =
+      world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+  controllable->commands_this_tick = {status_fixture::command(status_fixture::tick())};
+  const testing::TickHarness harness{status_fixture::tick(status_fixture::kExpiry)};
+  gameplay::ThrustSteeringSystem::create()->apply(world, harness.context());
+  CHECK(controllable->normalized_thrust_intent == status_fixture::direction());
+  CHECK(world.store<simulation::Stun>().find(fixture::entity()) != nullptr);
+  CHECK(world.store<simulation::PhysicsBody>().find(fixture::entity())->acceleration() !=
+        status_fixture::zero());
+  gameplay::StatusSystem::create()->apply(world, harness.context());
+  CHECK(world.store<simulation::Stun>().find(fixture::entity()) == nullptr);
+  CHECK(controllable->normalized_thrust_intent == status_fixture::direction());
+}
+
+TEST_CASE("thrust and zero releases require exact optional generation equality",
+          "[unit][gameplay][thrust_steering][input_generation]") {
+  const std::array generations{
+      std::optional<simulation::TickSequence>{}, std::optional{status_fixture::tick()},
+      std::optional{status_fixture::tick(status_fixture::kLaterActivation)}};
+  const testing::TickHarness harness{status_fixture::tick(status_fixture::kLaterActivation)};
+  for (const auto state_generation : generations) {
+    for (const auto command_generation : generations) {
+      for (const bool release : {false, true}) {
+        auto world = status_fixture::world();
+        auto* controllable =
+            world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+        controllable->input_generation = state_generation;
+        controllable->normalized_thrust_intent = status_fixture::direction();
+        const auto requested = release ? status_fixture::zero() : status_fixture::other_direction();
+        controllable->commands_this_tick = {status_fixture::command(command_generation, requested)};
+        gameplay::ThrustSteeringSystem::create()->apply(world, harness.context());
+        const auto expected =
+            state_generation == command_generation ? requested : status_fixture::direction();
+        CHECK(controllable->normalized_thrust_intent == expected);
+        CHECK(controllable->input_generation == state_generation);
+      }
+    }
+  }
+}
+
+TEST_CASE("stale coalesced input does not replace valid held intent or become queued work",
+          "[unit][gameplay][thrust_steering][input_generation]") {
+  auto world = status_fixture::world();
+  auto* controllable =
+      world.mutable_store<simulation::Controllable>().mutable_find(fixture::entity());
+  controllable->input_generation = status_fixture::tick();
+  controllable->normalized_thrust_intent = status_fixture::direction();
+  const auto batch = simulation::InputBatch::create(
+      {status_fixture::command(status_fixture::tick(), status_fixture::other_direction()),
+       status_fixture::command({}, status_fixture::zero())},
+      simulation::CommandKindMask::all(), simulation::EntityIdReservation::none());
+  controllable->commands_this_tick.assign(batch.commands().begin(), batch.commands().end());
+  const testing::TickHarness harness{status_fixture::tick(status_fixture::kLaterActivation)};
+  const auto steering = gameplay::ThrustSteeringSystem::create();
+  steering->apply(world, harness.context());
+  CHECK(controllable->normalized_thrust_intent == status_fixture::direction());
+  controllable->commands_this_tick.clear();
+  steering->apply(world, harness.context());
+  CHECK(controllable->normalized_thrust_intent == status_fixture::direction());
 }

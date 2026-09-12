@@ -92,19 +92,20 @@ TEST_CASE("KingOfTheHillMode declares the hill game as seven answers",
   CHECK(mode.objective() != nullptr);
 }
 
-TEST_CASE("KingOfTheHillMode declares eight systems in the order its rules depend on",
+TEST_CASE("KingOfTheHillMode declares nine systems in the order its rules depend on",
           "[unit][gameplay][king_of_the_hill]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 8);
+  REQUIRE(systems.size() == 9);
   REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
   // Scoring reads the circle this tick's movement wrote.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 2);
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 3);
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() ==
         std::string_view{"hill_movement"});
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() ==
         std::string_view{"hill_scoring"});
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[2].system->name() == "status");
   // Remove, reset, expire, add, publish.
   REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 5);
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[0].system->name() ==

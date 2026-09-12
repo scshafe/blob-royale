@@ -66,10 +66,10 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
              simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
 }
 
-TEST_CASE("RoyaleMode declares eight systems in the order its rules depend on",
+TEST_CASE("RoyaleMode declares nine systems in the order its rules depend on",
           "[unit][gameplay][royale]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 8);
+  REQUIRE(systems.size() == 9);
 
   REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
@@ -77,11 +77,12 @@ TEST_CASE("RoyaleMode declares eight systems in the order its rules depend on",
 
   // `zone_elimination` reads the radius this tick's `zone_shrink` wrote, so the declared order at
   // this stage is the rule and not a preference.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 2);
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 3);
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() ==
         std::string_view{"zone_shrink"});
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() ==
         std::string_view{"zone_elimination"});
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[2].system->name() == "status");
 
   // Remove, reset, then add, then publish: `placement_recorder` destroys this tick's eliminated
   // entities, `match_reset` wipes every participant on the lobby tick after a match ended, then

@@ -12,6 +12,7 @@
 #include "components/race_progress_component_encoding.hpp"
 #include "components/respawn_timer_component_encoding.hpp"
 #include "components/score_component_encoding.hpp"
+#include "components/stun_component_encoding.hpp"
 #include "components/team_component_encoding.hpp"
 #include "components/zone_component_encoding.hpp"
 #include "components/zone_exposure_component_encoding.hpp"

@@ -26,6 +26,7 @@ add_library(blob_simulation STATIC
   system_pipeline.cpp
   team_id.cpp
   tick_sequence.cpp
+  tick_window.cpp
   vector2.cpp
   world_snapshot.cpp
 )

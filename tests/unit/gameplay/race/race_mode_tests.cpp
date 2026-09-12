@@ -74,16 +74,16 @@ TEST_CASE("RaceMode declares the fourth game with the shared contact rows and te
   CHECK(gameplay::GameModeRegistry::registrations().size() == 4);
 }
 
-TEST_CASE("RaceMode declares ten systems with progress before bounds and return before respawn",
+TEST_CASE("RaceMode declares eleven systems with progress before bounds and return before respawn",
           "[unit][gameplay][race][mode]") {
   const gameplay::RaceMode mode{testing::race_test_configuration()};
   mode.validate_map(testing::race_test_map());
   const auto systems = mode.systems();
-  CHECK(systems.size() == 10);
+  CHECK(systems.size() == 11);
   CHECK(system_names_at(systems, simulation::SystemStage::kPreKernel) ==
         std::vector<std::string_view>{"thrust_steering"});
   CHECK(system_names_at(systems, simulation::SystemStage::kPostKernel) ==
-        std::vector<std::string_view>{"checkpoint_progress", "track_bounds"});
+        std::vector<std::string_view>{"checkpoint_progress", "track_bounds", "status"});
   CHECK(system_names_at(systems, simulation::SystemStage::kLifecycle) ==
         std::vector<std::string_view>{"standings_recorder", "checkpoint_respawn", "respawn",
                                       "match_reset", "lifetime_expiry", "hazard_spawn",

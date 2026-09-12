@@ -146,6 +146,9 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
               !(std::abs(value.direction.y()) <= limit)) {
             return CommandSubmissionResult::kRejectedThrustDirectionOutOfRange;
           }
+          if (value.input_generation.has_value() && value.input_generation->value() == 0) {
+            return CommandSubmissionResult::kRejectedThrustInputGenerationOutOfRange;
+          }
           return CommandSubmissionResult::kAccepted;
         } else if constexpr (std::is_same_v<CommandType, simulation::DespawnCommand>) {
           // A despawn naming an id inside the tick's own reservation is the one despawn

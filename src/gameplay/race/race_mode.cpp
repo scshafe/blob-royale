@@ -10,6 +10,7 @@
 #include "shared/lifetime_expiry_system.hpp"
 #include "shared/match_reset_system.hpp"
 #include "shared/respawn_system.hpp"
+#include "shared/status_system.hpp"
 #include "shared/thrust_steering_system.hpp"
 
 #include <memory>
@@ -50,6 +51,8 @@ simulation::SystemPipeline RaceMode::systems() const {
       simulation::SystemStage::kPostKernel, CheckpointProgressSystem::create(course)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
                                                               TrackBoundsSystem::create(course)});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
+                                                              StatusSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kLifecycle, StandingsRecorderSystem::create(course)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{

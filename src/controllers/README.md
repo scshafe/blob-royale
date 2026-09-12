@@ -72,6 +72,19 @@ resolves the two places that matters.
 
 ## Asking for a body
 
+`Controller::request_thrust` is the shared authoring path for each fresh steering decision by the
+four active diagnostic bots. It requires the publicly observed owned dynamic body, suppresses
+an observed active stun, and echoes the observed optional Controllable input generation. It
+preserves the submitted direction verbatim and adds no normalization, random draw, retry, or
+decision timer. Never-invalidated observations therefore produce the previous commands exactly.
+The helper reads simulation values only, without depending on gameplay. The authoritative
+gameplay lock still admits or ignores the command at its applied tick.
+
+Scripted replay deliberately does not use this helper: typed logs carry their literal token or
+absence, and old CSV fixtures remain unchanged. Neither the base `decide` wrapper nor the host
+rewrites returned commands. Generation survives status expiry and same-entity body return, not
+entity destruction; it is not a promise of invisible body-incarnation detection.
+
 A controller with no live entity that wants one returns a single `SpawnCommand` naming its own
 `ControllerId` — the identical command a networked session sends after `welcome`. `Controller`
 owns that decision for every bot (`Controller::request_body`), including *when it may ask again*:

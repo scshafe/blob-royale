@@ -384,8 +384,10 @@ must consult the same lock before reapplying propulsion.
 
 Persist normalized steering intent separately from acceleration. Stun clears that intent; ignore
 commands received during stun rather than queueing an action for expiry. New activations require a
-fresh press. A continuously held movement key may resume only through a newly accepted steering
-update after expiry. Clear body-bound states on elimination; reset abilities to ready on respawn
+fresh press. ~~A continuously held movement key may resume through a newly accepted update after
+expiry.~~ The owner-approved Step 14 generation contract below invalidates that activation even
+when every active-stun snapshot is missed; only a fresh press captures the new generation.
+Clear body-bound states on elimination; reset abilities to ready on respawn
 for the first version, and on round restart. Test zero-delay respawn explicitly.
 
 The mailbox coalesces same-kind inputs, so multiple same-tick activation pulses mean at most one
@@ -1131,3 +1133,37 @@ identity, respawn timers, and the non-body hill/motion remain persistent. Royale
 whole entities and therefore already clears every kind. ADR 0007's shared-respawn and scoring
 paragraphs are amended in lockstep. Zero-delay return, tick order, accepted replay values, and
 public component values do not change.
+
+## Amendment: missed-stun input invalidation, 2026-09-11 (plan Step 14)
+
+The owner requires held Space to stay canceled even when the client misses the entire stun.
+Use optional public `Controllable.input_generation`, echoed exactly by `ThrustCommand` and
+`set_thrust`. Absence means never invalidated, never a wildcard or compatibility fallback. Each
+applicable positive request assigns the positive committing tick; this remains present through
+expiry and same-entity respawn. Publication retains it while stripping private intent/commands.
+Commands including zero releases are admitted only if unlocked and their optional token matches.
+Mismatches do not replace current valid intent. Existing coalescing remains last-submission-wins.
+
+The browser captures the observed token on a fresh non-repeat Space press. Every update/release
+keeps that token; generation changes retire held and queued work without retagging it. Snapshot
+ticks determine observed status expiry, never wall time. Shared bot steering authoring copies
+the token from each fresh public decision and suppresses observed stun. Scripted replay remains
+literal. This is an entity-lifetime guarantee, not detection of an invisible destruction/reseat;
+the existing Step 11a replacement limitation still applies.
+
+`TickWindow` is a simulation value with validated absolute activation/expiry, `[t,t+d)` semantics,
+and checked addition through the existing safe-integer TickSequence limit. Stun publishes both
+endpoints to all observers. A zero request is a no-op; missing/bodyless/static targets are
+ignored. Validate all applicable requests before mutation, reject a positive request at tick
+zero, merge active windows by maximum expiry, and replace expired windows without joining gaps.
+Every applicable request invalidates input even if it does not extend a longer active interval.
+One-tick duration expires at the next steering evaluation because application is PostKernel.
+
+The first shared gameplay lock predicate is introduced here; Step 10 supplied intent but no
+lock. `StatusSystem` runs last in each mode's PostKernel list before unchanged lifecycle stages.
+It clears self-propulsion and explicit-zero intent, not velocity. Actual impact momentum kill
+remains Step 18; subsequent bumps and hazard lifetime continue. Body loss uses the Step 13 trait.
+The narrow StunRequest test-foundation/Step 18 production exception is recorded in ADR 0004.
+The detailed implementation/test contract is
+`docs/reviews/2026-09-11-stun-input-generation-review.md`. No unstunned fixture or existing bot
+random behavior changes, no new kernel policy socket, and no Phase C authority are implied.

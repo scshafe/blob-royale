@@ -159,6 +159,7 @@
         "race_progress",
         "respawn_timer",
         "score",
+        "stun",
         "team",
         "zone",
         "zone_exposure"
@@ -261,19 +262,33 @@
       "required": ["code", "message", "retryable", "details"],
       "allOf": [
         {
-          "if": {"properties": {"code": {"const": "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED"}}, "required": ["code"]},
+          "if": {
+            "properties": {
+              "code": { "const": "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED" }
+            },
+            "required": ["code"]
+          },
           "then": {
             "properties": {
-              "retryable": {"const": false},
+              "retryable": { "const": false },
               "details": {
                 "type": "object",
-                "properties": {"required_protocol_version": {"const": "3.0"}},
+                "properties": {
+                  "required_protocol_version": { "const": "3.0" }
+                },
                 "required": ["required_protocol_version"],
                 "maxProperties": 1
               }
             }
           },
-          "else": {"properties": {"details": {"type": "object", "properties": {"required_protocol_version": false}}}}
+          "else": {
+            "properties": {
+              "details": {
+                "type": "object",
+                "properties": { "required_protocol_version": false }
+              }
+            }
+          }
         }
       ],
       "properties": {

@@ -138,11 +138,7 @@ ChaserController::decide_from_observation(const Observation& observation) {
   const simulation::Vector2 direction = simulation::Vector2::create(
       clamped_direction_component(delta_x * scale), clamped_direction_component(delta_y * scale));
 
-  std::vector<simulation::Command> commands;
-  commands.reserve(1);
-  commands.push_back(
-      simulation::Command{simulation::ThrustCommand{.entity = self, .direction = direction}});
-  return commands;
+  return request_thrust(observation, direction);
 }
 
 } // namespace blob_royale::controllers

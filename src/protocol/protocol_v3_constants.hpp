@@ -80,10 +80,10 @@ inline constexpr double kThrustComponentMaximumMagnitude = 1.0;
 // The closed component-kind vocabulary of `common.schema.json#/$defs/component_kind`, in the
 // schema's own ascending order, which is also the order `docs/protocol/v3.md`
 // § "Object member order" requires component keys to be encoded in.
-inline constexpr std::array<std::string_view, 13> kV3ComponentKindNames{
+inline constexpr std::array<std::string_view, 14> kV3ComponentKindNames{
     "controllable", "hill",         "hill_motion",   "hill_presence", "lethal_on_contact",
     "lifetime",     "physics_body", "race_progress", "respawn_timer", "score",
-    "team",         "zone",         "zone_exposure"};
+    "stun",         "team",         "zone",          "zone_exposure"};
 
 // The client-sendable command vocabulary of `common.schema.json#/$defs/command_kind`, in the
 // schema's own ascending order. It names neither `spawn` nor `despawn`: both are server-issued on

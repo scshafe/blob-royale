@@ -7,6 +7,7 @@
 #include "entity_id.hpp"
 #include "game_world.hpp"
 #include "physics_body.hpp"
+#include "shared/input_lock.hpp"
 #include "shared/locomotion.hpp"
 #include "tick_context.hpp"
 
@@ -52,9 +53,18 @@ void ThrustSteeringSystem::apply(simulation::GameWorld& world,
       [&world, &context](const simulation::EntityId entity,
                          const simulation::Controllable& controllable,
                          const simulation::PhysicsBody& body) {
+        if (input_is_locked(world, entity, context.tick_sequence())) {
+          const auto zero = simulation::Vector2::create(0.0, 0.0);
+          world.mutable_store<simulation::Controllable>()
+              .mutable_find(entity)
+              ->normalized_thrust_intent = zero;
+          world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+              entity, body.with_acceleration(zero));
+          return;
+        }
         const simulation::ThrustCommand* thrust = recorded_thrust_of(controllable);
         auto intent = controllable.normalized_thrust_intent;
-        if (thrust != nullptr) {
+        if (thrust != nullptr && thrust->input_generation == controllable.input_generation) {
           intent = normalized_thrust_intent(thrust->direction);
         }
         if (!intent.has_value()) {

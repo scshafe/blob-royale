@@ -10,6 +10,7 @@
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "entity_id_allocator.hpp"
+#include "fixtures/thrust_input_generation_fixture.hpp"
 #include "runtime_limits.hpp"
 #include "seat_roster.hpp"
 #include "simulation_limits.hpp"
@@ -129,6 +130,49 @@ TEST_CASE("CommandSink forwards an open session's command to the mailbox",
   REQUIRE(fixture.sink.submit(controller, thrust_fixture(kIssuedEntityId, 1.0, 0.0)) ==
           runtime::CommandSubmissionResult::kAccepted);
   REQUIRE(fixture.mailbox.statistics().pending_command_count == 1);
+}
+
+TEST_CASE(
+    "CommandSink preserves omitted and maximum safe thrust input generations for every source",
+    "[unit][runtime][command_sink][input_generation]") {
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CAPTURE(kind);
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "generation fixture");
+    const auto absent = runtime::thrust_input_fixture::command(kIssuedEntityId, std::nullopt);
+    REQUIRE(fixture.sink.submit(controller, absent) == runtime::CommandSubmissionResult::kAccepted);
+    CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{absent});
+    for (const auto value : runtime::thrust_input_fixture::kAcceptedGenerations) {
+      for (const bool release : {false, true}) {
+        CAPTURE(value, release);
+        const auto command = runtime::thrust_input_fixture::command(
+            kIssuedEntityId, simulation::TickSequence::create(value), release);
+        REQUIRE(fixture.sink.submit(controller, command) ==
+                runtime::CommandSubmissionResult::kAccepted);
+        CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{command});
+      }
+    }
+  }
+}
+
+TEST_CASE("CommandSink rejects zero thrust generation before mailbox admission including releases",
+          "[unit][runtime][command_sink][input_generation]") {
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "generation fixture");
+    for (const bool release : {false, true}) {
+      CAPTURE(kind, release);
+      const auto result = fixture.sink.submit(
+          controller, runtime::thrust_input_fixture::command(
+                          kIssuedEntityId, simulation::TickSequence::zero(), release));
+      CHECK(result == runtime::CommandSubmissionResult::kRejectedThrustInputGenerationOutOfRange);
+      CHECK(runtime::command_submission_result_name(result) ==
+            "rejected_thrust_input_generation_out_of_range");
+      CHECK_FALSE(runtime::command_submission_accepted(result));
+    }
+    CHECK(fixture.mailbox.statistics().submitted_command_count == 0);
+    CHECK(fixture.mailbox.drain().empty());
+  }
 }
 
 TEST_CASE("CommandSink refuses a command from a controller that never opened a session",

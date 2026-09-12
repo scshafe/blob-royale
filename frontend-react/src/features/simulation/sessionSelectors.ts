@@ -1,4 +1,6 @@
 import { SimulationApiError } from './SimulationApiError';
+import type { SimulationConnection } from './useSimulationConnection';
+import type { ThrustInputOptions } from './useThrustInput';
 import type {
   SessionEntitySnapshot,
   SessionMatchSection,
@@ -76,6 +78,37 @@ export function findEntityById(
     }
   }
   return null;
+}
+
+/**
+ * @canonical session_thrust_input_options -- resolves body, authority, lock, and generation for
+ * the feature's sole input owner. Validated absolute ticks determine stun availability; no local
+ * countdown or render timing can unlock the player. Same-generation frames retain hook lifetime.
+ */
+export function selectThrustInputOptions(
+  connection: SimulationConnection,
+  lobbyId: number | null,
+): ThrustInputOptions {
+  const ownEntity = findEntityById(connection.entities, connection.ownEntityId);
+  const stun = ownEntity?.components.stun;
+  const tick = connection.snapshot?.data.tick_sequence;
+  return {
+    enabled:
+      connection.status === 'connected' &&
+      ownEntity?.components.physics_body !== undefined &&
+      connection.session !== null &&
+      connection.session.lobbyId === lobbyId &&
+      connection.session.acceptedCommandKinds.includes('set_thrust'),
+    session: connection.session,
+    ownEntityId: connection.ownEntityId,
+    inputLocked:
+      stun !== undefined &&
+      tick !== undefined &&
+      stun.activation_tick <= tick &&
+      tick < stun.expiry_tick,
+    inputGeneration: ownEntity?.components.controllable?.input_generation,
+    sendCommand: connection.sendCommand,
+  };
 }
 
 /**

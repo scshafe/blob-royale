@@ -62,6 +62,15 @@ const protocolVersions = [
     version: 'v3',
     expectedStatus: 'Accepted',
     exampleSchemas: new Map([
+      ['stun-component.json', 'stun-component.schema.json'],
+      [
+        'controllable-input-generation-component.json',
+        'controllable-component.schema.json',
+      ],
+      [
+        'set-thrust-input-generation-command.json',
+        'set-thrust-command.schema.json',
+      ],
       ['hill-motion-component.json', 'hill-motion-component.schema.json'],
       [
         'set-movement-tuning-command.json',

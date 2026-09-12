@@ -181,6 +181,10 @@ describe('entityRendererRegistry', () => {
     expect(entityRendererRegistry.race_progress.renders).toBe(false);
   });
 
+  it('registers stun as non-visual while its authoritative window controls input', () => {
+    expect(entityRendererRegistry.stun.renders).toBe(false);
+  });
+
   it('registers committed hill velocity as non-visual without adding another hill geometry layer', () => {
     expect(entityRendererRegistry.hill_motion.renders).toBe(false);
     expect(

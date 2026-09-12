@@ -76,8 +76,7 @@ RacerController::decide_from_observation(const Observation& observation) {
                                      "racer_controller.observation.road",
                                      "published race road is absent from the observation terrain");
   }
-  if (course->checkpoints.empty() ||
-      progress->next_checkpoint > course->checkpoints.size()) {
+  if (course->checkpoints.empty() || progress->next_checkpoint > course->checkpoints.size()) {
     throw ControllersValidationError(ControllersValidationCode::kRacerCourseInvalid,
                                      "racer_controller.observation.course",
                                      "published race geometry or checkpoint progress is invalid");
@@ -97,7 +96,7 @@ RacerController::decide_from_observation(const Observation& observation) {
       direction = simulation::Vector2::create(dx / magnitude, dy / magnitude);
     }
   }
-  return {simulation::Command{simulation::ThrustCommand{.entity = self, .direction = direction}}};
+  return request_thrust(observation, direction);
 }
 
 } // namespace blob_royale::controllers

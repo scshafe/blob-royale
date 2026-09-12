@@ -134,11 +134,7 @@ HillSeekerController::decide_from_observation(const Observation& observation) {
       simulation::Vector2::create(clamped_direction_component(approach_x + jitter_x),
                                   clamped_direction_component(approach_y + jitter_y));
 
-  std::vector<simulation::Command> commands;
-  commands.reserve(1);
-  commands.push_back(
-      simulation::Command{simulation::ThrustCommand{.entity = self, .direction = direction}});
-  return commands;
+  return request_thrust(observation, direction);
 }
 
 } // namespace blob_royale::controllers

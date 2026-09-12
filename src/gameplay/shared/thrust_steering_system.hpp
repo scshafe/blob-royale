@@ -76,8 +76,10 @@ public:
   [[nodiscard]] std::string_view name() const noexcept override { return kSystemName; }
 
   // Writes `PhysicsBody::acceleration` for every entity that carries both a Controllable and a
-  // PhysicsBody, in ascending EntityId order and without a phase gate. A recorded thrust replaces
-  // the private normalized intent; a held intent recomputes acceleration from current tuning and
+  // PhysicsBody, in ascending EntityId order and without a phase gate. Active input lock writes
+  // explicit zero intent and acceleration before command reading. Outside a lock, recorded thrust
+  // replaces private intent only on exact optional generation equality, including zero releases.
+  // A held intent recomputes acceleration from current tuning and
   // velocity every tick through locomotion's finite-step cap. Absent intent preserves authored
   // acceleration, unlike explicit zero. A bodyless entity is skipped. Seating clears old intent.
   // Canonical integration/Vector2 domain errors and LOCOMOTION_PRECISION_LOST propagate to the

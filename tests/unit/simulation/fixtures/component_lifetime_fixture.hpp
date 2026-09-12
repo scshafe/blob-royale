@@ -7,6 +7,7 @@
 #include "components/race_progress_component.hpp"
 #include "components/respawn_timer_component.hpp"
 #include "components/score_component.hpp"
+#include "components/stun_component.hpp"
 #include "components/zone_exposure_component.hpp"
 #include "game_world.hpp"
 
@@ -26,6 +27,8 @@ inline constexpr std::uint64_t kExposureTicks = 4;
 inline constexpr std::uint64_t kReturnTicks = 3;
 inline constexpr std::uint64_t kNextCheckpoint = 2;
 inline constexpr std::int64_t kEarnedScore = 11;
+inline constexpr std::uint64_t kStunActivation = 1;
+inline constexpr std::uint64_t kStunDuration = 50;
 
 [[nodiscard]] inline simulation::EntityId entity(const std::uint64_t value) {
   return simulation::EntityId::create(value);
@@ -43,6 +46,9 @@ inline void attach_bound_components(simulation::GameWorld& world,
       target, simulation::HillPresence{kPresenceTicks});
   world.mutable_store<simulation::ZoneExposure>().insert_or_assign(
       target, simulation::ZoneExposure{kExposureTicks});
+  world.mutable_store<simulation::Stun>().insert_or_assign(
+      target, simulation::Stun{simulation::TickWindow::create(
+                  simulation::TickSequence::create(kStunActivation), kStunDuration)});
 }
 
 // Adjacent bodyless entries before, between, and after live entries expose index skipping. One

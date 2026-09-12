@@ -36,7 +36,7 @@ sandbox_simulation(const std::size_t spawn_point_count = 4) {
 
 } // namespace
 
-TEST_CASE("SandboxMode declares free play as seven answers and one system",
+TEST_CASE("SandboxMode declares free play as seven answers and two systems",
           "[unit][gameplay][sandbox]") {
   const gameplay::SandboxMode mode{};
 
@@ -48,11 +48,12 @@ TEST_CASE("SandboxMode declares free play as seven answers and one system",
              simulation::CommandKind::kLeave, simulation::CommandKind::kThrust}));
 
   const simulation::SystemPipeline systems = mode.systems();
-  REQUIRE(systems.size() == 1);
+  REQUIRE(systems.size() == 2);
   REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
-  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel).empty());
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 1);
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() == "status");
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle).empty());
 }
 

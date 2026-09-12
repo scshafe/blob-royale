@@ -35,7 +35,7 @@ namespace simulation = blob_royale::simulation;
 
 TEST_CASE("ComponentRegistry declares every component kind in one closed ordered list",
           "[unit][simulation][component_registry]") {
-  // Thirteen, including the five the engine itself needs. `Zone` and `ZoneExposure` are royale's,
+  // Fourteen, including the five the engine itself needs. `Zone` and `ZoneExposure` are royale's,
   // added by plan Step 21 as two headers under `components/` and one edited line in the registry,
   // with no other kernel file touched. `LethalOnContact` is the third addition and the one that
   // measures the seam hardest: it belongs to **no mode at all** but to `src/gameplay/shared/`, and
@@ -44,7 +44,7 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
   // elimination state live"). `RespawnTimer` is the fourth, also `shared/`'s, and cost the same;
   // `Hill` and `HillPresence` are king of the hill's, the way the zone pair is royale's
   // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`). `RaceProgress` is race's.
-  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 13);
+  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 14);
   STATIC_REQUIRE(std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
                                 std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
                                            simulation::ComponentStore<simulation::Controllable>,
@@ -58,7 +58,8 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
                                            simulation::ComponentStore<simulation::Hill>,
                                            simulation::ComponentStore<simulation::HillPresence>,
                                            simulation::ComponentStore<simulation::RaceProgress>,
-                                           simulation::ComponentStore<simulation::HillMotion>>>);
+                                           simulation::ComponentStore<simulation::HillMotion>,
+                                           simulation::ComponentStore<simulation::Stun>>>);
 }
 
 TEST_CASE("Every registered component kind declares its own wire name",
@@ -71,7 +72,7 @@ TEST_CASE("Every registered component kind declares its own wire name",
   CHECK(names == std::vector<std::string_view>{"physics_body", "controllable", "lifetime", "score",
                                                "team", "zone", "zone_exposure", "lethal_on_contact",
                                                "respawn_timer", "hill", "hill_presence",
-                                               "race_progress", "hill_motion"});
+                                               "race_progress", "hill_motion", "stun"});
 }
 
 TEST_CASE("Registry visitation reaches every kind exactly once in declared order",

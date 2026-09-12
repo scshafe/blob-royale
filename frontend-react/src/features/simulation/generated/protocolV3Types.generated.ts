@@ -376,6 +376,7 @@ interface MutableBlobRoyaleProtocolV3EntitySnapshot {
     race_progress?: MutableBlobRoyaleProtocolV3RaceProgressComponent;
     respawn_timer?: MutableBlobRoyaleProtocolV3RespawnTimerComponent;
     score?: MutableBlobRoyaleProtocolV3ScoreComponent;
+    stun?: MutableBlobRoyaleProtocolV3StunComponent;
     team?: MutableBlobRoyaleProtocolV3TeamComponent;
     zone?: MutableBlobRoyaleProtocolV3ZoneComponent;
     zone_exposure?: MutableBlobRoyaleProtocolV3ZoneExposureComponent;
@@ -388,6 +389,10 @@ interface MutableBlobRoyaleProtocolV3ControllableComponent {
   controller_id: number;
   controller_kind: string;
   display_name: string;
+  /**
+   * Optional persistent input-invalidation generation: the positive committed tick of the latest applicable stun request. Omitted means this entity has never been invalidated, not a wildcard. Survives status expiry and same-entity body return; must not exceed the enclosing snapshot tick.
+   */
+  input_generation?: number;
 }
 /**
  * The scoring circle carried by the hill entity, in wu. The hill entity owns no physics_body and no controllable. Same shape as the zone component and a different meaning: inside a hill is where a player scores, inside a zone is where a player is safe, and a client draws the two apart by kind. This is the hill's only center/radius publication; random-roaming hills additionally publish current velocity through hill_motion.
@@ -452,6 +457,13 @@ interface MutableBlobRoyaleProtocolV3RespawnTimerComponent {
  */
 interface MutableBlobRoyaleProtocolV3ScoreComponent {
   points: number;
+}
+/**
+ * Body-bound temporary self-propulsion lock over the absolute half-open interval [activation_tick, expiry_tick). Both endpoints are public to browser and in-process observers. expiry_tick must exceed activation_tick, and activation_tick must not exceed the enclosing snapshot tick. Status application never restores or repeatedly zeroes velocity; later external impulses remain effective.
+ */
+interface MutableBlobRoyaleProtocolV3StunComponent {
+  activation_tick: number;
+  expiry_tick: number;
 }
 /**
  * Optional side membership. An entity without this component is unaligned; team ids start at 1 so no value is a sentinel.
@@ -813,6 +825,8 @@ export type BlobRoyaleProtocolV3RespawnTimerComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3RespawnTimerComponent>;
 export type BlobRoyaleProtocolV3ScoreComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3ScoreComponent>;
+export type BlobRoyaleProtocolV3StunComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV3StunComponent>;
 export type BlobRoyaleProtocolV3TeamComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3TeamComponent>;
 export type BlobRoyaleProtocolV3ZoneComponent =

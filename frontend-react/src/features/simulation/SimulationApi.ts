@@ -2,6 +2,7 @@ import {
   SimulationApiError,
   type SimulationApiErrorCode,
 } from './SimulationApiError';
+import { npcCatalogueFromWelcome } from './npcCatalogue';
 import {
   COMMAND_MESSAGE_MAX_BYTES,
   CONFIGURATION_ENDPOINT_PATH,
@@ -677,7 +678,7 @@ export class SimulationApi implements SimulationApiBoundary {
 
     let payload: string;
     try {
-      validateSessionCommand(command);
+      validateSessionCommand(command, this.sequenceState.npcCatalogue);
       payload = JSON.stringify(command);
     } catch (error) {
       console.warn(
@@ -797,6 +798,7 @@ export class SimulationApi implements SimulationApiBoundary {
         requestId: welcome.meta.request_id,
         tickSequence: null,
         terrain: welcome.data.terrain,
+        npcCatalogue: npcCatalogueFromWelcome(welcome.data),
       });
       this.acceptedCommandKinds = new Set(welcome.data.accepted_command_kinds);
       callbacks.onWelcome(welcome);
@@ -817,6 +819,7 @@ export class SimulationApi implements SimulationApiBoundary {
       requestId: snapshot.meta.request_id,
       tickSequence: snapshot.data.tick_sequence,
       terrain: this.sequenceState.terrain,
+      npcCatalogue: this.sequenceState.npcCatalogue,
     });
     const resolved =
       tuningResult !== null && pending !== null

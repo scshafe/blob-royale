@@ -164,13 +164,10 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
   return CommandDecodeResult::accepted(simulation::ClearSeatCommand{controller, *seat_index});
 }
 
-// One `seat_npc` payload: `{seat_index, npc_kind}`, closed.
+// One `seat_npc` payload: `{seat_index, npc_kind, profile_name?}`, closed.
 //
-// **`npc_kind` is checked against the very list this session's `welcome` published**, which is read
-// from `ControllerRegistry` and is therefore the exact set of bots the server can build
-// (`session_welcome.hpp`). That is what makes registering a bot cost no client change: the same
-// value teaches the client what to offer and teaches this decoder what to accept, so the two can
-// never drift.
+// The complete declaration is checked against the same immutable catalogue used by welcome and
+// runtime admission. Absent profile_name means an unprofiled choice, never any profile of a kind.
 //
 // A name outside that closed list is `kPayloadInvalid` and closes the session, exactly as an
 // unregistered `command_kind` or an unregistered `mode_state.schema_id` does. It is a deliberate
@@ -181,10 +178,11 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
 // lifetime and was handed to this client in its first frame. Naming something outside it is a
 // defect, and v3's stance on a defect is to fail closed and say so (`docs/protocol/v3.md` §
 // "Versioning and fail-closed decoding").
-[[nodiscard]] CommandDecodeResult
-decode_seat_npc(const json::object& payload, const simulation::ControllerId controller,
-                const std::span<const std::string> npc_controller_kinds) {
-  if (payload.size() != 2) {
+[[nodiscard]] CommandDecodeResult decode_seat_npc(const json::object& payload,
+                                                  const simulation::ControllerId controller,
+                                                  const simulation::NpcCatalogue& npc_catalogue) {
+  const json::value* const encoded_profile = payload.if_contains("profile_name");
+  if (payload.size() != (encoded_profile == nullptr ? 2U : 3U)) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
   const json::value* const encoded_seat_index = payload.if_contains("seat_index");
@@ -200,17 +198,26 @@ decode_seat_npc(const json::object& payload, const simulation::ControllerId cont
 
   const json::string& encoded_kind_name = encoded_npc_kind->get_string();
   const std::string_view npc_kind{encoded_kind_name.data(), encoded_kind_name.size()};
-  const bool registered =
-      std::ranges::find(npc_controller_kinds, npc_kind) != npc_controller_kinds.end();
+  std::optional<std::string_view> profile_name;
+  if (encoded_profile != nullptr) {
+    if (!encoded_profile->is_string()) {
+      return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+    }
+    const auto& encoded_name = encoded_profile->get_string();
+    profile_name = std::string_view{encoded_name.data(), encoded_name.size()};
+  }
+  const bool registered = npc_catalogue.contains(npc_kind, profile_name);
   // The grammar check is unreachable behind the membership check -- a published kind satisfies it,
-  // and `MatchSessionContext::create` refuses a list where one does not -- and it is written anyway
+  // and `NpcCatalogue::create` refuses a list where one does not -- and it is written anyway
   // because `SeatKindName::create` throws, and a decoder that parses attacker-chosen bytes must not
   // have a throwing path at all (`command_decoding.hpp`).
   if (!registered || !simulation::is_wire_kind_name(npc_kind)) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
   return CommandDecodeResult::accepted(simulation::SeatNpcCommand{
-      controller, *seat_index, simulation::SeatKindName::create(npc_kind)});
+      controller, *seat_index, simulation::SeatKindName::create(npc_kind),
+      profile_name.has_value() ? std::optional{simulation::BotProfileName::create(*profile_name)}
+                               : std::nullopt});
 }
 
 // One `start_match` payload: `{}`, and the emptiness is the whole check. A member here would be a
@@ -259,11 +266,11 @@ decode_set_movement_tuning(const json::object& payload, const simulation::Contro
 // vocabulary: the two server-issued kinds are unreachable here because `client_command_wire_name`
 // gives them no wire name at all, and answering `kKindRejected` rather than asserting keeps this
 // function total without a second opinion about which kinds a client may send.
-[[nodiscard]] CommandDecodeResult
-decode_payload(const simulation::CommandKind kind, const json::object& payload,
-               const simulation::EntityId stamped_entity,
-               const simulation::ControllerId stamped_controller,
-               const std::span<const std::string> npc_controller_kinds) {
+[[nodiscard]] CommandDecodeResult decode_payload(const simulation::CommandKind kind,
+                                                 const json::object& payload,
+                                                 const simulation::EntityId stamped_entity,
+                                                 const simulation::ControllerId stamped_controller,
+                                                 const simulation::NpcCatalogue& npc_catalogue) {
   switch (kind) {
   case simulation::CommandKind::kThrust:
     return decode_set_thrust(payload, stamped_entity);
@@ -272,7 +279,7 @@ decode_payload(const simulation::CommandKind kind, const json::object& payload,
   case simulation::CommandKind::kClearSeat:
     return decode_clear_seat(payload, stamped_controller);
   case simulation::CommandKind::kSeatNpc:
-    return decode_seat_npc(payload, stamped_controller, npc_controller_kinds);
+    return decode_seat_npc(payload, stamped_controller, npc_catalogue);
   case simulation::CommandKind::kStartMatch:
     return decode_start_match(payload, stamped_controller);
   case simulation::CommandKind::kSetMovementTuning:
@@ -288,10 +295,11 @@ decode_payload(const simulation::CommandKind kind, const json::object& payload,
 
 } // namespace
 
-CommandDecodeResult decode_command_envelope(
-    const std::string_view frame, const simulation::CommandKindMask accepted_kinds,
-    const simulation::EntityId stamped_entity, const simulation::ControllerId stamped_controller,
-    const std::span<const std::string> npc_controller_kinds) {
+CommandDecodeResult decode_command_envelope(const std::string_view frame,
+                                            const simulation::CommandKindMask accepted_kinds,
+                                            const simulation::EntityId stamped_entity,
+                                            const simulation::ControllerId stamped_controller,
+                                            const simulation::NpcCatalogue& npc_catalogue) {
   // Step 1. Frame size, before anything else touches the bytes.
   if (frame.size() > kClientMessageMaximumByteCount) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kMessageTooLarge);
@@ -334,7 +342,7 @@ CommandDecodeResult decode_command_envelope(
 
   // Steps 7 and 8. The closed payload schema for that kind, then the server's own identity stamps.
   return decode_payload(*kind, encoded_payload->get_object(), stamped_entity, stamped_controller,
-                        npc_controller_kinds);
+                        npc_catalogue);
 }
 
 } // namespace blob_royale::protocol

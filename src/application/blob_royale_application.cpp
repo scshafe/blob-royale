@@ -10,6 +10,7 @@
 #include "game_simulation_setup.hpp"
 #include "match_phase.hpp"
 #include "match_startup_validation.hpp"
+#include "npc_catalogue.hpp"
 #include "seat_roster.hpp"
 #include "simulation_runtime_state.hpp"
 #include "structured_logger.hpp"
@@ -460,9 +461,13 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
     simulation::GameSimulation game_simulation = simulation::GameSimulation::create(
         application_config.simulation_config(), std::move(world),
         simulation::GameSimulationSetup::of_mode(map, std::move(mode)));
-    rooms.push_back(std::make_unique<Room>(lobby_id, std::move(game_simulation),
-                                           accepted_command_kinds, match,
-                                           registered_npc_controller_kinds(), logger));
+    rooms.push_back(
+        std::make_unique<Room>(lobby_id, std::move(game_simulation), accepted_command_kinds, match,
+                               application_config.tactical_profiles(),
+                               registered_npc_catalogue(application_config.tactical_profiles(),
+                                                        accepted_command_kinds.contains(
+                                                            simulation::CommandKind::kStartMatch)),
+                               logger));
   }
 
   // A prvalue, because the composition root is deliberately neither copyable nor movable: the
@@ -492,7 +497,8 @@ BlobRoyaleApplication::directory_of(const std::span<const std::unique_ptr<Room>>
   return server::LobbyDirectory::create(std::move(entries));
 }
 
-std::vector<std::string> BlobRoyaleApplication::registered_npc_controller_kinds() {
+simulation::NpcCatalogue BlobRoyaleApplication::registered_npc_catalogue(
+    const controllers::TacticalProfileCatalogue& profiles, const bool supports_profiled_seats) {
   // **The one place a bot kind name leaves `blob_controllers`.** The `welcome` frame publishes this
   // list so a client can offer it behind an empty seat, and `decode_command_envelope` accepts a
   // `seat_npc` naming exactly these and nothing else -- both from this single read, which is what
@@ -505,13 +511,21 @@ std::vector<std::string> BlobRoyaleApplication::registered_npc_controller_kinds(
   // server must not link `blob_controllers` -- it has no business constructing a bot -- and the
   // registry must not know a protocol exists.
   std::vector<std::string> npc_controller_kinds;
+  std::vector<simulation::NpcDeclaration> npc_profiles;
   const std::span<const controllers::ControllerRegistry::Registration> registrations =
       controllers::ControllerRegistry::registrations();
   npc_controller_kinds.reserve(registrations.size());
   for (const controllers::ControllerRegistry::Registration& registration : registrations) {
-    npc_controller_kinds.emplace_back(registration.name);
+    if (!registration.requires_profile) {
+      npc_controller_kinds.emplace_back(registration.name);
+    } else if (supports_profiled_seats) {
+      for (const controllers::TacticalProfile& profile : profiles.profiles()) {
+        npc_profiles.push_back(
+            {simulation::SeatKindName::create(registration.name), profile.name()});
+      }
+    }
   }
-  return npc_controller_kinds;
+  return simulation::NpcCatalogue::create(std::move(npc_controller_kinds), std::move(npc_profiles));
 }
 
 BlobRoyaleApplication::~BlobRoyaleApplication() noexcept { stop_owned_components(); }

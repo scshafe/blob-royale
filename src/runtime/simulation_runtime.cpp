@@ -59,13 +59,14 @@ spawn_command_count(const std::vector<simulation::Command>& commands) noexcept {
 
 } // namespace
 
-SimulationRuntime::SimulationRuntime(simulation::GameSimulation game_simulation)
+SimulationRuntime::SimulationRuntime(simulation::GameSimulation game_simulation,
+                                     simulation::NpcCatalogue npc_catalogue)
     : game_simulation_(std::move(game_simulation)),
       snapshot_publication_(game_simulation_.snapshot()),
       entity_id_allocator_(EntityIdAllocator::above_committed_state(game_simulation_)),
       command_mailbox_(game_simulation_.accepted_command_kinds()),
       command_sink_(command_mailbox_, controller_directory_, entity_id_allocator_,
-                    first_session_controller_id(game_simulation_)),
+                    first_session_controller_id(game_simulation_), std::move(npc_catalogue)),
       tuning_result_delivery_(command_mailbox_),
       simulation_thread_([this](const std::stop_token stop_token) { run(stop_token); }) {}
 

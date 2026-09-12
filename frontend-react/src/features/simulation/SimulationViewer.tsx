@@ -126,7 +126,7 @@ export function SimulationViewer({
               <LobbyPanel
                 entities={connection.entities}
                 match={operableLobby.match}
-                npcControllerKinds={operableLobby.session.npcControllerKinds}
+                npcCatalogue={operableLobby.session.npcCatalogue}
                 ownControllerId={controllerId}
                 seatCountMaximum={operableLobby.session.seatCountMaximum}
                 sendCommand={connection.sendCommand}

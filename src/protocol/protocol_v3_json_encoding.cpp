@@ -402,11 +402,15 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
 
   std::optional<simulation::ControllerId> controller;
   std::optional<std::string_view> npc_kind;
+  std::optional<std::string_view> profile_name;
   if (const auto* held = std::get_if<simulation::ControllerSeat>(&seat); held != nullptr) {
     controller = held->controller;
   } else if (const auto* declared = std::get_if<simulation::NpcSeat>(&seat); declared != nullptr) {
     controller = declared->controller;
     npc_kind = declared->kind.value();
+    if (declared->profile_name.has_value()) {
+      profile_name = declared->profile_name->value();
+    }
   }
 
   if (controller.has_value()) {
@@ -418,6 +422,9 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
     encoded.emplace("npc_kind", *npc_kind);
   } else {
     encoded.emplace("npc_kind", nullptr);
+  }
+  if (profile_name.has_value()) {
+    encoded.emplace("profile_name", *profile_name);
   }
   return encoded;
 }
@@ -627,6 +634,17 @@ std::string encode_welcome_message(const SessionWelcome& welcome, const RequestI
   data.emplace("map", welcome.map_name());
   data.emplace("accepted_command_kinds", std::move(accepted_command_kinds));
   data.emplace("npc_controller_kinds", std::move(npc_controller_kinds));
+  if (!welcome.npc_profiles().empty()) {
+    json::array profiles;
+    profiles.reserve(welcome.npc_profiles().size());
+    for (const auto& declaration : welcome.npc_profiles()) {
+      json::object profile;
+      profile.emplace("npc_kind", declaration.kind.value());
+      profile.emplace("profile_name", declaration.profile_name->value());
+      profiles.emplace_back(std::move(profile));
+    }
+    data.emplace("npc_profiles", std::move(profiles));
+  }
   data.emplace("lobby_id", welcome.lobby_id());
   data.emplace("seat_count_maximum", welcome.seat_count_maximum());
   data.emplace("terrain", encode_terrain(welcome.terrain()));

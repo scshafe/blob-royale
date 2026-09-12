@@ -1,4 +1,5 @@
 import type { WorldPoint } from '../rendering/worldProjection';
+import { npcCatalogueFromWelcome } from '../npcCatalogue';
 import {
   validateSessionSnapshotMessage,
   validateSessionWelcomeMessage,
@@ -67,7 +68,7 @@ export function cameraSessionIdentity(): SimulationSessionIdentity {
     mode: welcome.mode,
     movementTuningMinimumIntervalMilliseconds:
       welcome.movement_tuning_minimum_interval_milliseconds,
-    npcControllerKinds: welcome.npc_controller_kinds,
+    npcCatalogue: npcCatalogueFromWelcome(welcome),
     seatCountMaximum: welcome.seat_count_maximum,
     terrain: welcome.terrain,
   });
@@ -126,6 +127,7 @@ export function cameraSnapshot(
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      npcCatalogue: cameraSessionIdentity().npcCatalogue,
       terrain: cameraSessionIdentity().terrain,
     },
   ).data;

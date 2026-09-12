@@ -1,3 +1,4 @@
+#include "../simulation/fixtures/npc_declaration_fixture.hpp"
 #include "command_kind_mask.hpp"
 #include "command_mailbox.hpp"
 #include "command_registry.hpp"
@@ -22,10 +23,12 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace runtime = blob_royale::runtime;
 namespace simulation = blob_royale::simulation;
+namespace npc_fixture = blob_royale::testing::npc_declaration_fixture;
 
 namespace {
 
@@ -41,10 +44,11 @@ struct CommandSinkFixture final {
   // minimum is the honest floor here.
   explicit CommandSinkFixture(
       const simulation::CommandKindMask accepted_kinds = simulation::CommandKindMask::all(),
-      const simulation::ControllerId::Value first_controller_id = simulation::kMinimumControllerId)
+      const simulation::ControllerId::Value first_controller_id = simulation::kMinimumControllerId,
+      simulation::NpcCatalogue npc_catalogue = simulation::NpcCatalogue::empty())
       : mailbox(accepted_kinds), allocator(runtime::EntityIdAllocator::create(
                                      simulation::EntityId::create(kIssuedEntityIdCeiling))),
-        sink(mailbox, directory, allocator, first_controller_id) {}
+        sink(mailbox, directory, allocator, first_controller_id, std::move(npc_catalogue)) {}
 
   runtime::CommandMailbox mailbox;
   runtime::ControllerDirectory directory;
@@ -130,6 +134,58 @@ TEST_CASE("CommandSink forwards an open session's command to the mailbox",
   REQUIRE(fixture.sink.submit(controller, thrust_fixture(kIssuedEntityId, 1.0, 0.0)) ==
           runtime::CommandSubmissionResult::kAccepted);
   REQUIRE(fixture.mailbox.statistics().pending_command_count == 1);
+}
+
+TEST_CASE("CommandSink admits exact catalogue selections and refuses missing unknown or mismatched "
+          "profiles",
+          "[unit][runtime][command_sink][npc_profile]") {
+  CommandSinkFixture fixture(simulation::CommandKindMask::all(), simulation::kMinimumControllerId,
+                             npc_fixture::catalogue());
+  const auto controller = fixture.sink.open_session("session", "profile fixture");
+  for (const auto& declaration : {npc_fixture::plain(), npc_fixture::profiled(),
+                                  npc_fixture::profiled(npc_fixture::kOtherProfileName)}) {
+    const auto command = npc_fixture::seat(declaration, controller.value());
+    CHECK(fixture.sink.submit(controller, command) == runtime::CommandSubmissionResult::kAccepted);
+    CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{command});
+  }
+  const auto before = fixture.mailbox.statistics().submitted_command_count;
+  for (const auto& declaration :
+       {simulation::NpcDeclaration{simulation::SeatKindName::create(npc_fixture::kProfileKind),
+                                   std::nullopt},
+        simulation::NpcDeclaration{simulation::SeatKindName::create(npc_fixture::kPlainKind),
+                                   simulation::BotProfileName::create(npc_fixture::kProfileName)},
+        npc_fixture::profiled("unknown")}) {
+    const auto result =
+        fixture.sink.submit(controller, npc_fixture::seat(declaration, controller.value()));
+    CHECK(result == runtime::CommandSubmissionResult::kRejectedNpcDeclarationUnknown);
+    CHECK(runtime::command_submission_result_name(result) == "rejected_npc_declaration_unknown");
+  }
+  CHECK(fixture.mailbox.statistics().submitted_command_count == before);
+  CommandSinkFixture no_choices;
+  const auto empty_controller = no_choices.sink.open_session("session", "empty catalogue");
+  CHECK(no_choices.sink.submit(empty_controller,
+                               npc_fixture::seat(npc_fixture::plain(), empty_controller.value())) ==
+        runtime::CommandSubmissionResult::kRejectedNpcDeclarationUnknown);
+}
+
+TEST_CASE("CommandSink preserves literal indexed joins and rejects malformed guarded joins",
+          "[unit][runtime][command_sink][npc_profile]") {
+  CommandSinkFixture fixture(simulation::CommandKindMask::all(), npc_fixture::kBotController);
+  const auto controller = fixture.sink.open_session("tactical", "join fixture");
+  for (const auto& command :
+       {npc_fixture::join(std::nullopt), npc_fixture::join(std::nullopt, std::nullopt),
+        npc_fixture::join(npc_fixture::profiled())}) {
+    CHECK(fixture.sink.submit(controller, command) == runtime::CommandSubmissionResult::kAccepted);
+    CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{command});
+  }
+  for (const auto& command :
+       {npc_fixture::join(npc_fixture::profiled(), std::nullopt),
+        npc_fixture::join(simulation::NpcDeclaration{simulation::SeatKindName{}, std::nullopt})}) {
+    const auto result = fixture.sink.submit(controller, command);
+    CHECK(result == runtime::CommandSubmissionResult::kRejectedJoinDeclarationInvalid);
+    CHECK(runtime::command_submission_result_name(result) == "rejected_join_declaration_invalid");
+  }
+  CHECK(fixture.mailbox.statistics().submitted_command_count == 3);
 }
 
 TEST_CASE(

@@ -12,6 +12,7 @@
 #include "game_simulation_setup.hpp"
 #include "game_world.hpp"
 #include "map_definition.hpp"
+#include "npc_catalogue.hpp"
 #include "seat_roster.hpp"
 #include "simulation_config.hpp"
 #include "simulation_runtime.hpp"
@@ -86,9 +87,11 @@ constexpr auto kDeadline = 5s;
 class ReconcilerHarness final {
 public:
   explicit ReconcilerHarness(simulation::SeatRoster roster)
-      : runtime_(lobby_simulation(std::move(roster))),
+      : runtime_(lobby_simulation(std::move(roster)),
+                 simulation::NpcCatalogue::create({"wanderer", "chaser"})),
         host_(runtime_.snapshot_publication(), runtime_.command_sink()),
-        reconciler_(runtime_.command_sink(), host_, kMatchSeed, kLobbyId, log_capture_.logger) {
+        reconciler_(runtime_.command_sink(), host_, kMatchSeed, kMatchSeed, kLobbyId, {},
+                    log_capture_.logger) {
     runtime_.start();
     const auto deadline = std::chrono::steady_clock::now() + kDeadline;
     while (!runtime_.snapshot_publication().is_ready()) {

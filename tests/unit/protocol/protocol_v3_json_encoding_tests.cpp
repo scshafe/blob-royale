@@ -1101,7 +1101,7 @@ TEST_CASE("Welcome value rejects a display name outside the accepted grammar",
           simulation::EntityId::create(7), simulation::ControllerId::create(3), display_name,
           "royale", "arena-960x640",
           simulation::CommandKindMask::create({simulation::CommandKind::kThrust}),
-          fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
+          fixture::golden_npc_catalogue(), fixture::kGoldenLobbyId,
           fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
     };
   };
@@ -1121,13 +1121,13 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
   const protocol::SessionWelcome every_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
       "royale", "arena-960x640", simulation::CommandKindMask::all(),
-      fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
-      fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
+      fixture::golden_npc_catalogue(), fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum,
+      fixture::golden_terrain());
   const protocol::SessionWelcome no_kind = protocol::SessionWelcome::create(
       simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
       "sandbox", "arena-960x640", simulation::CommandKindMask::none(),
-      fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
-      fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
+      fixture::golden_npc_catalogue(), fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum,
+      fixture::golden_terrain());
 
   const std::string advertised_all = protocol::encode_welcome_message(
       every_kind, fixture::session_request_id(), fixture::kWelcomeTimestamp);
@@ -1152,8 +1152,8 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
       simulation::CommandKindMask::create({simulation::CommandKind::kSpawn,
                                            simulation::CommandKind::kDespawn,
                                            simulation::CommandKind::kThrust}),
-      fixture::golden_npc_controller_kinds(), fixture::kGoldenLobbyId,
-      fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
+      fixture::golden_npc_catalogue(), fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum,
+      fixture::golden_terrain());
   CHECK(protocol::encode_welcome_message(thrust_only, fixture::session_request_id(),
                                          fixture::kWelcomeTimestamp)
             .find(R"("accepted_command_kinds":["set_thrust"])") != std::string::npos);
@@ -1169,8 +1169,8 @@ TEST_CASE("Welcome publishes the NPC kinds the registry declared, in registry or
     return protocol::SessionWelcome::create(
         simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
         "royale", "arena-960x640", simulation::CommandKindMask::all(),
-        std::move(npc_controller_kinds), fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum,
-        fixture::golden_terrain());
+        simulation::NpcCatalogue::create(std::move(npc_controller_kinds)), fixture::kGoldenLobbyId,
+        fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
   };
 
   const std::string two_bots =
@@ -1207,18 +1207,17 @@ TEST_CASE("Welcome refuses a registered controller kind it could not publish",
     return [npc_controller_kinds = std::move(npc_controller_kinds)] {
       return protocol::SessionWelcome::create(
           simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
-          "royale", "arena-960x640", simulation::CommandKindMask::all(), npc_controller_kinds,
-          fixture::kGoldenLobbyId, fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
+          "royale", "arena-960x640", simulation::CommandKindMask::all(),
+          simulation::NpcCatalogue::create(npc_controller_kinds), fixture::kGoldenLobbyId,
+          fixture::kGoldenSeatCountMaximum, fixture::golden_terrain());
     };
   };
 
-  fixture::require_protocol_error_code(welcome_publishing({"Wanderer"}),
-                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
-  fixture::require_protocol_error_code(welcome_publishing({"wanderer", ""}),
-                                       protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
-  fixture::require_protocol_error_code(
-      welcome_publishing(std::vector<std::string>(protocol::kNpcControllerKindLimit + 1, "a")),
-      protocol::ProtocolEncodingErrorCode::kSessionWelcomeInvalid);
+  CHECK_THROWS_AS(welcome_publishing({"Wanderer"})(), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(welcome_publishing({"wanderer", ""})(), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(
+      welcome_publishing(std::vector<std::string>(protocol::kNpcControllerKindLimit + 1, "a"))(),
+      simulation::SimulationValidationError);
 }
 
 TEST_CASE("Welcome refuses a room or a seat ceiling outside the protocol's bounds",
@@ -1228,8 +1227,9 @@ TEST_CASE("Welcome refuses a room or a seat ceiling outside the protocol's bound
     return [lobby_id, seat_count_maximum] {
       static_cast<void>(protocol::SessionWelcome::create(
           simulation::EntityId::create(7), simulation::ControllerId::create(3), "Cole Shaffer",
-          "royale", "arena-960x640", simulation::CommandKindMask::all(), {}, lobby_id,
-          seat_count_maximum, fixture::golden_terrain()));
+          "royale", "arena-960x640", simulation::CommandKindMask::all(),
+          simulation::NpcCatalogue::empty(), lobby_id, seat_count_maximum,
+          fixture::golden_terrain()));
     };
   };
   CHECK_NOTHROW(welcome_with(1, 1)());

@@ -62,6 +62,9 @@ const protocolVersions = [
     version: 'v3',
     expectedStatus: 'Accepted',
     exampleSchemas: new Map([
+      ['npc-profile.json', 'npc-profile.schema.json'],
+      ['seat-npc-profile-command.json', 'seat-npc-command.schema.json'],
+      ['welcome-profile-message.json', 'welcome-message.schema.json'],
       ['stun-component.json', 'stun-component.schema.json'],
       [
         'controllable-input-generation-component.json',

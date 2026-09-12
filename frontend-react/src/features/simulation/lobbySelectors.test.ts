@@ -1,24 +1,36 @@
 import { solidTerrain } from './fixtures/terrainFrames';
 import { describe, expect, it } from 'vitest';
 
-import { snapshotDocument } from './fixtures/sessionFrames';
+import { legacyNpcCatalogue, snapshotDocument } from './fixtures/sessionFrames';
 import {
   describeSeats,
   isSeatFilled,
   isSeatOccupied,
+  npcSeatOptions,
   seatCountBounds,
   startAvailability,
 } from './lobbySelectors';
 import { validateSessionSnapshotMessage } from './sessionProtocolValidation';
 import type {
+  SessionEntitySnapshot,
   SessionMatchSection,
   SessionSeat,
 } from './simulationProtocolTypes';
+import {
+  PROFILED_NPC_CONTROLLER_ID,
+  PROFILED_NPC_DISPLAY_NAME,
+  PROFILED_NPC_SEAT_INDEX,
+  QUICK_NPC_PROFILE,
+  STEADY_NPC_PROFILE,
+  tacticalNpcCatalogue,
+  tacticalSnapshot,
+} from './fixtures/tacticalProfileFrames';
 
 const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 }).data;
 
@@ -62,6 +74,31 @@ describe('isSeatFilled and isSeatOccupied', () => {
 });
 
 describe('describeSeats', () => {
+  it('retains the profile on occupied seats even when an entity supplies the bot display name', () => {
+    const data = tacticalSnapshot(
+      STEADY_NPC_PROFILE,
+      PROFILED_NPC_CONTROLLER_ID,
+    ).data;
+    const entity: SessionEntitySnapshot = {
+      entity_id: 41,
+      components: {
+        controllable: {
+          controller_id: PROFILED_NPC_CONTROLLER_ID,
+          controller_kind: 'tactical',
+          display_name: PROFILED_NPC_DISPLAY_NAME,
+        },
+      },
+    };
+    expect(
+      describeSeats(data.match, [...data.entities, entity], null)[
+        PROFILED_NPC_SEAT_INDEX
+      ]?.label,
+    ).toBe('Bot 41 / steady');
+    expect(
+      describeSeats(data.match, [], null)[PROFILED_NPC_SEAT_INDEX]?.label,
+    ).toBe('tactical / steady');
+  });
+
   it('names every seat from the bodies the snapshot carries and marks the own one', () => {
     // The golden roster: a person, a bot the server has built, a bot still joining, an empty seat.
     expect(describeSeats(snapshot.match, snapshot.entities, 3)).toEqual([
@@ -124,6 +161,30 @@ describe('describeSeats', () => {
       null,
     );
     expect(seat?.label).toBe('Player 41');
+  });
+});
+
+describe('npcSeatOptions', () => {
+  it('expands both ordered projections into distinct complete declaration keys', () => {
+    expect(npcSeatOptions(tacticalNpcCatalogue())).toEqual([
+      {
+        key: 'wanderer',
+        label: 'wanderer',
+        declaration: { npc_kind: 'wanderer' },
+      },
+      { key: 'chaser', label: 'chaser', declaration: { npc_kind: 'chaser' } },
+      {
+        key: 'tactical:steady',
+        label: 'tactical / steady',
+        declaration: STEADY_NPC_PROFILE,
+      },
+      {
+        key: 'tactical:quick',
+        label: 'tactical / quick',
+        declaration: QUICK_NPC_PROFILE,
+      },
+    ]);
+    expect(npcSeatOptions({ npc_controller_kinds: [] })).toEqual([]);
   });
 });
 

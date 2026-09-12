@@ -275,7 +275,7 @@ void SessionWebSocketSession::admit_client_command(const std::string_view frame)
       controller_.value_or(simulation::ControllerId::create(1));
   const protocol::CommandDecodeResult decoded = protocol::decode_command_envelope(
       frame, lobby_->match_session().accepted_command_kinds(), stamped_entity, stamped_controller,
-      lobby_->match_session().npc_controller_kinds());
+      lobby_->match_session().npc_catalogue());
   if (!decoded.is_accepted()) {
     switch (decoded.rejection()) {
     case protocol::CommandDecodeRejection::kMessageTooLarge:
@@ -340,8 +340,12 @@ void SessionWebSocketSession::log_lobby_command(
         } else if constexpr (std::is_same_v<CommandType, simulation::ClearSeatCommand>) {
           return " seat_index=" + std::to_string(value.seat_index);
         } else if constexpr (std::is_same_v<CommandType, simulation::SeatNpcCommand>) {
-          return " seat_index=" + std::to_string(value.seat_index) +
-                 " npc_kind=" + std::string(value.kind.value());
+          std::string detail = " seat_index=" + std::to_string(value.seat_index) +
+                               " npc_kind=" + std::string(value.kind.value());
+          if (value.profile_name.has_value()) {
+            detail += " profile_name=" + std::string(value.profile_name->value());
+          }
+          return detail;
         } else if constexpr (std::is_same_v<CommandType, simulation::StartMatchCommand>) {
           return std::string{};
         } else if constexpr (std::is_same_v<CommandType, simulation::SetMovementTuningCommand>) {
@@ -595,13 +599,11 @@ void SessionWebSocketSession::start_welcome_write(const simulation::EntityId ent
   active_egress_lease_.emplace(std::move(egress_lease));
   const MatchSessionContext& match_session = lobby_->match_session();
   try {
-    const std::span<const std::string> npc_controller_kinds = match_session.npc_controller_kinds();
     const protocol::SessionWelcome welcome = protocol::SessionWelcome::create(
         entity, *controller_, peer_identity_.display_name_for(*session_id_),
         std::string{lobby_->snapshot_publication().latest()->match().mode_name()},
         match_session.map_name(), match_session.accepted_command_kinds(),
-        std::vector<std::string>{npc_controller_kinds.begin(), npc_controller_kinds.end()},
-        match_session.lobby_id(), match_session.seat_count_maximum(),
+        match_session.npc_catalogue(), match_session.lobby_id(), match_session.seat_count_maximum(),
         lobby_->snapshot_publication().latest()->terrain());
     active_write_payload_ = protocol::encode_welcome_message(
         welcome, request_id_, current_utc_timestamp(), active_egress_lease_->owned_byte_count());

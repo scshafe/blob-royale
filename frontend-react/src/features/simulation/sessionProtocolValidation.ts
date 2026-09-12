@@ -1,6 +1,7 @@
 import type { ValidateFunction } from 'ajv/dist/2020.js';
 
 import { SimulationApiError } from './SimulationApiError';
+import { npcCatalogueContains, npcCatalogueFromWelcome } from './npcCatalogue';
 import { protocolV3Schemas } from './generated/protocolV3Schemas.generated';
 import {
   createProtocolAjv,
@@ -12,6 +13,7 @@ import type {
   SessionCommand,
   SessionHttpErrorResponse,
   SessionLobbyDirectoryMessage,
+  SessionNpcCatalogue,
   SessionSnapshotMessage,
   SessionTerrain,
   SessionSetMovementTuningCommand,
@@ -75,6 +77,8 @@ export interface SessionSequenceState {
   readonly tickSequence: number | null;
   /** Immutable terrain admitted with this connection's welcome, never replaced by a frame. */
   readonly terrain: SessionTerrain;
+  /** Current welcome authority, retained through every frame and retired with the socket. */
+  readonly npcCatalogue: SessionNpcCatalogue;
 }
 
 const ajv = createProtocolAjv();
@@ -442,6 +446,7 @@ export function validateSessionWelcomeMessage(
   }
 
   assertTerrainSemantics(document.data.terrain);
+  npcCatalogueFromWelcome(document.data);
   return deepFreeze(document);
 }
 
@@ -524,6 +529,29 @@ export function validateSessionSnapshotMessage(
   }
 
   assertSnapshotEntityInvariants(document);
+  document.data.match.seats.forEach((seat, seatIndex) => {
+    if (
+      seat.kind === 'npc' &&
+      (seat.npc_kind === null ||
+        !npcCatalogueContains(
+          previousSequence.npcCatalogue,
+          seat.npc_kind,
+          seat.profile_name,
+        ))
+    ) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'Published NPC seat must match a declaration in the current welcome catalogue.',
+        {
+          context: {
+            seat_index: seatIndex,
+            npc_kind: seat.npc_kind,
+            profile_name: seat.profile_name ?? null,
+          },
+        },
+      );
+    }
+  });
   assertRaceTerrainBinding(document, previousSequence.terrain);
   assertMovementSnapshotInvariants(document);
   return deepFreeze(document);
@@ -603,8 +631,13 @@ export function validateSessionTuningResult(
 /**
  * Validates an outbound command against the same closed schema the server enforces. A command the
  * server would refuse closes the connection, so this client refuses to put one on the wire.
+ * NPC declarations additionally require exact membership in the current welcome catalogue;
+ * the default absent catalogue admits no NPC selection and never skips membership checks.
  */
-export function validateSessionCommand(command: SessionCommand): void {
+export function validateSessionCommand(
+  command: SessionCommand,
+  npcCatalogue: SessionNpcCatalogue | null = null,
+): void {
   if (!KNOWN_COMMAND_KINDS.has(command.kind)) {
     throw unknownKindError(
       'Client command names a kind protocol v3 does not register.',
@@ -625,6 +658,25 @@ export function validateSessionCommand(command: SessionCommand): void {
           validation_errors: formatValidationErrors(
             validateCommandEnvelopeSchema.errors,
           ),
+        },
+      },
+    );
+  }
+  if (
+    command.kind === 'seat_npc' &&
+    !npcCatalogueContains(
+      npcCatalogue,
+      command.payload.npc_kind,
+      command.payload.profile_name,
+    )
+  ) {
+    throw new SimulationApiError(
+      'SIMULATION.COMMAND_REJECTED',
+      'NPC declaration is not selectable in the current welcome catalogue.',
+      {
+        context: {
+          npc_kind: command.payload.npc_kind,
+          profile_name: command.payload.profile_name ?? null,
         },
       },
     );

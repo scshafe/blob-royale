@@ -152,7 +152,7 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "controller_id", "npc_kind"],
-      "description": "One seat in the lobby. Every member is always present and the member that does not apply is null, which is the shape outcome uses and for the same reason: a decoder reads one known member set rather than branching on which keys exist.",
+      "description": "One seat in the lobby. The three base members are always present and inapplicable values are null. A profiled NPC additionally carries profile_name; plain NPCs and non-NPC seats omit that member.",
       "properties": {
         "kind": {
           "$ref": "common.schema.json#/$defs/seat_kind"
@@ -167,6 +167,9 @@
             }
           ]
         },
+        "profile_name": {
+          "$ref": "common.schema.json#/$defs/bot_profile_name"
+        },
         "npc_kind": {
           "oneOf": [
             {
@@ -179,6 +182,13 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": { "kind": { "enum": ["empty", "controller"] } },
+            "required": ["kind"]
+          },
+          "then": { "properties": { "profile_name": false } }
+        },
         {
           "if": {
             "properties": {

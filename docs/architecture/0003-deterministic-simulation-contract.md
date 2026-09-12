@@ -618,3 +618,15 @@ status source introduced now. Phase 0's existing controller-addressed handler ga
 and bounded successful-commit decisions as explicitly named by the amended plan/ADR 0002. No new
 kernel policy socket, clock change, live continuous-motion adoption, or fixture recalibration is
 authorized. The plan's full baseline gates remain mandatory.
+
+## Amended 2026-09-11: Guarded NPC declaration joins (Step 15)
+
+The existing closed indexed-join handler accepts optional `expected_npc`, a complete kind/profile
+declaration, only together with a seat index. A mismatch with current phase-0 seat state, including
+preceding commands in the batch, is a normal no-op. Absence preserves existing literal indexed-join
+behavior; the guard is supplied
+by reconciliation, never inferred from a caller's kind or current state. NPC profile identity
+survives declaration, join, leave, and publication. The selection catalogue is a bounded value,
+not a policy callback; runtime checks SeatNpc membership before mailbox insertion. No command
+kind, existing relative application rank, kernel phase, or policy socket changes. All accepted
+unprofiled physics/replay values and command sequences remain subject to the unchanged fixture gates.

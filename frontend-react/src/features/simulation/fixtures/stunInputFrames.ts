@@ -75,6 +75,7 @@ export function stunInputConnection(
     messageSequence: 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    npcCatalogue: session.npcCatalogue,
     terrain: session.terrain,
   });
   return { ...connection, snapshot, entities: snapshot.data.entities };

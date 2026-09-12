@@ -25,6 +25,7 @@ import {
   validatedTerrain,
 } from './fixtures/terrainFrames';
 import {
+  legacyNpcCatalogue,
   raceSnapshotDocument,
   snapshotDocument,
 } from './fixtures/sessionFrames';
@@ -51,6 +52,7 @@ const goldenSnapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 }).data;
 
@@ -485,6 +487,7 @@ describe('SimulationCanvas', () => {
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      npcCatalogue: legacyNpcCatalogue,
       terrain: raceTerrain,
     }).data;
     const view = render(

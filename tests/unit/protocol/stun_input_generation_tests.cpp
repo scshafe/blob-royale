@@ -24,7 +24,7 @@ namespace {
       std::string{R"({"kind":"set_thrust","payload":)"} + std::string{payload} + "}",
       simulation::CommandKindMask::create({simulation::CommandKind::kThrust}),
       simulation::EntityId::create(fixture::kEntity),
-      simulation::ControllerId::create(fixture::kController), {});
+      simulation::ControllerId::create(fixture::kController));
 }
 
 [[nodiscard]] std::string encode(const simulation::WorldSnapshot& snapshot,

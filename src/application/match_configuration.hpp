@@ -1,9 +1,12 @@
 #ifndef BLOB_ROYALE_APPLICATION_MATCH_CONFIGURATION_HPP
 #define BLOB_ROYALE_APPLICATION_MATCH_CONFIGURATION_HPP
 
+#include "bot_profile_name.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -43,17 +46,17 @@ namespace blob_royale::application {
 // related: ../controllers/controller_registry.hpp -- what each `bots` kind resolves through.
 class MatchConfiguration final {
 public:
-  // One `kind:count` term of the roster line. The kind is a `controller_registry.hpp` key.
+  // One `kind:count` or `kind@profile:count` term. The kind is a registry key; profile names
+  // resolve against the immutable catalogue at ApplicationConfig's cross-value boundary.
   struct BotRosterEntry final {
     std::string controller_kind;
     std::uint64_t count{};
+    std::optional<simulation::BotProfileName> profile_name{};
 
     friend bool operator==(const BotRosterEntry&, const BotRosterEntry&) = default;
   };
 
-  // Distinct kinds one roster line may name. It is the registry's own size plus headroom rather
-  // than a round number: a line naming more terms than there are registered kinds must have a
-  // duplicate, which is already a rejection.
+  // Distinct kind/profile declarations one roster line may name.
   static constexpr std::size_t kMaximumBotRosterEntryCount = 16;
   // Bots one roster may seat. Each bot opens a `ControllerDirectory` entry exactly as a browser
   // does, so the honest ceiling is the host's; the tighter startup bound is the snapshot entity
@@ -63,7 +66,8 @@ public:
   // Validates every field and throws ApplicationInputError naming the one that failed:
   // `APPLICATION.MATCH.MODE_NAME_INVALID`, `MODE_UNKNOWN`, `MAP_NAME_INVALID`,
   // `LOBBY_SEAT_COUNT_OUT_OF_RANGE`, `BOT_ROSTER_INVALID`, `BOT_KIND_UNKNOWN`, and
-  // `BOT_ROSTER_TOO_LARGE`.
+  // `BOT_ROSTER_TOO_LARGE`, `BOT_PROFILE_REQUIRED`, and `BOT_PROFILE_UNEXPECTED`.
+  // Direct roster vectors obey the same nonzero-count, unique-pair, and term-count rules as text.
   //
   // `lobby_seat_count` is how many seats the pre-match lobby is created with: a fact about who is
   // playing this match rather than a mode's balance number, which is why it lives here and not in
@@ -75,10 +79,11 @@ public:
                                                  std::uint64_t seed, std::uint64_t lobby_seat_count,
                                                  std::vector<BotRosterEntry> bot_roster);
 
-  // Parses one `bots=` value: comma-separated `kind:count` terms, or the empty string for no bots.
+  // Parses comma-separated `kind:count` or `kind@profile:count`, or empty for no bots.
   // Throws ApplicationInputError with `APPLICATION.MATCH.BOT_ROSTER_INVALID` for a term with no
-  // colon, an empty kind, an absent, empty, non-numeric, or zero count, and a repeated kind.
-  // Registry membership is `create`'s check, not this one's.
+  // colon, an empty kind/profile, an absent, empty, non-numeric, or zero count, and a repeated
+  // pair. Invalid profile identity propagates SimulationValidationError. Registry membership and
+  // required/unexpected profile selection are `create`'s checks, not this one's.
   [[nodiscard]] static std::vector<BotRosterEntry> parse_bot_roster(std::string_view value);
 
   MatchConfiguration(const MatchConfiguration&) = default;

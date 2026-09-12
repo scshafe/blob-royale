@@ -12,8 +12,18 @@ import type { SimulationApiFactory } from './useSimulationConnection';
 import { useSimulationConnection } from './useSimulationConnection';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import { lobbyDirectoryMessageExample } from './fixtures/protocolV3Examples';
-import { snapshotDocument, welcomeDocument } from './fixtures/sessionFrames';
+import {
+  legacyNpcCatalogue,
+  snapshotDocument,
+  welcomeDocument,
+} from './fixtures/sessionFrames';
 import { tuningCommand, tuningSnapshotDocument } from './fixtures/tuningFrames';
+import {
+  QUICK_NPC_PROFILE,
+  STEADY_NPC_PROFILE,
+  tacticalSnapshot,
+  tacticalWelcomeDocument,
+} from './fixtures/tacticalProfileFrames';
 import { RECONNECT_BACKOFF_MILLISECONDS } from './simulationConstants';
 import type {
   SessionCommand,
@@ -126,6 +136,7 @@ function createValidatedSnapshot(messageSequence = 2) {
     messageSequence: messageSequence - 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    npcCatalogue: legacyNpcCatalogue,
     terrain: solidTerrain,
   });
 }
@@ -321,7 +332,7 @@ describe('useSimulationConnection', () => {
       movementTuningMinimumIntervalMilliseconds:
         createValidatedWelcome().data
           .movement_tuning_minimum_interval_milliseconds,
-      npcControllerKinds: ['wanderer', 'chaser'],
+      npcCatalogue: legacyNpcCatalogue,
       seatCountMaximum: 32,
       terrain: createValidatedWelcome().data.terrain,
     });
@@ -534,6 +545,61 @@ describe('useSimulationConnection', () => {
     await vi.advanceTimersByTimeAsync(16_000);
     expect(apiFactory).toHaveBeenCalledOnce();
   });
+
+  it.each(['reconnect', 'room change'] as const)(
+    'retains one immutable catalogue through snapshots and replaces it on %s',
+    async (transition) => {
+      vi.useFakeTimers();
+      const apis: FakeSimulationApi[] = [];
+      const apiFactory = createApiFactory(apis);
+      const { result, rerender } = renderHook(
+        ({ lobbyId }) => useSimulationConnection(lobbyId, apiFactory),
+        { initialProps: { lobbyId: 1 } },
+      );
+      await flushPromises();
+      const firstWelcome = validateSessionWelcomeMessage(
+        tacticalWelcomeDocument([STEADY_NPC_PROFILE]),
+        null,
+      );
+      act(() => {
+        apis[0]?.callbacks?.onWelcome(firstWelcome);
+      });
+      const firstCatalogue = result.current.session?.npcCatalogue;
+      expect(firstCatalogue?.npc_profiles).toBe(firstWelcome.data.npc_profiles);
+      act(() => {
+        apis[0]?.callbacks?.onSnapshot(tacticalSnapshot());
+      });
+      expect(result.current.session?.npcCatalogue).toBe(firstCatalogue);
+      if (transition === 'reconnect') {
+        act(() => {
+          apis[0]?.callbacks?.onDisconnected(retryableDisconnection);
+        });
+        expect(result.current.session).toBeNull();
+        await advanceRetry(RECONNECT_BACKOFF_MILLISECONDS[0] ?? 0);
+      } else {
+        rerender({ lobbyId: 2 });
+        await flushPromises();
+        expect(result.current.session).toBeNull();
+      }
+      const nextWelcome = validateSessionWelcomeMessage(
+        tacticalWelcomeDocument(
+          [QUICK_NPC_PROFILE],
+          transition === 'room change' ? 2 : 1,
+        ),
+        null,
+      );
+      act(() => {
+        apis[1]?.callbacks?.onWelcome(nextWelcome);
+      });
+      const nextCatalogue = result.current.session?.npcCatalogue;
+      expect(nextCatalogue).not.toBe(firstCatalogue);
+      expect(nextCatalogue?.npc_profiles).toBe(nextWelcome.data.npc_profiles);
+      act(() => {
+        apis[0]?.callbacks?.onWelcome(firstWelcome);
+      });
+      expect(result.current.session?.npcCatalogue).toBe(nextCatalogue);
+    },
+  );
 
   it('is idle with no room, joins the room it is given, and leaves it on null', async () => {
     const apis: FakeSimulationApi[] = [];

@@ -35,6 +35,9 @@ struct SeatNpcCommand final {
   ControllerId controller;
   std::uint64_t seat_index;
   SeatKindName kind;
+  std::optional<BotProfileName> profile_name{};
+
+  [[nodiscard]] NpcDeclaration declaration() const { return {kind, profile_name}; }
 
   friend bool operator==(const SeatNpcCommand&, const SeatNpcCommand&) = default;
 };

@@ -286,6 +286,9 @@ export const protocolV3Schemas = {
       controller_kind: {
         $ref: '#/$defs/kind_name',
       },
+      bot_profile_name: {
+        $ref: '#/$defs/kind_name',
+      },
       map_name: {
         type: 'string',
         minLength: 1,
@@ -1041,7 +1044,7 @@ export const protocolV3Schemas = {
         additionalProperties: false,
         required: ['kind', 'controller_id', 'npc_kind'],
         description:
-          'One seat in the lobby. Every member is always present and the member that does not apply is null, which is the shape outcome uses and for the same reason: a decoder reads one known member set rather than branching on which keys exist.',
+          'One seat in the lobby. The three base members are always present and inapplicable values are null. A profiled NPC additionally carries profile_name; plain NPCs and non-NPC seats omit that member.',
         properties: {
           kind: {
             $ref: 'common.schema.json#/$defs/seat_kind',
@@ -1056,6 +1059,9 @@ export const protocolV3Schemas = {
               },
             ],
           },
+          profile_name: {
+            $ref: 'common.schema.json#/$defs/bot_profile_name',
+          },
           npc_kind: {
             oneOf: [
               {
@@ -1068,6 +1074,21 @@ export const protocolV3Schemas = {
           },
         },
         allOf: [
+          {
+            if: {
+              properties: {
+                kind: {
+                  enum: ['empty', 'controller'],
+                },
+              },
+              required: ['kind'],
+            },
+            then: {
+              properties: {
+                profile_name: false,
+              },
+            },
+          },
           {
             if: {
               properties: {
@@ -1362,6 +1383,25 @@ export const protocolV3Schemas = {
       },
     },
   },
+  npcProfile: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/npc-profile.schema.json',
+    title: 'Blob Royale protocol v3 NPC profile choice',
+    description:
+      'One immutable selectable NPC kind/profile pair. Profile settings are validated startup configuration; this wire value names a choice rather than exposing mutation authority.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['npc_kind', 'profile_name'],
+    properties: {
+      npc_kind: {
+        $ref: 'common.schema.json#/$defs/controller_kind',
+      },
+      profile_name: {
+        $ref: 'common.schema.json#/$defs/bot_profile_name',
+      },
+    },
+  },
   physicsBodyComponent: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/physics-body-component.schema.json',
@@ -1576,7 +1616,12 @@ export const protocolV3Schemas = {
       npc_kind: {
         $ref: 'common.schema.json#/$defs/controller_kind',
         $comment:
-          "MUST be one of the names welcome.npc_controller_kinds published to this session. The grammar here is the whole schema check; membership is enforced by the server against the same list it published, and a name outside it is command_payload_invalid. The vocabulary is deliberately not an enum: it is read from the server's controller registry, so registering a bot costs no schema revision and no client change.",
+          "The exact (npc_kind, optional profile_name) declaration MUST be in the session's immutable catalogue: a plain choice in welcome.npc_controller_kinds or a profiled choice in welcome.npc_profiles. No missing-profile fallback or cross-kind profile reuse is inferred; a missing declaration is command_payload_invalid.",
+      },
+      profile_name: {
+        $ref: 'common.schema.json#/$defs/bot_profile_name',
+        $comment:
+          'Required by a profiled catalogue choice and omitted for plain choices. Null is not omission.',
       },
     },
     $comment:
@@ -2193,7 +2238,18 @@ export const protocolV3Schemas = {
           $ref: 'common.schema.json#/$defs/controller_kind',
         },
         $comment:
-          "The exact set of NPC kinds a seat_npc command may name, read from the server's controller registry. maxItems is deliberately NOT the number of registered bots: it is a protocol constant, so registering a bot changes this array's contents and not this schema, which is what makes a new bot appear in every client's seat menu with no client change and no protocol version. Empty is legal and means no bot kind is registered, in which case no seat can be filled with one. Added in 2.3.",
+          'The unprofiled selectable partition of the immutable NPC catalogue, in declared order. Empty is legal. A kind MUST NOT appear here and in npc_profiles; both partitions come from the same validated server value. The unchanged limit is independent of the current registered bot count.',
+      },
+      npc_profiles: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 16,
+        uniqueItems: true,
+        items: {
+          $ref: 'npc-profile.schema.json',
+        },
+        $comment:
+          'Profiled selectable partition of the same NPC catalogue, omitted when empty. Each exact kind/profile pair is unique and its kind is absent from npc_controller_kinds. Numeric personality settings remain configuration, not a second mutable client authority.',
       },
       lobby_id: {
         $ref: 'common.schema.json#/$defs/lobby_id',

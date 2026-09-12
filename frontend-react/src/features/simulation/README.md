@@ -67,13 +67,29 @@ without a renderer, and every press is one closed command through `sendCommand`.
 empty seat opens the bot menu and suppresses the browser's own; the seat is also a button, so the
 same menu opens from the keyboard, and Escape or a click outside closes it. The menu is walked with
 Tab; former WASD/arrow steering bindings are retired, not reassigned to lobby navigation.
-`welcome.npc_controller_kinds` is the whole menu, read from the server's registry, so a new bot
-appears in it with no change here. The seat-count control is floored one above the highest occupied
+`welcome.npc_controller_kinds` publishes unprofiled selections; optional `welcome.npc_profiles`
+publishes complete `{npc_kind, profile_name}` choices. They are projections of one immutable
+catalogue. `npcCatalogue.ts` owns their shared partition/identity checks and exact optional-profile
+membership. `npcSeatOptions` in `lobbySelectors.ts` expands both projections in published order
+into one scrollable menu. A profile button immediately submits its complete `seat_npc` declaration;
+the browser keeps no secondary profile draft or numeric personality settings. Both joining and
+occupied seats retain the profile label even when the bot has a display name. The seat-count
+control is floored one above the highest occupied
 seat and capped at `welcome.seat_count_maximum`, which are the two asks the tick would ignore, and it
 sends one `set_seat_count` a quarter of a second after the last change: a dragged control emits a
 change per step and the session's command bucket holds thirty tokens. Start is enabled exactly when
 every seat is filled and every NPC seat has its controller, which is the server's own start
 condition, so the button is never enabled for a press the tick would only remember.
+
+The current welcome catalogue lives on `SimulationSessionIdentity` and in the API's snapshot
+sequence context. Every published NPC seat and outgoing `seat_npc` must match it exactly; missing,
+unknown, cross-kind, or malformed profiles fail before rendering or sending. Snapshot updates keep
+that authority; reconnects and room changes replace it, and disconnect clears it. Legacy no-profile
+welcomes, commands, seats, diagnostic choices, and their order retain their original wire shape.
+`fixtures/tacticalProfileFrames.ts` supplies named protocol/UI cases, and
+`e2e/blobRoyaleBrowserTacticalProfiles.spec.ts` covers configured and menu-selected declarations
+through a fresh browser session in the same room. Profile parameters remain strictly authored
+server configuration; combat settings are not exposed here.
 
 **Room movement tuning** uses `useMovementTuning` above the conditional room view, so removing a
 panel or replacing a body cannot restart its request IDs. IDs belong to the requested room and

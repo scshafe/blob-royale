@@ -1,7 +1,10 @@
 import { raceTerrain } from '../fixtures/terrainFrames';
 import { describe, expect, it, vi } from 'vitest';
 
-import { raceSnapshotDocument } from '../fixtures/sessionFrames';
+import {
+  legacyNpcCatalogue,
+  raceSnapshotDocument,
+} from '../fixtures/sessionFrames';
 import { validateSessionSnapshotMessage } from '../sessionProtocolValidation';
 import {
   RACE_CHECKPOINT_FILL,
@@ -20,6 +23,7 @@ function validatedRaceMatch(): SessionMatchSection {
     messageSequence: 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    npcCatalogue: legacyNpcCatalogue,
     terrain: raceTerrain,
   }).data.match;
 }

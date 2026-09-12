@@ -13,7 +13,11 @@
     },
     "npc_kind": {
       "$ref": "common.schema.json#/$defs/controller_kind",
-      "$comment": "MUST be one of the names welcome.npc_controller_kinds published to this session. The grammar here is the whole schema check; membership is enforced by the server against the same list it published, and a name outside it is command_payload_invalid. The vocabulary is deliberately not an enum: it is read from the server's controller registry, so registering a bot costs no schema revision and no client change."
+      "$comment": "The exact (npc_kind, optional profile_name) declaration MUST be in the session's immutable catalogue: a plain choice in welcome.npc_controller_kinds or a profiled choice in welcome.npc_profiles. No missing-profile fallback or cross-kind profile reuse is inferred; a missing declaration is command_payload_invalid."
+    },
+    "profile_name": {
+      "$ref": "common.schema.json#/$defs/bot_profile_name",
+      "$comment": "Required by a profiled catalogue choice and omitted for plain choices. Null is not omission."
     }
   },
   "$comment": "Fills an empty seat and never replaces an occupied one, so two clients seating one seat in one tick resolve by the batch's order and the second press is a no-op rather than an eviction. Replacing an occupant is clear_seat followed by seat_npc, which the server applies in that order within one tick. Added in 2.3."

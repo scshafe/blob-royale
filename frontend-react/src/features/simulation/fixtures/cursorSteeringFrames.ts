@@ -29,6 +29,7 @@ export function cursorSteeringConnection(
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      npcCatalogue: session.npcCatalogue,
       terrain: session.terrain,
     },
   );

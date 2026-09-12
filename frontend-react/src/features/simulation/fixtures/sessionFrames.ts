@@ -3,6 +3,14 @@ import {
   sessionSnapshotMessageExample,
   sessionWelcomeMessageExample,
 } from './protocolV3Examples';
+import type { SessionNpcCatalogue } from '../simulationProtocolTypes';
+
+/** Explicit authority for the unchanged legacy snapshot/command fixtures. */
+export const legacyNpcCatalogue: SessionNpcCatalogue = Object.freeze({
+  npc_controller_kinds: Object.freeze([
+    ...sessionWelcomeMessageExample.data.npc_controller_kinds,
+  ]),
+});
 
 export type MutableWelcomeDocument = typeof sessionWelcomeMessageExample;
 export type MutableSnapshotDocument = typeof sessionSnapshotMessageExample;

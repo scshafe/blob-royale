@@ -4,6 +4,7 @@
 #include "command_kind_mask.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "npc_catalogue.hpp"
 #include "terrain_definition.hpp"
 
 #include <cstdint>
@@ -59,9 +60,9 @@ public:
   [[nodiscard]] static SessionWelcome
   create(simulation::EntityId entity, simulation::ControllerId controller, std::string display_name,
          std::string mode_name, std::string map_name,
-         simulation::CommandKindMask accepted_command_kinds,
-         std::vector<std::string> npc_controller_kinds, std::uint64_t lobby_id,
-         std::uint64_t seat_count_maximum, simulation::TerrainDefinition terrain);
+         simulation::CommandKindMask accepted_command_kinds, simulation::NpcCatalogue npc_catalogue,
+         std::uint64_t lobby_id, std::uint64_t seat_count_maximum,
+         simulation::TerrainDefinition terrain);
 
   SessionWelcome(const SessionWelcome&) = default;
   SessionWelcome(SessionWelcome&&) noexcept = default;
@@ -85,9 +86,17 @@ public:
   // the menu in. Order is preserved rather than sorted because the registry's order is somebody's
   // deliberate ordering of the bots and a client that re-sorted it would be inventing one.
   [[nodiscard]] std::span<const std::string> npc_controller_kinds() const& noexcept {
-    return npc_controller_kinds_;
+    return npc_catalogue_.unprofiled_kinds();
   }
   [[nodiscard]] std::span<const std::string> npc_controller_kinds() const&& = delete;
+  [[nodiscard]] std::span<const simulation::NpcDeclaration> npc_profiles() const& noexcept {
+    return npc_catalogue_.profiles();
+  }
+  [[nodiscard]] std::span<const simulation::NpcDeclaration> npc_profiles() const&& = delete;
+  [[nodiscard]] const simulation::NpcCatalogue& npc_catalogue() const& noexcept {
+    return npc_catalogue_;
+  }
+  [[nodiscard]] const simulation::NpcCatalogue& npc_catalogue() const&& = delete;
   [[nodiscard]] std::uint64_t lobby_id() const noexcept { return lobby_id_; }
   [[nodiscard]] std::uint64_t seat_count_maximum() const noexcept { return seat_count_maximum_; }
   // The complete validated authored terrain, retained immutably for the one welcome publication.
@@ -100,7 +109,7 @@ private:
   SessionWelcome(simulation::EntityId entity, simulation::ControllerId controller,
                  std::string display_name, std::string mode_name, std::string map_name,
                  simulation::CommandKindMask accepted_command_kinds,
-                 std::vector<std::string> npc_controller_kinds, std::uint64_t lobby_id,
+                 simulation::NpcCatalogue npc_catalogue, std::uint64_t lobby_id,
                  std::uint64_t seat_count_maximum, simulation::TerrainDefinition terrain) noexcept;
 
   simulation::EntityId entity_;
@@ -109,7 +118,7 @@ private:
   std::string mode_name_;
   std::string map_name_;
   simulation::CommandKindMask accepted_command_kinds_;
-  std::vector<std::string> npc_controller_kinds_;
+  simulation::NpcCatalogue npc_catalogue_;
   std::uint64_t lobby_id_;
   std::uint64_t seat_count_maximum_;
   simulation::TerrainDefinition terrain_;

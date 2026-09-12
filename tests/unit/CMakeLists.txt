@@ -25,6 +25,7 @@ add_executable(blob_simulation_unit_tests
   simulation/motion_event_order_tests.cpp
   simulation/movement_tuning_tests.cpp
   simulation/movement_tuning_command_tests.cpp
+  simulation/npc_catalogue_tests.cpp
   simulation/physics_tests.cpp
   simulation/random_streams_promotion_tests.cpp
   simulation/random_stream_world_tests.cpp
@@ -65,7 +66,9 @@ add_executable(blob_application_unit_tests
   application/bot_reconciliation_tests.cpp
   application/map_loader_tests.cpp
   application/match_startup_validation_tests.cpp
+  application/profiled_bot_reconciliation_tests.cpp
   application/scenario_loader_tests.cpp
+  application/tactical_profile_configuration_tests.cpp
   application/terrain_promotion_tests.cpp
 )
 

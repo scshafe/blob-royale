@@ -61,13 +61,15 @@ inline constexpr std::uint64_t kStampedControllerId = 3;
 [[nodiscard]] protocol::CommandDecodeResult decode(const std::string_view frame) {
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   return protocol::decode_command_envelope(frame, thrust_only(), stamped_entity(),
-                                           stamped_controller(), npc_kinds);
+                                           stamped_controller(),
+                                           simulation::NpcCatalogue::create(npc_kinds));
 }
 
 [[nodiscard]] protocol::CommandDecodeResult decode_lobby(const std::string_view frame) {
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   return protocol::decode_command_envelope(frame, lobby_kinds(), stamped_entity(),
-                                           stamped_controller(), npc_kinds);
+                                           stamped_controller(),
+                                           simulation::NpcCatalogue::create(npc_kinds));
 }
 
 void require_rejection(const std::string_view frame,
@@ -106,7 +108,8 @@ TEST_CASE("Command decoder stamps only the session's own entity, whatever the cl
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   const protocol::CommandDecodeResult result = protocol::decode_command_envelope(
       R"({"kind":"set_thrust","payload":{"x":0,"y":1}})", thrust_only(),
-      simulation::EntityId::create(4'242), stamped_controller(), npc_kinds);
+      simulation::EntityId::create(4'242), stamped_controller(),
+      simulation::NpcCatalogue::create(npc_kinds));
 
   REQUIRE(result.is_accepted());
   const auto* const thrust = std::get_if<simulation::ThrustCommand>(&*result.command());
@@ -207,7 +210,7 @@ TEST_CASE("Command decoder rejects a registered kind the running mode does not a
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   const protocol::CommandDecodeResult result = protocol::decode_command_envelope(
       R"({"kind":"set_thrust","payload":{"x":0,"y":0}})", simulation::CommandKindMask::none(),
-      stamped_entity(), stamped_controller(), npc_kinds);
+      stamped_entity(), stamped_controller(), simulation::NpcCatalogue::create(npc_kinds));
 
   CHECK_FALSE(result.is_accepted());
   CHECK(result.rejection() == protocol::CommandDecodeRejection::kKindRejected);
@@ -246,7 +249,8 @@ TEST_CASE("Command decoder accepts a frame at exactly the inbound byte bound",
 
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   CHECK(protocol::decode_command_envelope(spaced, thrust_only(), stamped_entity(),
-                                          stamped_controller(), npc_kinds)
+                                          stamped_controller(),
+                                          simulation::NpcCatalogue::create(npc_kinds))
             .is_accepted());
 }
 
@@ -309,7 +313,7 @@ TEST_CASE("Command decoder accepts exactly the NPC kinds the welcome published",
   const std::vector<std::string> with_a_new_bot{"wanderer", "chaser", "ambusher"};
   const protocol::CommandDecodeResult accepted = protocol::decode_command_envelope(
       R"({"kind":"seat_npc","payload":{"seat_index":1,"npc_kind":"ambusher"}})", lobby_kinds(),
-      stamped_entity(), stamped_controller(), with_a_new_bot);
+      stamped_entity(), stamped_controller(), simulation::NpcCatalogue::create(with_a_new_bot));
   REQUIRE(accepted.is_accepted());
   CHECK(std::get<simulation::SeatNpcCommand>(*accepted.command()).kind ==
         std::string_view{"ambusher"});
@@ -319,7 +323,7 @@ TEST_CASE("Command decoder accepts exactly the NPC kinds the welcome published",
   const std::vector<std::string> no_bots;
   const protocol::CommandDecodeResult refused = protocol::decode_command_envelope(
       R"({"kind":"seat_npc","payload":{"seat_index":1,"npc_kind":"wanderer"}})", lobby_kinds(),
-      stamped_entity(), stamped_controller(), no_bots);
+      stamped_entity(), stamped_controller(), simulation::NpcCatalogue::create(no_bots));
   CHECK_FALSE(refused.is_accepted());
   CHECK(refused.rejection() == protocol::CommandDecodeRejection::kPayloadInvalid);
 }

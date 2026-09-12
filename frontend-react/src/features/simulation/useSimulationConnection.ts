@@ -6,6 +6,7 @@ import {
   type SimulationDisconnection,
 } from './SimulationApi';
 import { SimulationApiError } from './SimulationApiError';
+import { npcCatalogueFromWelcome } from './npcCatalogue';
 import {
   describeRoomRefusal,
   findLobbyListing,
@@ -19,6 +20,7 @@ import type {
   SessionCommandKind,
   SessionEntitySnapshot,
   SessionMatchSection,
+  SessionNpcCatalogue,
   SessionSnapshotMessage,
   SessionTerrain,
   SessionWelcomeMessage,
@@ -49,8 +51,8 @@ export interface SimulationSessionIdentity {
   readonly mode: string;
   /** The server-advertised interval for eligible tuning attempts in this connection. */
   readonly movementTuningMinimumIntervalMilliseconds: number;
-  /** The NPC kinds a `seat_npc` may name, in the server's registry order: the whole bot menu. */
-  readonly npcControllerKinds: readonly string[];
+  /** Immutable plain/profiled choices from this welcome, in published declaration order. */
+  readonly npcCatalogue: SessionNpcCatalogue;
   /** The most seats the room's map can seat, which is what bounds a seat-count control. */
   readonly seatCountMaximum: number;
   readonly terrain: SessionTerrain;
@@ -177,7 +179,7 @@ export function simulationConnectionReducer(
           mode: action.welcome.data.mode,
           movementTuningMinimumIntervalMilliseconds:
             action.welcome.data.movement_tuning_minimum_interval_milliseconds,
-          npcControllerKinds: action.welcome.data.npc_controller_kinds,
+          npcCatalogue: npcCatalogueFromWelcome(action.welcome.data),
           seatCountMaximum: action.welcome.data.seat_count_maximum,
           terrain: action.welcome.data.terrain,
         }),

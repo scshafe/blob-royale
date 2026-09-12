@@ -2,11 +2,18 @@ add_library(blob_controllers STATIC
   chaser_controller.cpp
   controller.cpp
   controller_host.cpp
+  controller_observation_queries.cpp
   controller_registry.cpp
+  controller_steering.cpp
   hill_seeker_controller.cpp
   observation.cpp
   racer_controller.cpp
   scripted_replay_controller.cpp
+  tactical_controller.cpp
+  tactical_objective_candidates.cpp
+  tactical_profile.cpp
+  tactical_profile_catalogue.cpp
+  tactical_seed_identity.cpp
   wanderer_controller.cpp
 )
 

@@ -3,8 +3,15 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { LobbyPanel, type LobbyPanelProps } from './LobbyPanel';
-import { snapshotDocument } from './fixtures/sessionFrames';
+import { legacyNpcCatalogue, snapshotDocument } from './fixtures/sessionFrames';
 import { SEAT_COUNT_COMMAND_DEBOUNCE_MILLISECONDS } from './simulationConstants';
+import {
+  QUICK_NPC_PROFILE,
+  STEADY_NPC_PROFILE,
+  tacticalNpcCatalogue,
+  tacticalSeatCommand,
+  tacticalSnapshot,
+} from './fixtures/tacticalProfileFrames';
 import type {
   SessionMatchSection,
   SessionSeat,
@@ -15,6 +22,7 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 }).data;
 
@@ -51,7 +59,7 @@ function renderPanel(overrides: Partial<LobbyPanelProps> = {}) {
   const props: LobbyPanelProps = {
     entities: snapshot.entities,
     match: lobbyMatch(),
-    npcControllerKinds: ['wanderer', 'chaser'],
+    npcCatalogue: legacyNpcCatalogue,
     ownControllerId: 3,
     seatCountMaximum: 6,
     sendCommand,
@@ -137,8 +145,63 @@ describe('LobbyPanel', () => {
     expect(screen.getByRole('menu')).toBeVisible();
   });
 
+  it('offers complete profiled choices beside unchanged plain choices and seats the selected pair immediately', () => {
+    const { sendCommand } = renderPanel({
+      npcCatalogue: tacticalNpcCatalogue(),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Seat 4 Empty' }));
+    const menu = screen.getByRole('menu');
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent),
+    ).toEqual(['wanderer', 'chaser', 'tactical / steady', 'tactical / quick']);
+    expect(
+      within(menu).queryByRole('menuitem', { name: /^tactical$/ }),
+    ).toBeNull();
+    fireEvent.click(
+      within(menu).getByRole('menuitem', { name: 'tactical / quick' }),
+    );
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith(
+      tacticalSeatCommand(QUICK_NPC_PROFILE, 3),
+    );
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('replaces open-menu profiles from current props without retaining a previous profile selection', () => {
+    const { props, rerender, sendCommand } = renderPanel({
+      npcCatalogue: tacticalNpcCatalogue([STEADY_NPC_PROFILE]),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Seat 4 Empty' }));
+    rerender(
+      <LobbyPanel
+        {...props}
+        npcCatalogue={tacticalNpcCatalogue([QUICK_NPC_PROFILE])}
+      />,
+    );
+    expect(
+      screen.queryByRole('menuitem', { name: 'tactical / steady' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'tactical / quick' }));
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith(
+      tacticalSeatCommand(QUICK_NPC_PROFILE, 3),
+    );
+  });
+
+  it('publishes the joining profile while preserving clear-seat and Start waiting behavior', () => {
+    const data = tacticalSnapshot().data;
+    renderPanel({
+      entities: data.entities,
+      match: { ...data.match, phase: 'lobby' },
+      npcCatalogue: tacticalNpcCatalogue(),
+    });
+    expect(screen.getByText('tactical / steady (joining)')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Clear seat 3' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Start match' })).toBeDisabled();
+  });
+
   it("offers no bot on a person's seat and says so when no kind is registered", () => {
-    renderPanel({ npcControllerKinds: [] });
+    renderPanel({ npcCatalogue: { npc_controller_kinds: [] } });
 
     const contextMenu = fireEvent.contextMenu(screen.getByText(/Cole Shaffer/));
     expect(contextMenu).toBe(false);

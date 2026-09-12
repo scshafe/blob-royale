@@ -8,6 +8,7 @@ import {
 
 import {
   describeSeats,
+  npcSeatOptions,
   seatCountBounds,
   startAvailability,
   type SeatDescription,
@@ -16,14 +17,15 @@ import { SEAT_COUNT_COMMAND_DEBOUNCE_MILLISECONDS } from './simulationConstants'
 import type {
   SessionEntitySnapshot,
   SessionMatchSection,
+  SessionNpcCatalogue,
 } from './simulationProtocolTypes';
 import type { SimulationCommandSender } from './useSimulationConnection';
 
 export interface LobbyPanelProps {
   readonly entities: readonly SessionEntitySnapshot[];
   readonly match: SessionMatchSection;
-  /** `welcome.npc_controller_kinds`: the whole menu, read from the server's registry. */
-  readonly npcControllerKinds: readonly string[];
+  /** Exact plain/profiled choices admitted with this connection's welcome. */
+  readonly npcCatalogue: SessionNpcCatalogue;
   readonly ownControllerId: number | null;
   /** `welcome.seat_count_maximum`: the map's marker count, which caps the seat-count control. */
   readonly seatCountMaximum: number;
@@ -67,7 +69,7 @@ interface PendingSeatCount {
 export function LobbyPanel({
   entities,
   match,
-  npcControllerKinds,
+  npcCatalogue,
   ownControllerId,
   seatCountMaximum,
   sendCommand,
@@ -82,6 +84,7 @@ export function LobbyPanel({
     useState<PendingSeatCount | null>(null);
 
   const seats = describeSeats(match, entities, ownControllerId);
+  const npcOptions = npcSeatOptions(npcCatalogue);
   const bounds = seatCountBounds(match, seatCountMaximum);
   const availability = startAvailability(match);
   const publishedSeatCount = match.seats.length;
@@ -248,19 +251,19 @@ export function LobbyPanel({
                 className="SeatMenu"
                 role="menu"
               >
-                {npcControllerKinds.length === 0 ? (
+                {npcOptions.length === 0 ? (
                   <li className="SeatMenuEmpty" role="none">
                     No bot kinds are registered.
                   </li>
                 ) : (
-                  npcControllerKinds.map((npcKind) => (
-                    <li key={npcKind} role="none">
+                  npcOptions.map((option) => (
+                    <li key={option.key} role="none">
                       <button
                         onClick={() => {
                           sendCommand({
                             kind: 'seat_npc',
                             payload: {
-                              npc_kind: npcKind,
+                              ...option.declaration,
                               seat_index: seat.index,
                             },
                           });
@@ -269,7 +272,7 @@ export function LobbyPanel({
                         role="menuitem"
                         type="button"
                       >
-                        {npcKind}
+                        {option.label}
                       </button>
                     </li>
                   ))

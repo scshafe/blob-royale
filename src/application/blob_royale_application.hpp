@@ -76,9 +76,11 @@ private:
                         std::vector<std::unique_ptr<Room>> rooms,
                         observability::StructuredLogger& logger);
 
-  // The registered bot kinds, as the `welcome` publishes them. Static because it reads only the
-  // constexpr registry table.
-  [[nodiscard]] static std::vector<std::string> registered_npc_controller_kinds();
+  // One exact catalogue for publication and admission. Profiled rows require the mode's lobby
+  // capability and a configured profile; plain registry order remains unchanged.
+  [[nodiscard]] static simulation::NpcCatalogue
+  registered_npc_catalogue(const controllers::TacticalProfileCatalogue& profiles,
+                           bool supports_profiled_seats);
   // The directory the server is handed: one row per room, in room order.
   [[nodiscard]] static server::LobbyDirectory
   directory_of(std::span<const std::unique_ptr<Room>> rooms);

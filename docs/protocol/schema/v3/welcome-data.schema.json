@@ -58,7 +58,15 @@
       "items": {
         "$ref": "common.schema.json#/$defs/controller_kind"
       },
-      "$comment": "The exact set of NPC kinds a seat_npc command may name, read from the server's controller registry. maxItems is deliberately NOT the number of registered bots: it is a protocol constant, so registering a bot changes this array's contents and not this schema, which is what makes a new bot appear in every client's seat menu with no client change and no protocol version. Empty is legal and means no bot kind is registered, in which case no seat can be filled with one. Added in 2.3."
+      "$comment": "The unprofiled selectable partition of the immutable NPC catalogue, in declared order. Empty is legal. A kind MUST NOT appear here and in npc_profiles; both partitions come from the same validated server value. The unchanged limit is independent of the current registered bot count."
+    },
+    "npc_profiles": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "$ref": "npc-profile.schema.json" },
+      "$comment": "Profiled selectable partition of the same NPC catalogue, omitted when empty. Each exact kind/profile pair is unique and its kind is absent from npc_controller_kinds. Numeric personality settings remain configuration, not a second mutable client authority."
     },
     "lobby_id": {
       "$ref": "common.schema.json#/$defs/lobby_id",

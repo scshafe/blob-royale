@@ -60,6 +60,10 @@ enum class ApplicationInputErrorCode {
   kMapColumnCountInvalid,
   kMapValueInvalid,
   kMapNameMismatch,
+  kMatchBotProfileRequired,
+  kMatchBotProfileUnexpected,
+  kMatchBotProfileUnknown,
+  kMatchBotProfileModeUnsupported,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -169,6 +173,14 @@ application_input_error_code_name(const ApplicationInputErrorCode code) noexcept
     return "APPLICATION.MAP.VALUE_INVALID";
   case ApplicationInputErrorCode::kMapNameMismatch:
     return "APPLICATION.MAP.NAME_MISMATCH";
+  case ApplicationInputErrorCode::kMatchBotProfileRequired:
+    return "APPLICATION.MATCH.BOT_PROFILE_REQUIRED";
+  case ApplicationInputErrorCode::kMatchBotProfileUnexpected:
+    return "APPLICATION.MATCH.BOT_PROFILE_UNEXPECTED";
+  case ApplicationInputErrorCode::kMatchBotProfileUnknown:
+    return "APPLICATION.MATCH.BOT_PROFILE_UNKNOWN";
+  case ApplicationInputErrorCode::kMatchBotProfileModeUnsupported:
+    return "APPLICATION.MATCH.BOT_PROFILE_MODE_UNSUPPORTED";
   }
   return "APPLICATION.INPUT.ERROR_CODE_INVALID";
 }

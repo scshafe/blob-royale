@@ -26,7 +26,7 @@ namespace {
 [[nodiscard]] protocol::CommandDecodeResult decode_tuning(const boost::json::object& envelope) {
   return protocol::decode_command_envelope(
       boost::json::serialize(envelope), simulation::CommandKindMask::all(),
-      simulation::EntityId::create(7), simulation::ControllerId::create(3), {});
+      simulation::EntityId::create(7), simulation::ControllerId::create(3));
 }
 
 void require_invalid_payload(const boost::json::object& envelope) {
@@ -117,6 +117,6 @@ TEST_CASE("tuning command stays unavailable when the mode mask omits it",
   const auto decoded = protocol::decode_command_envelope(
       boost::json::serialize(tuning_envelope()),
       simulation::CommandKindMask::create({simulation::CommandKind::kThrust}),
-      simulation::EntityId::create(7), simulation::ControllerId::create(3), {});
+      simulation::EntityId::create(7), simulation::ControllerId::create(3));
   CHECK(decoded.rejection() == protocol::CommandDecodeRejection::kKindRejected);
 }

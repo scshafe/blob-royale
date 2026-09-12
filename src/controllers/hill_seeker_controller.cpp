@@ -3,6 +3,8 @@
 #include "commands/thrust_command.hpp"
 #include "component_store.hpp"
 #include "components/hill_component.hpp"
+#include "controller_observation_queries.hpp"
+#include "controller_steering.hpp"
 #include "controllers_validation_error.hpp"
 #include "player_snapshot.hpp"
 #include "simulation_limits.hpp"
@@ -19,28 +21,6 @@
 
 namespace blob_royale::controllers {
 namespace {
-
-// The published body of one entity in this snapshot's player projection, or nullptr when the
-// snapshot published none for it. The same lookup `chaser_controller.cpp` performs, kept private to
-// each bot so that adding one touches no other.
-[[nodiscard]] const simulation::PlayerSnapshot*
-find_player(const std::span<const simulation::PlayerSnapshot> players,
-            const simulation::EntityId entity) noexcept {
-  for (const simulation::PlayerSnapshot& player : players) {
-    if (player.entity_id() == entity) {
-      return &player;
-    }
-  }
-  return nullptr;
-}
-
-// A thrust direction component is a unit-interval intent and the `CommandSink` refuses one outside
-// `[-1, 1]`, so the boundary's range is enforced at the source. Here it does real work rather than
-// guarding a rounding edge: a full approach plus a full jitter is a component of up to two.
-[[nodiscard]] double clamped_direction_component(const double component) noexcept {
-  const double limit = simulation::kMaximumThrustDirectionComponentMagnitude;
-  return std::clamp(component, -limit, limit);
-}
 
 void require_weight(const double weight, const std::string& context) {
   if (!std::isfinite(weight)) {
@@ -88,7 +68,7 @@ HillSeekerController::decide_from_observation(const Observation& observation) {
 
   const simulation::EntityId self = *observation.entity();
   const simulation::WorldSnapshot& snapshot = observation.snapshot();
-  const simulation::PlayerSnapshot* const own = find_player(snapshot.players(), self);
+  const simulation::PlayerSnapshot* const own = find_observed_player(snapshot, self);
   if (own == nullptr) {
     // A `Controllable` with no `PhysicsBody`: `respawn` leaves exactly this behind while a timer
     // runs, and the observation still resolves the entity. Nothing to steer until the seat.
@@ -108,11 +88,12 @@ HillSeekerController::decide_from_observation(const Observation& observation) {
   hill_ = hill_entry.entity;
   const simulation::Hill& hill = hill_entry.value;
 
-  const double delta_x = hill.center.x() - own->position().x();
-  const double delta_y = hill.center.y() - own->position().y();
+  const auto delta = controller_target_offset(own->position(), hill.center);
+  const double delta_x = delta.x;
+  const double delta_y = delta.y;
   // `sqrt(x * x + y * y)` written out rather than `std::hypot`, for the reason
   // `chaser_controller.cpp` gives: the steering system this feeds computes magnitudes the same way.
-  const double magnitude = std::sqrt((delta_x * delta_x) + (delta_y * delta_y));
+  const double magnitude = controller_magnitude(delta);
   // The divisor is the larger of the distance and the radius: a unit heading outside the hill and
   // a proportional pull inside it, reaching zero at the centre. A hill of no radius is a
   // configuration the mode refuses, and is guarded so a zero divisor cannot produce a NaN heading.
@@ -131,8 +112,8 @@ HillSeekerController::decide_from_observation(const Observation& observation) {
   const double jitter_y = personality_.jitter_weight * ((random_.next_unit_interval() * 2.0) - 1.0);
 
   const simulation::Vector2 direction =
-      simulation::Vector2::create(clamped_direction_component(approach_x + jitter_x),
-                                  clamped_direction_component(approach_y + jitter_y));
+      simulation::Vector2::create(clamp_controller_direction_component(approach_x + jitter_x),
+                                  clamp_controller_direction_component(approach_y + jitter_y));
 
   return request_thrust(observation, direction);
 }

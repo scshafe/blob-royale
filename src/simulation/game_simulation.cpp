@@ -180,7 +180,8 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
       // The controller is absent because no bot exists yet. The runtime that creates one writes it
       // back; until it does, the seat is a declaration a client renders as joining
       // (`seat_roster.hpp`, NpcSeat).
-      match.seats.assign_seat(index, Seat{NpcSeat{seat_npc->kind, std::nullopt}});
+      match.seats.assign_seat(index,
+                              Seat{NpcSeat{seat_npc->kind, std::nullopt, seat_npc->profile_name}});
     }
     return true;
   }
@@ -229,7 +230,8 @@ using BodyEntry = ComponentStore<PhysicsBody>::Entry;
 // A controller already seated is left exactly where it is, so a session that keeps asking never
 // moves, and a join that finds nothing to take is the no-op that lets it ask again.
 void apply_join(GameWorld& world, const ControllerId controller,
-                const std::optional<std::uint64_t> seat_index) {
+                const std::optional<std::uint64_t> seat_index,
+                const std::optional<NpcDeclaration>& expected_npc) {
   SeatRoster& seats = world.mutable_match().seats;
   if (controller_holds_a_seat(seats, controller)) {
     return;
@@ -243,8 +245,12 @@ void apply_join(GameWorld& world, const ControllerId controller,
     if (declared == nullptr || declared->controller.has_value()) {
       return;
     }
-    const SeatKindName kind = declared->kind;
-    seats.assign_seat(index, Seat{NpcSeat{kind, controller}});
+    if (expected_npc.has_value() && declared->declaration() != *expected_npc) {
+      return;
+    }
+    NpcSeat joined = *declared;
+    joined.controller = controller;
+    seats.assign_seat(index, Seat{joined});
     return;
   }
   // The lowest empty seat, else a declared bot's before the match starts, else nothing: the rule
@@ -282,8 +288,9 @@ void apply_leave(GameWorld& world, const ControllerId controller) {
     }
     if (const auto* declared = std::get_if<NpcSeat>(&seat);
         declared != nullptr && declared->controller == controller) {
-      const SeatKindName kind = declared->kind;
-      seats.assign_seat(index, Seat{NpcSeat{kind, std::nullopt}});
+      NpcSeat vacated = *declared;
+      vacated.controller.reset();
+      seats.assign_seat(index, Seat{vacated});
     }
   }
 }
@@ -343,7 +350,7 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
       continue;
     }
     if (const auto* join = std::get_if<JoinCommand>(&command); join != nullptr) {
-      apply_join(world, join->controller, join->seat_index);
+      apply_join(world, join->controller, join->seat_index, join->expected_npc);
       continue;
     }
     if (const auto* leave = std::get_if<LeaveCommand>(&command); leave != nullptr) {

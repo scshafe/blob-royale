@@ -12,10 +12,11 @@ namespace blob_royale::application {
 Room::Room(const std::uint64_t lobby_id, simulation::GameSimulation game_simulation,
            const simulation::CommandKindMask accepted_command_kinds,
            const MatchConfiguration& match_configuration,
-           std::vector<std::string> npc_controller_kinds, observability::StructuredLogger& logger)
+           controllers::TacticalProfileCatalogue tactical_profiles,
+           simulation::NpcCatalogue npc_catalogue, observability::StructuredLogger& logger)
     : lobby_id_(lobby_id), seed_(match_configuration.seed() + (lobby_id - 1)),
       seat_count_maximum_(game_simulation.map().spawn_points().size()),
-      runtime_(std::move(game_simulation)),
+      runtime_(std::move(game_simulation), npc_catalogue),
       host_(runtime_.snapshot_publication(), runtime_.command_sink()),
       // The only capability the network boundary receives for this room, named in full: a
       // write-only command sink, a read-only presentation directory, and the identities a `welcome`
@@ -24,9 +25,10 @@ Room::Room(const std::uint64_t lobby_id, simulation::GameSimulation game_simulat
       match_session_(server::MatchSessionContext::create(
           lobby_id, runtime_.command_sink(), runtime_.tuning_result_delivery(),
           runtime_.controller_directory(), std::string{match_configuration.map_name()},
-          seat_count_maximum_, accepted_command_kinds, std::move(npc_controller_kinds))) {
+          seat_count_maximum_, accepted_command_kinds, std::move(npc_catalogue))) {
   if (accepted_command_kinds.contains(simulation::CommandKind::kStartMatch)) {
-    reconciler_.emplace(runtime_.command_sink(), host_, seed_, lobby_id_, logger);
+    reconciler_.emplace(runtime_.command_sink(), host_, seed_, match_configuration.seed(),
+                        lobby_id_, std::move(tactical_profiles), logger);
   } else {
     seat_configured_bots(match_configuration, logger);
   }

@@ -60,14 +60,29 @@ constexpr auto kCompletionDeadline = 1s;
 
 class SessionHarness final {
 public:
-  SessionHarness()
-      : publication_(fixture::initial_publication()),
+  enum class PublicationReadiness { kRunning, kNotStarted };
+
+  explicit SessionHarness(const PublicationReadiness readiness = PublicationReadiness::kRunning)
+      : publication_runtime_(fixture::game_simulation()),
         acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
-        lobbies_(fixture::single_lobby(publication_, match_session_.context())),
+        lobbies_(fixture::single_lobby(publication_runtime_.snapshot_publication(),
+                                       match_session_.context())),
         server_context_(std::make_shared<server::ServerExecutionContext>(
             server_io_context_, server_config(acceptor_.local_endpoint().port()), lobbies_,
             log_capture_.logger)),
         client_socket_(client_io_context_), server_socket_(server_io_context_) {
+    if (readiness == PublicationReadiness::kRunning) {
+      publication_runtime_.start();
+      const auto deadline = std::chrono::steady_clock::now() + kCompletionDeadline;
+      while (!publication_runtime_.snapshot_publication().is_ready() &&
+             std::chrono::steady_clock::now() < deadline) {
+        publication_runtime_.rethrow_if_failed();
+        std::this_thread::sleep_for(1ms);
+      }
+      if (!publication_runtime_.snapshot_publication().is_ready()) {
+        throw std::runtime_error{"test publication runtime did not become ready"};
+      }
+    }
     client_socket_.connect(acceptor_.local_endpoint());
     acceptor_.accept(server_socket_);
   }
@@ -76,7 +91,7 @@ public:
   SessionHarness(SessionHarness&&) = delete;
   SessionHarness& operator=(const SessionHarness&) = delete;
   SessionHarness& operator=(SessionHarness&&) = delete;
-  ~SessionHarness() = default;
+  ~SessionHarness() { publication_runtime_.stop(); }
 
   [[nodiscard]] std::shared_ptr<server::SessionWebSocketSession>
   make_session(const std::string_view request_id, server::PeerIdentity peer_identity) {
@@ -131,7 +146,11 @@ private:
 
   boost::asio::io_context server_io_context_{1};
   boost::asio::io_context client_io_context_{1};
-  runtime::SnapshotPublication publication_;
+  // These boundary tests deliberately separate publication from command execution. A real
+  // publication owner stays ready across presentation slots; the unstarted command fixture keeps
+  // commands queued, so tuning results and spawned bodies cannot race admission assertions.
+  // LiveRuntimeHarness below exercises the integrated command-to-publication path.
+  runtime::SimulationRuntime publication_runtime_;
   fixture::MatchSessionFixture match_session_;
   fixture::LogCapture log_capture_;
   Tcp::acceptor acceptor_;
@@ -289,6 +308,40 @@ TEST_CASE("SessionWebSocketSession reports handshake failure and retires nothing
   CHECK(harness.server_context()->traffic_policy().active_websocket_count() == 0);
 }
 
+TEST_CASE("SessionWebSocketSession retires an opened controller when publication is not ready",
+          "[unit][server][v3][session][readiness][retirement]") {
+  constexpr std::string_view kRequestId = "unit.session.publication-not-ready";
+  SessionHarness harness{SessionHarness::PublicationReadiness::kNotStarted};
+  const auto session = harness.make_session(kRequestId, direct_identity());
+  session->run(harness.request(kRequestId));
+
+  // Observe the terminal wire answer, not the transient open state: one poll may process both
+  // the accept callback and a due presentation slot on a slow instrumented build.
+  constexpr std::string_view kReason = "service_not_ready";
+  std::string received;
+  run_until(harness.server_io_context(), [&] {
+    const auto available = harness.client_socket().available();
+    if (available != 0) {
+      std::array<char, 4096> bytes{};
+      const auto count = harness.client_socket().read_some(
+          boost::asio::buffer(bytes.data(), std::min(bytes.size(), available)));
+      received.append(bytes.data(), count);
+    }
+    return received.find(kReason) != std::string::npos;
+  });
+  const auto reason_offset = received.find(kReason);
+  REQUIRE(reason_offset != std::string::npos);
+  REQUIRE(reason_offset >= 2);
+  CHECK(static_cast<unsigned char>(received[reason_offset - 2]) == 0x03);
+  CHECK(static_cast<unsigned char>(received[reason_offset - 1]) == 0xF5);
+  CHECK(harness.log_capture().contains_event("session.opened"));
+  CHECK(harness.controller_directory().size() == 0);
+  harness.client_socket().close();
+  run_until(harness.server_io_context(),
+            [&] { return count_events(harness, "session.closed") == 1; });
+  CHECK(count_events(harness, "session.closed") == 1);
+}
+
 TEST_CASE("SessionWebSocketSession opens exactly one controller and retires it exactly once",
           "[unit][server][v3][session][ownership]") {
   constexpr std::string_view kRequestId = "unit.session.close-once";
@@ -306,6 +359,10 @@ TEST_CASE("SessionWebSocketSession opens exactly one controller and retires it e
   run_until(harness.server_io_context(),
             [&harness] { return harness.controller_directory().size() == 1; });
 
+  for (const auto& event : harness.log_capture().events()) {
+    UNSCOPED_INFO("session event=" << event.event
+                                   << " close_code=" << event.close_code.value_or(0));
+  }
   REQUIRE(harness.controller_directory().size() == 1);
   CHECK(harness.log_capture().contains_event("session.opened"));
 
@@ -486,7 +543,7 @@ namespace {
 class LiveRuntimeHarness final {
 public:
   explicit LiveRuntimeHarness(simulation::GameSimulation game = fixture::game_simulation())
-      : simulation_runtime_(std::move(game)),
+      : simulation_runtime_(std::move(game), simulation::NpcCatalogue::create({"wanderer"})),
         acceptor_(server_io_context_, {boost::asio::ip::address_v4::loopback(), 0}),
         lobbies_(
             fixture::single_lobby(simulation_runtime_.snapshot_publication(), match_context())),
@@ -551,7 +608,7 @@ private:
         1, simulation_runtime_.command_sink(), simulation_runtime_.tuning_result_delivery(),
         simulation_runtime_.controller_directory(), std::string{fixture::kFixtureMapName},
         fixture::kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
-        std::vector<std::string>{"wanderer"});
+        simulation::NpcCatalogue::create({"wanderer"}));
   }
 
   [[nodiscard]] static server::ServerConfig server_config(const std::uint16_t port) {

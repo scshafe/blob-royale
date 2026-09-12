@@ -42,8 +42,21 @@ name is a duplicate section, and an instance that omits one of its family's keys
 Zero instances is legal and is what every configuration in this tree looked like before hazards. The
 instance-name *grammar* belongs to the value that publishes the name, exactly as `[match] mode` does:
 the loader refuses only an empty instance name, and `HazardArchetype::create` refuses one outside
-`common.schema.json#/$defs/kind_name`. The obvious second customer is a per-bot roster
-(`[bot.wanderer]`), which costs one prefix, one enumerator, and its keys — no new structure.
+`common.schema.json#/$defs/kind_name`. Tactical profiles are the second customer:
+`[bot_profile.<name>]` uses the same parser, with four required controller-owned values.
+
+`TacticalProfileCatalogue` retains up to 16 unique profiles in declaration order. Each requires
+`objective_seek_probability` (finite 0..1), `reaction_delay_ticks` (integer 0..4000), `aim_error`
+(finite 0..0.25), and `target_persistence_ticks` (integer 0..4000). Seeking chooses go versus coast;
+it never scales acceleration. Aim error is a perpendicular/forward ratio, not degrees. No implicit
+profile or inactive combat setting is accepted. Roster terms are `tactical@<profile>:<count>`;
+plain `kind:count` keeps its meaning. Profiled choices are supported in hill, race, and royale,
+but rejected at Sandbox startup because that mode has no stable authored-seat identity.
+
+The composition root derives one `NpcCatalogue` from registry metadata and these validated profile
+values. The same value supplies runtime admission and the session's plain/profile projections.
+Missing, unknown, and mismatched selections fail before a bot is constructed. Profile values stay
+server-side; the browser names a published choice rather than sending numeric settings.
 
 Map authoring uses the same section-family convention in `MapLoader`'s private strict INI reader.
 Every `map.cfg` must declare `[terrain] ground=solid` or `ground=corridors`; an older file with no
@@ -79,7 +92,13 @@ caller's thread: one decision pass per presentation frame for each host, and on 
 each room's dropped commands, overruns and re-bases, phase changes (`match.phase_changed`), and bot
 reconciliation, every line carrying the room's `lobby_id`. `SeatBotReconciler` makes the live bots
 match the committed seats: one bot for every declared seat nobody holds, joined to exactly that
-seat, and none for a seat that was cleared, resized away, or taken by a person. **A room nobody is
+seat, and none for a seat that was cleared, resized away, or taken by a person. Hosted ownership,
+pending joins, and failed-creation caching use the full kind/profile declaration. Replaced
+declarations retire immediately, and queued bot joins carry an exact-declaration guard so they
+cannot fill a replacement. Unguarded human and literal replay joins keep their previous semantics.
+Legacy diagnostic bots retain their room seed. Tactical bots use raw configured match seed,
+lobby ID, authored seat index, profile name, and observed running-start tick; controller allocation
+and catalogue order do not enter their seed. **A room nobody is
 in has no bots**: when a room's session count is zero while its match is in `countdown` or
 `running`, the loop tells the reconciliation the room is abandoned, its bots leave, the match ends
 by attrition, and the machine walks back to `lobby`, where the bots are reseated. **A room that

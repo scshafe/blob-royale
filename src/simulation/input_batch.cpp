@@ -134,6 +134,15 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
     validate_seat_count(seat_count->seat_count, submission_index);
   }
   if (const auto* join = std::get_if<JoinCommand>(&command);
+      join != nullptr && join->expected_npc.has_value() &&
+      (!join->seat_index.has_value() || !join->expected_npc->is_valid())) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kInputBatchJoinDeclarationInvalid,
+        "input_batch.commands.join.expected_npc",
+        "an expected NPC declaration requires a seat index and valid names" +
+            command_position(submission_index));
+  }
+  if (const auto* join = std::get_if<JoinCommand>(&command);
       join != nullptr && join->seat_index.has_value()) {
     validate_seat_index(*join->seat_index, "input_batch.commands.join.seat_index",
                         command_kind_name<JoinCommand>, submission_index);

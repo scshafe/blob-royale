@@ -9,6 +9,7 @@ import {
 } from './fixtures/stunInputFrames';
 
 import {
+  legacyNpcCatalogue,
   hillSnapshotDocument,
   raceScenarioDocument,
   type RaceSnapshotScenario,
@@ -44,6 +45,7 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 }).data;
 
@@ -125,6 +127,7 @@ const hill = validateSessionSnapshotMessage(hillSnapshotDocument(), {
   messageSequence: 1,
   requestId: hillSnapshotDocument().meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 }).data;
 
@@ -140,6 +143,7 @@ function raceFrame(scenario: RaceSnapshotScenario = 'running') {
     messageSequence: 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    npcCatalogue: legacyNpcCatalogue,
     terrain: raceTerrain,
   }).data;
 }
@@ -828,6 +832,7 @@ describe('sessionSelectors for the race', () => {
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      npcCatalogue: legacyNpcCatalogue,
       terrain: raceTerrain,
     }).data;
     expect(

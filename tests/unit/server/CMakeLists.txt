@@ -1,4 +1,5 @@
 add_executable(blob_server_unit_tests
+  npc_catalogue_session_tests.cpp
   game_api_router_tests.cpp
   game_server_tests.cpp
   http_header_preflight_tests.cpp

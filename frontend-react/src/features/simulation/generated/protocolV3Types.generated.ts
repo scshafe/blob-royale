@@ -57,7 +57,7 @@ type MutableError = {
   details: MutableErrorDetails;
 };
 /**
- * One seat in the lobby. Every member is always present and the member that does not apply is null, which is the shape outcome uses and for the same reason: a decoder reads one known member set rather than branching on which keys exist.
+ * One seat in the lobby. The three base members are always present and inapplicable values are null. A profiled NPC additionally carries profile_name; plain NPCs and non-NPC seats omit that member.
  *
  * This interface was referenced by `MutableBlobRoyaleProtocolV3MatchSection`'s JSON-Schema
  * via the `definition` "seat".
@@ -67,6 +67,7 @@ type MutableSeat = {
 } & {
   kind: 'controller' | 'empty' | 'npc';
   controller_id: number | null;
+  profile_name?: string;
   npc_kind: string | null;
 };
 /**
@@ -735,6 +736,177 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
    * @maxItems 64
    */
   npc_controller_kinds: string[];
+  /**
+   * @minItems 1
+   * @maxItems 16
+   */
+  npc_profiles?:
+    | [MutableBlobRoyaleProtocolV3NPCProfileChoice]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ]
+    | [
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+        MutableBlobRoyaleProtocolV3NPCProfileChoice,
+      ];
   lobby_id: number;
   seat_count_maximum: number;
 }
@@ -775,6 +947,13 @@ interface MutableHole {
    * via the `definition` "positive_world_scalar".
    */
   radius: number;
+}
+/**
+ * One immutable selectable NPC kind/profile pair. Profile settings are validated startup configuration; this wire value names a choice rather than exposing mutation authority.
+ */
+interface MutableBlobRoyaleProtocolV3NPCProfileChoice {
+  npc_kind: string;
+  profile_name: string;
 }
 
 export type BlobRoyaleProtocolV3ClientCommandEnvelope =
@@ -845,3 +1024,5 @@ export type BlobRoyaleProtocolV3WelcomeData =
 export type Corridor = DeepReadonly<MutableCorridor>;
 export type Point = DeepReadonly<MutablePoint>;
 export type Hole = DeepReadonly<MutableHole>;
+export type BlobRoyaleProtocolV3NPCProfileChoice =
+  DeepReadonly<MutableBlobRoyaleProtocolV3NPCProfileChoice>;

@@ -1,8 +1,34 @@
 import type {
   SessionEntitySnapshot,
   SessionMatchSection,
+  SessionNpcCatalogue,
   SessionSeat,
+  SessionSeatNpcCommand,
 } from './simulationProtocolTypes';
+
+export interface NpcSeatOption {
+  readonly key: string;
+  readonly label: string;
+  readonly declaration: Omit<SessionSeatNpcCommand['payload'], 'seat_index'>;
+}
+
+/** @canonical npc_seat_options -- expand the welcome's two projections into complete choices. */
+export function npcSeatOptions(
+  catalogue: SessionNpcCatalogue,
+): readonly NpcSeatOption[] {
+  return [
+    ...catalogue.npc_controller_kinds.map((npcKind) => ({
+      key: npcKind,
+      label: npcKind,
+      declaration: { npc_kind: npcKind },
+    })),
+    ...(catalogue.npc_profiles ?? []).map((profile) => ({
+      key: `${profile.npc_kind}:${profile.profile_name}`,
+      label: `${profile.npc_kind} / ${profile.profile_name}`,
+      declaration: profile,
+    })),
+  ];
+}
 
 /**
  * A seat is filled when somebody is actually in it: a person, or the bot the server has created
@@ -63,10 +89,12 @@ function seatLabel(
       );
     case 'npc': {
       const kind = seat.npc_kind ?? 'bot';
+      const profileSuffix =
+        seat.profile_name === undefined ? '' : ` / ${seat.profile_name}`;
       if (seat.controller_id === null) {
-        return `${kind} (joining)`;
+        return `${kind}${profileSuffix} (joining)`;
       }
-      return names.get(seat.controller_id) ?? kind;
+      return `${names.get(seat.controller_id) ?? kind}${profileSuffix}`;
     }
   }
 }

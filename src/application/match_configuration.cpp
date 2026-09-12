@@ -11,6 +11,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -67,10 +68,38 @@ using simulation::kMaximumKindNameLength;
   if (parse_error != std::errc{} || parse_end != text.data() + text.size()) {
     throw_roster_invalid("a roster term's count must be one unsigned base-10 integer");
   }
-  if (count == 0) {
+  return count;
+}
+
+// Shared by text parsing and direct validated-value construction: neither entry point may publish
+// a zero count, a repeated declaration, or an oversized roster. Registry policy stays in create.
+void require_roster_entry(const std::span<const MatchConfiguration::BotRosterEntry> preceding,
+                          const MatchConfiguration::BotRosterEntry& entry) {
+  if (preceding.size() >= MatchConfiguration::kMaximumBotRosterEntryCount) {
+    throw_roster_invalid("a roster may name at most " +
+                         std::to_string(MatchConfiguration::kMaximumBotRosterEntryCount) +
+                         " distinct declarations");
+  }
+  if (entry.controller_kind.empty()) {
+    throw_roster_invalid("a roster term's controller kind must not be empty");
+  }
+  if (entry.count == 0) {
     throw_roster_invalid("a roster term's count must be greater than zero; omit the term instead");
   }
-  return count;
+  const bool already_named = std::any_of(preceding.begin(), preceding.end(),
+                                         [&entry](const MatchConfiguration::BotRosterEntry& seen) {
+                                           return seen.controller_kind == entry.controller_kind &&
+                                                  seen.profile_name == entry.profile_name;
+                                         });
+  if (already_named) {
+    std::string declaration = entry.controller_kind;
+    if (entry.profile_name.has_value()) {
+      declaration.append("@");
+      declaration.append(entry.profile_name->value());
+    }
+    throw_roster_invalid("controller declaration " + declaration +
+                         " is named twice; one term carries the whole count");
+  }
 }
 
 } // namespace
@@ -95,9 +124,22 @@ MatchConfiguration::parse_bot_roster(const std::string_view value) {
 
     const std::size_t colon = term.find(':');
     if (colon == std::string_view::npos || term.find(':', colon + 1) != std::string_view::npos) {
-      throw_roster_invalid("a roster term must have the exact form <controller_kind>:<count>");
+      throw_roster_invalid("a roster term must be <kind>:<count> or <kind>@<profile>:<count>");
     }
-    const std::string_view controller_kind = trim_horizontal_whitespace(term.substr(0, colon));
+    const std::string_view declaration = trim_horizontal_whitespace(term.substr(0, colon));
+    const std::size_t at = declaration.find('@');
+    if (at != std::string_view::npos && declaration.find('@', at + 1) != std::string_view::npos) {
+      throw_roster_invalid("a profiled roster term must contain exactly one @ separator");
+    }
+    const std::string_view controller_kind = trim_horizontal_whitespace(declaration.substr(0, at));
+    std::optional<simulation::BotProfileName> profile_name;
+    if (at != std::string_view::npos) {
+      const std::string_view token = trim_horizontal_whitespace(declaration.substr(at + 1));
+      if (token.empty()) {
+        throw_roster_invalid("a profiled roster term must name a profile");
+      }
+      profile_name = simulation::BotProfileName::create(token);
+    }
     const std::string_view count_text = trim_horizontal_whitespace(term.substr(colon + 1));
     if (controller_kind.empty()) {
       throw_roster_invalid("a roster term's controller kind must not be empty");
@@ -105,19 +147,10 @@ MatchConfiguration::parse_bot_roster(const std::string_view value) {
     if (count_text.empty()) {
       throw_roster_invalid("a roster term's count must not be empty");
     }
-    if (entries.size() >= kMaximumBotRosterEntryCount) {
-      throw_roster_invalid("a roster may name at most " +
-                           std::to_string(kMaximumBotRosterEntryCount) + " distinct kinds");
-    }
-    const bool already_named = std::any_of(entries.cbegin(), entries.cend(),
-                                           [controller_kind](const BotRosterEntry& seen) {
-                                             return seen.controller_kind == controller_kind;
-                                           });
-    if (already_named) {
-      throw_roster_invalid("controller kind " + std::string{controller_kind} +
-                           " is named twice; one term carries the whole count");
-    }
-    entries.push_back(BotRosterEntry{std::string{controller_kind}, parse_bot_count(count_text)});
+    BotRosterEntry entry{std::string{controller_kind}, parse_bot_count(count_text),
+                         std::move(profile_name)};
+    require_roster_entry(entries, entry);
+    entries.push_back(std::move(entry));
 
     if (delimiter == std::string_view::npos) {
       break;
@@ -170,12 +203,27 @@ MatchConfiguration MatchConfiguration::create(std::string mode_name, std::string
   }
 
   std::uint64_t total_bots = 0;
-  for (const BotRosterEntry& entry : bot_roster) {
-    if (!controllers::ControllerRegistry::contains(entry.controller_kind)) {
+  const std::span<const BotRosterEntry> entries{bot_roster};
+  for (std::size_t index = 0; index < entries.size(); ++index) {
+    const BotRosterEntry& entry = entries[index];
+    require_roster_entry(entries.first(index), entry);
+    const controllers::ControllerRegistry::Registration* registration =
+        controllers::ControllerRegistry::find(entry.controller_kind);
+    if (registration == nullptr) {
       throw ApplicationInputError{ApplicationInputErrorCode::kMatchBotKindUnknown, "match.bots",
                                   "controller kind " + entry.controller_kind +
                                       " is registered by no row; the registered kinds are " +
                                       controllers::ControllerRegistry::registered_names()};
+    }
+    if (registration->requires_profile && !entry.profile_name.has_value()) {
+      throw ApplicationInputError{ApplicationInputErrorCode::kMatchBotProfileRequired, "match.bots",
+                                  "controller kind " + entry.controller_kind +
+                                      " requires an authored profile selection"};
+    }
+    if (!registration->requires_profile && entry.profile_name.has_value()) {
+      throw ApplicationInputError{
+          ApplicationInputErrorCode::kMatchBotProfileUnexpected, "match.bots",
+          "controller kind " + entry.controller_kind + " does not accept a profile selection"};
     }
     if (entry.count > kMaximumBotCount || total_bots > kMaximumBotCount - entry.count) {
       throw ApplicationInputError{ApplicationInputErrorCode::kMatchBotRosterTooLarge, "match.bots",

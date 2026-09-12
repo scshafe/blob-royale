@@ -1,4 +1,7 @@
 export { default as sessionCommandEnvelopeExample } from '../../../../../docs/protocol/schema/v3/examples/command-envelope.json';
+export { default as npcProfileExample } from '../../../../../docs/protocol/schema/v3/examples/npc-profile.json';
+export { default as seatNpcProfileCommandExample } from '../../../../../docs/protocol/schema/v3/examples/seat-npc-profile-command.json';
+export { default as sessionWelcomeProfileMessageExample } from '../../../../../docs/protocol/schema/v3/examples/welcome-profile-message.json';
 export { default as sessionErrorResponseExample } from '../../../../../docs/protocol/schema/v3/examples/error-response.json';
 export { default as hillMotionComponentExample } from '../../../../../docs/protocol/schema/v3/examples/hill-motion-component.json';
 export { default as stunComponentExample } from '../../../../../docs/protocol/schema/v3/examples/stun-component.json';

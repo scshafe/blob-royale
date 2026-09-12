@@ -74,7 +74,9 @@ public:
   // Takes exclusive ownership of a validated simulation and publishes its coherent initial state.
   // The entity-id cursor opens above everything the simulation has already committed and above its
   // map's whole static-body block, and the mailbox copies the mode's accepted command kinds.
-  explicit SimulationRuntime(simulation::GameSimulation game_simulation);
+  explicit SimulationRuntime(
+      simulation::GameSimulation game_simulation,
+      simulation::NpcCatalogue npc_catalogue = simulation::NpcCatalogue::empty());
 
   SimulationRuntime(const SimulationRuntime&) = delete;
   SimulationRuntime(SimulationRuntime&&) = delete;

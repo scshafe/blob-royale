@@ -5,6 +5,7 @@
 #include "command_registry.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "npc_catalogue.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -124,18 +125,16 @@ private:
 // from the mask is `kKindRejected`, which is the second of the two independent enforcement points;
 // `InputBatch::create` is the third and the `welcome` advertisement is none of them.
 //
-// `npc_controller_kinds` is the closed list this session's `welcome` published, read from
-// `ControllerRegistry` by the composition root. It is the one place a `seat_npc` payload's kind is
-// checked against what the server can actually build, and it is passed in rather than looked up
-// because the registry lives in `blob_controllers`, which this library neither links nor should.
+// `npc_catalogue` is the immutable selection authority also used by runtime admission and
+// projected into this session's welcome. A profile is matched exactly, including absence.
+// Registry factories stay in controllers; this boundary only reads admitted declarations.
 // related: command_wire_kind.hpp -- which simulation kinds a client may send, and under what name.
 // related: session_welcome.hpp -- the frame that publishes the same list to the client.
 // related: src/simulation/input_batch.hpp -- the revalidation inside the runtime.
-[[nodiscard]] CommandDecodeResult
-decode_command_envelope(std::string_view frame, simulation::CommandKindMask accepted_kinds,
-                        simulation::EntityId stamped_entity,
-                        simulation::ControllerId stamped_controller,
-                        std::span<const std::string> npc_controller_kinds);
+[[nodiscard]] CommandDecodeResult decode_command_envelope(
+    std::string_view frame, simulation::CommandKindMask accepted_kinds,
+    simulation::EntityId stamped_entity, simulation::ControllerId stamped_controller,
+    const simulation::NpcCatalogue& npc_catalogue = simulation::NpcCatalogue::empty());
 
 } // namespace blob_royale::protocol
 

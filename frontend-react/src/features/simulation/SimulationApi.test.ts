@@ -23,6 +23,16 @@ import {
 } from './fixtures/sessionFrames';
 import { namedRaceTerrain, raceTerrain } from './fixtures/terrainFrames';
 import {
+  INVALID_NPC_DECLARATIONS,
+  PROFILED_NPC_SEAT_INDEX,
+  QUICK_NPC_PROFILE,
+  STEADY_NPC_PROFILE,
+  tacticalSeatCommand,
+  tacticalSnapshotDocument,
+  tacticalWelcomeDocument,
+} from './fixtures/tacticalProfileFrames';
+import type { SessionCommand } from './simulationProtocolTypes';
+import {
   STUN_INPUT_GENERATION,
   THRUST_GENERATION_COMMAND_CASES,
 } from './fixtures/stunInputFrames';
@@ -1152,6 +1162,94 @@ describe('SimulationApi session lifecycle', () => {
         },
       }),
     ).toBe(true);
+  });
+
+  it('serializes complete profiled declarations after snapshots without losing welcome authority', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    api.openSession(configuration, 1, createCallbacks());
+    const socket = requireSocket(sockets);
+    socket.open();
+    socket.receive(JSON.stringify(tacticalWelcomeDocument()));
+    socket.receive(JSON.stringify(tacticalSnapshotDocument()));
+    expect(api.sendCommand(tacticalSeatCommand())).toBe(true);
+    const next = tacticalSnapshotDocument(STEADY_NPC_PROFILE, null, 3);
+    next.data.tick_sequence += 1;
+    socket.receive(JSON.stringify(next));
+    expect(api.sendCommand(tacticalSeatCommand(QUICK_NPC_PROFILE))).toBe(true);
+    expect(socket.sentMessages).toEqual([
+      '{"kind":"seat_npc","payload":{"npc_kind":"tactical","profile_name":"steady","seat_index":2}}',
+      '{"kind":"seat_npc","payload":{"npc_kind":"tactical","profile_name":"quick","seat_index":2}}',
+    ]);
+  });
+
+  it.each(INVALID_NPC_DECLARATIONS)(
+    'refuses $name locally without closing the valid session',
+    async ({ declaration }) => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const { api, configuration, sockets } = await createJoinedApi();
+      api.openSession(configuration, 1, createCallbacks());
+      const socket = requireSocket(sockets);
+      socket.open();
+      socket.receive(JSON.stringify(tacticalWelcomeDocument()));
+      expect(
+        api.sendCommand({
+          kind: 'seat_npc',
+          payload: { seat_index: PROFILED_NPC_SEAT_INDEX, ...declaration },
+        } as SessionCommand),
+      ).toBe(false);
+      expect(socket.send).not.toHaveBeenCalled();
+      expect(socket.close).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects an undeclared profile snapshot before publishing it', async () => {
+    const { api, configuration, sockets } = await createJoinedApi();
+    const callbacks = createCallbacks();
+    api.openSession(configuration, 1, callbacks);
+    const socket = requireSocket(sockets);
+    socket.open();
+    socket.receive(
+      JSON.stringify(tacticalWelcomeDocument([QUICK_NPC_PROFILE])),
+    );
+    socket.receive(
+      JSON.stringify(tacticalSnapshotDocument(STEADY_NPC_PROFILE)),
+    );
+    expect(callbacks.onSnapshot).not.toHaveBeenCalled();
+    expect(callbacks.onFailure).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'SIMULATION.SESSION_INVARIANT_VIOLATION',
+      }),
+    );
+    expect(socket.close).toHaveBeenCalledWith(1002, 'protocol_error');
+  });
+
+  it('replaces a closed connection catalogue and never reuses its old profiled capability', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { api, configuration, sockets } = await createJoinedApi([1, 2]);
+    api.openSession(configuration, 1, createCallbacks());
+    const firstSocket = requireSocket(sockets);
+    firstSocket.open();
+    firstSocket.receive(
+      JSON.stringify(tacticalWelcomeDocument([STEADY_NPC_PROFILE])),
+    );
+    expect(api.sendCommand(tacticalSeatCommand(STEADY_NPC_PROFILE))).toBe(true);
+    firstSocket.serverClose(1000, 'normal', true);
+    expect(api.sendCommand(tacticalSeatCommand(STEADY_NPC_PROFILE))).toBe(
+      false,
+    );
+    api.openSession(configuration, 2, createCallbacks());
+    const secondSocket = sockets[1];
+    if (secondSocket === undefined)
+      throw new Error('TEST.TACTICAL_SECOND_SOCKET_MISSING');
+    secondSocket.open();
+    secondSocket.receive(
+      JSON.stringify(tacticalWelcomeDocument([QUICK_NPC_PROFILE], 2)),
+    );
+    expect(api.sendCommand(tacticalSeatCommand(STEADY_NPC_PROFILE))).toBe(
+      false,
+    );
+    expect(api.sendCommand(tacticalSeatCommand(QUICK_NPC_PROFILE))).toBe(true);
+    expect(secondSocket.send).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a command whose payload the closed schema would reject', async () => {

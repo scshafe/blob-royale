@@ -9,6 +9,8 @@
 #include "movement_tuning.hpp"
 #include "royale/royale_configuration.hpp"
 #include "shared/hazard_archetype.hpp"
+#include "tactical_profile.hpp"
+#include "tactical_profile_catalogue.hpp"
 
 #include <array>
 #include <charconv>
@@ -166,8 +168,7 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
 // `[hazard.comet]` is still `KEY_UNKNOWN`, by the same lookup `[royale]` uses. A repeated instance
 // name is still `SECTION_DUPLICATE` and a repeated key still `KEY_DUPLICATE`. An instance that
 // omits one of its family's keys is still `KEY_MISSING`, because the schema is closed *within* an
-// instance even though the set of instances is not. Zero instances is legal and is what every
-// configuration in this tree looks like today.
+// instance even though the set of instances is not. Zero instances is legal.
 //
 // **The instance name's grammar is the domain's rule, not the parser's**, exactly as `[match] mode`
 // works: this file rejects only an empty instance name, which is a header it cannot parse, and
@@ -175,12 +176,11 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
 // naming the section it came from. Two copies of that grammar in one library would be the second
 // source of truth this concept exists to avoid.
 //
-// The second customer this seam has to survive is a per-bot roster: `[bot.wanderer]` carrying that
-// bot's own tuning is one more prefix in `kConfigSectionFamilies`, one more `ConfigSectionFamily`
-// enumerator, and its keys appended to `kConfigFamilyFieldSpecs` -- no new structure, because an
-// instance already stores its family alongside its values and every lookup already filters on it.
+// `[bot_profile.steady]` uses the same seam: its four settings are closed, while names are authored
+// in configuration alone. Each domain validates its own collected values after this strict parse.
 enum class ConfigSectionFamily : std::size_t {
   kHazard,
+  kBotProfile,
   kCount,
 };
 
@@ -194,6 +194,10 @@ enum class ConfigFamilyField : std::size_t {
   kHazardSpeed,
   kHazardSpawnInterval,
   kHazardLethalOnContact,
+  kBotProfileObjectiveSeekProbability,
+  kBotProfileReactionDelayTicks,
+  kBotProfileAimError,
+  kBotProfileTargetPersistenceTicks,
   kCount,
 };
 
@@ -208,7 +212,7 @@ struct ConfigFamilyFieldSpec final {
 // have carried is a spawn interval, and an interval is better per kind
 // (`gameplay/shared/hazard_archetype.hpp` states that decision and why `kinds=` is absent too).
 constexpr std::array<std::string_view, static_cast<std::size_t>(ConfigSectionFamily::kCount)>
-    kConfigSectionFamilies = {"hazard"};
+    kConfigSectionFamilies = {"hazard", "bot_profile"};
 
 // `[hazard.comet]` is one prefix, one separator, one instance name. The dot is the separator
 // because it is already how this loader spells `<section>.<key>` in every diagnostic it writes, so
@@ -229,7 +233,11 @@ constexpr std::array<ConfigFamilyFieldSpec, static_cast<std::size_t>(ConfigFamil
                                 {ConfigSectionFamily::kHazard, "restitution"},
                                 {ConfigSectionFamily::kHazard, "speed_world_units_per_second"},
                                 {ConfigSectionFamily::kHazard, "spawn_interval_seconds"},
-                                {ConfigSectionFamily::kHazard, "lethal_on_contact"}}};
+                                {ConfigSectionFamily::kHazard, "lethal_on_contact"},
+                                {ConfigSectionFamily::kBotProfile, "objective_seek_probability"},
+                                {ConfigSectionFamily::kBotProfile, "reaction_delay_ticks"},
+                                {ConfigSectionFamily::kBotProfile, "aim_error"},
+                                {ConfigSectionFamily::kBotProfile, "target_persistence_ticks"}}};
 
 // One declared `[<family>.<instance>]` section: its family, its open name, and one slot per key of
 // the closed schema. The slots a sibling family owns stay empty, which costs a startup-only parse
@@ -638,6 +646,12 @@ private:
                             config_family_field_context(instance, field));
 }
 
+[[nodiscard]] std::uint64_t parse_unsigned_family_value(const ConfigSectionFamilyInstance& instance,
+                                                        const ConfigFamilyField field) {
+  return parse_unsigned_value(*instance.values[static_cast<std::size_t>(field)],
+                              config_family_field_context(instance, field));
+}
+
 [[nodiscard]] bool parse_boolean_family_value(const ConfigSectionFamilyInstance& instance,
                                               const ConfigFamilyField field) {
   return parse_boolean_value(*instance.values[static_cast<std::size_t>(field)],
@@ -691,6 +705,27 @@ parse_hazard_archetypes(const StrictIniDocument& document) {
             parse_boolean_family_value(instance, ConfigFamilyField::kHazardLethalOnContact)}));
   }
   return archetypes;
+}
+
+// Preserve authored order; the controller-owned catalogue validates its own capacity and identity.
+[[nodiscard]] controllers::TacticalProfileCatalogue
+parse_tactical_profiles(const StrictIniDocument& document) {
+  std::vector<controllers::TacticalProfile> profiles;
+  for (const ConfigSectionFamilyInstance& instance : document.family_instances()) {
+    if (instance.family != ConfigSectionFamily::kBotProfile) {
+      continue;
+    }
+    profiles.push_back(controllers::TacticalProfile::create(controllers::TacticalProfile::Section{
+        .profile_name = instance.name,
+        .objective_seek_probability = parse_double_family_value(
+            instance, ConfigFamilyField::kBotProfileObjectiveSeekProbability),
+        .reaction_delay_ticks =
+            parse_unsigned_family_value(instance, ConfigFamilyField::kBotProfileReactionDelayTicks),
+        .aim_error = parse_double_family_value(instance, ConfigFamilyField::kBotProfileAimError),
+        .target_persistence_ticks = parse_unsigned_family_value(
+            instance, ConfigFamilyField::kBotProfileTargetPersistenceTicks)}));
+  }
+  return controllers::TacticalProfileCatalogue::create(std::move(profiles));
 }
 
 [[noreturn]] void throw_invalid_command_line(const std::string_view detail) {
@@ -854,6 +889,7 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
 
   const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(
       parse_unsigned_config_value(document, ConfigField::kLobbiesCount));
+  controllers::TacticalProfileCatalogue tactical_profiles = parse_tactical_profiles(document);
   // A scenario seeds one specific world -- bodies at named ids and velocities -- and a room is
   // built per lobby from the map alone, so a scenario and several rooms would be several rooms of
   // which only the first plays the scenario. That is a fixture that lies about itself; refuse it.
@@ -865,9 +901,10 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
             std::to_string(lobbies_configuration.count())};
   }
 
-  return RunRequest{ApplicationConfig::create(
-                        std::move(server_config), simulation_config, std::move(match_configuration),
-                        std::move(game_mode_configuration), lobbies_configuration),
+  return RunRequest{ApplicationConfig::create(std::move(server_config), simulation_config,
+                                              std::move(match_configuration),
+                                              std::move(game_mode_configuration),
+                                              lobbies_configuration, std::move(tactical_profiles)),
                     std::move(scenario_path)};
 }
 

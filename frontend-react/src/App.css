@@ -348,6 +348,8 @@ button.SeatButton {
   list-style: none;
   margin: 0;
   min-width: 100%;
+  max-height: min(20rem, 50vh);
+  overflow-y: auto;
   padding: 0.25rem;
   position: absolute;
   top: 100%;

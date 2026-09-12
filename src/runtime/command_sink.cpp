@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <variant>
 
 namespace blob_royale::runtime {
@@ -43,9 +44,11 @@ stamped_controller_of(const simulation::Command& command) noexcept {
 
 CommandSink::CommandSink(CommandMailbox& mailbox, ControllerDirectory& controller_directory,
                          const EntityIdAllocator& entity_id_allocator,
-                         const simulation::ControllerId::Value first_controller_id) noexcept
+                         const simulation::ControllerId::Value first_controller_id,
+                         simulation::NpcCatalogue npc_catalogue) noexcept
     : mailbox_(&mailbox), controller_directory_(&controller_directory),
-      entity_id_allocator_(&entity_id_allocator), next_controller_id_(first_controller_id) {}
+      entity_id_allocator_(&entity_id_allocator), next_controller_id_(first_controller_id),
+      npc_catalogue_(std::move(npc_catalogue)) {}
 
 simulation::ControllerId CommandSink::open_session(const std::string_view controller_kind,
                                                    const std::string_view display_name) {
@@ -160,6 +163,10 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
           }
           return CommandSubmissionResult::kAccepted;
         } else if constexpr (std::is_same_v<CommandType, simulation::JoinCommand>) {
+          if (value.expected_npc.has_value() &&
+              (!value.seat_index.has_value() || !value.expected_npc->is_valid())) {
+            return CommandSubmissionResult::kRejectedJoinDeclarationInvalid;
+          }
           if (value.seat_index.has_value() &&
               *value.seat_index >= simulation::kMaximumLobbySeatCount) {
             return CommandSubmissionResult::kRejectedSeatIndexOutOfRange;
@@ -172,6 +179,11 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
           // the tick, which is the disagreement that cannot be settled anywhere but there.
           if (value.seat_index >= simulation::kMaximumLobbySeatCount) {
             return CommandSubmissionResult::kRejectedSeatIndexOutOfRange;
+          }
+          if constexpr (std::is_same_v<CommandType, simulation::SeatNpcCommand>) {
+            if (!npc_catalogue_.contains(value.declaration())) {
+              return CommandSubmissionResult::kRejectedNpcDeclarationUnknown;
+            }
           }
           return CommandSubmissionResult::kAccepted;
         } else if constexpr (std::is_same_v<CommandType, simulation::SetSeatCountCommand>) {

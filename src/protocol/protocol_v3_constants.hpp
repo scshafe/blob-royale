@@ -127,6 +127,7 @@ inline constexpr std::size_t kLobbyDirectoryLimit = 8;
 // generous ceiling on how many kinds one build can register and is a bound the frame budget can
 // afford (`docs/protocol/v3.md` § "Limits").
 inline constexpr std::size_t kNpcControllerKindLimit = 64;
+inline constexpr std::size_t kNpcProfileLimit = 16;
 
 // Whether a name is a registered v3 component kind. The vocabulary is closed, so this is the whole
 // question and an unlisted name is a failure rather than a value to skip.

@@ -41,6 +41,8 @@ enum class CommandSubmissionResult : std::uint8_t {
   kRejectedTuningRevisionOutOfRange = 13,
   kRejectedTuningRateLimited = 14,
   kRejectedThrustInputGenerationOutOfRange = 15,
+  kRejectedNpcDeclarationUnknown = 16,
+  kRejectedJoinDeclarationInvalid = 17,
 };
 
 // Whether the command is now pending for a tick. The two acceptances are the only values for which
@@ -87,6 +89,10 @@ command_submission_result_name(const CommandSubmissionResult result) noexcept {
     return "rejected_tuning_rate_limited";
   case CommandSubmissionResult::kRejectedThrustInputGenerationOutOfRange:
     return "rejected_thrust_input_generation_out_of_range";
+  case CommandSubmissionResult::kRejectedNpcDeclarationUnknown:
+    return "rejected_npc_declaration_unknown";
+  case CommandSubmissionResult::kRejectedJoinDeclarationInvalid:
+    return "rejected_join_declaration_invalid";
   }
   return "command_submission_result_invalid";
 }

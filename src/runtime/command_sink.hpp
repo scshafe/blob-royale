@@ -7,6 +7,7 @@
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
 #include "entity_id_allocator.hpp"
+#include "npc_catalogue.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -71,7 +72,8 @@ public:
   // body it never asked for instead of spawning. `above_committed_state` computes it.
   CommandSink(CommandMailbox& mailbox, ControllerDirectory& controller_directory,
               const EntityIdAllocator& entity_id_allocator,
-              simulation::ControllerId::Value first_controller_id) noexcept;
+              simulation::ControllerId::Value first_controller_id,
+              simulation::NpcCatalogue npc_catalogue = simulation::NpcCatalogue::empty()) noexcept;
 
   // The lowest controller id no session has been issued yet, for diagnostics and tests.
   [[nodiscard]] simulation::ControllerId::Value next_controller_id() const noexcept {
@@ -115,6 +117,7 @@ private:
   ControllerDirectory* controller_directory_;
   const EntityIdAllocator* entity_id_allocator_;
   std::atomic<simulation::ControllerId::Value> next_controller_id_;
+  simulation::NpcCatalogue npc_catalogue_;
 };
 
 } // namespace blob_royale::runtime

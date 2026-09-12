@@ -8,6 +8,7 @@
 #include "movement_tuning_result_delivery.hpp"
 
 #include "command_kind_mask.hpp"
+#include "npc_catalogue.hpp"
 
 #include <cstdint>
 #include <span>
@@ -38,13 +39,9 @@ namespace blob_royale::server {
 // mode the engine is constructed with, so the advertised set and the enforced set cannot drift:
 // the mode is fixed for the process lifetime and this value is a copy of its declaration.
 //
-// **`npc_controller_kinds` is `ControllerRegistry`'s own list**, read once at composition for the
-// same reason and carried here because `blob_server` neither links `blob_controllers` nor should:
-// the server has no business constructing a bot, only publishing which ones exist and refusing a
-// `seat_npc` that names one that does not. It earns its place by being the one value that makes
-// "registering a bot costs no client change" true
-// -- the `welcome` publishes it and `decode_command_envelope` enforces it, from one source
-// (`src/protocol/session_welcome.hpp`).
+// **`npc_catalogue` is the composition root's validated selection set**, shared with runtime
+// admission. Its plain kinds and profiled declarations teach the welcome and decoder the same
+// exact choices. The server neither links controllers nor chooses tactical policy.
 // related: docs/protocol/v3.md -- the boundary this crosses.
 // related: session_websocket_session.hpp -- the only consumer.
 class MatchSessionContext final {
@@ -52,9 +49,7 @@ public:
   // Validates the map name against `common.schema.json#/$defs/map_name`, because a name the
   // welcome could not encode must fail at startup rather than on every session's first frame.
   // Throws GameServerError with `SERVER.SESSION.INVARIANT_FAILED`.
-  // Validates the map name and every published NPC controller kind against
-  // `common.schema.json#/$defs/kind_name`, because a name the welcome could not encode must fail at
-  // startup rather than on every session's first frame.
+  // NPC names and partition budgets are already validated by NpcCatalogue construction.
   //
   // `lobby_id` is the room this capability belongs to, `1..N`: every line a session logs carries
   // it, and protocol 2.4's `welcome.lobby_id` publishes it. Zero is refused.
@@ -68,7 +63,7 @@ public:
          runtime::MovementTuningResultDelivery& tuning_result_delivery,
          const runtime::ControllerDirectory& controller_directory, std::string map_name,
          std::uint64_t seat_count_maximum, simulation::CommandKindMask accepted_command_kinds,
-         std::vector<std::string> npc_controller_kinds);
+         simulation::NpcCatalogue npc_catalogue);
 
   MatchSessionContext(const MatchSessionContext&) = default;
   MatchSessionContext(MatchSessionContext&&) noexcept = default;
@@ -98,9 +93,17 @@ public:
 
   // The seatable NPC kinds, in the registry's declared order.
   [[nodiscard]] std::span<const std::string> npc_controller_kinds() const& noexcept {
-    return npc_controller_kinds_;
+    return npc_catalogue_.unprofiled_kinds();
   }
   [[nodiscard]] std::span<const std::string> npc_controller_kinds() const&& = delete;
+  [[nodiscard]] std::span<const simulation::NpcDeclaration> npc_profiles() const& noexcept {
+    return npc_catalogue_.profiles();
+  }
+  [[nodiscard]] std::span<const simulation::NpcDeclaration> npc_profiles() const&& = delete;
+  [[nodiscard]] const simulation::NpcCatalogue& npc_catalogue() const& noexcept {
+    return npc_catalogue_;
+  }
+  [[nodiscard]] const simulation::NpcCatalogue& npc_catalogue() const&& = delete;
 
 private:
   MatchSessionContext(std::uint64_t lobby_id, runtime::CommandSink& command_sink,
@@ -108,7 +111,7 @@ private:
                       const runtime::ControllerDirectory& controller_directory,
                       std::string map_name, std::uint64_t seat_count_maximum,
                       simulation::CommandKindMask accepted_command_kinds,
-                      std::vector<std::string> npc_controller_kinds) noexcept;
+                      simulation::NpcCatalogue npc_catalogue) noexcept;
 
   std::uint64_t lobby_id_;
   runtime::CommandSink* command_sink_;
@@ -117,7 +120,7 @@ private:
   std::string map_name_;
   std::uint64_t seat_count_maximum_;
   simulation::CommandKindMask accepted_command_kinds_;
-  std::vector<std::string> npc_controller_kinds_;
+  simulation::NpcCatalogue npc_catalogue_;
 };
 
 } // namespace blob_royale::server

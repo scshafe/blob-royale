@@ -10,6 +10,7 @@
 
 #include "command_kind_mask.hpp"
 #include "game_simulation.hpp"
+#include "npc_catalogue.hpp"
 #include "simulation_runtime.hpp"
 
 #include "structured_logger.hpp"
@@ -40,8 +41,9 @@ public:
   // server did; a mode with a lobby gets its bots from the reconciliation on every control poll.
   Room(std::uint64_t lobby_id, simulation::GameSimulation game_simulation,
        simulation::CommandKindMask accepted_command_kinds,
-       const MatchConfiguration& match_configuration, std::vector<std::string> npc_controller_kinds,
-       observability::StructuredLogger& logger);
+       const MatchConfiguration& match_configuration,
+       controllers::TacticalProfileCatalogue tactical_profiles,
+       simulation::NpcCatalogue npc_catalogue, observability::StructuredLogger& logger);
 
   Room(const Room&) = delete;
   Room(Room&&) = delete;
@@ -61,7 +63,7 @@ public:
     return match_session_;
   }
   [[nodiscard]] const server::MatchSessionContext& match_session() const&& = delete;
-  // The seed this room's bots and world were built from.
+  // The legacy diagnostic-bot/world seed. Tactical identity also keeps the raw configured seed.
   [[nodiscard]] std::uint64_t seed() const noexcept { return seed_; }
   // The most seats this room's map can seat: its spawn-marker count, which `welcome` and the lobby
   // directory both publish as `seat_count_maximum`.

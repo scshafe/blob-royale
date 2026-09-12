@@ -109,6 +109,10 @@ inline constexpr double kMaximumThrustDirectionComponentMagnitude = 1.0;
 // § `$defs/kind_name`, shared by every configured kind name: a mode, a controller kind, a hazard
 // kind. Paired with `snake_case_identity.hpp`'s grammar by `is_wire_kind_name`.
 inline constexpr std::size_t kMaximumKindNameLength = 64;
+inline constexpr std::size_t kMaximumUnprofiledNpcKindCount = 64;
+inline constexpr std::size_t kMaximumNpcProfileCount = 16;
+inline constexpr std::size_t kMaximumNpcCatalogueChoiceCount =
+    kMaximumUnprofiledNpcKindCount + kMaximumNpcProfileCount;
 
 inline constexpr std::size_t kMaximumContactRuleNameLength = 64;
 // One map's authored content. Static bodies and markers each take an entity slot once a mode seats

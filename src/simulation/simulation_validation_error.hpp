@@ -117,11 +117,29 @@ enum class SimulationValidationCode {
   kInputBatchTuningRevisionOutOfRange,
   kTickWindowExpiryOverflow,
   kInputBatchInputGenerationZero,
+  kBotProfileNameInvalid,
+  kNpcCatalogueLimitExceeded,
+  kNpcCatalogueDuplicate,
+  kNpcCatalogueMixedKind,
+  kNpcCatalogueProfileMissing,
+  kInputBatchJoinDeclarationInvalid,
 };
 
 [[nodiscard]] constexpr std::string_view
 simulation_validation_code_name(const SimulationValidationCode code) noexcept {
   switch (code) {
+  case SimulationValidationCode::kBotProfileNameInvalid:
+    return "SIMULATION.BOT_PROFILE_NAME_INVALID";
+  case SimulationValidationCode::kNpcCatalogueLimitExceeded:
+    return "SIMULATION.NPC_CATALOGUE_LIMIT_EXCEEDED";
+  case SimulationValidationCode::kNpcCatalogueDuplicate:
+    return "SIMULATION.NPC_CATALOGUE_DUPLICATE";
+  case SimulationValidationCode::kNpcCatalogueMixedKind:
+    return "SIMULATION.NPC_CATALOGUE_MIXED_KIND";
+  case SimulationValidationCode::kNpcCatalogueProfileMissing:
+    return "SIMULATION.NPC_CATALOGUE_PROFILE_MISSING";
+  case SimulationValidationCode::kInputBatchJoinDeclarationInvalid:
+    return "SIMULATION.INPUT_BATCH_JOIN_DECLARATION_INVALID";
   case SimulationValidationCode::kTickWindowExpiryOverflow:
     return "SIMULATION.TICK_WINDOW_EXPIRY_OVERFLOW";
   case SimulationValidationCode::kInputBatchInputGenerationZero:

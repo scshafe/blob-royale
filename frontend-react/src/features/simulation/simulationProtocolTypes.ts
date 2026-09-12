@@ -55,6 +55,14 @@ export type SessionCommandKind =
 
 /** Immutable authored geometry, owned by the validated welcome rather than per-tick frames. */
 export type SessionTerrain = BlobRoyaleProtocolV3WelcomeData['terrain'];
+/** The two immutable wire projections of the room's one NPC selection authority. */
+export type SessionNpcCatalogue = Pick<
+  BlobRoyaleProtocolV3WelcomeData,
+  'npc_controller_kinds' | 'npc_profiles'
+>;
+export type SessionNpcProfile = NonNullable<
+  SessionNpcCatalogue['npc_profiles']
+>[number];
 export type SessionMovementTuning =
   BlobRoyaleProtocolV3MatchSection['movement']['current'];
 export type SessionMovementState = BlobRoyaleProtocolV3MatchSection['movement'];
@@ -110,7 +118,11 @@ export interface SessionSetSeatCountCommand {
 /** Fills an empty seat with a bot of a kind the welcome published; never replaces an occupant. */
 export interface SessionSeatNpcCommand {
   readonly kind: 'seat_npc';
-  readonly payload: { readonly npc_kind: string; readonly seat_index: number };
+  readonly payload: {
+    readonly npc_kind: string;
+    readonly seat_index: number;
+    readonly profile_name?: string;
+  };
 }
 
 /** Empties an NPC seat; a person's seat belongs to a live session and is left alone. */

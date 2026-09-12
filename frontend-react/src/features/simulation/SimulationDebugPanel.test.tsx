@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { SimulationDebugPanel } from './SimulationDebugPanel';
 import { DEBUG_ENTITY_ROW_LIMIT } from './simulationConstants';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
-import { snapshotDocument, welcomeDocument } from './fixtures/sessionFrames';
+import {
+  legacyNpcCatalogue,
+  snapshotDocument,
+  welcomeDocument,
+} from './fixtures/sessionFrames';
 import {
   SUPPORTED_PROTOCOL_VERSION,
   validateSessionSnapshotMessage,
@@ -28,7 +32,7 @@ const session: SimulationSessionIdentity = Object.freeze({
   mode: 'royale',
   movementTuningMinimumIntervalMilliseconds:
     welcomeDocument().data.movement_tuning_minimum_interval_milliseconds,
-  npcControllerKinds: ['wanderer', 'chaser'],
+  npcCatalogue: legacyNpcCatalogue,
   seatCountMaximum: 32,
   terrain: solidTerrain,
 });
@@ -57,6 +61,7 @@ describe('SimulationDebugPanel', () => {
       messageSequence: 1,
       requestId: document.meta.request_id,
       tickSequence: null,
+      npcCatalogue: legacyNpcCatalogue,
       terrain: solidTerrain,
     });
 

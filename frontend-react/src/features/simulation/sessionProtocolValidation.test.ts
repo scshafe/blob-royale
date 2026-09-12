@@ -8,6 +8,17 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationApiError } from './SimulationApiError';
 import {
+  INVALID_NPC_CATALOGUES,
+  INVALID_NPC_DECLARATIONS,
+  MAXIMUM_NPC_CATALOGUE,
+  PROFILED_NPC_SEAT_INDEX,
+  STEADY_NPC_PROFILE,
+  tacticalNpcCatalogue,
+  tacticalSeatCommand,
+  tacticalSnapshotDocument,
+  tacticalWelcomeDocument,
+} from './fixtures/tacticalProfileFrames';
+import {
   acceptedHillMotionComponents,
   hillMotionSnapshotDocument,
   malformedHillMotionComponents,
@@ -20,6 +31,7 @@ import {
   sessionWelcomeMessageExample,
 } from './fixtures/protocolV3Examples';
 import {
+  legacyNpcCatalogue,
   firstEntity,
   MAXIMUM_PUBLISHED_WORLD_SCALAR,
   MAXIMUM_TERRAIN_WORLD_SCALAR,
@@ -59,6 +71,7 @@ const welcomeSequence: SessionSequenceState = Object.freeze({
   messageSequence: 1,
   requestId: sessionWelcomeMessageExample.meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 });
 
@@ -92,6 +105,119 @@ function silenceProtocolWarnings() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe('NPC catalogue and profile protocol', () => {
+  it.each(INVALID_NPC_CATALOGUES)('rejects $name in welcome', ({ fields }) => {
+    const document = tacticalWelcomeDocument();
+    Object.assign(document.data, fields);
+    expect(() => validateSessionWelcomeMessage(document, null)).toThrow(
+      SimulationApiError,
+    );
+  });
+
+  it('admits the inclusive 64 plain and 16 profiled choices budget', () => {
+    const document = tacticalWelcomeDocument();
+    Object.assign(document.data, MAXIMUM_NPC_CATALOGUE);
+    expect(() => validateSessionWelcomeMessage(document, null)).not.toThrow();
+  });
+
+  it('allows the same profile name under distinct profiled kinds', () => {
+    const document = tacticalWelcomeDocument([
+      STEADY_NPC_PROFILE,
+      { ...STEADY_NPC_PROFILE, npc_kind: 'another_algorithm' },
+    ]);
+    expect(() => validateSessionWelcomeMessage(document, null)).not.toThrow();
+  });
+
+  it('admits a complete declared profile and freezes it on a published NPC seat', () => {
+    const snapshot = validateSessionSnapshotMessage(
+      tacticalSnapshotDocument(),
+      {
+        ...welcomeSequence,
+        npcCatalogue: tacticalNpcCatalogue(),
+      },
+    );
+    expect(snapshot.data.match.seats[PROFILED_NPC_SEAT_INDEX]).toMatchObject(
+      STEADY_NPC_PROFILE,
+    );
+    expect(
+      Object.isFrozen(snapshot.data.match.seats[PROFILED_NPC_SEAT_INDEX]),
+    ).toBe(true);
+    expect(() =>
+      validateSessionCommand(tacticalSeatCommand(), tacticalNpcCatalogue()),
+    ).not.toThrow();
+  });
+
+  it('admits no NPC command by default when no catalogue is supplied', () => {
+    expect(() => validateSessionCommand(tacticalSeatCommand())).toThrow(
+      SimulationApiError,
+    );
+    expect(() =>
+      validateSessionCommand({
+        kind: 'seat_npc',
+        payload: { npc_kind: 'wanderer', seat_index: PROFILED_NPC_SEAT_INDEX },
+      }),
+    ).toThrow(SimulationApiError);
+  });
+
+  it.each(INVALID_NPC_DECLARATIONS)(
+    'rejects $name on outgoing and published NPC declarations',
+    ({ declaration }) => {
+      const command = {
+        kind: 'seat_npc',
+        payload: { seat_index: PROFILED_NPC_SEAT_INDEX, ...declaration },
+      };
+      expect(() =>
+        validateSessionCommand(
+          command as SessionCommand,
+          tacticalNpcCatalogue(),
+        ),
+      ).toThrow(SimulationApiError);
+      const document = tacticalSnapshotDocument();
+      document.data.match.seats[PROFILED_NPC_SEAT_INDEX] = {
+        kind: 'npc',
+        controller_id: null,
+        ...declaration,
+      } as (typeof document.data.match.seats)[number];
+      expect(() =>
+        validateSessionSnapshotMessage(document, {
+          ...welcomeSequence,
+          npcCatalogue: tacticalNpcCatalogue(),
+        }),
+      ).toThrow(SimulationApiError);
+    },
+  );
+
+  it('rejects a profile from a previous welcome catalogue', () => {
+    expect(() =>
+      validateSessionSnapshotMessage(
+        tacticalSnapshotDocument(),
+        welcomeSequence,
+      ),
+    ).toThrow(SimulationApiError);
+  });
+
+  it.each(['empty', 'controller'] as const)(
+    'rejects profile metadata on a %s seat',
+    (kind) => {
+      const document = tacticalSnapshotDocument();
+      const seat = document.data.match.seats[PROFILED_NPC_SEAT_INDEX];
+      if (seat === undefined)
+        throw new Error('TEST.TACTICAL_PROFILE_SEAT_MISSING');
+      Object.assign(seat, {
+        kind,
+        npc_kind: null,
+        controller_id: kind === 'controller' ? 3 : null,
+      });
+      expect(() =>
+        validateSessionSnapshotMessage(document, {
+          ...welcomeSequence,
+          npcCatalogue: tacticalNpcCatalogue(),
+        }),
+      ).toThrow(SimulationApiError);
+    },
+  );
 });
 
 describe('stun and input generation protocol', () => {
@@ -692,6 +818,7 @@ describe('validateSessionSnapshotMessage', () => {
         messageSequence: 2,
         requestId: document.meta.request_id,
         tickSequence: document.data.tick_sequence,
+        npcCatalogue: legacyNpcCatalogue,
         terrain: solidTerrain,
       }),
     ).toThrow(/strictly increase/);
@@ -705,6 +832,7 @@ describe('validateSessionSnapshotMessage', () => {
         messageSequence: 2,
         requestId: document.meta.request_id,
         tickSequence: document.data.tick_sequence - 1,
+        npcCatalogue: legacyNpcCatalogue,
         terrain: solidTerrain,
       }),
     ).toThrow(/increment exactly once/);
@@ -718,6 +846,7 @@ describe('validateSessionSnapshotMessage', () => {
         messageSequence: 1,
         requestId: 'different-request-id',
         tickSequence: null,
+        npcCatalogue: legacyNpcCatalogue,
         terrain: solidTerrain,
       }),
     ).toThrow(/request_id changed/);
@@ -1082,7 +1211,7 @@ describe('validateSessionCommand for the lobby kinds', () => {
     ];
     for (const command of commands) {
       expect(() => {
-        validateSessionCommand(command);
+        validateSessionCommand(command, legacyNpcCatalogue);
       }).not.toThrow();
     }
   });

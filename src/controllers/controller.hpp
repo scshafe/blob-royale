@@ -111,6 +111,10 @@ public:
 protected:
   explicit Controller(simulation::ControllerId controller) noexcept;
 
+  // Default preserves every legacy pass, including repeated snapshots. A stateful reader may
+  // reject an observation before identity/retry mutation; controller identity was already checked.
+  [[nodiscard]] virtual bool accepts_observation(const Observation&) const noexcept { return true; }
+
   // canonical: controller_spawn_request -- the one way a controller asks for a body, and the one
   // rule for when it may ask again.
   //

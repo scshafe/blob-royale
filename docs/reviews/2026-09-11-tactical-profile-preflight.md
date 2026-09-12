@@ -6,11 +6,12 @@ ADR 0008 § “Tactical personalities without a class per mood”. No Phase C wo
 Step 14's shared stun/input-lock and input-generation/echo contract is a supplied dependency,
 not a design reopened by this review. No builds or tests were run for this preflight.
 
-## Unresolved owner scope
+## Owner scope resolved (2026-09-11)
 
-The asynchronous owner question remains unanswered: **expose objective-seeking, reaction timing,
-aim error, and target persistence now, adding aggression/charge/shield behavior in the combat step;
-or defer tactical profiles until combat is ready? A preselected answer is not approval.**
+The owner explicitly selected **objective-seeking, reaction timing, aim error, and target
+persistence now**, with aggression/charge/shield settings deferred until their combat behavior
+exists. This resolves the earlier scope question; the engineering prerequisites below still
+need a concrete implementation contract and verification.
 
 ADR 0008:416 lists parameter categories, but gives no concrete Step 15 fields, bounds, defaults,
 candidate ranking, or no-candidate behavior. Step 22 owns the combat choices and named
@@ -106,5 +107,5 @@ controllable/body join.
   encoder/decoder, schemas/examples and budget checks.
 - Frontend: catalogue validation/retention, selection and seat labels, room/reconnect tests.
 
-Next action: obtain the pending owner scope answer, then amend Step 15's implementation/proof
-contract before release. Root owns that amendment, manifests, generation, and serial verification.
+Next action: amend Step 15's implementation/proof contract for the approved subset before release.
+Root owns that amendment, manifests, generation, and serial verification.

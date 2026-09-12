@@ -133,6 +133,9 @@
     "controller_kind": {
       "$ref": "#/$defs/kind_name"
     },
+    "bot_profile_name": {
+      "$ref": "#/$defs/kind_name"
+    },
     "map_name": {
       "type": "string",
       "minLength": 1,

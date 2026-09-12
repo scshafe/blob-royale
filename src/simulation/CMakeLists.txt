@@ -13,6 +13,7 @@ add_library(blob_simulation STATIC
   match_lifecycle_system.cpp
   motion_triggers.cpp
   movement_tuning.cpp
+  npc_catalogue.cpp
   physics.cpp
   physics_body.cpp
   player_snapshot.cpp

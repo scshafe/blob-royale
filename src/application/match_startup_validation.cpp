@@ -150,9 +150,9 @@ initial_seat_roster_for(const simulation::GameMode& mode, const std::uint64_t lo
       // The kind was checked against the controller registry when the roster was parsed, and the
       // registry's names satisfy the published kind-name grammar by construction
       // (`match_session_context.cpp`), so this cannot throw for a loaded configuration.
-      roster.assign_seat(
-          next_seat, simulation::Seat{simulation::NpcSeat{
-                         simulation::SeatKindName::create(entry.controller_kind), std::nullopt}});
+      roster.assign_seat(next_seat, simulation::Seat{simulation::NpcSeat{
+                                        simulation::SeatKindName::create(entry.controller_kind),
+                                        std::nullopt, entry.profile_name}});
       ++next_seat;
     }
   }

@@ -79,6 +79,14 @@ inline constexpr double kMinimumRacerCautionFraction = 0.0;
 inline constexpr double kMaximumRacerCautionFraction = 1.0;
 inline constexpr double kDefaultRacerCautionFraction = 0.75;
 
+// Tactical profile controls are active policy bounds, not future combat configuration.
+inline constexpr double kMaximumTacticalObjectiveSeekProbability = 1.0;
+inline constexpr std::uint64_t kMaximumTacticalReactionDelayTicks = 4'000;
+inline constexpr double kMaximumTacticalAimError = 0.25;
+inline constexpr std::uint64_t kMaximumTacticalTargetPersistenceTicks = 4'000;
+inline constexpr std::size_t kMaximumTacticalObjectiveCandidateCount = 32;
+inline constexpr std::uint64_t kTacticalSeedDomain = 0x7461'6374'6963'616cULL;
+
 } // namespace blob_royale::controllers
 
 #endif

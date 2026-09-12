@@ -2,10 +2,12 @@
 #define BLOB_ROYALE_APPLICATION_BOT_RECONCILIATION_HPP
 
 #include "controller_host.hpp"
+#include "tactical_profile_catalogue.hpp"
 
 #include "command_sink.hpp"
 
 #include "controller_id.hpp"
+#include "npc_declaration.hpp"
 #include "simulation_limits.hpp"
 #include "tick_sequence.hpp"
 #include "world_snapshot.hpp"
@@ -34,9 +36,9 @@ namespace blob_royale::application {
 // **Idempotent because the seat carries the controller.** A declared seat with no controller gets
 // a bot: a session is opened, the controller is filed with the host, and one `join` naming that
 // seat is submitted. Until the tick applies the join the seat still shows no controller, so the
-// reconciler remembers the bots whose join is in flight and gives each one a second to land before
-// concluding the seat was cleared, resized away, or taken by a person in the meantime -- in which
-// case the bot sits nowhere and is retired. A bot whose seat stops holding it for any reason is
+// reconciler remembers each complete kind/profile declaration. A changed declaration retires its
+// bot immediately, and its guarded join cannot fill a different declaration. An unchanged pending
+// declaration gets a second for its join to become visible. A bot whose seat stops holding it is
 // retired the same way: its session is closed, which enqueues its `leave`, and it leaves the host.
 //
 // **A creation that fails is recorded per seat and not retried every poll.** A full controller
@@ -53,7 +55,8 @@ public:
       simulation::kSimulationTicksPerSecond;
 
   SeatBotReconciler(runtime::CommandSink& sink, controllers::ControllerHost& host,
-                    std::uint64_t match_seed, std::uint64_t lobby_id,
+                    std::uint64_t legacy_room_seed, std::uint64_t match_seed,
+                    std::uint64_t lobby_id, controllers::TacticalProfileCatalogue profiles,
                     observability::StructuredLogger& logger) noexcept;
 
   SeatBotReconciler(const SeatBotReconciler&) = delete;
@@ -79,25 +82,27 @@ public:
 
 private:
   struct HostedBot final {
-    std::string kind;
+    simulation::NpcDeclaration declaration;
     std::size_t seat_index;
     // Set while the join is in flight; cleared once a snapshot shows the seat holding the bot.
     std::optional<simulation::TickSequence> join_submitted_at;
   };
 
-  void create_bot(std::string_view kind, std::size_t seat_index,
+  void create_bot(const simulation::NpcDeclaration& declaration, std::size_t seat_index,
                   simulation::TickSequence observed_tick);
   void retire_bot(simulation::ControllerId controller, const HostedBot& bot,
                   std::string_view reason) noexcept;
 
   runtime::CommandSink* sink_;
   controllers::ControllerHost* host_;
+  std::uint64_t legacy_room_seed_;
   std::uint64_t match_seed_;
   std::uint64_t lobby_id_;
+  controllers::TacticalProfileCatalogue profiles_;
   observability::StructuredLogger* logger_;
   std::map<simulation::ControllerId, HostedBot> bots_;
   std::map<std::string, std::uint64_t> display_ordinals_;
-  std::map<std::size_t, std::string> failed_seat_kinds_;
+  std::map<std::size_t, simulation::NpcDeclaration> failed_declarations_;
 };
 
 } // namespace blob_royale::application

@@ -483,6 +483,10 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
   return {std::string{kGoldenNpcControllerKinds[0]}, std::string{kGoldenNpcControllerKinds[1]}};
 }
 
+[[nodiscard]] inline simulation::NpcCatalogue golden_npc_catalogue() {
+  return simulation::NpcCatalogue::create(golden_npc_controller_kinds());
+}
+
 [[nodiscard]] inline simulation::TerrainDefinition golden_terrain() {
   return simulation::TerrainDefinition::solid(simulation::ArenaBounds::create(960.0, 640.0));
 }
@@ -496,7 +500,7 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
           {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
            simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
            simulation::CommandKind::kStartMatch, simulation::CommandKind::kSetMovementTuning}),
-      golden_npc_controller_kinds(), kGoldenLobbyId, kGoldenSeatCountMaximum, golden_terrain());
+      golden_npc_catalogue(), kGoldenLobbyId, kGoldenSeatCountMaximum, golden_terrain());
 }
 
 // Maximum authored shape/point/segment counts and maximum bounded string lengths, all valid
@@ -534,7 +538,8 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
       std::string(kDisplayNameMaximumCharacterCount, 'A'),
       std::string(kKindNameMaximumCharacterCount, 'a'),
       std::string(kMapNameMaximumCharacterCount, 'a'), simulation::CommandKindMask::all(),
-      std::move(npc_kinds), kLobbyDirectoryLimit, kLobbySeatCountMaximum,
+      simulation::NpcCatalogue::create(std::move(npc_kinds)), kLobbyDirectoryLimit,
+      kLobbySeatCountMaximum,
       simulation::TerrainDefinition::create(simulation::ArenaBounds::create(960.0, 640.0),
                                             simulation::TerrainGround::kCorridors,
                                             std::move(corridors), std::move(holes)));

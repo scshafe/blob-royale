@@ -88,7 +88,10 @@ inline constexpr std::uint64_t kFixtureSeatCountMaximum = 32;
 // because the server serves both protocol versions unconditionally.
 class MatchSessionFixture final {
 public:
-  MatchSessionFixture() : simulation_runtime_(game_simulation()) {}
+  explicit MatchSessionFixture(
+      simulation::NpcCatalogue catalogue = simulation::NpcCatalogue::create({"wanderer", "chaser"}))
+      : npc_catalogue_(std::move(catalogue)),
+        simulation_runtime_(game_simulation(), npc_catalogue_) {}
 
   MatchSessionFixture(const MatchSessionFixture&) = delete;
   MatchSessionFixture(MatchSessionFixture&&) = delete;
@@ -100,8 +103,7 @@ public:
     return MatchSessionContext::create(
         lobby_id, simulation_runtime_.command_sink(), simulation_runtime_.tuning_result_delivery(),
         simulation_runtime_.controller_directory(), std::string{kFixtureMapName},
-        kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
-        std::vector<std::string>{"wanderer", "chaser"});
+        kFixtureSeatCountMaximum, simulation::CommandKindMask::all(), npc_catalogue_);
   }
 
   [[nodiscard]] runtime::CommandSink& command_sink() const noexcept {
@@ -112,6 +114,7 @@ public:
   }
 
 private:
+  simulation::NpcCatalogue npc_catalogue_;
   mutable runtime::SimulationRuntime simulation_runtime_;
 };
 
@@ -134,7 +137,7 @@ match_session_context_for(runtime::SimulationRuntime& simulation_runtime,
       lobby_id, simulation_runtime.command_sink(), simulation_runtime.tuning_result_delivery(),
       simulation_runtime.controller_directory(), std::string{kFixtureMapName},
       kFixtureSeatCountMaximum, simulation::CommandKindMask::all(),
-      std::vector<std::string>{"wanderer", "chaser"});
+      simulation::NpcCatalogue::empty());
 }
 
 // One directory row over a runtime, for a directory of more than one room.

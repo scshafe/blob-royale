@@ -47,6 +47,19 @@ enum class ControllersValidationCode {
   kRacerCautionFractionOutOfRange,
   kRacerCourseInvalid,
   kScriptedReplayLogLimitExceeded,
+  kTacticalProfileNameInvalid,
+  kTacticalProfileProbabilityInvalid,
+  kTacticalProfileReactionDelayInvalid,
+  kTacticalProfileAimErrorInvalid,
+  kTacticalProfilePersistenceInvalid,
+  kTacticalProfileCatalogueFull,
+  kTacticalProfileNameDuplicate,
+  kControllerCreationContextInvalid,
+  kTacticalSeedIdentityInvalid,
+  kTacticalModeUnsupported,
+  kTacticalCandidateLimitExceeded,
+  kTacticalObjectiveInvalid,
+  kTacticalRunningTickInvalid,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -82,6 +95,32 @@ controllers_validation_code_name(const ControllersValidationCode code) noexcept 
     return "CONTROLLERS.RACER_COURSE_INVALID";
   case ControllersValidationCode::kScriptedReplayLogLimitExceeded:
     return "CONTROLLERS.SCRIPTED_REPLAY_LOG_LIMIT_EXCEEDED";
+  case ControllersValidationCode::kTacticalProfileNameInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_NAME_INVALID";
+  case ControllersValidationCode::kTacticalProfileProbabilityInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_PROBABILITY_INVALID";
+  case ControllersValidationCode::kTacticalProfileReactionDelayInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_REACTION_DELAY_INVALID";
+  case ControllersValidationCode::kTacticalProfileAimErrorInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_AIM_ERROR_INVALID";
+  case ControllersValidationCode::kTacticalProfilePersistenceInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_PERSISTENCE_INVALID";
+  case ControllersValidationCode::kTacticalProfileCatalogueFull:
+    return "CONTROLLERS.TACTICAL_PROFILE_CATALOGUE_FULL";
+  case ControllersValidationCode::kTacticalProfileNameDuplicate:
+    return "CONTROLLERS.TACTICAL_PROFILE_NAME_DUPLICATE";
+  case ControllersValidationCode::kControllerCreationContextInvalid:
+    return "CONTROLLERS.CONTROLLER_CREATION_CONTEXT_INVALID";
+  case ControllersValidationCode::kTacticalSeedIdentityInvalid:
+    return "CONTROLLERS.TACTICAL_SEED_IDENTITY_INVALID";
+  case ControllersValidationCode::kTacticalModeUnsupported:
+    return "CONTROLLERS.TACTICAL_MODE_UNSUPPORTED";
+  case ControllersValidationCode::kTacticalCandidateLimitExceeded:
+    return "CONTROLLERS.TACTICAL_CANDIDATE_LIMIT_EXCEEDED";
+  case ControllersValidationCode::kTacticalObjectiveInvalid:
+    return "CONTROLLERS.TACTICAL_OBJECTIVE_INVALID";
+  case ControllersValidationCode::kTacticalRunningTickInvalid:
+    return "CONTROLLERS.TACTICAL_RUNNING_TICK_INVALID";
   }
   return "CONTROLLERS.VALIDATION_CODE_INVALID";
 }

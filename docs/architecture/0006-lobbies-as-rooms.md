@@ -536,3 +536,19 @@ envelope; early security failures retain their established codes and precedence,
 aliases remain ordinary route errors. The closed v1 error registry is unchanged. See
 `docs/protocol/v3.md` for the exact retirement and global-error contract. Reverting a release
 requires coordinated server/assets rollback, not a hidden v2 compatibility implementation.
+
+## Amendment: Full NPC declaration identity, 2026-09-11 (plan Step 15)
+
+NPC ownership is now `(kind, optional profile_name)`. The composition root derives one bounded
+immutable selection catalogue from registry metadata and configured profiles and gives that same
+value to runtime admission and session publication. V3 keeps the old plain-kind projection and
+appends only actual profiled choices. Sandbox omits profiled choices and rejects profiled startup
+rosters because it has no stable lobby-seat identity. Cooperative seat-editing authority is unchanged.
+
+Reconciliation compares the complete declaration for hosted bots, pending joins, and failed-creation
+caches. Its indexed Join carries optional `expected_npc`; phase 0 fills only an exact current match.
+A changed declaration retires its prior bot immediately rather than waiting for the join budget.
+An absent guard retains existing indexed human/CSV behavior; no new wire join or command kind exists.
+Session retirement still submits ordinary Leave, preserving an NPC's declaration. Diagnostic bots keep the
+existing room seed; tactical receives the raw configured seed separately with room and authored seat.
+See ADR 0008 and the Step 15 implementation contract for exact profile and wire bounds.

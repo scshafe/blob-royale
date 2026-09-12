@@ -24,6 +24,9 @@ std::vector<simulation::Command> Controller::decide(const Observation& observati
                                          " was handed an observation built for controller " +
                                          std::to_string(observation.controller().value()));
   }
+  if (!accepts_observation(observation)) {
+    return {};
+  }
   entity_ = observation.entity();
   if (entity_.has_value()) {
     // Seated. A later elimination asks again immediately rather than waiting out an interval that

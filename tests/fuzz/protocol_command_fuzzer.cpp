@@ -11,6 +11,7 @@
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "npc_catalogue.hpp"
 #include "simulation_limits.hpp"
 
 #include <algorithm>
@@ -56,8 +57,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
   const simulation::ControllerId stamped_controller =
       simulation::ControllerId::create(kStampedControllerIdValue);
   // A fixture welcome vocabulary, not a second copy of ControllerRegistry. The decoder's
-  // contract is membership in the supplied list, independent of which bots production registers.
-  const std::array<std::string, 1> npc_controller_kinds{"fuzz_bot"};
+  // contract is exact membership, independent of which bots production registers.
+  const simulation::NpcCatalogue npc_catalogue = simulation::NpcCatalogue::create(
+      {"fuzz_bot"}, {{simulation::SeatKindName::create("fuzz_profiled"),
+                      simulation::BotProfileName::create("steady")}});
   // Retain the original thrust-only wire surface, then exercise every current client payload.
   // Keeping server-issued kinds in both applicable masks proves that mask membership alone can
   // never grant a client permission to send one.
@@ -72,7 +75,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
         protocol::CommandDecodeResult::rejected(protocol::CommandDecodeRejection::kMalformed);
     try {
       result = protocol::decode_command_envelope(frame, accepted_kinds, stamped_entity,
-                                                 stamped_controller, npc_controller_kinds);
+                                                 stamped_controller, npc_catalogue);
     } catch (...) {
       std::abort();
     }
@@ -126,8 +129,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
                 std::abort();
               }
               if constexpr (std::is_same_v<CommandType, simulation::SeatNpcCommand>) {
-                if (std::ranges::find(npc_controller_kinds, command.kind.value()) ==
-                    npc_controller_kinds.end()) {
+                if (!npc_catalogue.contains(command.declaration())) {
                   std::abort();
                 }
               }

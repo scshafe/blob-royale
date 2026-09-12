@@ -399,6 +399,19 @@ rewind, and latency compensation are explicitly deferred.
 
 ## Tactical personalities without a class per mood
 
+**Step 15 implementation clarification, 2026-09-11:** The owner approved working objective-seeking,
+reaction timing, aim error, and target persistence first. The precise contract is
+`docs/reviews/2026-09-11-tactical-profile-contract.md`. Objective seeking chooses unit-strength
+go versus coast probabilistically; it does not vary the acceleration of go input. Profiles are
+strict authored values with a bounded names-only selection catalogue, not mood classes. Preserve
+legacy diagnostic seeds, arithmetic, and repeated-observation behavior; identity-based seeds and
+duplicate/stale-observation rejection apply only to tactical. A guarded bot join preserves full
+profile declaration identity while existing unguarded human/CSV joins retain their semantics.
+Sandbox tactical startup is explicitly unsupported because it lacks the required seat identity.
+Step 15 uses only current public objectives and straight-center terrain screening; predictive
+combat/escape planning and the named combat personalities below remain later work, not claims of
+this foundation. No inert aggression/charge/shield settings are accepted before their behavior.
+
 Add one `TacticalController` with data-driven profiles. Its reusable decision path is published
 observation → objective candidates → safety screening → utility selection → steering/actions.
 Named objective providers cover holding/intercepting a hill, advancing race gates, and surviving

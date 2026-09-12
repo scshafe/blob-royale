@@ -6,6 +6,7 @@ import {
   errorResponseExample,
 } from './fixtures/protocolV1Examples';
 import {
+  legacyNpcCatalogue,
   type MutableSnapshotDocument,
   type MutableWelcomeDocument,
   firstEntity,
@@ -113,6 +114,20 @@ const errorMutations: readonly MutationCase<typeof errorResponseExample>[] = [
 ];
 
 const welcomeMutations: readonly MutationCase<MutableWelcomeDocument>[] = [
+  {
+    name: 'profile catalogue kind also declared plain',
+    mutate: (document) => {
+      Reflect.set(document.data, 'npc_profiles', [
+        { npc_kind: 'wanderer', profile_name: 'steady' },
+      ]);
+    },
+  },
+  {
+    name: 'null profile catalogue',
+    mutate: (document) => {
+      Reflect.set(document.data, 'npc_profiles', null);
+    },
+  },
   {
     name: 'missing controller identifier',
     mutate: (document) => {
@@ -321,6 +336,7 @@ const welcomeSequence: SessionSequenceState = Object.freeze({
   messageSequence: 1,
   requestId: '018f47a4-9c21-7f10-8a55-4b7d1e0c33a2',
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 });
 

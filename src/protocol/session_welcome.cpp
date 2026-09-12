@@ -16,6 +16,9 @@
 namespace blob_royale::protocol {
 namespace {
 
+static_assert(kNpcControllerKindLimit == simulation::kMaximumUnprofiledNpcKindCount);
+static_assert(kNpcProfileLimit == simulation::kMaximumNpcProfileCount);
+
 [[nodiscard]] bool is_lowercase_letter(const char character) noexcept {
   return character >= 'a' && character <= 'z';
 }
@@ -87,7 +90,7 @@ SessionWelcome
 SessionWelcome::create(const simulation::EntityId entity, const simulation::ControllerId controller,
                        std::string display_name, std::string mode_name, std::string map_name,
                        const simulation::CommandKindMask accepted_command_kinds,
-                       std::vector<std::string> npc_controller_kinds, const std::uint64_t lobby_id,
+                       simulation::NpcCatalogue npc_catalogue, const std::uint64_t lobby_id,
                        const std::uint64_t seat_count_maximum,
                        simulation::TerrainDefinition terrain) {
   require(entity.value() >= simulation::kMinimumEntityId, "welcome_message.data.entity_id",
@@ -102,19 +105,7 @@ SessionWelcome::create(const simulation::EntityId entity, const simulation::Cont
           "mode name must match the accepted lower snake case kind grammar");
   require(is_accepted_map_name(map_name), "welcome_message.data.map",
           "map name must match the accepted map-name grammar");
-  // The published NPC vocabulary is validated here, once, so that neither the encoder nor the
-  // command decoder has to decide what to do with a registered bot whose name cannot be published.
-  // A registry row that fails this is a build-time mistake surfacing at the first session rather
-  // than at the first right-click, which is the earlier of the two places it can surface.
-  require(npc_controller_kinds.size() <= kNpcControllerKindLimit,
-          "welcome_message.data.npc_controller_kinds",
-          "the published NPC controller kinds must number at most " +
-              std::to_string(kNpcControllerKindLimit));
-  for (const std::string& npc_controller_kind : npc_controller_kinds) {
-    require(is_accepted_kind_name(npc_controller_kind), "welcome_message.data.npc_controller_kinds",
-            "NPC controller kind " + npc_controller_kind +
-                " must match the accepted lower snake case kind grammar");
-  }
+  // Catalogue construction already validates the identical authority used at runtime admission.
 
   // The room and the seat ceiling are bounded by protocol constants: a room id past the directory
   // limit names a room no directory could list, and a ceiling past the seat bound is one no
@@ -132,7 +123,7 @@ SessionWelcome::create(const simulation::EntityId entity, const simulation::Cont
                         std::move(mode_name),
                         std::move(map_name),
                         accepted_command_kinds,
-                        std::move(npc_controller_kinds),
+                        std::move(npc_catalogue),
                         lobby_id,
                         seat_count_maximum,
                         std::move(terrain)};
@@ -142,13 +133,12 @@ SessionWelcome::SessionWelcome(const simulation::EntityId entity,
                                const simulation::ControllerId controller, std::string display_name,
                                std::string mode_name, std::string map_name,
                                const simulation::CommandKindMask accepted_command_kinds,
-                               std::vector<std::string> npc_controller_kinds,
-                               const std::uint64_t lobby_id, const std::uint64_t seat_count_maximum,
+                               simulation::NpcCatalogue npc_catalogue, const std::uint64_t lobby_id,
+                               const std::uint64_t seat_count_maximum,
                                simulation::TerrainDefinition terrain) noexcept
     : entity_(entity), controller_(controller), display_name_(std::move(display_name)),
       mode_name_(std::move(mode_name)), map_name_(std::move(map_name)),
-      accepted_command_kinds_(accepted_command_kinds),
-      npc_controller_kinds_(std::move(npc_controller_kinds)), lobby_id_(lobby_id),
-      seat_count_maximum_(seat_count_maximum), terrain_(std::move(terrain)) {}
+      accepted_command_kinds_(accepted_command_kinds), npc_catalogue_(std::move(npc_catalogue)),
+      lobby_id_(lobby_id), seat_count_maximum_(seat_count_maximum), terrain_(std::move(terrain)) {}
 
 } // namespace blob_royale::protocol

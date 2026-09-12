@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/npc-profile.schema.json",
+  "title": "Blob Royale protocol v3 NPC profile choice",
+  "description": "One immutable selectable NPC kind/profile pair. Profile settings are validated startup configuration; this wire value names a choice rather than exposing mutation authority.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["npc_kind", "profile_name"],
+  "properties": {
+    "npc_kind": { "$ref": "common.schema.json#/$defs/controller_kind" },
+    "profile_name": { "$ref": "common.schema.json#/$defs/bot_profile_name" }
+  }
+}

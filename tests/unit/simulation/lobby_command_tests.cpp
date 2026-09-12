@@ -13,6 +13,7 @@
 #include "entity_id.hpp"
 #include "entity_id_reservation.hpp"
 #include "fixed_delta.hpp"
+#include "fixtures/npc_declaration_fixture.hpp"
 #include "game_mode.hpp"
 #include "game_simulation.hpp"
 #include "game_simulation_setup.hpp"
@@ -46,6 +47,7 @@
 #include <vector>
 
 namespace simulation = blob_royale::simulation;
+namespace npc_fixture = blob_royale::testing::npc_declaration_fixture;
 
 namespace {
 
@@ -645,4 +647,65 @@ TEST_CASE("A join and a leave for one controller in one batch net to no seat",
   simulation::GameSimulation game = lobby_simulation(2);
   step(game, {join(7), leave(7)});
   CHECK(roster_of(game) == simulation::SeatRoster::of_size(2));
+}
+
+TEST_CASE("NPC profile identity survives declaration guarded join leave and publication",
+          "[unit][simulation][lobby][npc_profile]") {
+  auto game = lobby_simulation(npc_fixture::kSeatCount);
+  const auto declaration = npc_fixture::profiled();
+  step(game, {npc_fixture::seat(declaration)});
+  auto roster = roster_of(game);
+  CHECK(std::get<simulation::NpcSeat>(roster.seats()[npc_fixture::kSeatIndex]).declaration() ==
+        declaration);
+  step(game, {npc_fixture::join(declaration)});
+  roster = roster_of(game);
+  const auto& joined = std::get<simulation::NpcSeat>(roster.seats()[npc_fixture::kSeatIndex]);
+  CHECK(joined.declaration() == declaration);
+  CHECK(joined.controller == simulation::ControllerId::create(npc_fixture::kBotController));
+  step(game, {leave(npc_fixture::kBotController)});
+  roster = roster_of(game);
+  const auto& vacated = std::get<simulation::NpcSeat>(roster.seats()[npc_fixture::kSeatIndex]);
+  CHECK(vacated.declaration() == declaration);
+  CHECK_FALSE(vacated.controller.has_value());
+}
+
+TEST_CASE("Guarded NPC join cannot claim a replacement profile but literal indexed join keeps its "
+          "meaning",
+          "[unit][simulation][lobby][npc_profile]") {
+  auto game = lobby_simulation(npc_fixture::kSeatCount);
+  const auto original = npc_fixture::profiled();
+  const auto replacement = npc_fixture::profiled(npc_fixture::kOtherProfileName);
+  step(game, {npc_fixture::seat(original)});
+  step(game, {clear_seat(npc_fixture::kController, npc_fixture::kSeatIndex),
+              npc_fixture::seat(replacement), npc_fixture::join(original)});
+  auto roster = roster_of(game);
+  const auto& declared = std::get<simulation::NpcSeat>(roster.seats()[npc_fixture::kSeatIndex]);
+  CHECK(declared.declaration() == replacement);
+  CHECK_FALSE(declared.controller.has_value());
+  step(game, {npc_fixture::join(npc_fixture::plain())});
+  CHECK(roster_of(game) == roster);
+  step(game, {npc_fixture::join(std::nullopt)});
+  roster = roster_of(game);
+  const auto& literal_joined =
+      std::get<simulation::NpcSeat>(roster.seats()[npc_fixture::kSeatIndex]);
+  CHECK(literal_joined.declaration() == replacement);
+  CHECK(literal_joined.controller == simulation::ControllerId::create(npc_fixture::kBotController));
+}
+
+TEST_CASE("InputBatch requires an indexed valid expectation only when a join supplies one",
+          "[unit][simulation][lobby][npc_profile]") {
+  for (const auto& command :
+       {npc_fixture::join(npc_fixture::profiled(), std::nullopt),
+        npc_fixture::join(simulation::NpcDeclaration{simulation::SeatKindName{}, std::nullopt})}) {
+    try {
+      static_cast<void>(batch({command}));
+      FAIL("malformed guarded join must not reach the tick");
+    } catch (const simulation::SimulationValidationError& error) {
+      CHECK(error.validation_code() ==
+            simulation::SimulationValidationCode::kInputBatchJoinDeclarationInvalid);
+    }
+  }
+  CHECK_NOTHROW(batch({npc_fixture::join(std::nullopt)}));
+  CHECK_NOTHROW(batch({npc_fixture::join(std::nullopt, std::nullopt)}));
+  CHECK_NOTHROW(batch({npc_fixture::join(npc_fixture::profiled())}));
 }

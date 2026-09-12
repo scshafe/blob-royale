@@ -5,6 +5,7 @@ add_executable(blob_protocol_unit_tests
   movement_tuning_encoding_tests.cpp
   movement_tuning_command_tests.cpp
   movement_tuning_conformance_tests.cpp
+  npc_profile_protocol_tests.cpp
   protocol_json_encoding_tests.cpp
   protocol_v3_json_encoding_tests.cpp
   stun_input_generation_tests.cpp

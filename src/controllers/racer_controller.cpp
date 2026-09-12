@@ -2,6 +2,8 @@
 
 #include "commands/thrust_command.hpp"
 #include "components/race_progress_component.hpp"
+#include "controller_observation_queries.hpp"
+#include "controller_steering.hpp"
 #include "controllers_validation_error.hpp"
 #include "mode_states/race_mode_state.hpp"
 #include "physics_body.hpp"
@@ -52,20 +54,8 @@ RacerController::decide_from_observation(const Observation& observation) {
   }
 
   const simulation::EntityId self = *observation.entity();
-  const simulation::PhysicsBody* body = nullptr;
-  for (const auto& entry : snapshot.components<simulation::PhysicsBody>()) {
-    if (entry.entity == self) {
-      body = &entry.value;
-      break;
-    }
-  }
-  const simulation::RaceProgress* progress = nullptr;
-  for (const auto& entry : snapshot.components<simulation::RaceProgress>()) {
-    if (entry.entity == self) {
-      progress = &entry.value;
-      break;
-    }
-  }
+  const auto* body = find_observed_component<simulation::PhysicsBody>(snapshot, self);
+  const auto* progress = find_observed_component<simulation::RaceProgress>(snapshot, self);
   if (body == nullptr || progress == nullptr) {
     // Respawning or waiting on the grid. Only checkpoint_progress begins the race for this bot.
     return {};
@@ -89,9 +79,10 @@ RacerController::decide_from_observation(const Observation& observation) {
         nearest.distance > personality_.caution_fraction * road->half_width()
             ? nearest.point
             : course->checkpoints[static_cast<std::size_t>(progress->next_checkpoint)];
-    const double dx = target.x() - body->position().x();
-    const double dy = target.y() - body->position().y();
-    const double magnitude = std::sqrt(dx * dx + dy * dy);
+    const auto delta = controller_target_offset(body->position(), target);
+    const double dx = delta.x;
+    const double dy = delta.y;
+    const double magnitude = controller_magnitude(delta);
     if (magnitude > 0.0) {
       direction = simulation::Vector2::create(dx / magnitude, dy / magnitude);
     }

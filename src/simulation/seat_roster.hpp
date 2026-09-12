@@ -1,10 +1,9 @@
 #ifndef BLOB_ROYALE_SIMULATION_SEAT_ROSTER_HPP
 #define BLOB_ROYALE_SIMULATION_SEAT_ROSTER_HPP
 
-#include "bounded_name.hpp"
 #include "controller_id.hpp"
 #include "match_phase.hpp"
-#include "seat_kind_name_policy.hpp"
+#include "npc_declaration.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 
@@ -21,26 +20,6 @@
 #include <vector>
 
 namespace blob_royale::simulation {
-
-// canonical: seat_kind_name -- the owned, bounded controller kind one seat declares for an NPC.
-//
-// A value, not a view, for the same reason `ContactRuleName` is one: the roster lives in
-// `MatchState` and outlives whatever named the kind -- a configuration string, a command decoded
-// from a frame -- so a borrowed `std::string_view` would be correct only as long as its owner
-// outlived the match, and a dangling kind surfaces as garbage in a lobby rather than as a failure.
-//
-// Fixed capacity rather than `std::string` because **`MatchState` is copied into the working world
-// at the start of every tick**. An owning allocation per seat would put an allocator on the tick's
-// entry path for a value that is at most `kMaximumKindNameLength` characters, and it would make the
-// per-tick cost of a lobby depend on how long a bot kind happens to be named. The unused tail is
-// zero-filled so the defaulted comparison compares names rather than whatever the storage held.
-//
-// The policy preserves the published kind-name grammar and the unnamed NpcSeat default. Registry
-// membership stays with the command that seats an NPC; the simulation cannot reach the controller
-// registry. BoundedName shares storage and accessors with contact and road names while distinct
-// policies keep their types, validation rules, and errors separate.
-// related: seat_kind_name_policy.hpp -- accepted names and structured rejection.
-using SeatKindName = BoundedName<SeatKindNamePolicy>;
 
 // canonical: seat -- one place in a pre-match lobby, in exactly one of its three states.
 //
@@ -90,6 +69,9 @@ struct ControllerSeat final {
 struct NpcSeat final {
   SeatKindName kind;
   std::optional<ControllerId> controller;
+  std::optional<BotProfileName> profile_name{};
+
+  [[nodiscard]] NpcDeclaration declaration() const { return {kind, profile_name}; }
 
   friend bool operator==(const NpcSeat&, const NpcSeat&) = default;
 };

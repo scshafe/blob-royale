@@ -15,6 +15,12 @@ import {
 } from './fixtures/canvasAimObservations';
 import { cursorSteeringConnection } from './fixtures/cursorSteeringFrames';
 import {
+  QUICK_NPC_PROFILE,
+  STEADY_NPC_PROFILE,
+  tacticalNpcCatalogue,
+  tacticalSeatCommand,
+} from './fixtures/tacticalProfileFrames';
+import {
   STUN_INPUT_GENERATION,
   STUN_INPUT_NEXT_GENERATION,
   STUN_INPUT_WINDOW,
@@ -37,6 +43,7 @@ import type { SessionEntitySnapshot } from './simulationProtocolTypes';
 import { configurationResponseExample } from './fixtures/protocolV1Examples';
 import { raceTerrain, solidTerrain } from './fixtures/terrainFrames';
 import {
+  legacyNpcCatalogue,
   hillSnapshotDocument,
   raceScenarioDocument,
   type RaceSnapshotScenario,
@@ -55,6 +62,7 @@ const snapshot = validateSessionSnapshotMessage(snapshotDocument(), {
   messageSequence: 1,
   requestId: snapshotDocument().meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 });
 
@@ -62,6 +70,7 @@ const hillSnapshot = validateSessionSnapshotMessage(hillSnapshotDocument(), {
   messageSequence: 1,
   requestId: hillSnapshotDocument().meta.request_id,
   tickSequence: null,
+  npcCatalogue: legacyNpcCatalogue,
   terrain: solidTerrain,
 });
 
@@ -75,7 +84,7 @@ const session: SimulationSessionIdentity = Object.freeze({
   mode: 'royale',
   movementTuningMinimumIntervalMilliseconds:
     welcomeDocument().data.movement_tuning_minimum_interval_milliseconds,
-  npcControllerKinds: ['wanderer', 'chaser'],
+  npcCatalogue: legacyNpcCatalogue,
   seatCountMaximum: 32,
   terrain: solidTerrain,
 });
@@ -155,6 +164,7 @@ function createRaceConnection(
     messageSequence: 1,
     requestId: document.meta.request_id,
     tickSequence: null,
+    npcCatalogue: legacyNpcCatalogue,
     terrain: raceTerrain,
   });
   return createConnection({
@@ -1012,6 +1022,52 @@ describe('SimulationViewer', () => {
     expect(
       screen.queryByRole('heading', { level: 3, name: 'Lobby' }),
     ).toBeNull();
+  });
+
+  it('passes the current room catalogue into the real lobby and sends its complete profiled selection', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+    const connection = createConnection({
+      match: { ...snapshot.data.match, phase: 'lobby' },
+      session: {
+        ...session,
+        acceptedCommandKinds: ['set_thrust', 'seat_npc', 'start_match'],
+        npcCatalogue: tacticalNpcCatalogue([STEADY_NPC_PROFILE]),
+      },
+    });
+    const view = render(
+      <SimulationViewer
+        lobbyId={1}
+        connection={connection}
+        thrust={zeroThrust}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Seat 4 Empty' }));
+    expect(
+      screen.getByRole('menuitem', { name: 'tactical / steady' }),
+    ).toBeVisible();
+    const nextSession = connection.session;
+    if (nextSession === null) throw new Error('TEST.TACTICAL_SESSION_MISSING');
+    view.rerender(
+      <SimulationViewer
+        lobbyId={2}
+        connection={{
+          ...connection,
+          session: {
+            ...nextSession,
+            lobbyId: 2,
+            npcCatalogue: tacticalNpcCatalogue([QUICK_NPC_PROFILE]),
+          },
+        }}
+        thrust={zeroThrust}
+      />,
+    );
+    expect(
+      screen.queryByRole('menuitem', { name: 'tactical / steady' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'tactical / quick' }));
+    expect(connection.sendCommand).toHaveBeenCalledExactlyOnceWith(
+      tacticalSeatCommand(QUICK_NPC_PROFILE, 3),
+    );
   });
 
   it('shows the hill section and the scoreboard for a hill frame only', () => {

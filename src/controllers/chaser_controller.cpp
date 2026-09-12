@@ -1,6 +1,8 @@
 #include "chaser_controller.hpp"
 
 #include "commands/thrust_command.hpp"
+#include "controller_observation_queries.hpp"
+#include "controller_steering.hpp"
 #include "controllers_validation_error.hpp"
 #include "player_snapshot.hpp"
 #include "simulation_limits.hpp"
@@ -16,39 +18,6 @@
 #include <vector>
 
 namespace blob_royale::controllers {
-namespace {
-
-// The published body of one entity in this snapshot's player projection, or nullptr when the
-// snapshot published none for it.
-[[nodiscard]] const simulation::PlayerSnapshot*
-find_player(const std::span<const simulation::PlayerSnapshot> players,
-            const simulation::EntityId entity) noexcept {
-  for (const simulation::PlayerSnapshot& player : players) {
-    if (player.entity_id() == entity) {
-      return &player;
-    }
-  }
-  return nullptr;
-}
-
-// A thrust direction component is a unit-interval intent and the `CommandSink` refuses one outside
-// `[-1, 1]`, so the boundary's range is enforced at the source rather than discovered as a refusal.
-// It is not the steering magnitude clamp, which happens exactly once, in the mode's steering system
-// (`src/gameplay/README.md` § "Steering"): this only keeps a correctly rounded `delta / magnitude`
-// -- whose true value is at most one -- from landing one unit in the last place above it.
-[[nodiscard]] double clamped_direction_component(const double component) noexcept {
-  const double limit = simulation::kMaximumThrustDirectionComponentMagnitude;
-  if (component > limit) {
-    return limit;
-  }
-  if (component < -limit) {
-    return -limit;
-  }
-  return component;
-}
-
-} // namespace
-
 std::unique_ptr<Controller> ChaserController::create(const simulation::ControllerId controller,
                                                      const std::uint64_t seed) {
   return create(controller, seed, Personality{});
@@ -87,7 +56,7 @@ ChaserController::decide_from_observation(const Observation& observation) {
 
   const simulation::EntityId self = *observation.entity();
   const std::span<const simulation::PlayerSnapshot> players = observation.snapshot().players();
-  const simulation::PlayerSnapshot* const own = find_player(players, self);
+  const simulation::PlayerSnapshot* const own = find_observed_player(observation.snapshot(), self);
   if (own == nullptr) {
     // The controller carries a `Controllable` but no `PhysicsBody` in this snapshot. Seating gives
     // both, so this is a state the engine does not currently reach; it is a defined empty answer
@@ -105,9 +74,8 @@ ChaserController::decide_from_observation(const Observation& observation) {
     if (candidate.entity_id() == self) {
       continue;
     }
-    const double delta_x = candidate.position().x() - own->position().x();
-    const double delta_y = candidate.position().y() - own->position().y();
-    const double squared_distance = (delta_x * delta_x) + (delta_y * delta_y);
+    const auto delta = controller_target_offset(own->position(), candidate.position());
+    const double squared_distance = controller_squared_magnitude(delta);
     if (nearest == nullptr || squared_distance < nearest_squared_distance) {
       nearest = &candidate;
       nearest_squared_distance = squared_distance;
@@ -122,12 +90,13 @@ ChaserController::decide_from_observation(const Observation& observation) {
   }
   target_ = nearest->entity_id();
 
-  const double delta_x = nearest->position().x() - own->position().x();
-  const double delta_y = nearest->position().y() - own->position().y();
+  const auto delta = controller_target_offset(own->position(), nearest->position());
+  const double delta_x = delta.x;
+  const double delta_y = delta.y;
   // `sqrt(x * x + y * y)` written out rather than `std::hypot`, which computes a different binary64
   // value for the same inputs, so a chaser and the steering system it feeds agree on what a
   // magnitude is (`src/gameplay/README.md` § "Steering").
-  const double magnitude = std::sqrt((delta_x * delta_x) + (delta_y * delta_y));
+  const double magnitude = controller_magnitude(delta);
   if (!(magnitude > 0.0)) {
     // Exactly co-located with the target: no direction toward it exists. Deciding nothing is the
     // only honest answer; any chosen direction would be arbitrary.
@@ -135,8 +104,9 @@ ChaserController::decide_from_observation(const Observation& observation) {
   }
 
   const double scale = personality_.aggression_weight / magnitude;
-  const simulation::Vector2 direction = simulation::Vector2::create(
-      clamped_direction_component(delta_x * scale), clamped_direction_component(delta_y * scale));
+  const simulation::Vector2 direction =
+      simulation::Vector2::create(clamp_controller_direction_component(delta_x * scale),
+                                  clamp_controller_direction_component(delta_y * scale));
 
   return request_thrust(observation, direction);
 }

@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_SIMULATION_COMMANDS_JOIN_COMMAND_HPP
 
 #include "controller_id.hpp"
+#include "npc_declaration.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -33,6 +34,9 @@ namespace blob_royale::simulation {
 struct JoinCommand final {
   ControllerId controller;
   std::optional<std::uint64_t> seat_index;
+  // Reconciliation guards its queued join with the full observed declaration. Absence keeps
+  // ordinary human and literal indexed replay behavior; it is never inferred from live state.
+  std::optional<NpcDeclaration> expected_npc{};
 
   friend bool operator==(const JoinCommand&, const JoinCommand&) = default;
 };

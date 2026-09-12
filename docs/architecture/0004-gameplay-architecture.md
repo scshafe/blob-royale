@@ -1471,3 +1471,21 @@ Fresh activation is required after UI editing, pointer loss, blur, disconnect, a
 session replacement. Body incarnation wholly between snapshots is not observable without new wire
 identity, so no position heuristic or stronger detection claim is made. ADR 0008 records the owner
 decision; the execution plan records exact implementation and verification evidence.
+
+## Amended 2026-09-11: Tactical profile decisions (Step 15)
+
+One registered `tactical` algorithm owns a copied immutable profile and authored seed identity.
+Its four active values are objective-seek probability, reaction delay in simulation ticks, aim
+error, and target-persistence ticks. This refines the older presentation-frame timing example for
+tactical only. The four diagnostic kinds keep their prior personalities, room seeds, arithmetic,
+draw counts, and repeated-observation behavior. Their shared lookup/steering readers move only
+after the independent two-lane comparison proof; the base thrust writer remains unchanged.
+
+The existing constexpr controller registry marks profile-required rows and accepts one validated
+creation context; it never substitutes a missing profile. Public mode-state providers and canonical
+terrain queries supply bounded candidate values without linking gameplay. Tactical uses checked
+absolute TickWindows, one due decision per observed tick, fixed unit go/coast, copied policy state
+committed after success, and duplicate/stale admission before base-controller mutation. Its seed
+uses raw match seed, room, authored seat, profile name, and public running-start tick, not controller
+allocation or simulation RNG. Exact bounds, ordered mixing/draws, cancellation, and limitations are
+specified in `docs/reviews/2026-09-11-tactical-profile-contract.md`. Combat settings remain deferred.

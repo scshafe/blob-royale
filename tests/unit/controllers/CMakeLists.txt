@@ -2,6 +2,7 @@ add_executable(blob_controllers_unit_tests
   chaser_controller_tests.cpp
   controller_host_tests.cpp
   controller_registry_tests.cpp
+  controller_steering_promotion_tests.cpp
   controller_thrust_request_tests.cpp
   controller_tests.cpp
   hill_seeker_controller_tests.cpp
@@ -10,6 +11,11 @@ add_executable(blob_controllers_unit_tests
   racer_controller_tests.cpp
   racer_projection_promotion_tests.cpp
   scripted_replay_controller_tests.cpp
+  tactical_controller_tests.cpp
+  tactical_objective_candidates_tests.cpp
+  tactical_profile_tests.cpp
+  tactical_profile_catalogue_tests.cpp
+  tactical_seed_identity_tests.cpp
   wanderer_controller_tests.cpp
 )
 

@@ -24,14 +24,17 @@ namespace blob_royale::simulation {
 // second touch -- without any of them being a new body field.
 //
 // **Absence is the whole of "harmless".** A blob, a wall, and a merely heavy boulder all carry no
-// `LethalOnContact`, and `lethal_hazard`'s predicate is exactly its presence, so a mode that
-// declares no lethal archetype never reaches the rule at all
-// (`src/gameplay/shared/lethal_hazard_contact_rule.hpp`).
+// `LethalOnContact`, and the guarded composition's lethality predicate is exactly its presence, so
+// a mode that declares no lethal archetype never reaches that branch at all
+// (`src/gameplay/shared/guarded_pair_contact.hpp`). Plan Step 18 folded the standalone
+// `lethal_hazard` row into that one pair-symmetric composition; the predicate and the diagnostic
+// name it publishes moved unchanged, so nothing this comment claims about the marker changed.
 //
 // Being a registered kind makes it snapshot-visible, which is the point: a client has to be able to
 // draw a hazard as dangerous *before* it arrives, and a renderer that had to infer lethality from
 // radius or speed would be guessing at a rule the server already knows.
-// related: ../../gameplay/shared/lethal_hazard_contact_rule.hpp -- the one rule that reads it.
+// related: ../../gameplay/shared/guarded_pair_contact.hpp -- the predicate that reads it.
+// related: ../../gameplay/shared/guarded_pair_contact_rule.hpp -- the one row that composes it.
 // related: component_registry.hpp -- the closed list this kind is registered in.
 // related: docs/protocol/schema/v2/lethal-on-contact-component.schema.json -- the empty wire
 // object.

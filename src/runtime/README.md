@@ -51,6 +51,15 @@ it evicts the oldest non-lifecycle command to make room for a spawn or a despawn
 reverse. No drop is silent: every refusal is returned to the caller and counted in
 `CommandMailbox::Statistics`, which `SimulationRuntime::command_mailbox_statistics()` exposes.
 
+`is_entity_lifecycle_command` answers **false** for a shield pulse, which is the classification Step
+18 had to make explicitly — the `kCommandKindCount` `static_assert` beside that switch fails to
+compile if a new kind skips it. A pulse raises a guard on a body that already exists, so losing one
+changes no roster and it is ordinary evictable traffic, like thrust and tuning. It supersedes on the
+same rule as every other kind: at most one pending pulse per entity, so several presses inside one
+tick are one attempt rather than a queue of charges, and a dropped or superseded pulse is one missed
+activation the player can press again. Nothing here tells the sender whether the tick accepted it;
+that is deliberate, and `docs/protocol/v3.md` § "shield" says so at the wire boundary.
+
 `CommandSink` has exactly three operations — `open_session`, `submit`, `close_session`.
 `open_session` returns a **`ControllerId`**, not an `EntityId`: the engine chooses entity ids inside
 `step` from the tick's reservation, and a controller outlives the entities it drives, so the durable

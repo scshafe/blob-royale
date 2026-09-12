@@ -1,6 +1,6 @@
 #include "king_of_the_hill/king_of_the_hill_mode.hpp"
 
-#include "shared/lethal_hazard_contact_rule.hpp"
+#include "shared/guarded_pair_contact_rule.hpp"
 
 #include "components/respawn_timer_component.hpp"
 #include "fixtures/falling_mode_fixture.hpp"
@@ -80,17 +80,23 @@ TEST_CASE("KingOfTheHillMode declares the hill game as eight answers",
   const simulation::ContactRuleTable rules = mode.contact_rules();
   const simulation::ContactRuleTable built_in = simulation::ContactRuleTable::built_in();
   REQUIRE(rules.size() == built_in.size() + 1);
-  CHECK(rules.rows()[0].name() == gameplay::kLethalHazardContactRuleName);
+  // The shared `guarded_pair` row, above the engine's own three, which its symmetric presence
+  // predicates make unreachable here; the suffix check states that they are nonetheless still
+  // declared and still the engine's own values.
+  CHECK(rules.rows()[0].name() == gameplay::kGuardedPairContactRuleName);
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
+  // Royale's eleven, `shield` included, and advertised only because this mode also declares the
+  // `ability` system that admits it.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-             simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
-             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
-             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
-             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
+             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
+             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
+             simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
 }
@@ -136,13 +142,18 @@ TEST_CASE("hill support loss stays inactive before the running phase",
   }
 }
 
-TEST_CASE("KingOfTheHillMode declares nine systems in the order its rules depend on",
+TEST_CASE("KingOfTheHillMode declares ten systems in the order its rules depend on",
           "[unit][gameplay][king_of_the_hill]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 9);
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
+  REQUIRE(systems.size() == 10);
+  // `ability` is last at this stage in every mode that declares it, mirroring `status` at
+  // kPostKernel: pulse admission reads the canonical input lock, so every kPreKernel system that
+  // can change what that lock answers has already run.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 2);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
+  CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[1].system->name() ==
+        std::string_view{"ability"});
   // Scoring reads the circle this tick's movement wrote.
   REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 3);
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() ==

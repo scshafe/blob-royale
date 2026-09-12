@@ -129,4 +129,18 @@ throttling survives generation changes. Generation survives same-entity returns 
 an identity for invisible entity destruction/replacement. Stun has an explicit non-visual renderer
 registration until the ability presentation step.
 
+`shield` joins it there, as of protocol 3.0's Step 18 row: an explicit non-visual registration with
+a stated reason, until the ability presentation step draws it. The component publishes one
+`activation_tick` and three absolute endpoints over it — `shield_expiry_tick`,
+`perfect_expiry_tick`, `cooldown_expiry_tick` — plus `parry_stun_duration_ticks`, and
+`sessionProtocolValidation` checks the orderings JSON Schema cannot: activation at most the
+snapshot tick, `activation_tick <= perfect_expiry_tick <= shield_expiry_tick`,
+`activation_tick <= cooldown_expiry_tick`, and a positive `parry_stun_duration_ticks`. A zero-length
+protection window is **valid**, not a violation: a stun cancels protection by shortening it to the
+cancellation tick while the cooldown keeps running, so a live component with no protection left is
+an ordinary frame. Read the intervals against the snapshot's own tick; elapsed browser time unlocks
+nothing, exactly as with stun. This step adds no sender — keys and buttons are the controls step, so
+`SimulationApi` is still the only file in the domain that writes to a socket, and the outbound
+`SessionCommand` union carries the shield shape without anything constructing one yet.
+
 The domain depends on React, Ajv, browser Fetch/WebSocket/History APIs, and generated artifacts sourced from `docs/protocol/schema/v1` and `docs/protocol/schema/v3`. It has no dependency on process lifecycle, Axios, a router library, or class-shaped wire models; its one poll is the directory's, on a timeout chain rescheduled after each read rather than an interval, and it never touches the socket. Generated files are replaced only through `npm run generate:protocol`; `npm run generate:protocol:check` verifies drift without writing.

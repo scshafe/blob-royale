@@ -12,6 +12,10 @@ TEST_CASE("component lifetimes distinguish body-bound counters from persistent e
   STATIC_REQUIRE(simulation::ComponentLifetime<simulation::ZoneExposure>::bound_to_body);
   STATIC_REQUIRE(simulation::ComponentLifetime<simulation::Stun>::bound_to_body);
   STATIC_REQUIRE(simulation::ComponentLifetime<simulation::ContactEffectAdmission>::bound_to_body);
+  // A shield guards a body, so a body that is gone leaves nothing for it to guard: the sweep that
+  // follows body removal is what clears it on zero-delay return and round reset, and no ability
+  // owner runs a cleanup pass of its own.
+  STATIC_REQUIRE(simulation::ComponentLifetime<simulation::Shield>::bound_to_body);
   STATIC_REQUIRE_FALSE(simulation::ComponentLifetime<simulation::PhysicsBody>::bound_to_body);
   STATIC_REQUIRE_FALSE(simulation::ComponentLifetime<simulation::Controllable>::bound_to_body);
   STATIC_REQUIRE_FALSE(simulation::ComponentLifetime<simulation::Score>::bound_to_body);

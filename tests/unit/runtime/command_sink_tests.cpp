@@ -7,6 +7,7 @@
 #include "command_submission_result.hpp"
 #include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
+#include "commands/shield_command.hpp"
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
@@ -60,6 +61,13 @@ struct CommandSinkFixture final {
                                                  const double y) {
   return simulation::ThrustCommand{.entity = simulation::EntityId::create(entity_id),
                                    .direction = simulation::Vector2::create(x, y)};
+}
+
+[[nodiscard]] simulation::Command
+shield_fixture(const std::uint64_t entity_id,
+               const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::ShieldCommand{.entity = simulation::EntityId::create(entity_id),
+                                   .input_generation = generation};
 }
 
 } // namespace
@@ -226,6 +234,48 @@ TEST_CASE("CommandSink rejects zero thrust generation before mailbox admission i
             "rejected_thrust_input_generation_out_of_range");
       CHECK_FALSE(runtime::command_submission_accepted(result));
     }
+    CHECK(fixture.mailbox.statistics().submitted_command_count == 0);
+    CHECK(fixture.mailbox.drain().empty());
+  }
+}
+
+TEST_CASE("CommandSink preserves omitted and maximum safe shield generations for every source",
+          "[unit][runtime][command_sink][shield][input_generation]") {
+  // A shield carries no controller, so the anti-spoofing visitor answers nullopt for it and the
+  // ownership question is settled by the entity the boundary stamped -- not by an actor field the
+  // pulse would otherwise have to carry.
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CAPTURE(kind);
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "shield fixture");
+    const auto absent = shield_fixture(kIssuedEntityId);
+    REQUIRE(fixture.sink.submit(controller, absent) == runtime::CommandSubmissionResult::kAccepted);
+    CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{absent});
+    for (const auto value : runtime::thrust_input_fixture::kAcceptedGenerations) {
+      CAPTURE(value);
+      const auto command = shield_fixture(kIssuedEntityId, simulation::TickSequence::create(value));
+      REQUIRE(fixture.sink.submit(controller, command) ==
+              runtime::CommandSubmissionResult::kAccepted);
+      CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{command});
+    }
+  }
+}
+
+TEST_CASE("CommandSink rejects zero shield generation before mailbox admission",
+          "[unit][runtime][command_sink][shield][input_generation]") {
+  // The boundary refuses what InputBatch::create would throw on, so one client's malformed pulse
+  // cannot hard-fail the tick for everyone. The refusal names the shield: reusing the thrust value
+  // would make the structured log describe a command this client never sent.
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CAPTURE(kind);
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "shield fixture");
+    const auto result = fixture.sink.submit(
+        controller, shield_fixture(kIssuedEntityId, simulation::TickSequence::zero()));
+    CHECK(result == runtime::CommandSubmissionResult::kRejectedShieldInputGenerationOutOfRange);
+    CHECK(runtime::command_submission_result_name(result) ==
+          "rejected_shield_input_generation_out_of_range");
+    CHECK_FALSE(runtime::command_submission_accepted(result));
     CHECK(fixture.mailbox.statistics().submitted_command_count == 0);
     CHECK(fixture.mailbox.drain().empty());
   }

@@ -101,6 +101,18 @@ absence, and old CSV fixtures remain unchanged. Neither the base `decide` wrappe
 rewrites returned commands. Generation survives status expiry and same-entity body return, not
 entity destruction; it is not a promise of invisible body-incarnation detection.
 
+**No controller sends a shield pulse, and `Controller` gained no capability for one at Step 18.**
+The base class deliberately holds exactly two — request a body, request thrust — and bot shield
+policy is Step 22's, so a `request_shield` today would be vocabulary ahead of behaviour. Human, bot
+and replay inputs nonetheless share one admission path: a `ShieldCommand` from any source reaches
+the same shared `ability` system and the same phase, body, input-lock, generation, protection and
+cooldown checks. Symmetry is provable now without a capability, because `ScriptedReplayController`'s
+typed log already carries whole `simulation::Command` values, so a scripted controller emits a
+`ShieldCommand` with no change in this domain; the replay `commands.csv` parser accepts a `shield`
+verb that uses `entity_id` alone and leaves every other payload column empty, which is the legal
+never-invalidated case. The four diagnostic bots and tactical are unchanged, draw no differently,
+and observe shield exactly as any other reader does: through the published component.
+
 A controller with no live entity that wants one returns a single `SpawnCommand` naming its own
 `ControllerId` — the identical command a networked session sends after `welcome`. `Controller`
 owns that decision for every bot (`Controller::request_body`), including *when it may ask again*:

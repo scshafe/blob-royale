@@ -4,6 +4,11 @@
 
 This domain depends only on simulation values and shared gameplay mechanics. The mode declares
 one `HillMovementSystem` before scoring; both motion policies publish the same `Hill` circle.
+Beyond its own files it declares the shared `thrust_steering` and, since Step 18, the shared
+`ability` system last at `kPreKernel`, plus the shared `guarded_pair` contact row above the
+built-ins. The hill imposes no ordering constraint on `ability` the way race does — nothing here
+writes the mode-state block the canonical input lock reads — and it authors no ability
+configuration: the shared `[abilities]` section reaches it through `GameModeConfiguration`.
 
 - `hill_geometry` owns the unchanged marker-tour arithmetic, with no random draws.
 - `hill_roaming` owns rational-direction sampling, scalar speed and retarget selection, and
@@ -14,6 +19,10 @@ one `HillMovementSystem` before scoring; both motion policies publish the same `
   running advances before scoring, and ended freezes.
 - `king_of_the_hill_configuration` validates authored policy/ranges and converts seconds once.
   The application and replay loaders author these fields explicitly; neither chooses a fallback.
+
+A guard never touches capture or scoring. Presence accrues on the player's centre being inside the
+`Hill` circle, which is geometry, so a shield neither protects a holder from being knocked out of
+the zone nor earns a partial point; it changes only what a contact does to the two bodies.
 
 Interior cliffs, holes, and spawn connectivity do not constrain the capture zone or become safe
 because it passes over them. Closed map bounds constrain the center, allowing circle overhang.

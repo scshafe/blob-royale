@@ -331,6 +331,37 @@ function assertSnapshotEntityInvariants(
       );
     }
 
+    // Shield publishes four endpoints of one interval family, and JSON Schema can bound each number
+    // on its own but cannot state that they nest. The comparisons are `<=` on the protection
+    // endpoints rather than `<`: a shield the status system cancels at its own activation tick
+    // legitimately publishes zero-length protection, and that empty window is precisely how a reader
+    // distinguishes a cancelled shield from a cooldown that has not elapsed -- rejecting it would
+    // close a connection over a frame the server is required to send. `parry_stun_duration_ticks` is
+    // the duration the defender captured when it activated, so a zero would describe a parry that
+    // stuns nobody; it is checked here as well as bounded by the schema because it is part of the
+    // same published contract and the reader that explains a parry reads it from this frame.
+    const shield = entity.components.shield;
+    if (
+      shield !== undefined &&
+      (shield.activation_tick > shield.perfect_expiry_tick ||
+        shield.perfect_expiry_tick > shield.shield_expiry_tick ||
+        shield.activation_tick > shield.cooldown_expiry_tick ||
+        shield.activation_tick > snapshot.data.tick_sequence ||
+        shield.parry_stun_duration_ticks < 1)
+    ) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'Shield requires nested windows activated by its snapshot tick.',
+        {
+          context: {
+            entity_id: entity.entity_id,
+            ...shield,
+            tick_sequence: snapshot.data.tick_sequence,
+          },
+        },
+      );
+    }
+
     const body = entity.components.physics_body;
     if (body !== undefined) {
       assertNoNegativeZero(body.position.x, 'position.x', entity.entity_id);

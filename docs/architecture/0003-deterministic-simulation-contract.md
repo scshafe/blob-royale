@@ -101,6 +101,15 @@ until that entity's next thrust (ADR 0004 § "Commands"; ADR 0005 § "Mode confi
 neither supplies nor validates that scale, and a mode that declares no system leaves this stage
 empty.
 
+**Amended 2026-09-12 (plan Step 18):** steering is no longer the only kind of consumer here. The
+shared `ability` system is declared **last** at this stage by all four gameplay modes and reads the
+same recorded commands, but writes a component — `Shield` — rather than body intent. That is still
+"read this tick's commands before anything has moved", and it is deliberately at this stage rather
+than a fourth one: a shield activated on tick N must be visible to tick N's own contact responses,
+which read the frozen post-`kPreKernel` world. Race's ordering constraint is the sharper case: its
+`course_publisher` stays first so that the canonical input lock can see a published course, and the
+ability system is declared after it.
+
 1. **Apply stored acceleration and drag.** Visit players in ascending `EntityId` order, calculate
    accelerated velocity with semi-implicit Euler, then scale that velocity by
    `max(0, 1 - drag_per_second × drag_scale × dt)`, where `dt` is the same `kFixedDeltaSeconds` the
@@ -198,6 +207,43 @@ closing impact and calls the existing pure impulse equation. Ordinary equal-unit
 still bypass the general equation. Grazing observations cannot fabricate impulses; per-source
 `any_touch` admission permits that source's gameplay effect without changing the physical mask.
 Arena walls are solver-owned plane events, not contact-table rows.
+
+**Amended 2026-09-12 (plan Step 18): the three built-in rows are no longer reached in a gameplay
+mode, and the equations are still retained.** Royale, king of the hill, race, and Sandbox each now
+declare one pair-symmetric `guarded_pair` row above the built-ins, and `first_match` takes the
+first matching row, so a production pair reaches the composition instead of `variable_impulse`,
+`elastic_disc`, or `reflect_static`. An engine-only mode that declares no row — the kernel default
+and the simulation-domain test doubles — still reaches all three, which is what keeps them a live
+baseline rather than dead code. The honest statement of what did and did not change is:
+
+* **The dynamic/dynamic selection is unchanged.** `compose_guarded_pair` chooses
+  `resolve_player_pair_collision` when `body_has_baseline_physics` holds for **both** bodies and
+  `resolve_general_pair_collision` otherwise (`src/gameplay/shared/guarded_pair_contact.cpp`), which
+  is the same partition the built-in predicates make: `variable_impulse` is declared first and its
+  first predicate is `body_is_variable_dynamic` — dynamic and *not* baseline — so any pair with a
+  nonbaseline side already took the general equation and every all-baseline pair fell through to
+  `elastic_disc` (`src/simulation/contact_rule_table.cpp`). Same two accepted equations, same test,
+  same operand order.
+* **The static branch reflects the same side, with one extra guard that cannot fire on the live
+  path.** `reflect_static_response` reflects whenever `observation.impact` is present; the
+  composition reflects whichever side is non-static, but only under
+  `!non_closing(contact.relative_normal_speed())`. On the live path that guard is a re-check of a
+  test that has already passed and can change nothing, because the solver constructs the `impact`
+  certificate as `impact_geometry_admitted && closing(speed)` and then stores *that same* `speed`
+  in the contact it hands the row (`src/simulation/continuous_motion.cpp`); `non_closing` and
+  `closing` are the same comparison against `kVelocityTolerance`, so an existing `impact` implies
+  the guard is satisfied. What the guard can change is the answer for a **direct caller of the pure
+  core** that synthesizes an observation whose `impact` never passed admission — the unit tests do
+  exactly that — where the composition declines to reflect a separating pair that
+  `reflect_static_response` would have reflected. No live wall, replay, or fixture value moves
+  through it.
+* **Unguarded arithmetic is byte-for-byte.** When neither side carries a guard the composition
+  returns the selected base equation's output unchanged, including its restitution-zero residue;
+  the quarter projection and the separation correction run only when a guard is present.
+* **Diagnostics change.** A composed non-lethal contact now reports `rule_name == "guarded_pair"`
+  where it previously reported `elastic_disc`, `variable_impulse`, or `reflect_static`; the lethal
+  branch still reports `lethal_hazard`. `ContactEvent`s are tick-local and never enter a snapshot,
+  so no accepted snapshot or replay oracle carries a rule name.
 
 **The discrete baseline remains a frozen oracle, not a universal live equivalence claim.** The
 original framework proved bit identity with the seven-phase kernel under zero drag, empty input,
@@ -443,7 +489,7 @@ and a consuming system at a stage — not a new kernel sub-step and not a new se
 * **What if another spatial index is faster?** Replace `SpatialGrid` behind `GameSimulation` only if it emits the same canonical candidate pair set. Grid shape and traversal remain non-observable mechanism (`docs/architecture/0002-simulation-architecture.md` § "Ownership and lifecycle").
 * **What if runtime cadence changes?** Presentation rate and temporary scheduler lateness do not change `FixedDelta`. A different simulation quantum requires an amended contract and regenerated fixtures, and now also regenerated gameplay durations, because every mode duration is an integer tick count; measured wall time never enters physics or gameplay.
 * **What if commands must be tick-addressed, predicted, or rolled back?** This contract accepts one validated batch applied at phase 0 of the tick that receives it, and nothing more. Client-side prediction, server rollback, reconciliation, and input delay each need a stated authoritative-tick addressing rule and a re-simulation contract before an implementation buffers or replays a batch. The batch value and the single mutation entry point are what such a policy extends; neither is a queue it can grow behind.
-* **What if a new game rule must run inside the tick?** It becomes a system registered at one of the three hook stages of a mode's declared list, and the stage follows from what the rule must see: `kPreKernel` for body intent before anything has moved, `kPostKernel` for consequences of committed positions and this tick's contacts, `kLifecycle` for roster and match bookkeeping (ADR 0004 § "The tick: one fixed kernel, three named stages"). The kernel phases themselves are not a seam and take no registrations. A rule expressible at no stage, in no `ContactRuleTable` row, and in no `SpawnPolicy` — a fourth stage, a hook inside a phase, or a mode-supplied bounds fold — is a versioned change to this contract rather than an insertion into it.
+* **What if a new game rule must run inside the tick?** It becomes a system registered at one of the three hook stages of a mode's declared list, and the stage follows from what the rule must see: `kPreKernel` for body intent before anything has moved, `kPostKernel` for consequences of committed positions and this tick's contacts, `kLifecycle` for roster and match bookkeeping (ADR 0004 § "The tick: one fixed kernel, three named stages"). The kernel phases themselves are not a seam and take no registrations. A rule expressible at no stage, in no `ContactRuleTable` row, and in no `SpawnPolicy` — a fourth stage, a hook inside a phase, or a mode-supplied bounds fold — is a versioned change to this contract rather than an insertion into it. **Worked on 2026-09-12 (plan Step 18):** the tap shield is the case this answer predicted. It needed a per-tick rule that reads recorded commands, writes durable state, and is visible to the same tick's contact responses, and it became one `kPreKernel` system plus one contact-rule row declared by four modes — no fourth stage, no hook inside a phase, and no fourth policy socket.
 * **What if simulation phases are parallelized?** Parallel code may calculate disjoint phase-local buffers, but it must commit the same serial-reference result. Sequential shared-body pair response cannot be reordered merely for throughput (`docs/architecture/0002-simulation-architecture.md` § "Extension points").
 
 These are seams in the pure-function and phase boundaries, not plugin registries or polymorphic strategy classes. They each have at least two plausible future policies, while the accepted baseline retains one canonical implementation.
@@ -587,6 +633,14 @@ not bit-identical to the accepted exchange -- so a unit-mass, perfectly elastic 
 with nothing to do with contact. The rule the predicate now states for the next per-body property
 is that it belongs there only if a contact rule reads it.
 
+**Clarified 2026-09-12 (plan Step 18).** That rule governs which properties belong in
+`body_has_baseline_physics`, not where a contact-relevant fact must be stored. Shield state is read
+by a contact response and is deliberately **not** a `PhysicsBody` field: ADR 0008 decision (a)
+resolved that a response reads the committed world exactly as a predicate may, so defense state
+stays a separate body-bound `Shield` component and the equation-selecting predicate stays about
+mass and restitution. A property earns a place in `body_has_baseline_physics` only if a collision
+*equation* reads it; a property a response merely consults belongs in its own component.
+
 **Raising hazard speed instead was rejected, and it is worth saying why, because it is the obvious
 alternative.** The drag factor is geometric, so a body launched at `v` and never thrusting again
 covers exactly `v / drag_per_second` world units in total. At the deployed `drag_per_second = 2.0`
@@ -681,7 +735,9 @@ existing larger capacity. No performance certification follows from these correc
 The exact integration boundary and pure-move prerequisites are recorded in
 [`2026-09-11-live-motion-integration-contract.md`](../reviews/2026-09-11-live-motion-integration-contract.md)
 and [`2026-09-11-live-motion-prerequisite-review.md`](../reviews/2026-09-11-live-motion-prerequisite-review.md).
-Production support/race triggers are supplied by Step 17; guarded pair composition remains Step 18.
+Production support/race triggers are supplied by Step 17; ~~guarded pair composition remains
+Step 18~~ — it landed on 2026-09-12; see § "Amended 2026-09-12: Guarded pair composition and the
+shared ability stage (Step 18)" below.
 
 ## Amended 2026-09-11: Ground attachment and safe seating (Step 17)
 
@@ -694,3 +750,26 @@ Safe seating separately requires a supported full player disc and clearance agai
 body radii, using written square-root arithmetic and canonical tolerances. Every successful seat
 refreshes subsequent marker admission against the updated live store. Work exhaustion still rolls
 back the entire quantum; map shape admission does not guarantee every trajectory fits the event cap.
+
+## Amended 2026-09-12: Guarded pair composition and the shared ability stage (Step 18)
+
+Every dynamic pair in the four gameplay modes now resolves through one declared `guarded_pair` row
+over the existing pure composition core. § "Canonical tick" carries the honest statement of what
+this does and does not change to the accepted baseline: the dynamic/dynamic branch selects the same
+two accepted equations by the same `body_has_baseline_physics` test; the static branch reflects the
+same non-static side as `reflect_static` under an additional closing-speed guard that the solver's
+own impact admission has already satisfied on every live path; unguarded arithmetic is returned
+unchanged; and a composed non-lethal contact reports the diagnostic rule name `guarded_pair`
+instead of `elastic_disc`, `variable_impulse`, or `reflect_static`. The three built-in rows remain
+reachable, and remain the engine baseline, for a mode that declares no row of its own.
+
+`kPreKernel` gains its second kind of consumer. The shared `ability` system reads this tick's
+recorded commands and writes body-bound `Shield` state so the same tick's contact responses can see
+it in the frozen post-`kPreKernel` world. No fourth hook stage, fourth policy socket, ninth mode
+declaration, second solver, or new event root is introduced, and `TickContext` gains nothing.
+Ability durations are integer tick counts converted once at configuration load, under the existing
+no-wall-clock obligation.
+
+This records the contract change, not verification, native capacity, or release certification.
+The implementation contract is
+[`2026-09-12-shield-composition-contract.md`](../reviews/2026-09-12-shield-composition-contract.md).

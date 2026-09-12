@@ -56,12 +56,22 @@ import {
   validateSessionWelcomeMessage,
   validateSessionTuningResult,
 } from './sessionProtocolValidation';
-import type { SessionCommand } from './simulationProtocolTypes';
+import type {
+  SessionCommand,
+  SessionSnapshotMessage,
+} from './simulationProtocolTypes';
 import {
   tuningCommand,
   tuningSnapshotDocument,
   TUNING_RESULT_STATUSES,
 } from './fixtures/tuningFrames';
+import {
+  ACCEPTED_SHIELD_COMPONENTS,
+  CANCELLED_SHIELD_WINDOWS,
+  INVALID_SHIELD_COMPONENTS,
+  SHIELD_SNAPSHOT_TICK,
+  shieldSnapshotDocument,
+} from './fixtures/shieldFrames';
 import {
   INVALID_INPUT_GENERATIONS,
   INVALID_STUN_WINDOWS,
@@ -371,6 +381,118 @@ describe('stun and input generation protocol', () => {
       expect(() => validateSessionCommand(command as SessionCommand)).toThrow(
         SimulationApiError,
       );
+    },
+  );
+});
+
+describe('shield protocol', () => {
+  function publishedShield(snapshot: SessionSnapshotMessage) {
+    return snapshot.data.entities.find((entity) => entity.entity_id === 7)
+      ?.components.shield;
+  }
+
+  it.each(ACCEPTED_SHIELD_COMPONENTS)(
+    'accepts $name and publishes its five members unchanged',
+    ({ value }) => {
+      const snapshot = validateSessionSnapshotMessage(
+        shieldSnapshotDocument(value),
+        welcomeSequence,
+      );
+      const shield = publishedShield(snapshot);
+      expect(shield).toEqual(value);
+      // The published order is the encoder's, and a client that dropped or reordered a member would
+      // read one window's endpoint as another's; every member is public by contract, so there is
+      // nothing here for the client to hide either.
+      expect(Object.keys(shield ?? {})).toEqual([
+        'activation_tick',
+        'shield_expiry_tick',
+        'perfect_expiry_tick',
+        'cooldown_expiry_tick',
+        'parry_stun_duration_ticks',
+      ]);
+      expect(Object.isFrozen(shield)).toBe(true);
+    },
+  );
+
+  it.each(INVALID_SHIELD_COMPONENTS)(
+    'rejects $name rather than reading a window it had to guess',
+    ({ value }) => {
+      expect(() =>
+        validateSessionSnapshotMessage(
+          shieldSnapshotDocument(value),
+          welcomeSequence,
+        ),
+      ).toThrow(SimulationApiError);
+    },
+  );
+
+  it('accepts cancelled zero-length protection while its cooldown still refuses a pulse', () => {
+    // This is the single case a `<` on the protection endpoints would have rejected. The status
+    // system cancels a shield on the tick it activated, so protection covers no tick at all while
+    // the cooldown it already started keeps running -- and the live cooldown is the only reason the
+    // component is still published. Closing the connection over it would drop a frame the server is
+    // required to send whenever a player is stunned on their own activation tick.
+    const snapshot = validateSessionSnapshotMessage(
+      shieldSnapshotDocument(CANCELLED_SHIELD_WINDOWS),
+      welcomeSequence,
+    );
+    const shield = publishedShield(snapshot);
+    expect(shield?.shield_expiry_tick).toBe(
+      CANCELLED_SHIELD_WINDOWS.activation_tick,
+    );
+    expect(shield?.perfect_expiry_tick).toBe(
+      CANCELLED_SHIELD_WINDOWS.activation_tick,
+    );
+    expect(shield?.cooldown_expiry_tick).toBeGreaterThan(SHIELD_SNAPSHOT_TICK);
+    expect(shield?.parry_stun_duration_ticks).toBeGreaterThan(0);
+  });
+
+  it.each([null, 1, STUN_INPUT_GENERATION, Number.MAX_SAFE_INTEGER])(
+    'accepts a shield pulse naming generation %s',
+    (generation) => {
+      expect(() =>
+        validateSessionCommand({
+          kind: 'shield',
+          payload: { input_generation: generation },
+        }),
+      ).not.toThrow();
+    },
+  );
+
+  // `input_generation` is required and nullable on a pulse where `set_thrust` leaves it optional:
+  // one discrete request states the exact generation it believes it holds, and a never-invalidated
+  // entity says so with `null` rather than leaving a reader to infer it from an absent member. The
+  // payload also names no actor and no duration -- session stamping owns the first and the mode's
+  // ability configuration owns the second, so either one on the wire is a client overreaching.
+  const invalidShieldPulses: readonly {
+    readonly name: string;
+    readonly payload: Readonly<Record<string, unknown>>;
+  }[] = [
+    { name: 'an omitted generation', payload: {} },
+    { name: 'a present zero generation', payload: { input_generation: 0 } },
+    { name: 'a negative generation', payload: { input_generation: -1 } },
+    { name: 'a fractional generation', payload: { input_generation: 1.5 } },
+    {
+      name: 'an unsafe generation',
+      payload: { input_generation: Number.MAX_SAFE_INTEGER + 1 },
+    },
+    { name: 'a string generation', payload: { input_generation: '12900' } },
+    {
+      name: 'a smuggled actor identity',
+      payload: { input_generation: null, entity_id: 7 },
+    },
+    {
+      name: 'an authored duration the configuration owns',
+      payload: { input_generation: null, shield_duration_ticks: 160 },
+    },
+  ];
+
+  it.each(invalidShieldPulses)(
+    'rejects a shield pulse carrying $name',
+    ({ payload }) => {
+      expect(() =>
+        validateSessionCommand({ kind: 'shield', payload } as SessionCommand),
+      ).toThrow(SimulationApiError);
     },
   );
 });

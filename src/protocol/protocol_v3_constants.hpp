@@ -80,7 +80,7 @@ inline constexpr double kThrustComponentMaximumMagnitude = 1.0;
 // The closed component-kind vocabulary of `common.schema.json#/$defs/component_kind`, in the
 // schema's own ascending order, which is also the order `docs/protocol/v3.md`
 // § "Object member order" requires component keys to be encoded in.
-inline constexpr std::array<std::string_view, 15> kV3ComponentKindNames{"contact_effect_admission",
+inline constexpr std::array<std::string_view, 16> kV3ComponentKindNames{"contact_effect_admission",
                                                                         "controllable",
                                                                         "hill",
                                                                         "hill_motion",
@@ -91,6 +91,7 @@ inline constexpr std::array<std::string_view, 15> kV3ComponentKindNames{"contact
                                                                         "race_progress",
                                                                         "respawn_timer",
                                                                         "score",
+                                                                        "shield",
                                                                         "stun",
                                                                         "team",
                                                                         "zone",
@@ -102,9 +103,15 @@ inline constexpr std::array<std::string_view, 15> kV3ComponentKindNames{"contact
 // (`docs/protocol/v3.md` § "welcome").
 //
 // Four kinds operate pre-match lobby setup. Tuning is a separate, seated cooperative mutation of
-// shared movement state; actual availability always comes from the mode's accepted mask.
-inline constexpr std::array<std::string_view, 6> kV3ClientCommandKindNames{
-    "clear_seat", "seat_npc", "set_movement_tuning", "set_seat_count", "set_thrust", "start_match"};
+// shared movement state, while `shield` is an entity's own combat pulse and therefore takes no
+// authority from a seat; actual availability always comes from the mode's accepted mask.
+//
+// `command_wire_kind.hpp` selects entries **by index**, so inserting a name in ascending position
+// renumbers every later kind there. `shield` sorting between `set_thrust` and `start_match` is what
+// moved `start_match` from 5 to 6.
+inline constexpr std::array<std::string_view, 7> kV3ClientCommandKindNames{
+    "clear_seat", "seat_npc", "set_movement_tuning", "set_seat_count",
+    "set_thrust", "shield",   "start_match"};
 
 inline constexpr double kMovementAccelerationMinimum = 0.0;
 inline constexpr double kMovementAccelerationMaximum = 10'000.0;

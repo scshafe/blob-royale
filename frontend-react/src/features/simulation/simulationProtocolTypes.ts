@@ -19,6 +19,7 @@ export type {
   BlobRoyaleProtocolV3MatchSection as SessionMatchSection,
   BlobRoyaleProtocolV3PhysicsBodyComponent as SessionPhysicsBodyComponent,
   BlobRoyaleProtocolV3ScoreComponent as SessionScoreComponent,
+  BlobRoyaleProtocolV3ShieldComponent as SessionShieldComponent,
   BlobRoyaleProtocolV3StunComponent as SessionStunComponent,
   BlobRoyaleProtocolV3TeamComponent as SessionTeamComponent,
   BlobRoyaleProtocolV3WebSocketSnapshotMessage as SessionSnapshotMessage,
@@ -109,6 +110,20 @@ export interface SessionSetThrustCommand {
   };
 }
 
+/**
+ * A pulse, not a state: the payload names no direction, no duration and no actor identity, because
+ * the ability configuration owns the durations and the session's own stamping owns the actor. Its
+ * `input_generation` is required and nullable where `set_thrust`'s is optional -- a shield request
+ * is one discrete intent rather than a held axis, so the client states the exact generation it
+ * believes it holds and writes `null` for the never-invalidated entity instead of omitting the
+ * member. Queue acceptance and a successful send are not activation: only the published shield
+ * windows prove the server admitted the pulse.
+ */
+export interface SessionShieldCommand {
+  readonly kind: 'shield';
+  readonly payload: { readonly input_generation: number | null };
+}
+
 /** A count, not a delta: two clients who both choose four agree rather than compounding. */
 export interface SessionSetSeatCountCommand {
   readonly kind: 'set_seat_count';
@@ -140,6 +155,7 @@ export interface SessionStartMatchCommand {
 /** @extension-point session_command -- a new client command kind adds one member to this union. */
 export type SessionCommand =
   | SessionSetThrustCommand
+  | SessionShieldCommand
   | SessionSetMovementTuningCommand
   | SessionSetSeatCountCommand
   | SessionSeatNpcCommand

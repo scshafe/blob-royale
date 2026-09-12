@@ -26,6 +26,7 @@ type MutableBlobRoyaleProtocolV3ClientCommandEnvelope = {
     | 'set_movement_tuning'
     | 'set_seat_count'
     | 'set_thrust'
+    | 'shield'
     | 'start_match';
   payload: {};
 };
@@ -378,6 +379,7 @@ interface MutableBlobRoyaleProtocolV3EntitySnapshot {
     race_progress?: MutableBlobRoyaleProtocolV3RaceProgressComponent;
     respawn_timer?: MutableBlobRoyaleProtocolV3RespawnTimerComponent;
     score?: MutableBlobRoyaleProtocolV3ScoreComponent;
+    shield?: MutableBlobRoyaleProtocolV3ShieldComponent;
     stun?: MutableBlobRoyaleProtocolV3StunComponent;
     team?: MutableBlobRoyaleProtocolV3TeamComponent;
     zone?: MutableBlobRoyaleProtocolV3ZoneComponent;
@@ -471,6 +473,31 @@ interface MutableBlobRoyaleProtocolV3ScoreComponent {
   points: number;
 }
 /**
+ * Body-bound tap shield: three absolute half-open windows that share one activation_tick. Protection is active exactly when activation_tick <= tick < shield_expiry_tick; the perfect opening is the leading part of that protection, active while tick < perfect_expiry_tick; the activation cooldown runs until cooldown_expiry_tick, so no new pulse is admitted before that tick. parry_stun_duration_ticks is the stun this shield inflicts on a qualifying incoming opponent during its perfect opening; it is published rather than hidden because it is a current effect parameter every reader may see, in-process bots and browsers alike. A stun cancels still-active protection by shortening it to the canceling tick and leaves the cooldown running, so zero-length protection with a live cooldown is a valid published state and a reader must evaluate the intervals rather than treat mere component presence as protection. The orderings activation_tick <= perfect_expiry_tick <= shield_expiry_tick and activation_tick <= cooldown_expiry_tick need semantic validation after JSON Schema, which cannot compare members. No charge member exists here; charge is a separate ability that owns its own published value.
+ */
+interface MutableBlobRoyaleProtocolV3ShieldComponent {
+  /**
+   * The committed tick the pulse was admitted on, shared by all three windows and never moved by a cancellation.
+   */
+  activation_tick: number;
+  /**
+   * First tick at which protection no longer holds. Equal to activation_tick when a stun canceled protection on the tick it began.
+   */
+  shield_expiry_tick: number;
+  /**
+   * First tick at which the perfect opening no longer holds. Never later than shield_expiry_tick: a cancellation shortens the opening with the protection that contains it.
+   */
+  perfect_expiry_tick: number;
+  /**
+   * First tick at which a new pulse may be admitted. Independent of protection: a configured cooldown of zero ticks makes this equal to activation_tick, and a canceled shield keeps its cooldown to the end.
+   */
+  cooldown_expiry_tick: number;
+  /**
+   * Ticks of stun this shield inflicts, captured from the ability configuration at activation so a defender frozen mid-window still supplies the effect it actually owns. A duration, not a tick sequence, and always positive.
+   */
+  parry_stun_duration_ticks: number;
+}
+/**
  * Body-bound temporary self-propulsion lock over the absolute half-open interval [activation_tick, expiry_tick). Both endpoints are public to browser and in-process observers. expiry_tick must exceed activation_tick, and activation_tick must not exceed the enclosing snapshot tick. Status application never restores or repeatedly zeroes velocity; later external impulses remain effective.
  */
 interface MutableBlobRoyaleProtocolV3StunComponent {
@@ -561,7 +588,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
   mode: string;
   map: string;
   /**
-   * @maxItems 6
+   * @maxItems 7
    */
   accepted_command_kinds:
     | []
@@ -571,6 +598,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
         | 'set_movement_tuning'
         | 'set_seat_count'
         | 'set_thrust'
+        | 'shield'
         | 'start_match',
       ]
     | [
@@ -580,6 +608,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -588,32 +617,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
-          | 'start_match'
-        ),
-      ]
-    | [
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
       ]
@@ -624,6 +628,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -632,6 +637,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -640,14 +646,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
       ]
@@ -658,6 +657,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -666,6 +666,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -674,6 +675,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -682,14 +684,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
-          | 'start_match'
-        ),
-        (
-          | 'clear_seat'
-          | 'seat_npc'
-          | 'set_movement_tuning'
-          | 'set_seat_count'
-          | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
       ]
@@ -700,6 +695,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -708,6 +704,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -716,6 +713,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -724,6 +722,7 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -732,6 +731,18 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
         (
@@ -740,6 +751,108 @@ interface MutableBlobRoyaleProtocolV3WelcomeData {
           | 'set_movement_tuning'
           | 'set_seat_count'
           | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+      ]
+    | [
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
+          | 'start_match'
+        ),
+        (
+          | 'clear_seat'
+          | 'seat_npc'
+          | 'set_movement_tuning'
+          | 'set_seat_count'
+          | 'set_thrust'
+          | 'shield'
           | 'start_match'
         ),
       ];
@@ -1017,6 +1130,8 @@ export type BlobRoyaleProtocolV3RespawnTimerComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3RespawnTimerComponent>;
 export type BlobRoyaleProtocolV3ScoreComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3ScoreComponent>;
+export type BlobRoyaleProtocolV3ShieldComponent =
+  DeepReadonly<MutableBlobRoyaleProtocolV3ShieldComponent>;
 export type BlobRoyaleProtocolV3StunComponent =
   DeepReadonly<MutableBlobRoyaleProtocolV3StunComponent>;
 export type BlobRoyaleProtocolV3TeamComponent =

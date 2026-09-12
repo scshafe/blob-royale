@@ -315,6 +315,50 @@ TEST_CASE("lethality reads the committed running phase instead of marker presenc
   }
 }
 
+TEST_CASE("the rehomed lethal predicates and diagnostic name keep their published semantics",
+          "[unit][gameplay][shared][guarded_pair]") {
+  // `kLethalHazardContactRuleName`, `body_is_lethal_hazard` and `body_is_player_driven` moved into
+  // this header verbatim when plan Step 18 deleted `shared/lethal_hazard_contact_rule.{hpp,cpp}`;
+  // that file's own proofs moved to `guarded_pair_contact_rule_tests.cpp`. This case exists because
+  // the move made this header their home: it pins, at the point they now live, that the name is the
+  // same characters every consumer already matches against, that lethality is still gated on the
+  // committed running phase, and that the victim-side test is still `Controllable` presence rather
+  // than the absence of `LethalOnContact`.
+  CHECK(gameplay::kLethalHazardContactRuleName == "lethal_hazard");
+
+  GuardPairFixture fixture{moving_body(100.0, 30.0),
+                           simulation::PhysicsBody::create_static(vector(120.0, 100.0))};
+  fixture.make_lethal(fixture.first.entity);
+  CHECK(gameplay::body_is_lethal_hazard(fixture.world, fixture.first.entity));
+  // The fixture drives every dynamic body, which is the state the victim-side test exists to name.
+  CHECK(gameplay::body_is_player_driven(fixture.world, fixture.first.entity));
+  // A wall carries neither kind, and neither does an id nothing was ever written for, so both tests
+  // are total: a pair the broad phase could not have produced resolves to "not lethal" and "not
+  // driven" rather than to a lookup failure.
+  CHECK_FALSE(gameplay::body_is_lethal_hazard(fixture.world, fixture.second.entity));
+  CHECK_FALSE(gameplay::body_is_player_driven(fixture.world, fixture.second.entity));
+  CHECK_FALSE(gameplay::body_is_lethal_hazard(fixture.world, entity(99)));
+  CHECK_FALSE(gameplay::body_is_player_driven(fixture.world, entity(99)));
+
+  for (const auto phase :
+       std::array{simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown,
+                  simulation::MatchPhase::kEnded}) {
+    fixture.world.mutable_match().phase = phase;
+    CHECK_FALSE(gameplay::body_is_lethal_hazard(fixture.world, fixture.first.entity));
+  }
+  fixture.world.mutable_match().phase = simulation::MatchPhase::kRunning;
+  CHECK(gameplay::body_is_lethal_hazard(fixture.world, fixture.first.entity));
+
+  // The lethal branch publishes the rehomed constant rather than a literal of its own, which is
+  // what lets one declared row report two diagnostic names without either being a loose string.
+  GuardPairFixture lethal{moving_body(100.0, 30.0), moving_body(120.0, 0.0)};
+  lethal.make_lethal(lethal.first.entity);
+  const auto result = lethal.compose({});
+  REQUIRE(result.effects.size() == 2);
+  CHECK(std::get<gameplay::GuardedPairContactFact>(result.effects[1]).contact.rule_name.value() ==
+        gameplay::kLethalHazardContactRuleName);
+}
+
 TEST_CASE("pair reversal preserves physical results and canonical consequence order",
           "[unit][gameplay][shared][guarded_pair]") {
   const GuardPairFixture fixture{moving_body(100.0, 10.0, 2.0, 0.5), moving_body(120.0, -5.0)};

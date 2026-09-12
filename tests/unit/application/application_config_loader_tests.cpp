@@ -9,6 +9,7 @@
 #include "race/race_configuration.hpp"
 #include "royale/royale_configuration.hpp"
 #include "server_config.hpp"
+#include "shared/ability_configuration.hpp"
 #include "shared/hazard_archetype.hpp"
 #include "simulation_config.hpp"
 #include "simulation_limits.hpp"
@@ -81,6 +82,14 @@ constexpr std::string_view kHazardSections = "\n"
                                              "spawn_interval_seconds=20\n"
                                              "lethal_on_contact=false\n"
                                              "contact_effect_policy=closing_impact\n";
+
+// The shipped `[abilities]` block exactly as `kValidConfiguration` authors it, so a test that
+// rewrites the whole section names it once instead of spelling four keys in four places.
+constexpr std::string_view kAbilitiesSection = "[abilities]\n"
+                                               "shield_duration_seconds=0.4\n"
+                                               "shield_perfect_window_seconds=0.08\n"
+                                               "shield_cooldown_seconds=0.9\n"
+                                               "parry_stun_duration_seconds=0.6\n";
 
 [[nodiscard]] std::string configuration_with_hazards() {
   std::string configuration{test_fixture::kValidConfiguration};
@@ -409,6 +418,10 @@ TEST_CASE("application config loader authors one shared movement pair for every 
     CHECK(loaded.king_of_the_hill == gameplay::KingOfTheHillConfiguration::defaults());
     CHECK(loaded.race == gameplay::RaceConfiguration::defaults());
     CHECK(loaded.sandbox == gameplay::SandboxConfiguration::defaults());
+    // Added with `[abilities]`: the enumeration is only a proof of member independence while it
+    // names every member, and the second mode-agnostic section must move with movement, not with
+    // whichever mode `mode=` happens to name.
+    CHECK(loaded.abilities == gameplay::AbilityConfiguration::defaults());
   }
 }
 
@@ -463,6 +476,158 @@ TEST_CASE("sandbox return timing is required and uses shared duration validation
   } catch (const gameplay::GameplayValidationError& error) {
     CHECK(error.validation_code() == gameplay::GameplayValidationCode::kDurationNegative);
     CHECK(error.context() == "sandbox.respawn_delay_seconds");
+  }
+}
+
+TEST_CASE("authored shield timings reach every mode as converted tick counts",
+          "[unit][application][config][abilities]") {
+  // Authored away from the shipped numbers on purpose. `gameplay::AbilityConfiguration::defaults()`
+  // already returns 0.4/0.08/0.9/0.6, so a loader that dropped the section on the floor would still
+  // satisfy an assertion against them; only values nothing else could have produced prove the file
+  // was read. The zero cooldown is deliberate: the contract makes a cooldown shorter than the
+  // shield -- zero included -- legal, so the positive case has to prove the loader admits one
+  // rather than quietly clamping or refusing it. The mode loop is the same claim `[movement]`
+  // makes: this section belongs to no mode, so every `mode=` gets the same authored timings.
+  TemporaryApplicationInputWorkspace workspace;
+  for (const std::string_view mode : {"sandbox", "royale", "king_of_the_hill", "race"}) {
+    CAPTURE(mode);
+    auto configuration = test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                                    "mode=royale", "mode=" + std::string(mode));
+    configuration = test_fixture::replace_once(std::move(configuration), kAbilitiesSection,
+                                               "[abilities]\n"
+                                               "shield_duration_seconds=0.5\n"
+                                               "shield_perfect_window_seconds=0.1\n"
+                                               "shield_cooldown_seconds=0\n"
+                                               "parry_stun_duration_seconds=0.25\n");
+    const auto loaded = load_game_mode_configuration(workspace, configuration);
+    // At `simulation::kSimulationTicksPerSecond` = 400 the conversion is visible in the numbers
+    // themselves: seconds handed through unconverted could not read as 200/40/0/100.
+    CHECK(loaded.abilities.shield_duration_ticks() == 200);
+    CHECK(loaded.abilities.shield_perfect_window_ticks() == 40);
+    CHECK(loaded.abilities.shield_cooldown_ticks() == 0);
+    CHECK(loaded.abilities.parry_stun_duration_ticks() == 100);
+    CHECK(loaded.abilities == gameplay::AbilityConfiguration::create(0.5, 0.1, 0.0, 0.25));
+    // The authored abilities must not disturb the sections either side of them in the file.
+    CHECK(loaded.movement == simulation::MovementTuning::create(400.0, 10000.0));
+    CHECK(loaded.sandbox == gameplay::SandboxConfiguration::defaults());
+  }
+}
+
+TEST_CASE("a configuration without the [abilities] section is refused naming all four keys",
+          "[unit][application][config][abilities][validation]") {
+  // A missing required section is never reported as a missing section: `require_all_fields` runs
+  // inside `StrictIniDocument::parse`, before the first value is parsed, so absence arrives as the
+  // section's missing keys. All four are asserted rather than one, because `ConfigField` and
+  // `kConfigFieldSpecs` are index-parallel by construction and an enumerator inserted at a
+  // different index than its spec row would still name *a* key while mislabelling the rest.
+  TemporaryApplicationInputWorkspace workspace;
+  std::string configuration{test_fixture::kValidConfiguration};
+  const std::size_t section_start = configuration.find("[abilities]\n");
+  const std::size_t section_end = configuration.find("[royale]\n");
+  REQUIRE(section_start != std::string::npos);
+  REQUIRE(section_end != std::string::npos);
+  configuration.erase(section_start, section_end - section_start);
+
+  const std::filesystem::path config_path = workspace.write_file("no-abilities.cfg", configuration);
+  try {
+    static_cast<void>(test_fixture::load_application_config(config_path));
+    FAIL("a configuration without [abilities] loaded");
+  } catch (const ApplicationInputError& error) {
+    CHECK(error.error_code() == ApplicationInputErrorCode::kConfigurationKeyMissing);
+    const std::string_view reported{error.what()};
+    for (const std::string_view key :
+         {"abilities.shield_duration_seconds", "abilities.shield_perfect_window_seconds",
+          "abilities.shield_cooldown_seconds", "abilities.parry_stun_duration_seconds"}) {
+      CAPTURE(key);
+      CHECK(reported.find(key) != std::string_view::npos);
+    }
+  }
+}
+
+TEST_CASE("the [abilities] section is closed and every authored timing is validated",
+          "[unit][application][config][abilities][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  // Closed like every other fixed section. `shield_charges` is the key Step 19's charge work will
+  // want, which is exactly why it must be refused today: no vocabulary is reserved ahead of the
+  // behavior that reads it.
+  require_configuration_load_error(
+      workspace,
+      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, "[abilities]\n",
+                                 "[abilities]\nshield_charges=2\n"),
+      ApplicationInputErrorCode::kConfigurationKeyUnknown);
+  require_configuration_load_error(
+      workspace,
+      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                 "shield_cooldown_seconds=0.9\n",
+                                 "shield_cooldown_seconds=0.9\nshield_cooldown_seconds=0.4\n"),
+      ApplicationInputErrorCode::kConfigurationKeyDuplicate);
+  require_configuration_load_error(
+      workspace,
+      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                 "shield_duration_seconds=0.4\n", "shield_duration_seconds=\n"),
+      ApplicationInputErrorCode::kConfigurationValueInvalid);
+
+  // Rejections the shared seconds-to-ticks converter owns. The context is the full
+  // `<section>.<key>` the loader hands it, which is what keeps one authored line spelled one way
+  // wherever it is refused (`src/gameplay/shared/duration_ticks.hpp`).
+  struct DurationRejection final {
+    std::string_view target;
+    std::string_view replacement;
+    std::string_view context;
+  };
+  constexpr std::array duration_rejections{
+      DurationRejection{"shield_duration_seconds=0.4", "shield_duration_seconds=-0.5",
+                        "abilities.shield_duration_seconds"},
+      DurationRejection{"shield_perfect_window_seconds=0.08", "shield_perfect_window_seconds=-0.01",
+                        "abilities.shield_perfect_window_seconds"},
+      DurationRejection{"shield_cooldown_seconds=0.9", "shield_cooldown_seconds=-1",
+                        "abilities.shield_cooldown_seconds"},
+      DurationRejection{"parry_stun_duration_seconds=0.6", "parry_stun_duration_seconds=-2",
+                        "abilities.parry_stun_duration_seconds"}};
+  for (const auto& input : duration_rejections) {
+    CAPTURE(input.replacement);
+    try {
+      static_cast<void>(load_game_mode_configuration(
+          workspace, test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                                input.target, input.replacement)));
+      FAIL("a negative ability duration was accepted");
+    } catch (const gameplay::GameplayValidationError& error) {
+      CHECK(error.validation_code() == gameplay::GameplayValidationCode::kDurationNegative);
+      CHECK(error.context() == input.context);
+    }
+  }
+
+  // The two rules the ability value adds after conversion. A shield, perfect window, or parry stun
+  // that rounds to zero ticks is not a very short effect but no effect at all, and a perfect window
+  // longer than the shield it opens is not an orderable pair; both are refused rather than clamped.
+  // Only the code and the fact that the section is charged are pinned here: which of the two keys a
+  // cross-key rule blames belongs to the value's own contract and its own unit test, not to the
+  // loader.
+  struct AbilityRejection final {
+    std::string_view target;
+    std::string_view replacement;
+    gameplay::GameplayValidationCode code;
+  };
+  constexpr std::array ability_rejections{
+      AbilityRejection{"shield_duration_seconds=0.4", "shield_duration_seconds=0.001",
+                       gameplay::GameplayValidationCode::kAbilityDurationNotPositive},
+      AbilityRejection{"shield_perfect_window_seconds=0.08", "shield_perfect_window_seconds=0.001",
+                       gameplay::GameplayValidationCode::kAbilityDurationNotPositive},
+      AbilityRejection{"parry_stun_duration_seconds=0.6", "parry_stun_duration_seconds=0.001",
+                       gameplay::GameplayValidationCode::kAbilityDurationNotPositive},
+      AbilityRejection{"shield_perfect_window_seconds=0.08", "shield_perfect_window_seconds=0.5",
+                       gameplay::GameplayValidationCode::kAbilityPerfectWindowExceedsShield}};
+  for (const auto& input : ability_rejections) {
+    CAPTURE(input.replacement);
+    try {
+      static_cast<void>(load_game_mode_configuration(
+          workspace, test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
+                                                input.target, input.replacement)));
+      FAIL("an unusable ability timing was accepted");
+    } catch (const gameplay::GameplayValidationError& error) {
+      CHECK(error.validation_code() == input.code);
+      CHECK(error.context().starts_with("abilities."));
+    }
   }
 }
 
@@ -1126,12 +1291,14 @@ TEST_CASE("a hazard section that omits any one of its keys is rejected",
 
 TEST_CASE("every fixed section still rejects an unknown key",
           "[unit][application][config][validation]") {
-  // The regression that says opening instance names opened nothing else: each of the ten fixed
-  // sections refuses a key it does not declare, exactly as it did before families existed.
-  constexpr std::array<std::string_view, 12> section_headers = {
-      "[server]\n",       "[presentation]\n", "[simulation]\n", "[world]\n",
-      "[spatial_grid]\n", "[match]\n",        "[royale]\n",     "[king_of_the_hill]\n",
-      "[race]\n",         "[lobbies]\n",      "[movement]\n",   "[sandbox]\n"};
+  // The regression that says opening instance names opened nothing else: each of the thirteen
+  // fixed sections refuses a key it does not declare, exactly as it did before families existed.
+  // The count is written out because `kConfigSections` is hard-sized too; a section added to one
+  // list and not the other is exactly the drift this array exists to catch.
+  constexpr std::array<std::string_view, 13> section_headers = {
+      "[server]\n",   "[presentation]\n", "[simulation]\n",       "[world]\n", "[spatial_grid]\n",
+      "[match]\n",    "[royale]\n",       "[king_of_the_hill]\n", "[race]\n",  "[lobbies]\n",
+      "[movement]\n", "[sandbox]\n",      "[abilities]\n"};
 
   TemporaryApplicationInputWorkspace workspace;
   for (const std::string_view section_header : section_headers) {

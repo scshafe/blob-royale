@@ -43,6 +43,7 @@ enum class CommandSubmissionResult : std::uint8_t {
   kRejectedThrustInputGenerationOutOfRange = 15,
   kRejectedNpcDeclarationUnknown = 16,
   kRejectedJoinDeclarationInvalid = 17,
+  kRejectedShieldInputGenerationOutOfRange = 18,
 };
 
 // Whether the command is now pending for a tick. The two acceptances are the only values for which
@@ -93,6 +94,11 @@ command_submission_result_name(const CommandSubmissionResult result) noexcept {
     return "rejected_npc_declaration_unknown";
   case CommandSubmissionResult::kRejectedJoinDeclarationInvalid:
     return "rejected_join_declaration_invalid";
+  // A refused shield names the shield rather than reusing the thrust refusal. The two carry the
+  // same rule, but a log that said `rejected_thrust_input_generation_out_of_range` for a shield
+  // press would name a command the client never sent.
+  case CommandSubmissionResult::kRejectedShieldInputGenerationOutOfRange:
+    return "rejected_shield_input_generation_out_of_range";
   }
   return "command_submission_result_invalid";
 }

@@ -1,6 +1,6 @@
 #include "royale/royale_mode.hpp"
 
-#include "shared/lethal_hazard_contact_rule.hpp"
+#include "shared/guarded_pair_contact_rule.hpp"
 
 #include "fixtures/falling_mode_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
@@ -45,27 +45,31 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as eight answers",
 
   CHECK(mode.name() == std::string_view{"royale"});
   CHECK(mode.motion_triggers().size() == 1);
-  // One royale row above the built-in ones, and the built-in ones unmodified below it. Royale still
-  // changes no collision *equation* -- `lethal_hazard` computes no physics and returns both bodies
-  // verbatim -- so every accepted pair and wall fixture stays valid without regeneration, which the
-  // suffix check below states as a property rather than as a retyped list.
+  // One royale row above the built-in ones, and the built-in ones unmodified below it. The row is
+  // now `guarded_pair`, whose two predicates are the same total presence test, so the three rows
+  // below it are unreachable in royale -- the suffix check states that they are still *declared*
+  // and still the engine's own values, which is what `with_rows_above_built_in` is for and what a
+  // transcribed copy of the accepted baseline in the mode header could not guarantee.
   const simulation::ContactRuleTable rules = mode.contact_rules();
   const simulation::ContactRuleTable built_in = simulation::ContactRuleTable::built_in();
   REQUIRE(rules.size() == built_in.size() + 1);
-  CHECK(rules.rows()[0].name() == gameplay::kLethalHazardContactRuleName);
+  CHECK(rules.rows()[0].name() == gameplay::kGuardedPairContactRuleName);
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
-  // Seven: the three every mode needs, and the four that operate the pre-match lobby. A mode
+  // Eleven: the three lifecycle kinds every mode needs, `thrust` and `shield`, seated movement
+  // tuning, the four that operate the pre-match lobby, and the server-issued `join`. A mode
   // declares the lobby kinds rather than the engine offering them to everybody, which is why
-  // `sandbox` -- whose objective never starts -- accepts none of them.
+  // `sandbox` -- whose objective never starts -- accepts none of them. `shield` is advertised only
+  // because this mode also declares the `ability` system that admits it.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-             simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
-             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
-             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
-             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
+             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
+             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
+             simulation::CommandKind::kJoin}));
 }
 
 TEST_CASE("royale falling records elimination without delivering the later pair impulse",
@@ -99,14 +103,19 @@ TEST_CASE("royale support loss stays inactive before the running phase",
   }
 }
 
-TEST_CASE("RoyaleMode declares nine systems in the order its rules depend on",
+TEST_CASE("RoyaleMode declares ten systems in the order its rules depend on",
           "[unit][gameplay][royale]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 9);
+  REQUIRE(systems.size() == 10);
 
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
+  // `ability` is last at this stage in every mode that declares it, mirroring `status` at
+  // kPostKernel: pulse admission reads the canonical input lock, so every kPreKernel system that
+  // can change what that lock answers has already run.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 2);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
+  CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[1].system->name() ==
+        std::string_view{"ability"});
 
   // `zone_elimination` reads the radius this tick's `zone_shrink` wrote, so the declared order at
   // this stage is the rule and not a preference.

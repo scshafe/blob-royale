@@ -115,6 +115,20 @@ Future orchestration belongs here only when it coordinates existing domain capab
 rules stay in simulation, wire representation stays in protocol, and transport policy stays in
 server. In particular, never inject `GameSimulation&` or `SimulationRuntime&` into network code.
 
+Step 18 adds one required shared `[abilities]` section, validated by `gameplay::AbilityConfiguration`
+through the same duration owner: `shield_duration_seconds` (0.4), `shield_perfect_window_seconds`
+(0.08), `shield_cooldown_seconds` (0.9), and `parry_stun_duration_seconds` (0.6), all required and
+all finite. Those production values are the ADR's initial tuning assumptions, not owner-selected
+balance. Rounded shield, perfect and parry-stun durations must be positive and the perfect window
+may not exceed the shield; a zero cooldown, or one shorter than the shield, is deliberately legal.
+`GameModeConfiguration` carries the validated value to every mode beside `movement` and `hazards`.
+Because the loader requires every declared section regardless of `[match] mode`, this section
+reaches every standalone `.cfg`, every inline unit-test configuration string, and
+`tests/integration/server_process_fixture.cpp::write_fixture_inputs`. Replay fixtures are the
+documented exception and gain nothing: their parser rejects unread keys and never reads
+`[abilities]`, so a replay inherits `GameModeConfiguration::defaults()`, exactly as it does for
+`[sandbox]`.
+
 Step 17 adds required `[sandbox] respawn_delay_seconds`, validated by the shared gameplay duration
 owner. Match startup binds race checkpoint return clearance against the configured player radius
 and complete terrain before building any room; unsupported discs fail with

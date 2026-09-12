@@ -8,6 +8,7 @@
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
+#include "commands/shield_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
@@ -56,7 +57,7 @@ namespace blob_royale::simulation {
 // related: kind_registry.hpp -- the derivation that keeps the kind list honest.
 using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand,
                              ClearSeatCommand, SeatNpcCommand, StartMatchCommand, LeaveCommand,
-                             JoinCommand, SetMovementTuningCommand>;
+                             JoinCommand, SetMovementTuningCommand, ShieldCommand>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -83,6 +84,7 @@ enum class CommandKind : std::uint32_t {
   // (`commands/join_command.hpp`).
   kJoin = 1u << 8,
   kSetMovementTuning = 1u << 9,
+  kShield = 1u << 10,
 };
 
 // canonical: command_kind_of_type -- the enumerator of one command value type.
@@ -129,6 +131,10 @@ template <> struct CommandKindOf<JoinCommand> {
 
 template <> struct CommandKindOf<SetMovementTuningCommand> {
   static constexpr CommandKind value = CommandKind::kSetMovementTuning;
+};
+
+template <> struct CommandKindOf<ShieldCommand> {
+  static constexpr CommandKind value = CommandKind::kShield;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through CommandKindOf.
@@ -201,6 +207,13 @@ template <> struct CommandKindName<SetMovementTuningCommand> {
   static constexpr std::string_view value = "set_movement_tuning";
 };
 
+// Unlike `thrust`, whose wire name says `set_thrust` because the command replaces a persistent
+// intent, a shield is one whole act with no persistence to explain, so one name serves both
+// vocabularies the way the four lobby kinds' names do.
+template <> struct CommandKindName<ShieldCommand> {
+  static constexpr std::string_view value = "shield";
+};
+
 // The declared wire name of one command kind, for encoders, diagnostics, and fixtures.
 template <typename CommandType>
 inline constexpr std::string_view command_kind_name = CommandKindName<CommandType>::value;
@@ -236,6 +249,8 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
     return command_kind_name<JoinCommand>;
   case CommandKind::kSetMovementTuning:
     return command_kind_name<SetMovementTuningCommand>;
+  case CommandKind::kShield:
+    return command_kind_name<ShieldCommand>;
   }
   return "command_kind_invalid";
 }
@@ -367,6 +382,14 @@ command_kind_application_rank(const CommandKind kind) noexcept {
   // leaver sent alongside is still the decision it made while present.
   case CommandKind::kLeave:
     return 9;
+  // A shield pulse is a pure recorded intent whose only ordering obligation is to follow a spawn,
+  // so it takes the next free rank rather than a place among the kinds that act on the world. Its
+  // meaning is read at `kPreKernel` by the ability system, long after this pass records it against
+  // a `Controllable`; applying it after the lifecycle kinds means a body that despawned or left on
+  // this tick simply has no `Controllable` to record into, which is the correct outcome for a
+  // pulse pressed by a session that is already gone.
+  case CommandKind::kShield:
+    return 10;
   }
   return static_cast<std::uint32_t>(kCommandKindCount);
 }

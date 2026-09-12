@@ -9,6 +9,7 @@
 #include "input_batch.hpp"
 #include "match_outcome.hpp"
 #include "match_phase.hpp"
+#include "shared/guarded_pair_contact_rule.hpp"
 #include "simulation_validation_error.hpp"
 #include "system_pipeline.hpp"
 #include "tick_sequence.hpp"
@@ -41,18 +42,40 @@ TEST_CASE("SandboxMode declares free play with shared falling and configured ret
   const gameplay::SandboxMode mode{};
 
   CHECK(mode.name() == std::string_view{"sandbox"});
-  CHECK(mode.contact_rules() == simulation::ContactRuleTable::built_in());
+  // **This used to assert exact equality with `ContactRuleTable::built_in()`, and the change is
+  // deliberate.** That assertion was the honest statement of free play while free play had no
+  // ability to defend with. ADR 0008's mode/state matrix answers "Sandbox, running with a body"
+  // with *Enabled*, so a blob in free play may raise a shield, and a shield that worked in the
+  // three competitive modes and not in the one mode people experiment in would be a mechanic that
+  // lies. Sandbox therefore declares the same `guarded_pair` row the other three do, which makes
+  // the engine's three rows unreachable here; the suffix check states that they are nonetheless
+  // still declared, unmodified, and taken from `built_in()` rather than transcribed.
+  const simulation::ContactRuleTable rules = mode.contact_rules();
+  const simulation::ContactRuleTable built_in = simulation::ContactRuleTable::built_in();
+  REQUIRE(rules.size() == built_in.size() + 1);
+  CHECK(rules.rows()[0].name() == gameplay::kGuardedPairContactRuleName);
+  for (std::size_t index = 0; index < built_in.size(); ++index) {
+    CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
+  }
+  // Five: the four free play always had, plus `shield`, advertised only because sandbox also
+  // declares the `ability` system that admits it.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-             simulation::CommandKind::kLeave, simulation::CommandKind::kThrust}));
+             simulation::CommandKind::kLeave, simulation::CommandKind::kThrust,
+             simulation::CommandKind::kShield}));
 
   const simulation::SystemPipeline systems = mode.systems();
-  REQUIRE(systems.size() == 3);
+  REQUIRE(systems.size() == 4);
   CHECK(mode.motion_triggers().size() == 1);
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
+  // `ability` is last at this stage in every mode that declares it, mirroring `status` at
+  // kPostKernel: pulse admission reads the canonical input lock, so every kPreKernel system that
+  // can change what that lock answers has already run.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 2);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
+  CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[1].system->name() ==
+        std::string_view{"ability"});
   REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() == "status");
   REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 1);
@@ -190,8 +213,9 @@ TEST_CASE("SandboxMode uses shared authored movement without advertising unseate
 
 TEST_CASE("A sandbox simulation with no command reproduces the empty-batch tick",
           "[unit][gameplay][sandbox]") {
-  // Sandbox declares one kPreKernel system and nothing else, so with no entity to steer the tick
-  // is the accepted seven-phase baseline: an empty world stays empty and nothing is published.
+  // Sandbox declares two kPreKernel systems and nothing else at that stage, and neither steering
+  // nor ability admission has an entity to act on, so with no entity to steer the tick is still the
+  // accepted seven-phase baseline: an empty world stays empty and nothing is published.
   simulation::GameSimulation game = sandbox_simulation();
   for (int tick = 0; tick < 8; ++tick) {
     game.step(testing::kGameplayFixedDelta, simulation::InputBatch::empty());

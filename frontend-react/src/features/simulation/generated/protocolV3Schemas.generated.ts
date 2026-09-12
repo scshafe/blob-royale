@@ -78,6 +78,23 @@ export const protocolV3Schemas = {
         if: {
           properties: {
             kind: {
+              const: 'shield',
+            },
+          },
+          required: ['kind'],
+        },
+        then: {
+          properties: {
+            payload: {
+              $ref: 'shield-command.schema.json',
+            },
+          },
+        },
+      },
+      {
+        if: {
+          properties: {
+            kind: {
               const: 'set_seat_count',
             },
           },
@@ -317,6 +334,7 @@ export const protocolV3Schemas = {
           'race_progress',
           'respawn_timer',
           'score',
+          'shield',
           'stun',
           'team',
           'zone',
@@ -331,10 +349,11 @@ export const protocolV3Schemas = {
           'set_movement_tuning',
           'set_seat_count',
           'set_thrust',
+          'shield',
           'start_match',
         ],
         $comment:
-          "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller. Availability is the mode's published accepted mask, so Sandbox advertises only set_thrust.",
+          "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller; set_thrust and shield address the sender's own body. Availability is the mode's published accepted mask, so Sandbox advertises set_thrust and shield but no lobby kind and no tuning.",
       },
       lobby_id: {
         type: 'integer',
@@ -607,6 +626,9 @@ export const protocolV3Schemas = {
           },
           score: {
             $ref: 'score-component.schema.json',
+          },
+          shield: {
+            $ref: 'shield-component.schema.json',
           },
           stun: {
             $ref: 'stun-component.schema.json',
@@ -1751,6 +1773,79 @@ export const protocolV3Schemas = {
     $comment:
       'The per-component bound admits (1, 1), whose magnitude is sqrt(2). Magnitude clamping to 1 is a mode rule applied by thrust_steering (ADR 0005), not a wire rule, so a client cannot gain 41 percent acceleration by thrusting diagonally. A decoder MUST reject non-standard JSON number literals such as NaN and Infinity.',
   },
+  shieldCommand: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/shield-command.schema.json',
+    title: 'Blob Royale protocol v3 shield command payload',
+    description:
+      "One shield pulse. The payload names no entity: the server stamps the sending session's current body, so an entity id is not merely ignored here, it is a closed-schema violation that closes the connection. It names no duration either: the server's [abilities] configuration owns the shield, perfect-opening and cooldown lengths, so a client cannot lengthen its own protection by authoring one. Acceptance of this message is not activation; only the published shield component proves a committed activation, and a pulse the tick refuses produces no receipt and consumes no cooldown.",
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['input_generation'],
+    properties: {
+      input_generation: {
+        oneOf: [
+          {
+            $ref: 'common.schema.json#/$defs/tick_sequence',
+          },
+          {
+            type: 'null',
+          },
+        ],
+        description:
+          "The exact generation this pulse was authored against, or null for an entity that has never been invalidated. Server admission requires exact equality with the entity's current generation and no active stun; a stale token cannot activate and is dropped, never retagged with a newer one.",
+      },
+    },
+    $comment:
+      'input_generation is required and nullable here while set_thrust leaves it optional, and the difference is deliberate. set_thrust carries x and y whatever happens, so an omitted generation still reads as a considered steering payload in the pre-generation shape; shield has no other member, so an optional one would make {} the whole message and a truncated or defaulted send indistinguishable from an authored never-invalidated pulse. An explicit null makes the absence authored. Null and a matching token are the only values that can activate: a present zero is a schema violation on this wire and a named refusal at the batch boundary for in-process producers, because zero is not the absence of a generation.',
+  },
+  shieldComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/shield-component.schema.json',
+    title: 'Blob Royale protocol v3 shield component',
+    description:
+      'Body-bound tap shield: three absolute half-open windows that share one activation_tick. Protection is active exactly when activation_tick <= tick < shield_expiry_tick; the perfect opening is the leading part of that protection, active while tick < perfect_expiry_tick; the activation cooldown runs until cooldown_expiry_tick, so no new pulse is admitted before that tick. parry_stun_duration_ticks is the stun this shield inflicts on a qualifying incoming opponent during its perfect opening; it is published rather than hidden because it is a current effect parameter every reader may see, in-process bots and browsers alike. A stun cancels still-active protection by shortening it to the canceling tick and leaves the cooldown running, so zero-length protection with a live cooldown is a valid published state and a reader must evaluate the intervals rather than treat mere component presence as protection. The orderings activation_tick <= perfect_expiry_tick <= shield_expiry_tick and activation_tick <= cooldown_expiry_tick need semantic validation after JSON Schema, which cannot compare members. No charge member exists here; charge is a separate ability that owns its own published value.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'activation_tick',
+      'shield_expiry_tick',
+      'perfect_expiry_tick',
+      'cooldown_expiry_tick',
+      'parry_stun_duration_ticks',
+    ],
+    properties: {
+      activation_tick: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+        description:
+          'The committed tick the pulse was admitted on, shared by all three windows and never moved by a cancellation.',
+      },
+      shield_expiry_tick: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+        description:
+          'First tick at which protection no longer holds. Equal to activation_tick when a stun canceled protection on the tick it began.',
+      },
+      perfect_expiry_tick: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+        description:
+          'First tick at which the perfect opening no longer holds. Never later than shield_expiry_tick: a cancellation shortens the opening with the protection that contains it.',
+      },
+      cooldown_expiry_tick: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+        description:
+          'First tick at which a new pulse may be admitted. Independent of protection: a configured cooldown of zero ticks makes this equal to activation_tick, and a canceled shield keeps its cooldown to the end.',
+      },
+      parry_stun_duration_ticks: {
+        $ref: 'common.schema.json#/$defs/positive_safe_integer',
+        description:
+          'Ticks of stun this shield inflicts, captured from the ability configuration at activation so a defender frozen mid-window still supplies the effect it actually owns. A duration, not a tick sequence, and always positive.',
+      },
+    },
+    $comment:
+      'Every endpoint is a tick_sequence rather than safe_integer or phase_start_tick. An expiry is never earlier than its own positive activation_tick, so zero is not a truthful value for any of the three, and a nonnegative def would let a decoder accept a frame the encoder cannot produce; phase_start_tick admits zero for exactly one reason -- a lobby with no committed transition -- that has no shield analogue. tick_sequence bounds positivity only and does not require an expiry to exceed the activation, which is what a canceled window needs: unlike stun, whose expiry_tick must strictly exceed its activation_tick, every shield expiry may equal it. Added with the Step 18 tap shield under protocol 3.0; no session major, no new close code, and no per-request activation receipt is introduced.',
+  },
   snapshotData: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/snapshot-data.schema.json',
@@ -2268,13 +2363,13 @@ export const protocolV3Schemas = {
       },
       accepted_command_kinds: {
         type: 'array',
-        maxItems: 6,
+        maxItems: 7,
         uniqueItems: true,
         items: {
           $ref: 'common.schema.json#/$defs/command_kind',
         },
         $comment:
-          "maxItems tracks the six client-sendable kinds in common.schema.json. The published set is the intersection of the mode's accepted kinds with that vocabulary, never a server-issued kind such as spawn or despawn. Sandbox publishes only set_thrust.",
+          "maxItems tracks the seven client-sendable kinds in common.schema.json. The published set is the intersection of the mode's accepted kinds with that vocabulary, never a server-issued kind such as spawn or despawn. Sandbox publishes set_thrust and shield.",
       },
       npc_controller_kinds: {
         type: 'array',

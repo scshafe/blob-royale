@@ -7,6 +7,7 @@
 #include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
+#include "commands/shield_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
@@ -323,6 +324,24 @@ read_commands(const std::filesystem::path& path, const std::uint64_t tick_count)
           simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id")),
           simulation::Vector2::create(parse_double(columns[4], where + " direction_x"),
                                       parse_double(columns[5], where + " direction_y"))}});
+      continue;
+    }
+    // A shield pulse names only the body pressing it. There is no tenth column for
+    // `input_generation` and there deliberately is not one: a recorded log is literal, and every
+    // entity in a replay is a never-invalidated entity until a stun in that same replay invalidates
+    // it, which is exactly the absent-generation case the engine already accepts
+    // (`src/simulation/commands/shield_command.hpp`). A replay that needs to prove the stale-token
+    // refusal asserts it where the token lives, in the unit lanes, rather than by teaching this
+    // format a column every existing `commands.csv` would have to grow.
+    if (kind == "shield") {
+      require_empty(columns, 3, "controller_id", where);
+      require_empty(columns, 4, "direction_x", where);
+      require_empty(columns, 5, "direction_y", where);
+      require_empty(columns, 6, "seat_index", where);
+      require_empty(columns, 7, "seat_count", where);
+      require_empty(columns, 8, "npc_kind", where);
+      tick_commands.push_back(simulation::Command{simulation::ShieldCommand{
+          simulation::EntityId::create(parse_unsigned(columns[1], where + " entity_id"))}});
       continue;
     }
     // The four lobby kinds. Each names its sender in `controller_id`, exactly as the wire does: the

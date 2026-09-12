@@ -7,6 +7,7 @@
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
+#include "commands/shield_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
@@ -40,6 +41,8 @@
 //     mode accepts them.
 //     Movement tuning carries the stamped controller, safe correlation/revision numbers, and
 //     finite shared movement values inside their intrinsic bounds.
+//     A shield pulse carries the stamped entity and either no generation -- the spelling of the
+//     initial one, which the wire writes as `null` -- or a positive safe one, and nothing else.
 namespace {
 
 namespace protocol = blob_royale::protocol;
@@ -106,6 +109,16 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
                     simulation::kMaximumThrustDirectionComponentMagnitude ||
                 std::abs(command.direction.y()) >
                     simulation::kMaximumThrustDirectionComponentMagnitude ||
+                (command.input_generation.has_value() &&
+                 (command.input_generation->value() == 0 ||
+                  command.input_generation->value() > simulation::kMaximumProtocolSafeInteger))) {
+              std::abort();
+            }
+          } else if constexpr (std::is_same_v<CommandType, simulation::ShieldCommand>) {
+            // The pulse's whole oracle: the sender's own body and a token that is either absent or
+            // positive and safe. `null` decodes to absence, so an accepted shield with a present
+            // zero would mean the wire's minimum-of-one bound had been lost.
+            if (command.entity != stamped_entity ||
                 (command.input_generation.has_value() &&
                  (command.input_generation->value() == 0 ||
                   command.input_generation->value() > simulation::kMaximumProtocolSafeInteger))) {

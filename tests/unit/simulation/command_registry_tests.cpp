@@ -6,12 +6,14 @@
 #include "commands/leave_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
+#include "commands/shield_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
 #include "seat_roster.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -79,6 +81,13 @@ clear_seat_command(const simulation::ControllerId::Value controller,
 }
 
 [[nodiscard]] simulation::Command
+shield_command(const simulation::EntityId::Value entity,
+               const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::Command{
+      simulation::ShieldCommand{simulation::EntityId::create(entity), generation}};
+}
+
+[[nodiscard]] simulation::Command
 start_match_command(const simulation::ControllerId::Value controller) {
   return simulation::Command{
       simulation::StartMatchCommand{simulation::ControllerId::create(controller)}};
@@ -88,15 +97,16 @@ start_match_command(const simulation::ControllerId::Value controller) {
 
 TEST_CASE("CommandRegistry declares the engine command kinds in a closed ordered variant",
           "[unit][simulation][command_registry]") {
-  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 10);
-  STATIC_REQUIRE(simulation::kCommandKindCount == 10);
+  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 11);
+  STATIC_REQUIRE(simulation::kCommandKindCount == 11);
   STATIC_REQUIRE(
       std::is_same_v<simulation::Command,
                      std::variant<simulation::SpawnCommand, simulation::DespawnCommand,
                                   simulation::ThrustCommand, simulation::SetSeatCountCommand,
                                   simulation::ClearSeatCommand, simulation::SeatNpcCommand,
                                   simulation::StartMatchCommand, simulation::LeaveCommand,
-                                  simulation::JoinCommand, simulation::SetMovementTuningCommand>>);
+                                  simulation::JoinCommand, simulation::SetMovementTuningCommand,
+                                  simulation::ShieldCommand>>);
 }
 
 TEST_CASE("Every command kind occupies its own bit so a set of kinds is one integer",
@@ -109,6 +119,9 @@ TEST_CASE("Every command kind occupies its own bit so a set of kinds is one inte
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kSeatNpc) == 32u);
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kStartMatch) == 64u);
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kSetMovementTuning) == 512u);
+  // The eleventh kind takes the next free bit rather than displacing one: existing bits never move,
+  // so a persisted or transmitted mask keeps meaning what it meant.
+  STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kShield) == 1024u);
   STATIC_REQUIRE(
       simulation::command_kind_application_rank(simulation::CommandKind::kThrust) <
       simulation::command_kind_application_rank(simulation::CommandKind::kSetMovementTuning));
@@ -135,6 +148,8 @@ TEST_CASE("Every registered command kind declares its own wire name",
                  std::string_view{"start_match"});
   STATIC_REQUIRE(simulation::command_kind_name<simulation::SetMovementTuningCommand> ==
                  std::string_view{"set_movement_tuning"});
+  STATIC_REQUIRE(simulation::command_kind_name<simulation::ShieldCommand> ==
+                 std::string_view{"shield"});
 
   std::vector<std::string_view> names;
   for (const simulation::CommandKind kind : simulation::kCommandKinds) {
@@ -143,7 +158,7 @@ TEST_CASE("Every registered command kind declares its own wire name",
 
   CHECK(names == std::vector<std::string_view>{"spawn", "despawn", "thrust", "set_seat_count",
                                                "clear_seat", "seat_npc", "start_match", "leave",
-                                               "join", "set_movement_tuning"});
+                                               "join", "set_movement_tuning", "shield"});
 }
 
 TEST_CASE("command_kind_of maps every command value to its own declared kind",
@@ -160,6 +175,7 @@ TEST_CASE("command_kind_of maps every command value to its own declared kind",
         simulation::CommandKind::kSeatNpc);
   CHECK(simulation::command_kind_of(start_match_command(4)) ==
         simulation::CommandKind::kStartMatch);
+  CHECK(simulation::command_kind_of(shield_command(4)) == simulation::CommandKind::kShield);
 }
 
 TEST_CASE("Command application ranks are the phase 0 order of despawn, spawn, then remaining kinds",
@@ -190,6 +206,15 @@ TEST_CASE("Command application ranks are the phase 0 order of despawn, spawn, th
                  simulation::command_kind_application_rank(simulation::CommandKind::kJoin));
   STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kJoin) <
                  simulation::command_kind_application_rank(simulation::CommandKind::kLeave));
+
+  // A shield is recorded rather than applied, and it is read at `kPreKernel` long after this pass,
+  // so it has no reason to run before any kind that touches the world and takes the next free rank
+  // after `leave`. A pulse from a session that left on the same tick therefore finds no
+  // `Controllable` to record into, which is the outcome a departed session should get.
+  STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kLeave) <
+                 simulation::command_kind_application_rank(simulation::CommandKind::kShield));
+  STATIC_REQUIRE(simulation::command_kind_application_rank(simulation::CommandKind::kThrust) <
+                 simulation::command_kind_application_rank(simulation::CommandKind::kShield));
 }
 
 TEST_CASE("A join addresses the controller that asked and is never a wire kind",
@@ -247,6 +272,13 @@ TEST_CASE("Every command kind is a comparable value struct",
   CHECK(seat_npc_command(4, 1, "wanderer") != seat_npc_command(4, 1, "chaser"));
   CHECK(start_match_command(4) == start_match_command(4));
   CHECK(start_match_command(4) != start_match_command(5));
+  CHECK(shield_command(4) == shield_command(4));
+  CHECK(shield_command(4) != shield_command(5));
+  // Absence is a value, not a missing one: a never-invalidated pulse differs from one that echoes
+  // a generation, and two different generations differ from each other.
+  CHECK(shield_command(4) != shield_command(4, simulation::TickSequence::create(2)));
+  CHECK(shield_command(4, simulation::TickSequence::create(2)) !=
+        shield_command(4, simulation::TickSequence::create(3)));
 }
 
 TEST_CASE("Every lobby command addresses the sender the boundary stamped it with",
@@ -325,6 +357,19 @@ TEST_CASE("addressed_identity_of is the one answer to which identity a command a
         simulation::addressed_identity_of(despawn_command(9)).ordering_key());
   CHECK(simulation::addressed_identity_of(spawn_command(9)) !=
         simulation::addressed_identity_of(despawn_command(9)));
+
+  // An entity-addressed kind needs no arm of its own: the `else` branch reads `value.entity`, so a
+  // shield addresses the body it names and orders by that id like every other such kind. Adding an
+  // arm for it would be adding a second answer to a question that has one.
+  const simulation::AddressedIdentity shield =
+      simulation::addressed_identity_of(shield_command(11));
+  REQUIRE(shield.entity().has_value());
+  CHECK(shield.entity()->value() == 11);
+  CHECK(shield.ordering_key() == 11);
+  CHECK(simulation::addressed_identity_of(shield_command(11)) ==
+        simulation::addressed_identity_of(thrust_command(11, 1.0, 0.0)));
+  CHECK(simulation::command_kind_application_rank(simulation::CommandKind::kShield) !=
+        simulation::command_kind_application_rank(simulation::CommandKind::kThrust));
 }
 
 TEST_CASE("The command kind list is derived from the variant rather than typed beside it",
@@ -342,18 +387,19 @@ TEST_CASE("The command kind list is derived from the variant rather than typed b
     CHECK(simulation::CommandKindMask::all().contains(kind));
     CHECK(simulation::command_kind_name_of(kind) != std::string_view{"command_kind_invalid"});
   }
-  CHECK(simulation::CommandKindMask::all().bits() ==
-        (static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSpawn) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kDespawn) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kThrust) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSetSeatCount) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kClearSeat) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSeatNpc) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kStartMatch) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kLeave) |
-         static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kJoin) |
-         static_cast<simulation::CommandKindMask::Bits>(
-             simulation::CommandKind::kSetMovementTuning)));
+  CHECK(
+      simulation::CommandKindMask::all().bits() ==
+      (static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSpawn) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kDespawn) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kThrust) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSetSeatCount) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kClearSeat) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSeatNpc) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kStartMatch) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kLeave) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kJoin) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSetMovementTuning) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kShield)));
 }
 
 TEST_CASE("No two command kinds share a phase 0 application rank",

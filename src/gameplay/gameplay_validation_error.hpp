@@ -29,6 +29,8 @@ namespace blob_royale::gameplay {
 // related: game_mode_registry.hpp -- the unknown-mode rejection.
 // related: shared/duration_ticks.hpp -- the `GAMEPLAY.DURATION_*` rejections of any authored
 // duration, whichever section authored it.
+// related: shared/ability_configuration.hpp -- the `GAMEPLAY.ABILITY_*` rejections of the shared
+// `[abilities]` section, which the same reasoning keeps out of any one mode's code family.
 // related: shared/hazard_archetype.hpp -- the `[hazard.<kind>]` rejections.
 // related: sandbox/sandbox_mode.hpp -- the map rejection.
 // related: royale/royale_configuration.hpp -- the `[royale]` balance-number rejections.
@@ -39,6 +41,9 @@ enum class GameplayValidationCode {
   kDurationNotFinite,
   kDurationNegative,
   kDurationTickOverflow,
+  kAbilityDurationNotPositive,
+  kAbilityPerfectWindowExceedsShield,
+  kGuardedPairStunDefenderWithoutShield,
   kHazardKindNameInvalid,
   kHazardScalarNotFinite,
   kHazardScalarOutOfRange,
@@ -102,6 +107,12 @@ gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
     return "GAMEPLAY.DURATION_NEGATIVE";
   case GameplayValidationCode::kDurationTickOverflow:
     return "GAMEPLAY.DURATION_TICK_OVERFLOW";
+  case GameplayValidationCode::kAbilityDurationNotPositive:
+    return "GAMEPLAY.ABILITY_DURATION_NOT_POSITIVE";
+  case GameplayValidationCode::kAbilityPerfectWindowExceedsShield:
+    return "GAMEPLAY.ABILITY_PERFECT_WINDOW_EXCEEDS_SHIELD";
+  case GameplayValidationCode::kGuardedPairStunDefenderWithoutShield:
+    return "GAMEPLAY.GUARDED_PAIR_STUN_DEFENDER_WITHOUT_SHIELD";
   case GameplayValidationCode::kHazardKindNameInvalid:
     return "GAMEPLAY.HAZARD_KIND_NAME_INVALID";
   case GameplayValidationCode::kHazardScalarNotFinite:

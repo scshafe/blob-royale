@@ -518,6 +518,20 @@ was measured then. This does not certify native performance. ADR 0008's later ow
 clarification defers capacity selection and removes native evidence from the present human
 Step 5 design gate, while retaining it for Step 24 performance/release claims.
 
+### Historical input schema migration, 2026-09-12 (dynamic-arena plan Step 18)
+
+`[abilities]` becomes a required section, so the historical fixture authors
+`shield_duration_seconds=0.4`, `shield_perfect_window_seconds=0.08`, `shield_cooldown_seconds=0.9`
+and `parry_stun_duration_seconds=0.6`. Those are exactly
+`gameplay::AbilityConfiguration::defaults()`, so the fixture now writes down what it would
+otherwise have inherited and no measured royale input changes. Unlike the 2026-09-11 Sandbox
+return delay, this section *is* consumed by the royale case: the ability system is shared and runs
+in every mode, so the step's own workload change is real and belongs to the step, not to this
+derivation. The fixture stays a schema-only derivation of the source commit above, its provenance
+header, the benchmark JSON `schema_migration` string, and `benchmarks/README.md` name the same
+migration, and historical review/baseline artifacts remain evidence of their original inputs.
+This does not certify native performance.
+
 ## Amendment: canonical session-v3 routes, 2026-09-10 (plan Step 7)
 
 The active directory is now `GET /api/v3/lobbies`, and room joins use

@@ -153,6 +153,16 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
             return CommandSubmissionResult::kRejectedThrustInputGenerationOutOfRange;
           }
           return CommandSubmissionResult::kAccepted;
+        } else if constexpr (std::is_same_v<CommandType, simulation::ShieldCommand>) {
+          // The shield's only value rule, refused at the same layer and for the same reason the
+          // thrust's is: a present zero reaching InputBatch::create is a hard tick failure, so one
+          // client's malformed frame must not become everyone's. The engine still asserts it --
+          // the boundary refuses and the engine does not soften (see this file's header) -- and a
+          // refusal names the shield rather than borrowing the thrust's result value.
+          if (value.input_generation.has_value() && value.input_generation->value() == 0) {
+            return CommandSubmissionResult::kRejectedShieldInputGenerationOutOfRange;
+          }
+          return CommandSubmissionResult::kAccepted;
         } else if constexpr (std::is_same_v<CommandType, simulation::DespawnCommand>) {
           // A despawn naming an id inside the tick's own reservation is the one despawn
           // InputBatch::create rejects outright. The cursor only rises, so an id strictly below the

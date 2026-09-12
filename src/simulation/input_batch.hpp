@@ -24,14 +24,17 @@ namespace blob_royale::simulation {
 //  1. Rejects a submitted command count above kMaximumInputBatchCommandCount.
 //  2. Rejects any command whose kind is absent from `accepted_kinds`.
 //  3. Rejects a thrust whose direction has a component outside [-1, 1].
-//  4. Rejects a despawn naming an id inside this batch's own EntityIdReservation.
-//  5. Rejects a lobby command naming a seat index at or above kMaximumLobbySeatCount, or a seat
+//  4. Rejects a thrust or a shield carrying a present input generation of zero, on its own context
+//     string for each kind. Absence stays legal: it is the token of an entity whose input has
+//     never been invalidated.
+//  5. Rejects a despawn naming an id inside this batch's own EntityIdReservation.
+//  6. Rejects a lobby command naming a seat index at or above kMaximumLobbySeatCount, or a seat
 //     count outside [1, kMaximumLobbySeatCount].
-//  6. Keeps the last submitted command of each kind for each addressed identity, discarding the
+//  7. Keeps the last submitted command of each kind for each addressed identity, discarding the
 //     earlier ones, so the batch carries at most one command of each kind per identity.
-//  7. Orders the survivors by phase 0's application order.
+//  8. Orders the survivors by phase 0's application order.
 
-// **Rule 5 is the engine's bound and deliberately not the lobby's.** A seat index this factory
+// **Rule 6 is the engine's bound and deliberately not the lobby's.** A seat index this factory
 // accepts may still name no seat in the roster the tick is about to read, because the roster's size
 // is world state and this factory has no world; that disagreement is ignored by phase 0 exactly as
 // a despawn for an entity that does not exist is. What rule 5 buys is that a client cannot make a

@@ -1,0 +1,26 @@
+# One attacker, one defender, and one tap of the shield -- the replay-level proof that a recorded
+# command log drives the ability through the same admission every other source uses.
+#
+# Two seats are taken and started on tick 1. `countdown_seconds=0` puts tick 1 in `countdown` and
+# tick 2 in `running`, which is the earliest tick an ability may be admitted at all.
+#
+# Entity 1 spawns on the ring's first marker at (440, 320) and entity 2 on its second at
+# (520, 320): 80 wu apart, 60 wu of gap between two 10 wu discs. Entity 1 thrusts `+x` on tick 3
+# and never releases. With `drag_per_second=0` and 4,000 wu/s^2, semi-implicit Euler closes exactly
+# 0.0125 * k * (k + 1) wu after k accelerated ticks, so the gap is crossed on the 69th -- around
+# tick 72. The suite locates the parry rather than hard-coding that tick, and then asserts the
+# thing that matters: it landed inside the opening.
+#
+# Entity 2 taps the shield on tick 60. At the authored default tuning that is a 160-tick guard with
+# a 32-tick perfect opening, so the opening is [60, 92) and the closing attacker arrives inside it
+# with margin on both sides. There is no `input_generation` column and none is needed: neither
+# entity has been stunned yet, so both are still on the initial generation, which is exactly the
+# absent token a replay row carries.
+tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
+1,,spawn,1,,,,,
+1,,spawn,2,,,,,
+1,,join,1,,,,,
+1,,join,2,,,,,
+1,,start_match,1,,,,,
+3,1,thrust,,1,0,,,
+60,2,shield,,,,,,

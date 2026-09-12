@@ -315,12 +315,15 @@ describe('useSimulationConnection', () => {
     });
 
     expect(result.current.session).toEqual({
+      // The golden welcome names mode `royale`, and royale advertised `shield` from plan Step 18
+      // on 2026-09-12. The list is the example's, in the schema enum's ascending order.
       acceptedCommandKinds: [
         'clear_seat',
         'seat_npc',
         'set_movement_tuning',
         'set_seat_count',
         'set_thrust',
+        'shield',
         'start_match',
       ],
       controllerId: 3,

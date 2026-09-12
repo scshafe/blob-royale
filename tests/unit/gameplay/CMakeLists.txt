@@ -33,15 +33,17 @@ add_executable(blob_gameplay_unit_tests
   royale/zone_shrink_system_tests.cpp
   sandbox/sandbox_mode_tests.cpp
   sandbox/sandbox_falling_tests.cpp
+  shared/ability_configuration_tests.cpp
+  shared/ability_system_tests.cpp
   shared/disc_geometry_tests.cpp
   shared/create_crossing_hazard_tests.cpp
   shared/duration_ticks_tests.cpp
+  shared/guarded_pair_contact_rule_tests.cpp
   shared/guarded_pair_contact_tests.cpp
   shared/hazard_archetype_tests.cpp
   shared/hazard_spawn_system_tests.cpp
   shared/input_lock_tests.cpp
   shared/hazard_stream_promotion_tests.cpp
-  shared/lethal_hazard_contact_rule_tests.cpp
   shared/lifetime_expiry_system_tests.cpp
   shared/locomotion_promotion_tests.cpp
   shared/locomotion_tests.cpp
@@ -49,6 +51,7 @@ add_executable(blob_gameplay_unit_tests
   shared/match_reset_system_tests.cpp
   shared/next_free_spawn_point_policy_tests.cpp
   shared/respawn_system_tests.cpp
+  shared/shield_symmetry_tests.cpp
   shared/status_system_tests.cpp
   shared/support_loss_trigger_tests.cpp
   shared/roster_tests.cpp

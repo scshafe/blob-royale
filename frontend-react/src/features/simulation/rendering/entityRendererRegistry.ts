@@ -73,6 +73,10 @@ export const entityRendererRegistry = Object.freeze({
     'score',
     'A scoreboard cell belongs to the HUD, not to the arena.',
   ),
+  shield: nonVisualComponent(
+    'shield',
+    'Published windows are timing state the HUD reads; shield, perfect and stun presentation arrives with the later ability visuals.',
+  ),
   stun: nonVisualComponent(
     'stun',
     'Absolute status ticks lock input; stun presentation belongs to the later ability UI.',

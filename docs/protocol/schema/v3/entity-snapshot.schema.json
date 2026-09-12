@@ -52,6 +52,9 @@
         "score": {
           "$ref": "score-component.schema.json"
         },
+        "shield": {
+          "$ref": "shield-component.schema.json"
+        },
         "stun": {
           "$ref": "stun-component.schema.json"
         },

@@ -61,12 +61,15 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   case simulation::CommandKind::kSeatNpc:
   case simulation::CommandKind::kStartMatch:
   case simulation::CommandKind::kSetMovementTuning:
+  // A shield does not change whether an entity exists: it raises a guard on a body that is already
+  // there, and a dropped pulse is one missed activation the player can press again.
+  case simulation::CommandKind::kShield:
     return false;
   }
   return false;
 }
 
-static_assert(simulation::kCommandKindCount == 10,
+static_assert(simulation::kCommandKindCount == 11,
               "a new CommandKind must declare in is_entity_lifecycle_command whether losing it "
               "changes whether an entity exists");
 

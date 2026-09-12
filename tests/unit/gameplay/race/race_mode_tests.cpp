@@ -8,6 +8,7 @@
 #include "gameplay_validation_error.hpp"
 #include "mode_states/no_mode_state.hpp"
 #include "mode_states/race_mode_state.hpp"
+#include "shared/guarded_pair_contact_rule.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -56,17 +57,23 @@ TEST_CASE("RaceMode declares the fourth game with the shared contact rows and te
   const auto rules = mode.contact_rules();
   const auto built_in = simulation::ContactRuleTable::built_in();
   REQUIRE(rules.size() == built_in.size() + 1);
-  CHECK(rules.rows()[0].name() == gameplay::kLethalHazardContactRuleName);
+  // The shared `guarded_pair` row, above the engine's own three, which its symmetric presence
+  // predicates make unreachable here; the suffix check states that they are nonetheless still
+  // declared and still the engine's own values.
+  CHECK(rules.rows()[0].name() == gameplay::kGuardedPairContactRuleName);
   for (std::size_t index = 0; index < built_in.size(); ++index) {
     CHECK(rules.rows()[index + 1] == built_in.rows()[index]);
   }
+  // Eleven kinds, `shield` included, and advertised only because this mode also declares the
+  // `ability` system that admits it.
   CHECK(mode.accepted_command_kinds() ==
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
-             simulation::CommandKind::kThrust, simulation::CommandKind::kSetMovementTuning,
-             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
-             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
-             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
+             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
+             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
+             simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
   CHECK(gameplay::GameModeRegistry::contains("race"));
@@ -79,9 +86,13 @@ TEST_CASE("RaceMode declares course before steering and certified progress befor
   const gameplay::RaceMode mode{testing::race_test_configuration()};
   mode.validate_map(testing::race_test_map());
   const auto systems = mode.systems();
-  CHECK(systems.size() == 10);
+  CHECK(systems.size() == 11);
+  // `course_publisher` first and `ability` last is the whole kPreKernel constraint: the canonical
+  // input lock reads the `RaceModeState` block the publisher writes, so a racer who has already
+  // finished the published course is refused a shield pulse even on a directly seeded world's very
+  // first quantum.
   CHECK(system_names_at(systems, simulation::SystemStage::kPreKernel) ==
-        std::vector<std::string_view>{"course_publisher", "thrust_steering"});
+        std::vector<std::string_view>{"course_publisher", "thrust_steering", "ability"});
   CHECK(system_names_at(systems, simulation::SystemStage::kPostKernel) ==
         std::vector<std::string_view>{"checkpoint_progress", "status"});
   CHECK(system_names_at(systems, simulation::SystemStage::kLifecycle) ==

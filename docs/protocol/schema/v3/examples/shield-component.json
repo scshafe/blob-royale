@@ -1,0 +1,7 @@
+{
+  "activation_tick": 1000,
+  "shield_expiry_tick": 1160,
+  "perfect_expiry_tick": 1032,
+  "cooldown_expiry_tick": 1360,
+  "parry_stun_duration_ticks": 240
+}

@@ -30,16 +30,19 @@ that change which ids a store holds. The tick has only ever needed the values.
 `component_registry.hpp` is the closed, ordered list of kinds:
 `ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
 LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun,
-ContactEffectAdmission>`, where `Zone` and `ZoneExposure`
+ContactEffectAdmission, Shield>`, where `Zone` and `ZoneExposure`
 are royale's, `Hill` and `HillPresence` describe hill scoring, and `RaceProgress` counts ordered
-gates; `HillMotion` carries roaming velocity and private scheduling, while `LethalOnContact` and
-`RespawnTimer` support shared mechanics. Because it is a type list,
+gates; `HillMotion` carries roaming velocity and private scheduling, while `LethalOnContact`,
+`RespawnTimer`, `Stun`, and `Shield` support shared mechanics. `Shield` is the ability window: one
+activation tick, three `TickWindow`s over it — protection, perfect opening, cooldown — and the
+parry-stun duration captured at activation. Because it is a type list,
 four behaviors are **generated rather than maintained** — structural world equality,
 `destroy_entity` erasing from every store, body-bound lifetime cleanup, and snapshot
 publication of every kind — so a new kind cannot forget to participate in any of them.
 
 `component_lifetime.hpp` owns the default-false `ComponentLifetime<C>::bound_to_body` trait.
-`HillPresence`, `ZoneExposure`, `Stun`, and `ContactEffectAdmission` declare it beside their values. The one registry-generated,
+`HillPresence`, `ZoneExposure`, `Stun`, `ContactEffectAdmission`, and `Shield` declare it beside
+their values. The one registry-generated,
 allocation-free `GameWorld::erase_body_bound_components_without_body()` sweep removes those
 kinds from every bodyless entity, including non-participants and already-bodyless entities.
 Shared respawn calls it after body removal, before commit; arbitrary intermediate store edits do
@@ -101,6 +104,17 @@ bits. Its explicit application rank follows thrust and precedes the existing lob
 It addresses a controller and carries request ID, expected revision, and one validated
 `MovementTuning` pair. `InputBatch` validates safe integer ranges and preserves existing
 submission-based deduplication; correlation IDs never select command order.
+
+Step 18 appends `ShieldCommand` to the same closed vocabulary, again without moving an existing bit:
+`CommandKind::kShield` is `1u << 10` and its application rank is `10`, after `kLeave`. The rank is
+deliberate rather than incidental — a shield pulse is a pure recorded intent whose only ordering
+obligation is to follow `spawn`, so applying it after the lifecycle kinds means a body that
+despawned or left on this tick simply has no `Controllable` to record into, which is the correct
+outcome. It addresses an entity and carries one member, an optional `input_generation` with
+`ThrustCommand`'s exact semantics: absence is the initial generation, and `InputBatch` rejects a
+present zero with `kInputBatchInputGenerationZero` under the context
+`input_batch.commands.shield.input_generation`. The shared `kPreKernel` ability system is what gives
+it meaning; phase 0 still records it and interprets nothing.
 
 `MatchState::movement` owns current/default tuning, revision, and effective tick. The existing
 phase-0 handler freezes entry revision R, checks seated membership at each command's canonical
@@ -165,9 +179,11 @@ and were removed in plan Step 21 (engine review finding 17). Today the contact p
 `placement_recorder` emits `DespawnEvent`, which the commit applies. Re-adding a kind is its header
 plus four lines in the registry, so removing an unused one costs nothing to reverse.
 
-Step 14's explicitly bounded exception is `StunRequest`: its PostKernel consumer and injected
-in-tick test producer land before Step 18's production parry producer. It is not a production
-command or permission to reserve unused events. ADR 0004 records this foundation exception.
+~~Step 14's explicitly bounded exception is `StunRequest`: its PostKernel consumer and injected
+in-tick test producer land before Step 18's production parry producer.~~ Closed at Step 18: the
+shared `guarded_pair` contact response is `StunRequest`'s production producer, emitting one request
+per newly stunned dynamic body with the defending body's captured parry-stun duration. Every
+registered kind has a producer again, with no staged exception. ADR 0004 records the terminus.
 
 `TickWindow` is the canonical simulation value for absolute half-open status intervals, with
 checked activation-plus-duration through `TickSequence`'s safe-integer maximum. It admits empty
@@ -178,6 +194,18 @@ committing tick of its latest applicable stun request. Publication retains the t
 stripping commands and intent. Thrust echoes that exact optional value; gameplay admits it only
 when unlocked and matching, including zero release. New generations outlive temporary Stun and
 same-entity body return; destruction ends the guarantee. No kernel contact behavior changes.
+
+`Shield` is the second consumer of that same window value, and it stores three of them over one
+shared activation tick — protection, perfect opening, cooldown — plus the parry-stun duration it
+captured at activation, so a frozen defender supplies the effect it owns without any reader
+consulting configuration. All five are published. Cancellation shortens only still-active
+protection — the shield window and the perfect opening it contains, both to the cancellation tick,
+using the same `TickWindow` value; an already-elapsed opening, the activation, the cooldown, and the
+captured duration are untouched, cancelling at the activation tick legitimately yields empty
+protection, and cancelling again is an exact no-op. Nothing decrements per
+tick here either: `SIMULATION.SHIELD_ACTIVATION_INVALID` and
+`SIMULATION.SHIELD_CANCELLATION_BEFORE_ACTIVATION` are the two named refusals, and duration overflow
+remains `TickWindow`'s own `SIMULATION.TICK_WINDOW_EXPIRY_OVERFLOW`.
 
 Systems within one tick communicate through the bounded, ordered list `GameWorld` owns.
 `GameWorld::emit` appends in production order and `GameWorld::events()` publishes it; the list is
@@ -245,9 +273,10 @@ Trigger declarations independently own immutable policies. Each tick binds body 
 order, then policies in authored order, to bounded cursor/feature rows. Move-only
 `BoundMotionTriggers` owns stable per-row facts loans; both query and response borrow the matching
 policy while pair callbacks retain global contact facts. Tables and bindings outlive the synchronous
-solve. Production modes currently inherit an empty trigger table; support-capable injected
-declarations exercise the mechanism. Ground attachment, falling, and race trigger registration
-remain Step 17; production shield/parry composition remains Step 18.
+solve. Ground attachment, falling, and race trigger registration landed at Step 17, so royale, hill
+and Sandbox declare a support-loss trigger and race declares that plus its ordered gates.
+~~Production shield/parry composition remains Step 18.~~ It landed at Step 18 as a contact-rule row
+rather than a trigger: guards belong to a pair, and a trigger is unary.
 
 Only successfully solved typed `effects` enter the world event list; the selected-certificate
 diagnostic trace is not a gameplay event source. Existing pre-kernel events count against the world
@@ -420,7 +449,11 @@ plan Step 21 as two headers and one edited line, which is the first measured use
 third, `LethalOnContact`, is the one that measures it hardest, because it is declared by
 `src/gameplay/shared/` rather than by any mode and still cost the same one header plus one line; it
 is also the first kind whose presence is its entire value, so it publishes an empty wire object.
-`Flag` for capture the flag is the next.
+`Shield` is the fourth, and the one that measures the *published* cost honestly: the header and the
+one registry line were the whole of the work in this domain, and outside it the kind still needed an
+encoder specialization, `shield-component.schema.json`, an enum member in `common.schema.json`, a
+property in `entity-snapshot.schema.json`, a non-visual entry in the client's renderer registry, a
+client invariant check, and a golden example. `Flag` for capture the flag is the next.
 
 `@extension-point game_mode` (mode state) — `mode_match_state_registry.hpp`. A mode's match-wide
 state that is **not** entity-shaped is one arm of the `ModeMatchState` variant plus one
@@ -468,8 +501,17 @@ from the decoder:
 ```
 edit src/protocol/protocol_v3_constants.hpp      its wire name in kV3ClientCommandKindNames
 edit src/protocol/command_decoding.cpp           its payload decoder and one arm of decode_payload
-new  docs/protocol/schema/v3/...                 its wire schema, a protocol minor version
+new  docs/protocol/schema/v3/...                 its wire schema; one enum member in
+                                                 common.schema.json, one if/then row in
+                                                 command-envelope.schema.json, and the maxItems
+                                                 bump in welcome-data.schema.json
 ```
+
+The last row says "a protocol minor version" in a *released* contract. It does not during the
+coordinated 3.0 development release, which is what the repository is in: the major stays `3.0` and
+each feature adds its schema, encoder, generated types, validation, examples, and one row in
+`docs/protocol/v3.md` in the same commit as the behaviour. `shield` added all of that and moved no
+version constant. See `docs/protocol/v3.md` § "Versioning and fail-closed decoding".
 
 `kCommandKinds`, `CommandKindMask::all()`, and the rank-injectivity check are **derived** from the
 variant through `CommandKindOf` (`kind_registry.hpp`), so none of them is an edit and none of them
@@ -480,9 +522,23 @@ shared by `InputBatch::create` and kernel phase 0.
 
 The kernel records commands without interpreting them, and a mode that omits the kind from its
 accepted set never sees it. Two implementations beyond `SpawnCommand` and `DespawnCommand`:
-`ThrustCommand` for steering, and a later `UseAbilityCommand` for a dash or a weapon. **Command
-meaning is a system's job**, so a new kind adds a consuming system rather than a new kernel
-sub-step.
+`ThrustCommand` for steering, and `ShieldCommand` for the tap shield. **Command meaning is a
+system's job**, so a new kind adds a consuming system rather than a new kernel sub-step.
+
+`ShieldCommand` walked every row of both blocks above and is the checklist's most recent measured
+use: `commands/shield_command.hpp`; five written sites in `command_registry.hpp`
+(`CommandKind::kShield` at `1u << 10`, the variant arm, the `CommandKindName` `"shield"`,
+`CommandKindOf`, and application rank `10`, which follows `kLeave` because a pulse's only ordering
+obligation is to follow a spawn), with the sixth — `addressed_identity_of` — satisfied by the
+entity-addressed fallback rather than by a written arm, because the value carries `entity`;
+the present-zero generation rejection in `input_batch.cpp`;
+`src/gameplay/shared/ability_system.{hpp,cpp}` as the consuming system; one arm of
+`is_entity_lifecycle_command` in `src/runtime/command_mailbox.hpp` answering **false**, because
+losing a pulse changes no entity's existence and it is superseded like thrust rather than protected
+like a spawn; the `CommandWireKind` specialization; and, because it is client-sendable, its name in
+`kV3ClientCommandKindNames`, its decoder arm in `command_decoding.cpp`, and
+`docs/protocol/schema/v3/shield-command.schema.json`. Skipping the mailbox arm would have failed the
+`kCommandKindCount` `static_assert` rather than compiling into a silent lifecycle answer.
 
 `@extension-point simulation_system` — `system_pipeline.hpp`. A mechanic is a new
 `SimulationSystem` file plus one line in a mode's declared staged list; the kernel, the other
@@ -490,7 +546,10 @@ systems, and every other mode are untouched. Two implementations beyond the engi
 `zone_shrink` for royale, `hill_scoring` for king of the hill. `SystemStage` decides what a system
 may see, not when it happens to have been registered: `kPreKernel` sees start-of-tick positions and
 this tick's recorded commands, `kPostKernel` sees solved positions and this tick's events, and
-`kLifecycle` sees the tick's final world.
+`kLifecycle` sees the tick's final world. The shared `ability` system is the case that shows the
+stage choice is about visibility rather than convenience: it is declared last at `kPreKernel` by all
+four gameplay modes because a shield activated on tick N must be readable by tick N's own contact
+responses, which see the frozen post-`kPreKernel` world.
 
 `@extension-point contact_rule` — `contact_rule.hpp`, ordered by `contact_rule_table.hpp`. An
 interaction is a new row: two `Predicate` free-function pointers and one `Response` free-function
@@ -500,12 +559,22 @@ continuous solver; the equations stay named pure functions and the table selects
 contains no physics. Row order is the declared precedence, and a mode that wants the defaults writes
 them into its own order, so precedence between mode rows and built-in rows is visible in the mode's
 source. Two implementations beyond `elastic_disc`: `reflect_static` for a dynamic body meeting a
-wall, and a `flag_pickup` pass-through row that changes no body and emits one event. The built-in
+wall, and `guarded_pair`, the shared composed row every gameplay mode declares. The built-in
 table declares three rows — `variable_impulse`, then `elastic_disc`, then `reflect_static` — and
 `variable_impulse` matches only a dynamic pair with nonbaseline physical parameters, so an ordinary
 pair falls through to `elastic_disc` and the retained equal-unit-mass arithmetic. The continuous
 solver supplies the certified impact and chronology; retaining an equation does not retain the
 old discrete kernel's contact schedule.
+
+`guarded_pair` is what a first-match chain looks like when a mode takes it over. Its two predicates
+are the same total "carries a `PhysicsBody`" test, so it matches every pair the broad phase forms —
+static/static pairs never reach a row — and, declared above the built-ins by all four gameplay
+modes, it makes those three unreachable there. They stay reachable, and stay the engine baseline,
+for a mode that declares no row: the kernel default and this domain's own test doubles. The row
+composes rather than replaces: it selects the same two accepted equations by the same
+`body_has_baseline_physics` test and returns their output unchanged whenever neither side is
+guarded. One row emits two diagnostic names, `lethal_hazard` on its lethal branch and `guarded_pair`
+otherwise, which is why a `ContactEvent`'s `rule_name` names a *response*, not necessarily a row.
 
 `@extension-point game_mode` — `game_mode.hpp`, with the mode-state seam in
 `mode_match_state_registry.hpp`. `GameMode` is the base interface for the complete declared ruleset

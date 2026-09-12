@@ -1,20 +1,37 @@
 #include "shared/guarded_pair_contact.hpp"
 
-#include "shared/lethal_hazard_contact_rule.hpp"
-
+#include "component_store.hpp"
+#include "components/controllable_component.hpp"
+#include "components/lethal_on_contact_component.hpp"
 #include "contact_rule_name.hpp"
 #include "game_world.hpp"
+#include "match_phase.hpp"
+#include "match_state.hpp"
 #include "physics.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_tolerance.hpp"
 #include "simulation_validation_error.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <string_view>
 #include <utility>
 
 namespace blob_royale::gameplay {
 namespace {
+
+// The exact ceiling this composition can emit, stated by the header: at most two recipient facts
+// in ascending EntityId order, then exactly one canonical contact fact. Reserving it once is not a
+// micro-optimization -- every branch below appends into the same vector, so a single allocation of
+// the known bound is the honest shape -- and it is also what keeps this translation unit buildable
+// at -O3 under GCC 13. Since plan Step 18 moved the lethal predicates into this file, the optimizer
+// inlines them, sees through `append_recipients`, and reports a false
+// `-Wstringop-overflow` "writing 1 byte into a region of size 0" against `std::variant`'s
+// discriminant inside `vector::_M_realloc_insert` (the reallocating path this reserve removes).
+// Giving the vector its capacity up front is the fix rather than a suppression: no warning is
+// disabled, the emitted facts and their order are unchanged, and the bound is the one the header
+// already promises.
+constexpr std::size_t kMaximumConsequenceCount = 3;
 
 [[nodiscard]] bool is_guarded(const GuardState guard) noexcept {
   return guard != GuardState::kNone;
@@ -140,6 +157,22 @@ void append_recipients(std::vector<GuardedPairConsequence>& effects,
 
 } // namespace
 
+// Moved verbatim from the deleted `shared/lethal_hazard_contact_rule.cpp`, operation for operation,
+// because the composition below is their only non-test caller and the plan's promotion rule makes a
+// rehoming a byte-for-byte move rather than an opportunity to restate anything.
+bool body_is_lethal_hazard(const simulation::GameWorld& world, const simulation::EntityId entity) {
+  // The phase is read here, on the hazard's side, because "lethal" is a property a hazard has only
+  // while a match is on: outside `running` the same body still carries the marker and is still a
+  // heavy disc the impulse equations resolve, it just cannot kill. See the header for why the gate
+  // is the admission's and not the recorder's.
+  return world.match().phase == simulation::MatchPhase::kRunning &&
+         world.store<simulation::LethalOnContact>().find(entity) != nullptr;
+}
+
+bool body_is_player_driven(const simulation::GameWorld& world, const simulation::EntityId entity) {
+  return world.store<simulation::Controllable>().find(entity) != nullptr;
+}
+
 GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
                                         const simulation::ContactRule::Subject& first,
                                         const simulation::ContactRule::Subject& second,
@@ -154,6 +187,7 @@ GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
         "a pair must name two distinct entities"};
   }
   GuardedPairOutcome outcome{{first.body}, {second.body}, {}};
+  outcome.effects.reserve(kMaximumConsequenceCount);
   if (!observation.touch.is_contact() ||
       (!observation.impact.has_value() && !observation.first_effect_eligible &&
        !observation.second_effect_eligible)) {

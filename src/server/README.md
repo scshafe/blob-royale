@@ -78,6 +78,17 @@ claims a covered result before encoding, adapts it to the protocol-owned validat
 retains the owned runtime result beside its active payload. Write completion clears only that
 local value, never a later runtime exchange. No general acknowledgement bus or replay is exposed.
 
+A `shield` pulse, added at Step 18, uses that same closed command path and needs nothing new here.
+It decodes under the per-session command bucket, is gated by the mode's published accepted mask,
+and is stamped with the session's own current body like every other entity-addressed kind — the
+payload carries an activation token and no actor, so the "no client-chosen entity" rule this file
+argues below applies without an exception. A pulse arriving while the session owns no body is
+dropped with the connection open, by the existing rule. Deliberately, the session sends nothing
+back: there is no per-request receipt for a refused pulse and no acknowledgement channel was added
+for one. A client learns that its shield committed by reading the next snapshot's `shield`
+component, which is the same "observe published state, not a reply" shape the tuning exchange was
+carefully scoped to be the single exception to.
+
 ## Trust and deployment boundary
 
 Neither protocol version has in-application authentication and snapshots are not confidential.

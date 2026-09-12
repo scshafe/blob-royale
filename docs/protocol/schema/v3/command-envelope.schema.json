@@ -41,6 +41,23 @@
       "if": {
         "properties": {
           "kind": {
+            "const": "shield"
+          }
+        },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "shield-command.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
             "const": "set_seat_count"
           }
         },

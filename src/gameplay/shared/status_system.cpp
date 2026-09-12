@@ -1,6 +1,7 @@
 #include "shared/status_system.hpp"
 
 #include "components/controllable_component.hpp"
+#include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
 #include "events/stun_request_event.hpp"
 #include "game_world.hpp"
@@ -86,6 +87,23 @@ void StatusSystem::apply(simulation::GameWorld& world,
     if (auto* body = world.mutable_store<simulation::PhysicsBody>().mutable_find(entry.entity);
         body != nullptr && !body->is_static()) {
       *body = body->with_acceleration(zero);
+    }
+    // A stun ends a guard. It shortens **only** still-active protection to this tick and leaves the
+    // original activation, any already-elapsed perfect history, the cooldown window and the
+    // captured parry-stun duration exactly as they were, so a player stunned mid-guard pays the
+    // full cooldown rather than being handed a free re-tap
+    // (`../../simulation/components/shield_component.hpp` states the same of `canceled_at`).
+    // Cancelling protection that has already ended is an exact no-op, so a stun after expiry
+    // changes the component not at all.
+    //
+    // **This never erases a Shield.** A cancelled protection with a live cooldown is a component
+    // that still has work to do, and only `shared/ability_system.hpp` removes one, once both
+    // windows have expired. It also belongs here and not in the aggregation loop above, whose
+    // stated invariant is that a later invalid request leaves nothing earlier changed.
+    if (const auto* shield = world.store<simulation::Shield>().find(entry.entity);
+        shield != nullptr) {
+      world.mutable_store<simulation::Shield>().insert_or_assign(entry.entity,
+                                                                 shield->canceled_at(tick));
     }
   }
 }

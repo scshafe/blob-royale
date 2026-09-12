@@ -7,6 +7,7 @@
 #include "royale/placement_recorder_system.hpp"
 #include "royale/zone_elimination_system.hpp"
 #include "royale/zone_shrink_system.hpp"
+#include "shared/ability_system.hpp"
 #include "shared/hazard_spawn_system.hpp"
 #include "shared/lifetime_expiry_system.hpp"
 #include "shared/match_reset_system.hpp"
@@ -23,7 +24,7 @@ namespace blob_royale::gameplay {
 
 std::unique_ptr<const simulation::GameMode>
 RoyaleMode::create(const GameModeConfiguration& configuration) {
-  return create(configuration.royale, configuration.hazards);
+  return create(configuration.royale, configuration.hazards, configuration.abilities);
 }
 
 std::unique_ptr<const simulation::GameMode> RoyaleMode::create() {
@@ -36,7 +37,14 @@ std::unique_ptr<const simulation::GameMode> RoyaleMode::create(RoyaleConfigurati
 
 std::unique_ptr<const simulation::GameMode>
 RoyaleMode::create(RoyaleConfiguration configuration, std::vector<HazardArchetype> hazards) {
-  return std::make_unique<const RoyaleMode>(std::move(configuration), std::move(hazards));
+  return create(std::move(configuration), std::move(hazards), AbilityConfiguration::defaults());
+}
+
+std::unique_ptr<const simulation::GameMode> RoyaleMode::create(RoyaleConfiguration configuration,
+                                                               std::vector<HazardArchetype> hazards,
+                                                               AbilityConfiguration abilities) {
+  return std::make_unique<const RoyaleMode>(std::move(configuration), std::move(hazards),
+                                            abilities);
 }
 
 simulation::MotionTriggerTable RoyaleMode::motion_triggers() const {
@@ -49,6 +57,13 @@ simulation::SystemPipeline RoyaleMode::systems() const {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               ThrustSteeringSystem::create()});
+  // `ability` is last at kPreKernel in every mode that declares it, which mirrors "`status` runs
+  // last at kPostKernel": admission reads the canonical input lock, so every kPreKernel system that
+  // can change what that lock answers has already run. It runs after `thrust_steering` for the same
+  // reason -- a pulse and a steering intent recorded on one tick are two independent commands, and
+  // resolving the movement one first keeps the lock's answer the same for both.
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              AbilitySystem::create(abilities_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, ZoneShrinkSystem::create(configuration_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{

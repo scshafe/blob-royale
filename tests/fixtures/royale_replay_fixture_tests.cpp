@@ -2,6 +2,8 @@
 
 #include "component_store.hpp"
 #include "components/controllable_component.hpp"
+#include "components/shield_component.hpp"
+#include "components/stun_component.hpp"
 #include "components/zone_component.hpp"
 #include "components/zone_exposure_component.hpp"
 #include "entity_id.hpp"
@@ -14,6 +16,7 @@
 #include "shared/thrust_steering_system.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_tolerance.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 #include "world_snapshot.hpp"
 
@@ -119,6 +122,28 @@ placements_of(const simulation::WorldSnapshot& snapshot) {
     }
   }
   return false;
+}
+
+[[nodiscard]] std::optional<simulation::Shield> shield_of(const simulation::WorldSnapshot& snapshot,
+                                                          const simulation::EntityId entity) {
+  for (const simulation::ComponentStore<simulation::Shield>::Entry& entry :
+       snapshot.components<simulation::Shield>()) {
+    if (entry.entity == entity) {
+      return entry.value;
+    }
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] std::optional<simulation::Stun> stun_of(const simulation::WorldSnapshot& snapshot,
+                                                      const simulation::EntityId entity) {
+  for (const simulation::ComponentStore<simulation::Stun>::Entry& entry :
+       snapshot.components<simulation::Stun>()) {
+    if (entry.entity == entity) {
+      return entry.value;
+    }
+  }
+  return std::nullopt;
 }
 
 } // namespace
@@ -505,6 +530,84 @@ TEST_CASE("an all-zero duration configuration advances one phase per tick and cy
         simulation::MatchOutcome::won_by_entity(fixture.spawned_entity_id(1, 0)));
   CHECK(at_tick(snapshots, 8).match().outcome() ==
         simulation::MatchOutcome::won_by_entity(fixture.spawned_entity_id(6, 0)));
+}
+
+TEST_CASE("a recorded shield pulse parries a closing attacker inside its perfect opening",
+          "[fixtures][replay][royale][shield]") {
+  // The replay-level half of human/bot/replay symmetry. A `shield` row in `commands.csv` is an
+  // ordinary `ShieldCommand` in the tick's batch, so it reaches `ability`'s admission through the
+  // same path a browser frame or a scripted controller does; nothing in the simulation can tell
+  // which produced it. The fixture's own header explains the geometry and the timing.
+  const testing::ReplayFixture fixture = testing::ReplayFixture::named("royale-shield-parry");
+  const Snapshots snapshots = fixture.run();
+  REQUIRE(snapshots.size() == fixture.tick_count());
+
+  const simulation::EntityId attacker = fixture.spawned_entity_id(1, 0);
+  const simulation::EntityId defender = fixture.spawned_entity_id(1, 1);
+  REQUIRE(attacker < defender);
+
+  // The pulse is admitted on the tick it was recorded on, and every published endpoint is the
+  // authored default tuning converted once: 160, 32, and 360 ticks, with a captured 240-tick stun.
+  const std::optional<simulation::Shield> raised = shield_of(at_tick(snapshots, 60), defender);
+  REQUIRE(raised.has_value());
+  CHECK(raised->activation_tick() == simulation::TickSequence::create(60));
+  CHECK(raised->shield_window().expiry_tick() == simulation::TickSequence::create(220));
+  CHECK(raised->perfect_window().expiry_tick() == simulation::TickSequence::create(92));
+  CHECK(raised->cooldown_window().expiry_tick() == simulation::TickSequence::create(420));
+  CHECK(raised->parry_stun_duration_ticks() == 240);
+  // The attacker never pulsed, so it carries no shield at all: admission is per entity, not
+  // per tick.
+  CHECK_FALSE(shield_of(at_tick(snapshots, 60), attacker).has_value());
+  // Nothing is guarded before the pulse, which is what makes tick 60 the activation rather than
+  // the discovery of a shield the world already had.
+  CHECK_FALSE(shield_of(at_tick(snapshots, 59), defender).has_value());
+
+  // Locate the parry rather than hard-coding the contact tick, then assert the thing the fixture
+  // exists to prove: it landed inside the opening, and it stunned the attacker for the duration
+  // the DEFENDER captured.
+  std::optional<std::uint64_t> parry_tick;
+  for (std::uint64_t tick = 1; tick <= fixture.tick_count(); ++tick) {
+    if (stun_of(at_tick(snapshots, tick), attacker).has_value()) {
+      parry_tick = tick;
+      break;
+    }
+  }
+  REQUIRE(parry_tick.has_value());
+  INFO("parry committed on tick " << *parry_tick);
+  CHECK(raised->perfect_window().contains(simulation::TickSequence::create(*parry_tick)));
+
+  const std::optional<simulation::Stun> stun = stun_of(at_tick(snapshots, *parry_tick), attacker);
+  REQUIRE(stun.has_value());
+  CHECK(stun->window.activation_tick() == simulation::TickSequence::create(*parry_tick));
+  CHECK(stun->window.expiry_tick() == simulation::TickSequence::create(*parry_tick + 240));
+  // "Negate momentum" means cancel it, not reverse it: the perfect response zeroes the incoming
+  // body's velocity and acceleration, and the stun then holds it there.
+  const std::optional<simulation::PhysicsBody> stopped =
+      body_of(at_tick(snapshots, *parry_tick), attacker);
+  REQUIRE(stopped.has_value());
+  CHECK(stopped->velocity() == simulation::Vector2::create(0.0, 0.0));
+  CHECK(stopped->acceleration() == simulation::Vector2::create(0.0, 0.0));
+
+  // The defender is never the one stunned -- it did not ram anybody -- and neither body leaves the
+  // match: a parry is a defensive outcome, not an elimination.
+  CHECK_FALSE(stun_of(at_tick(snapshots, *parry_tick), defender).has_value());
+  const simulation::WorldSnapshot& last = at_tick(snapshots, fixture.tick_count());
+  CHECK(alive_count_of(last) == 2);
+  CHECK(carries_controllable(last, attacker));
+  CHECK(carries_controllable(last, defender));
+
+  // The stun outlives the replay, so a held thrust never resumes inside it, and the guard is still
+  // ordinary protection after its opening closed: one activation, three windows, one lifetime.
+  CHECK(stun_of(last, attacker).has_value());
+  const std::optional<simulation::PhysicsBody> held = body_of(last, attacker);
+  REQUIRE(held.has_value());
+  CHECK(held->acceleration() == simulation::Vector2::create(0.0, 0.0));
+  const std::optional<simulation::Shield> guarding = shield_of(last, defender);
+  REQUIRE(guarding.has_value());
+  CHECK(*guarding == *raised);
+  CHECK(guarding->shield_window().contains(simulation::TickSequence::create(fixture.tick_count())));
+  CHECK_FALSE(
+      guarding->perfect_window().contains(simulation::TickSequence::create(fixture.tick_count())));
 }
 
 TEST_CASE("the scripted multi-entity match runs a whole royale and ranks its losers",

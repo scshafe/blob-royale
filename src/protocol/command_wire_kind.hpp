@@ -83,11 +83,28 @@ template <> struct CommandWireKind<simulation::SeatNpcCommand> {
 };
 
 template <> struct CommandWireKind<simulation::StartMatchCommand> {
-  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[5];
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[6];
 };
 
 template <> struct CommandWireKind<simulation::SetMovementTuningCommand> {
   static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[2];
+};
+
+// The tap shield, added in Step 18. **A client may send it** for the same reason it may send
+// `set_thrust`, and for none of the reasons the lobby kinds needed arguing: it addresses the
+// sender's own body and nobody else's, it spends nothing another peer owns, and the server stamps
+// the entity so the envelope has no field an attacker could point elsewhere. Whether the pulse
+// activates is a mode's question, answered by `AbilitySystem` inside the tick, not this file's.
+//
+// Its name is its own, unlike `set_thrust`: a pulse replaces no persistent intent, so there is no
+// property a differing wire name would have to teach a client releasing a key.
+//
+// **Index 5, and index 5 is why `start_match` above reads 6.** The array is the schema's ascending
+// order, `"shield"` sorts between `"set_thrust"` and `"start_match"`, and the two static_asserts
+// below check only the count and that every published name selects *a* kind -- a consistently wrong
+// permutation would satisfy both. Every index in this file was re-read by hand after the insertion.
+template <> struct CommandWireKind<simulation::ShieldCommand> {
+  static constexpr std::optional<std::string_view> value = kV3ClientCommandKindNames[5];
 };
 
 namespace detail {

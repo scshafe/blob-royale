@@ -429,6 +429,15 @@ generation. Missing/bodyless/static targets and zero duration are no-ops; invali
 windows fail before mutation. Status never writes velocity: the later impact response owns
 momentum cancellation. Existing event ordering, bounded storage, and commit clearing remain.
 
+**Exception closed, 2026-09-12 (plan Step 18).** Step 18 was named as this exception's terminus and
+it has arrived: the guarded-pair contact response is `StunRequest`'s production producer, emitting
+one request per newly stunned dynamic body with the **defending** body's captured parry-stun
+duration. The rule stated above — every registered kind has a producer — is restored without
+qualification, and this ADR no longer carries a staged exception to it. Everything the exception
+asserted about the event's own shape still holds: it carries target and duration only, the status
+consumer still owns activation tick and generation, and status still writes no velocity. Momentum
+cancellation is the contact response's, exactly as this paragraph said it would be.
+
 `ContactEvent` carries the canonical pair, the contact normal, the relative normal speed, and the
 name of the rule row that matched, which is what lets one generic contact phase feed many different
 consuming systems. Ordering is total: events are appended in production order, and every producing
@@ -525,6 +534,26 @@ The three built-in rows preserve the accepted equations, on certified closing im
 | `elastic_disc` | dynamic body | dynamic body | ADR 0003's equal-mass frictionless normal-component exchange, plus one `ContactEvent`. |
 | `reflect_static` | dynamic body | static body | Reflect the dynamic body's normal component about the contact normal; the static body is unchanged; plus one `ContactEvent`. |
 
+**Amended 2026-09-12 (plan Step 18): one composed row sits above all three in every gameplay
+mode.** Royale, king of the hill, race, and Sandbox each declare exactly one pair-symmetric row,
+`guarded_pair`, through `ContactRuleTable::with_rows_above_built_in`. Its two predicates are the
+same total "carries a `PhysicsBody`" test, so it always matches in the canonical orientation and
+the swapped mapping is unreachable while they stay symmetric; static/static pairs never reach a row
+at all, because the broad phase drops them. Being first-match, that row makes the three built-in
+rows unreachable in those four modes — they remain the engine baseline, reached by a mode that
+declares neither its own rows nor a replacement, which is the kernel default and the
+simulation-domain test doubles. ADR 0003 § "Canonical tick" states exactly which accepted arithmetic
+this preserves and which diagnostic name changes.
+
+The response is a noncapturing free function, as this section requires, and that is load-bearing
+rather than incidental: it cannot hold the `[abilities]` configuration, so every fact it needs
+comes out of the frozen world and the `TickContext`. Guard state is projected from each subject's
+committed `Shield`, and the parry-stun duration is read from the **defender's** own `Shield`, which
+captured it at activation. No process global, no second configuration owner, and no contact-time
+status mutation. The composition emits one `ContactEvent` per matched pair like the rows it
+replaces, but names `lethal_hazard` on its lethal branch and `guarded_pair` otherwise: one row,
+two diagnostic names.
+
 `PhysicsBody` radius, mass, and restitution are effective values. Each folded dynamic body uses its
 own radius against the closed outer envelope; static and crossing bodies retain their explicit
 exemptions. Sparse body-bound `ContactEffectAdmission{any_touch}` changes only its owner's effect
@@ -586,8 +615,10 @@ empty table, so existing modes opt in explicitly. The engine owns independently 
 policies after destroying the mode. Per-tick bindings own their frozen facts before exposing
 borrowed solver rows; temporary-table/temporary-binding borrows are forbidden. Binding may select
 eligibility and initialize a cursor, but geometric queries run through the solver's budget. Step 16
-tests this socket with injected policies; production support/race registration follows in Step 17,
-and guarded pair composition follows in Step 18.
+tests this socket with injected policies; production support/race registration follows in Step 17.
+~~Guarded pair composition follows in Step 18.~~ It landed on 2026-09-12 through
+`contact_rules()`, not through this socket: a guard belongs to a pair and a motion trigger is unary,
+so the composition is one declared row and this eighth declaration is unchanged by it.
 
 The two sub-interfaces a mode declares are each as small as their capability allows:
 
@@ -1042,6 +1073,16 @@ renders through a renderer registry keyed by component kind (`@extension-point e
 client side). Adding a component kind is a new renderer module plus one registration line; the
 canvas code does not change.
 
+**Amended 2026-09-12 (plan Step 18):** `shield` publishes exactly `activation_tick`,
+`shield_expiry_tick`, `perfect_expiry_tick`, `cooldown_expiry_tick`, and
+`parry_stun_duration_ticks`, in that encoder order, with its schema, encoder, generated client
+types, strict client validation, examples, and its `docs/protocol/v3.md` row in this same commit.
+Every stored value is published: a current effect parameter is public to browser readers and C++
+bots alike rather than exposed to one and hidden from the other, so `Shield` declares no
+`ComponentPublication` specialization. A kind that draws nothing still registers, with a stated
+reason — `shield` is a non-visual registration until Step 20 supplies its presentation. The
+session major stays `3.0` under the coordinated development release rule below.
+
 **Versioning discipline.** Adding a component kind, a command kind, or a mode-state schema is a
 **protocol minor version** — `2.1`, `2.2` — and the `welcome` message states the server's exact
 version. A client **fails closed** on a kind or schema id it does not know: it reports the unknown
@@ -1075,7 +1116,11 @@ and they are checkable.
   (`0002-simulation-architecture.md` § "Extension points").
 * **No wall clock.** `blob_simulation` names no clock type. Durations are integer tick counts
   converted once at configuration load; `TickContext` exposes `tick_sequence` and `fixed_delta` and
-  nothing time-shaped.
+  nothing time-shaped. **Amended 2026-09-12 (plan Step 18):** the four `[abilities]` durations obey
+  this without exception — they are converted once by the shared `duration_ticks` rule at load,
+  `AbilityConfiguration` stores only tick counts, and `Shield` stores absolute `TickWindow`
+  endpoints rather than a countdown, so nothing decrements per tick and no ability reads seconds at
+  runtime. Perfect timing is judged by the server-accepted tick, never by a client timestamp.
 * **Randomness only from `DeterministicRandom`, owned by `GameWorld`.** The generator is written out
   explicitly rather than taken from `<random>`, because standard engines are bit-specified but
   standard distributions are not:
@@ -1145,7 +1190,7 @@ tick.
 |---|---|---|---|
 | A component kind | `src/simulation/components/<name>_component.hpp`, its encoder, its client renderer | `component_registry.hpp` (one type), the encoder and renderer registries (one line each) | `GameWorld`, `GameSimulation`, any system |
 | A mechanic | `src/gameplay/<mode>/<name>_system.{hpp,cpp}` | the mode's declared system list (one line) | the kernel, other systems |
-| An interaction | `src/gameplay/<mode>/<name>_contact_rule.{hpp,cpp}` | the mode's `contact_rules()` (one row) | `physics.hpp`, phase 3 |
+| An interaction | `src/gameplay/<mode>/<name>_contact_rule.{hpp,cpp}`, or `src/gameplay/shared/` once a second mode declares it | the `contact_rules()` of every mode that declares it (one row each) | `physics.hpp`, phase 3 |
 | An obstacle | a row in a map's `static_bodies.csv` | nothing | any C++ file |
 | A game | `src/gameplay/<mode>/` with its mode class, systems, rules, policies | `game_mode_registry.hpp` (one include and one row in `kGameModeRegistrations`), match configuration | `blob_simulation`, `blob_runtime`, `blob_server`, any other mode |
 | A map | a data directory under `maps/` | match configuration | any C++ file |
@@ -1156,6 +1201,19 @@ Five of the eight rows are "new files plus one registration line." Two — an ob
 data with no code at all. **A command kind is the one row that is neither**, and this is the honest
 count rather than an aspiration: it edits two existing files at six sites in
 `command_registry.hpp` plus its value validation in `input_batch.cpp`.
+
+**Amended 2026-09-12 (plan Step 18), two rows measured again.** The interaction row's path moved,
+because `guarded_pair` is declared by four modes and therefore lives in `src/gameplay/shared/`
+under this library's own "two modes declare it, it moves to `shared/`" rule; the cost is still one
+row per declaring mode and still nothing in `physics.hpp` or the solver. The component-kind row is
+the one the earlier count reads short for a **published** kind: `Shield` cost its value header and
+one type in `component_registry.hpp` as promised, and then also one encoder specialization, one
+`shield-component.schema.json`, one enum member in `common.schema.json`, one property in
+`entity-snapshot.schema.json`, one non-visual entry in the client's renderer registry, one client
+invariant check, and one golden example. `src/simulation/README.md` § "Extension points" carries the
+authoritative per-site checklist; the wire half of it is real work and is not one line.
+`shield` itself is a client-sendable command kind and pays the full row as written, plus the three
+further client-sendable edits that README names.
 `src/simulation/README.md` § "Extension points" states the same set.
 
 Engine review finding 5 removed one of the three files that row used to name: `recorded_entity_of`
@@ -1177,12 +1235,12 @@ rather than foresight.
 
 | Seam | Tag | Contract | Registration | Two implementations |
 |---|---|---|---|---|
-| Component kind | `entity_component` | A value struct plus a `ComponentKindName` specialization | `component_registry.hpp` | `Flag` for capture the flag; `Health` for projectile damage |
+| Component kind | `entity_component` | A value struct plus a `ComponentKindName` specialization | `component_registry.hpp` | `Shield`, the body-bound ability window (2026-09-12, plan Step 18); `Health` for projectile damage |
 | System | `simulation_system` | `apply(GameWorld&, const TickContext&) const` plus `name()` | the mode's declared staged list | `zone_shrink` for royale; `hill_scoring` for king of the hill |
-| Contact rule | `contact_rule` | `(predicate, predicate, pure response)` returning bodies plus events | the mode's `contact_rules()` row order | `elastic_disc` for blob-on-blob; `flag_pickup` as a pass-through trigger |
+| Contact rule | `contact_rule` | `(predicate, predicate, pure response)` returning bodies plus events | the mode's `contact_rules()` row order | `elastic_disc` for blob-on-blob; `guarded_pair`, the shared composed row four modes declare (2026-09-12, plan Step 18) |
 | Game mode | `game_mode` | Eight declarations read once at construction (Step 16) | `game_mode_registry.hpp` and `[match] mode=` | `royale`; `capture_the_flag` |
 | Map | `map_definition` | Bounds, static bodies, markers, metadata; data only | a directory under `maps/` and `[match] map=` | the 960x640 arena; an obstacle course |
-| Command kind | `command_kind` | A value type in the `Command` variant with validation and a consuming system | `command_registry.hpp` | `ThrustCommand`; `FireCommand` |
+| Command kind | `command_kind` | A value type in the `Command` variant with validation and a consuming system | `command_registry.hpp` | `ThrustCommand`; `ShieldCommand`, the entity-addressed ability pulse consumed by the shared `ability` system (2026-09-12, plan Step 18) |
 | Controller | `controller` | The in-process form of the command-source role, in `blob_controllers`: `kind()`, `entity()`, non-blocking `decide(const Observation&)` | `controller_registry.hpp` and `[match] bots=` | seeded `WandererController`; an off-thread LLM-driven controller |
 | Entity renderer | `entity_renderer` | A draw function keyed by component kind, client side | the client's renderer registry | the `PhysicsBody` disc renderer; the `Zone` circle renderer |
 
@@ -1536,3 +1594,29 @@ The application startup boundary has the independently validated map and configu
 it explicitly binds race checkpoint return-clearance validation there. This is a narrow exception
 to the historical absolute claim that no other file names a game, not another mode factory or
 kernel callback. Ordinary mode construction still belongs solely to the registry.
+
+## Amended 2026-09-12: Tap shield, the composed contact row, and the closed event exception (Step 18)
+
+The `StunRequest` foundation exception recorded in § "World events" is closed: the guarded-pair
+contact response is its production producer, so "every registered kind has a producer" holds again
+without a staged carve-out.
+
+`Shield` is registered as a body-bound component kind and published completely under the
+coordinated v3.0 contract with five members and no charge fields. `ShieldCommand` is registered as
+the eleventh `Command` kind: entity-addressed, carrying only an optional `input_generation` with
+`ThrustCommand`'s exact semantics, applied after the lifecycle kinds because a pulse is a recorded
+intent whose only ordering obligation is to follow `spawn`. It pays every site
+`src/simulation/README.md` § "Extension points" lists, including the client-sendable three.
+
+One shared `kPreKernel` `ability` system consumes it, declared last at that stage by all four
+gameplay modes, and one shared `guarded_pair` contact row is declared above the built-ins by the
+same four. `StatusSystem` additionally cancels still-active protection on stun while preserving
+cooldown, the original activation, and elapsed perfect history.
+
+No ninth mode declaration, fourth hook stage, fourth policy socket, second pair equation, new event
+root, generic command-receipt channel, or new mutable-world access was added, and
+`Controller` gained no capability: bot and replay symmetry is proven through the scripted replay
+controller's existing whole-`Command` log. A refused pulse produces no per-request receipt; the
+published `Shield` windows are the only confirmation of a committed activation. The implementation
+contract is
+[`2026-09-12-shield-composition-contract.md`](../reviews/2026-09-12-shield-composition-contract.md).

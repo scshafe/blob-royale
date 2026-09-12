@@ -8,6 +8,7 @@
 #include "components/race_progress_component.hpp"
 #include "components/respawn_timer_component.hpp"
 #include "components/score_component.hpp"
+#include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
 #include "components/zone_exposure_component.hpp"
 #include "game_world.hpp"
@@ -30,6 +31,11 @@ inline constexpr std::uint64_t kNextCheckpoint = 2;
 inline constexpr std::int64_t kEarnedScore = 11;
 inline constexpr std::uint64_t kStunActivation = 1;
 inline constexpr std::uint64_t kStunDuration = 50;
+inline constexpr std::uint64_t kShieldActivation = 1;
+inline constexpr std::uint64_t kShieldDuration = 40;
+inline constexpr std::uint64_t kShieldPerfectDuration = 8;
+inline constexpr std::uint64_t kShieldCooldownDuration = 90;
+inline constexpr std::uint64_t kShieldParryStunDuration = 60;
 
 [[nodiscard]] inline simulation::EntityId entity(const std::uint64_t value) {
   return simulation::EntityId::create(value);
@@ -52,6 +58,12 @@ inline void attach_bound_components(simulation::GameWorld& world,
   world.mutable_store<simulation::Stun>().insert_or_assign(
       target, simulation::Stun{simulation::TickWindow::create(
                   simulation::TickSequence::create(kStunActivation), kStunDuration)});
+  // A shield outlives neither its body nor a round, so the generic sweep tests must actually see
+  // one: without an attached value they would pass while proving nothing about the new kind.
+  world.mutable_store<simulation::Shield>().insert_or_assign(
+      target, simulation::Shield::activate(simulation::TickSequence::create(kShieldActivation),
+                                           kShieldDuration, kShieldPerfectDuration,
+                                           kShieldCooldownDuration, kShieldParryStunDuration));
 }
 
 // Adjacent bodyless entries before, between, and after live entries expose index skipping. One

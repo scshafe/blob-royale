@@ -267,12 +267,12 @@ royale never held a participant without a body on a tick it wiped.
 | Declaration | `king_of_the_hill` |
 |---|---|
 | `name()` | `king_of_the_hill` |
-| Components used | `PhysicsBody`, `Controllable`, `Score`, `Hill`, `HillPresence`, `RespawnTimer`, `Lifetime`, `LethalOnContact` |
-| `kPreKernel` systems | `thrust_steering` |
-| `kPostKernel` systems | `hill_movement`, then `hill_scoring` |
+| Components used | `PhysicsBody`, `Controllable`, `Score`, `Hill`, `HillPresence`, `RespawnTimer`, `Lifetime`, `LethalOnContact`, `Stun`, `Shield`, `HillMotion`, `ContactEffectAdmission` |
+| `kPreKernel` systems | `thrust_steering`, then `ability` |
+| `kPostKernel` systems | `hill_movement`, `hill_scoring`, then `status` |
 | `kLifecycle` systems | `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn`, then `hill_rules_publisher` |
-| `contact_rules()` | `lethal_hazard`, then the built-in rows |
-| `accepted_command_kinds()` | royale's nine: spawn, despawn, thrust, join, leave, and the four lobby kinds |
+| `contact_rules()` | `guarded_pair`, then the built-in rows |
+| `accepted_command_kinds()` | royale's eleven `Command` variant kinds: spawn, despawn, thrust, shield, join, leave, set_movement_tuning, and the four lobby kinds. Seven of those are client-sendable and appear in a welcome |
 | `spawn_policy()` | `NextFreeSpawnPointPolicy`: the next free point, in every phase, deferring a respawning entity |
 | `objective()` | `HillObjective` |
 | `validate_map()` | at least one `hill` marker and at least one `spawn` marker |
@@ -420,12 +420,12 @@ map host more than one game.
 | Declaration | `race` |
 |---|---|
 | `name()` | `race` |
-| Components used | `PhysicsBody`, `Controllable`, `RaceProgress`, `RespawnTimer`, `Lifetime`, `LethalOnContact` |
-| `kPreKernel` systems | `thrust_steering` |
-| `kPostKernel` systems | `checkpoint_progress`, then `track_bounds` |
-| `kLifecycle` systems | `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn`, then `course_publisher` |
-| `contact_rules()` | `lethal_hazard`, then the built-in rows |
-| `accepted_command_kinds()` | royale's nine |
+| Components used | `PhysicsBody`, `Controllable`, `RaceProgress`, `RespawnTimer`, `Lifetime`, `LethalOnContact`, `Stun`, `Shield`, `ContactEffectAdmission` |
+| `kPreKernel` systems | `course_publisher`, `thrust_steering`, then `ability` |
+| `kPostKernel` systems | `checkpoint_progress`, then `status` |
+| `kLifecycle` systems | `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`, then `hazard_spawn` |
+| `contact_rules()` | `guarded_pair`, then the built-in rows |
+| `accepted_command_kinds()` | royale's eleven; seven client-sendable |
 | `spawn_policy()` | `GridSpawnPolicy`: the grid between matches; mid-race, only a racer returning to the grid |
 | `objective()` | `RaceObjective` |
 | `validate_map()` | the course rules under § "Map requirements" |
@@ -439,7 +439,17 @@ no `RespawnTimer`, which is a racer returning to the grid, and nothing else. The
 adjacencies carry the design: `checkpoint_respawn` runs *before* `respawn` so that an entity whose
 timer expires this tick is seated by the race system on the *next* tick, the same tick the engine's
 `SpawnSystem` would have seated it, and the two routes back into the field agree to the tick;
-`course_publisher` runs last as the sole final writer of the block.
+~~`course_publisher` runs last as the sole final writer of the block~~.
+
+**Table corrected 2026-09-12 (plan Step 18).** The three system rows above were still describing the
+declaration as it stood before Step 17. `track_bounds` is deleted, and `course_publisher` moved from
+last at `kLifecycle` to **first** at `kPreKernel` so that bound course facts reach shared input
+admission even on the first tick of a directly seeded completed racer — it remains the block's sole
+writer, in a different stage. Step 18 then appends `ability` last at `kPreKernel`, and that
+adjacency is load-bearing rather than cosmetic: the canonical input lock reads the published
+`RaceModeState` to recognize a finished racer, so ability admission must run after the publisher or
+a racer who finished on a previous tick could activate a shield on the first tick of a new quantum.
+`status` was already last at `kPostKernel` from Step 14.
 
 #### The course
 
@@ -533,6 +543,15 @@ seated by this system with the engine's own predicate and write. The one-tick al
 under the declaration table is what keeps "seated on tick `N + D + 1`" true on both routes. A gate
 somebody is standing on delays the return by a tick at a time rather than seating two bodies in
 contact; a designer who sees that abused authors a wider course or asks for the slot extension.
+
+**Amended 2026-09-12 (plan Step 18):** shield does not touch either return. A guard is never
+consulted by support loss, by the centreline test this section describes, or by the zone rules —
+those are geometry, not contact — so a shield cannot save a racer from a cliff and cannot postpone a
+return. It does reach admission in the other direction: the canonical input lock already recognizes
+a racer whose retained `RaceProgress` has completed the published course, and the shared `ability`
+system refuses a pulse under that same lock, so a finished racer activates nothing while waiting.
+A returning racer carries no `Shield` at all, because the component is body-bound and the shared
+sweep clears it with the body.
 
 #### Lifecycle and objective
 
@@ -687,6 +706,17 @@ them from the menu the client already has:
 Both decide from the snapshot alone, submit through the sink like every other controller, and are
 replayed by the recorded command log rather than re-run, so a determinism fixture can carry either.
 
+**Amended 2026-09-12 (plan Step 18).** Shield admission is shared: a human, a bot, and a replay all
+reach the same `ability` system through the same recorded `ShieldCommand`, with the same phase,
+body, lock, generation, protection, and cooldown checks. No registered bot emits one in this step —
+`Controller` still holds exactly two capabilities and gained no `request_shield`, because bot shield
+policy is Step 22 and an unused capability would be vocabulary ahead of behaviour. Symmetry is
+proven instead through `ScriptedReplayController`, whose typed log already carries whole
+`simulation::Command` values, so a scripted controller emits a `ShieldCommand` today with no change
+in the controllers domain. The replay `commands.csv` parser accepts a `shield` verb using
+`entity_id` alone; a replayed pulse carries an absent generation, which is the legal
+never-invalidated case.
+
 ### Fixtures and verification
 
 Each mode ships a map under `maps/` -- a hill arena with four `hill` markers and a point-to-point
@@ -740,7 +770,8 @@ files edited are listed in full because the table's whole purpose is that number
 | Public seating | `spawn_seating.{hpp,cpp}` | `spawn_system.cpp` |
 | The five promotions and `match_reset` | `shared/{roster,lobby_start_rule,disc_geometry}.hpp`, `shared/match_reset_system.{hpp,cpp}` | royale's and sandbox's includes and declared lists, `zone_elimination.cpp` |
 | A mode | `src/gameplay/<mode>/` with its mode, configuration, course or hill geometry, systems, objective, and mode-state header; its map directory; its fixtures | `game_mode_registry.hpp` (one row), `game_mode_configuration.hpp` (one member), `mode_match_state_registry.hpp` (one arm), `application_config_loader.cpp` (one section), `replay_fixture.cpp` (one section), `CMakeLists.txt`, and **every full application configuration** (one section) |
-| A component kind | its header, schema, encoder, renderer | `component_registry.hpp`, `component_encoding_registry.hpp`, `common.schema.json`, `entityRendererRegistry.ts` |
+| A component kind | its header, `<kind>-component.schema.json`, its encoder, its renderer entry | `component_registry.hpp`, `component_encoding_registry.hpp`, `common.schema.json`, `entity-snapshot.schema.json`, `entityRendererRegistry.ts`, and the regenerated client types (2026-09-12, plan Step 18: measured again on `Shield`; the four-file count omitted the entity-snapshot property and the generated bundle) |
+| A client-sendable command kind | `commands/<kind>_command.hpp`, `<kind>-command.schema.json`, its consuming system | `command_registry.hpp` (six sites), `input_batch.cpp`, `command_mailbox.hpp`, `command_wire_kind.hpp`, `protocol_v3_constants.hpp`, `command_decoding.cpp`, `common.schema.json`, `command-envelope.schema.json`, `welcome-data.schema.json` (2026-09-12, plan Step 18: measured on `shield`; `src/simulation/README.md` § "Extension points" is the authoritative list) |
 | A mode-state block | its header, schema, encoder, mode-state renderer entry | `mode_match_state_registry.hpp`, `mode_state_wire_encoding.hpp`, `common.schema.json`, `match-data.schema.json`, `modeStateRendererRegistry.ts` |
 | A bot | `src/controllers/<name>_controller.{hpp,cpp}` and its tests | `controller_registry.hpp`, `src/controllers/CMakeLists.txt` |
 
@@ -944,3 +975,33 @@ after each seat. Application startup rejects checkpoint centers whose configured
 overlap void; no nearest-point fallback. Progress zero is initialized before first-gate falling.
 Race and hill retain N + D + 1 return timing, persistent progress/score, and registry-owned body
 cleanup. Hill motion remains terrain-independent and never creates floor.
+
+## Amendment: shield admission and the composed contact row, 2026-09-12 (plan Step 18)
+
+Both modes declare the shared `ability` system last at `kPreKernel` and the shared `guarded_pair`
+contact row above the built-ins, and both declaration tables above are updated in place. The
+standalone `lethal_hazard` row no longer exists: its predicates, its running-phase gate reasoning
+(recorded in ADR 0005's 2026-09-09 amendment, which is re-pointed rather than deleted), and its
+diagnostic name moved unchanged into the composition, which is now the one response for every pair
+either mode can form.
+
+Race's ordering is the constraint worth restating. `course_publisher` stays first at `kPreKernel`
+and `ability` is declared after it, because the canonical input lock reads the published
+`RaceModeState` to recognize a racer who has completed the course. Declared before the publisher,
+ability admission would let a directly seeded finished racer activate a shield on a quantum's first
+tick. Hill has no equivalent constraint; its `ability` entry simply follows `thrust_steering`.
+
+Counts, stated with their unit because the two disagree. Each mode's `accepted_command_kinds()` now
+names **eleven** simulation `Command` variant kinds — spawn, despawn, thrust, shield, join, leave,
+set_movement_tuning, and the four lobby kinds. A welcome's `accepted_command_kinds` is the
+intersection with the client-sendable vocabulary and therefore names **seven**: `set_thrust`,
+`shield`, `set_movement_tuning`, `set_seat_count`, `clear_seat`, `seat_npc`, and `start_match`. The
+earlier "royale's nine" in both tables counted simulation kinds and had already fallen behind
+`set_movement_tuning`; it is corrected rather than incremented.
+
+Ability tuning is one required shared `[abilities]` section, recorded in ADR 0005 § "Amendment:
+shared ability authoring, 2026-09-12 (plan Step 18)" and reaching both modes through
+`GameModeConfiguration`, exactly as `[movement]` does. Neither mode gains a section of its own, a
+component of its own, or an event kind of its own. Historical per-mode line-count measurements in
+§ "Where each new thing goes" are dated snapshots and are not recomputed here.
+See the [Step 18 contract](../reviews/2026-09-12-shield-composition-contract.md).

@@ -1,4 +1,5 @@
 #include "fixtures/hill_motion_encoding_fixture.hpp"
+#include "fixtures/shield_encoding_fixture.hpp"
 #include "protocol_v3_test_fixture.hpp"
 
 #include "component_encoding_registry.hpp"
@@ -19,6 +20,8 @@
 #include "http_error.hpp"
 #include "mode_state_wire_encoding.hpp"
 #include "simulation_limits.hpp"
+#include "simulation_validation_error.hpp"
+#include "tick_sequence.hpp"
 
 #include <boost/json/serialize.hpp>
 #include <boost/json/value_to.hpp>
@@ -52,6 +55,19 @@ void require_members_in_order(const std::string_view encoded,
     previous_position = member_position;
     first_member = false;
   }
+}
+
+// One committed frame carrying the supplied shield, encoded through the production path. Named once
+// so the four shield cases below differ only in the value under test. `committed_tick` exists so a
+// case that shortens a window can commit at a tick where that shortening is a state the world could
+// actually be in, rather than publishing a cancellation the frame's own tick has not reached.
+[[nodiscard]] std::string
+encoded_shield_frame(const simulation::Shield& shield,
+                     const std::uint64_t committed_tick = protocol::shield_fixture::kActivation) {
+  return protocol::encode_snapshot_message_v3(
+      protocol::shield_fixture::snapshot(shield, committed_tick), fixture::golden_directory(),
+      std::nullopt, fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      fixture::kSnapshotTimestamp);
 }
 
 // Mutations start from encoded production values, then edit only the property under test. The
@@ -89,7 +105,7 @@ TEST_CASE("Welcome encoder matches the accepted golden example and canonical byt
   fixture::require_json_matches_v3_golden_example(encoded, "welcome-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]},"movement_tuning_minimum_interval_milliseconds":500},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
+      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]},"movement_tuning_minimum_interval_milliseconds":500},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
 }
 
 TEST_CASE("Snapshot v3 encoder matches the accepted golden example",
@@ -698,6 +714,14 @@ TEST_CASE("The closed v3 component vocabulary names exactly the registered compo
   CHECK_FALSE(protocol::is_v3_component_kind("blob_shape"));
   CHECK_FALSE(protocol::is_v3_component_kind(""));
   CHECK(std::ranges::is_sorted(protocol::kV3ComponentKindNames));
+
+  // Sixteen since Step 18's `shield`, which sorts between `score` and `stun`. The count is written
+  // out beside the derived comparison above deliberately: the comparison proves the two lists agree
+  // with each other, and this proves they agree with the number a reader of the accepted schema set
+  // can count for themselves. Sortedness is the other half -- appending `"shield"` at the end of
+  // `kV3ComponentKindNames` would satisfy every compile-time gate and only fail here.
+  CHECK(protocol::kV3ComponentKindNames.size() == 16);
+  CHECK(protocol::is_v3_component_kind("shield"));
 }
 
 TEST_CASE("Race progress is published without a body and matches the accepted component example",
@@ -740,6 +764,131 @@ TEST_CASE("Race progress preserves zero and is never synthesized for an entity w
       fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
   CHECK(absent.find("race_progress") == std::string::npos);
+}
+
+TEST_CASE("Shield publishes one activation and three absolute expiries in wire member order",
+          "[unit][protocol][v3][encoding][shield][golden]") {
+  namespace shield_fixture = protocol::shield_fixture;
+  const simulation::WorldSnapshot published = shield_fixture::snapshot(shield_fixture::activated());
+  REQUIRE(published.components<simulation::Shield>().size() == 1);
+
+  const std::string encoded = encoded_shield_frame(shield_fixture::activated());
+
+  // Exact bytes rather than a parsed comparison: `docs/protocol/v3.md` § "Object member order"
+  // makes the encoder's sink-call order normative, so a reordering that a JSON-value comparison
+  // would call equal is a contract change this test has to fail on. The three windows share the one
+  // activation, which is why four numbers describe them rather than six.
+  CHECK(encoded.find(R"("shield":{"activation_tick":100,"shield_expiry_tick":260,)"
+                     R"("perfect_expiry_tick":132,"cooldown_expiry_tick":460,)"
+                     R"("parry_stun_duration_ticks":240})") != std::string::npos);
+  // ...and the component key itself sits in the ascending kind-name order the same section pins,
+  // which is why the fixture entity carries a body as well as a shield.
+  require_members_in_order(encoded, {R"("components")", R"("physics_body")", R"("shield")",
+                                     R"("activation_tick")", R"("shield_expiry_tick")",
+                                     R"("perfect_expiry_tick")", R"("cooldown_expiry_tick")",
+                                     R"("parry_stun_duration_ticks")"});
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
+}
+
+TEST_CASE("Cancelled shield protection publishes an empty window and keeps cooldown and stun",
+          "[unit][protocol][v3][encoding][shield]") {
+  namespace shield_fixture = protocol::shield_fixture;
+
+  // Cancelled at its own activation tick: protection is `[100, 100)`, an interval that contains no
+  // tick and protected nobody. It is a real committed state -- a stun landing on the activation
+  // tick produces it -- so the encoder publishes it rather than refusing it, which is the whole
+  // reason its endpoint checks are `<=` and not `<`. The cooldown still runs to 460, because a
+  // shield that was cancelled still spent its charge, and the captured stun duration survives too.
+  const std::string at_activation = encoded_shield_frame(shield_fixture::activated().canceled_at(
+      simulation::TickSequence::create(shield_fixture::kActivation)));
+  CHECK(at_activation.find(R"("shield":{"activation_tick":100,"shield_expiry_tick":100,)"
+                           R"("perfect_expiry_tick":100,"cooldown_expiry_tick":460,)"
+                           R"("parry_stun_duration_ticks":240})") != std::string::npos);
+
+  // Cancelled after the perfect opening had already closed: the elapsed perfect history is history
+  // and stays at 132, so the published perfect expiry is genuinely earlier than the shortened
+  // shield expiry rather than being clamped to it.
+  constexpr std::uint64_t kCancelledAt = 140;
+  const std::string after_the_opening = encoded_shield_frame(
+      shield_fixture::activated().canceled_at(simulation::TickSequence::create(kCancelledAt)),
+      kCancelledAt);
+  CHECK(after_the_opening.find(R"("shield":{"activation_tick":100,"shield_expiry_tick":140,)"
+                               R"("perfect_expiry_tick":132,"cooldown_expiry_tick":460,)"
+                               R"("parry_stun_duration_ticks":240})") != std::string::npos);
+}
+
+TEST_CASE("Shield encoding admits the degenerate tunings the contract calls legal",
+          "[unit][protocol][v3][encoding][shield]") {
+  namespace shield_fixture = protocol::shield_fixture;
+
+  // A cooldown that rounds to zero ticks is authored-legal, and it publishes a cooldown expiry
+  // equal to the activation. Admission still needs both prior protection and the cooldown to have
+  // ended, so a zero cooldown is "no extra wait", not "no rule".
+  CHECK(encoded_shield_frame(shield_fixture::activated(shield_fixture::kActivation,
+                                                       shield_fixture::kShieldDurationTicks,
+                                                       shield_fixture::kPerfectDurationTicks, 0,
+                                                       shield_fixture::kParryStunDurationTicks))
+            .find(R"("cooldown_expiry_tick":100)") != std::string::npos);
+
+  // A perfect opening exactly as long as the shield is the inclusive edge of
+  // `perfect expiry <= shield expiry`, so both endpoints land on 260.
+  CHECK(encoded_shield_frame(shield_fixture::activated(shield_fixture::kActivation,
+                                                       shield_fixture::kShieldDurationTicks,
+                                                       shield_fixture::kShieldDurationTicks,
+                                                       shield_fixture::kCooldownDurationTicks,
+                                                       shield_fixture::kParryStunDurationTicks))
+            .find(R"("shield_expiry_tick":260,"perfect_expiry_tick":260)") != std::string::npos);
+
+  // The top of the tick domain: TickWindow refuses to overflow it, and the wire carries the exact
+  // safe integer rather than a rounded double.
+  CHECK(encoded_shield_frame(shield_fixture::activated(shield_fixture::kActivation,
+                                                       simulation::TickSequence::kMaximumValue -
+                                                           shield_fixture::kActivation,
+                                                       shield_fixture::kPerfectDurationTicks,
+                                                       shield_fixture::kCooldownDurationTicks,
+                                                       shield_fixture::kParryStunDurationTicks))
+            .find(R"("shield_expiry_tick":9007199254740991)") != std::string::npos);
+}
+
+TEST_CASE("Shield encoding's out-of-range guards have no reachable specimen",
+          "[unit][protocol][v3][encoding][shield][rejection]") {
+  namespace shield_fixture = protocol::shield_fixture;
+
+  // The encoder fails closed on a zero activation, a zero captured stun duration, and a perfect
+  // opening outside the shield -- and none of the three can be handed to it, because
+  // `Shield::activate` is the only way to make one and it refuses all three first. So this test
+  // pins the *reason* the guards are unreachable rather than pretending to reach them: a `Shield`
+  // in an invalid state is not constructible from outside the class, and forging one would assert
+  // against a value the world cannot hold. The guards stay written for the same reason
+  // `decode_seat_npc`'s grammar check sits behind its membership check
+  // (`src/protocol/command_decoding.cpp`): a boundary must not depend on another module's
+  // invariant staying true.
+  //
+  // The fourth guard, `activation <= cooldown expiry`, has no specimen at all: an expiry is
+  // `TickWindow::create(activation, duration)`, which only ever adds and refuses to overflow.
+  //
+  // If a later step gives `Shield` a second construction path, this is the test that breaks, and
+  // the guards in `shield_component_encoding.hpp` then owe positive specimens here.
+  CHECK_THROWS_AS(shield_fixture::activated(0), simulation::SimulationValidationError);
+  CHECK_THROWS_AS(shield_fixture::activated(shield_fixture::kActivation, 0, 0,
+                                            shield_fixture::kCooldownDurationTicks,
+                                            shield_fixture::kParryStunDurationTicks),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(shield_fixture::activated(shield_fixture::kActivation,
+                                            shield_fixture::kShieldDurationTicks, 0,
+                                            shield_fixture::kCooldownDurationTicks,
+                                            shield_fixture::kParryStunDurationTicks),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(shield_fixture::activated(
+                      shield_fixture::kActivation, shield_fixture::kPerfectDurationTicks,
+                      shield_fixture::kShieldDurationTicks, shield_fixture::kCooldownDurationTicks,
+                      shield_fixture::kParryStunDurationTicks),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(shield_fixture::activated(shield_fixture::kActivation,
+                                            shield_fixture::kShieldDurationTicks,
+                                            shield_fixture::kPerfectDurationTicks,
+                                            shield_fixture::kCooldownDurationTicks, 0),
+                  simulation::SimulationValidationError);
 }
 
 TEST_CASE("Hill motion publication strips private schedule and encodes only committed velocity",
@@ -1189,7 +1338,7 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
   // the array in the order its schema enumerates.
   CHECK(
       advertised_all.find(
-          R"("accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","start_match"])") !=
+          R"("accepted_command_kinds":["clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"])") !=
       std::string::npos);
   CHECK(advertised_all.find("spawn") == std::string::npos);
   CHECK(advertised_all.find("despawn") == std::string::npos);

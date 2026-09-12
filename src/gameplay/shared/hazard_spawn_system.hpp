@@ -26,7 +26,8 @@ namespace blob_royale::gameplay {
 // replay of `(map, mode configuration, seed, command log)` therefore reproduces every crossing
 // exactly, which is `docs/architecture/0004-gameplay-architecture.md` § "Determinism obligations
 // for framework code". The hazard count is committed in every snapshot's `random_draw_counts`, so
-// two runs that diverge in how many hazards they drew for diverge visibly at the first differing tick.
+// two runs that diverge in how many hazards they drew for diverge visibly at the first differing
+// tick.
 //
 // **It runs at `kLifecycle`, and that is a design decision rather than a scheduling convenience.**
 // Creating an entity is roster bookkeeping, which is what the stage is for and what
@@ -76,7 +77,7 @@ namespace blob_royale::gameplay {
 // related: hazard_archetype.hpp -- the validated configuration this reads.
 // related: hazard_crossing.hpp -- the geometry and the lifetime this seats a body with.
 // related: lifetime_expiry_system.hpp -- what removes the bodies this creates.
-// related: lethal_hazard_contact_rule.hpp -- the row that reads the marker this attaches.
+// related: guarded_pair_contact_rule.hpp -- the one row that reads the marker this attaches.
 class HazardSpawnSystem final : public simulation::SimulationSystem {
 public:
   static constexpr std::string_view kSystemName = "hazard_spawn";

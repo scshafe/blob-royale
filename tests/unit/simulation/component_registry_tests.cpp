@@ -13,6 +13,7 @@
 #include "components/race_progress_component.hpp"
 #include "components/respawn_timer_component.hpp"
 #include "components/score_component.hpp"
+#include "components/shield_component.hpp"
 #include "components/team_component.hpp"
 #include "components/zone_component.hpp"
 #include "components/zone_exposure_component.hpp"
@@ -35,7 +36,7 @@ namespace simulation = blob_royale::simulation;
 
 TEST_CASE("ComponentRegistry declares every component kind in one closed ordered list",
           "[unit][simulation][component_registry]") {
-  // Fifteen, including the five the engine itself needs. `Zone` and `ZoneExposure` are royale's,
+  // Sixteen, including the five the engine itself needs. `Zone` and `ZoneExposure` are royale's,
   // added by plan Step 21 as two headers under `components/` and one edited line in the registry,
   // with no other kernel file touched. `LethalOnContact` is the third addition and the one that
   // measures the seam hardest: it belongs to **no mode at all** but to `src/gameplay/shared/`, and
@@ -44,7 +45,10 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
   // elimination state live"). `RespawnTimer` is the fourth, also `shared/`'s, and cost the same;
   // `Hill` and `HillPresence` are king of the hill's, the way the zone pair is royale's
   // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`). `RaceProgress` is race's.
-  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 15);
+  // `Shield` is the latest and is `shared/`'s in the same way `LethalOnContact` is: a body that can
+  // raise a guard for a moment belongs to no single mode, and it cost the same one header plus one
+  // registry line.
+  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 16);
   STATIC_REQUIRE(
       std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
                      std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
@@ -61,7 +65,8 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
                                 simulation::ComponentStore<simulation::RaceProgress>,
                                 simulation::ComponentStore<simulation::HillMotion>,
                                 simulation::ComponentStore<simulation::Stun>,
-                                simulation::ComponentStore<simulation::ContactEffectAdmission>>>);
+                                simulation::ComponentStore<simulation::ContactEffectAdmission>,
+                                simulation::ComponentStore<simulation::Shield>>>);
 }
 
 TEST_CASE("Every registered component kind declares its own wire name",
@@ -74,7 +79,7 @@ TEST_CASE("Every registered component kind declares its own wire name",
   CHECK(names == std::vector<std::string_view>{
                      "physics_body", "controllable", "lifetime", "score", "team", "zone",
                      "zone_exposure", "lethal_on_contact", "respawn_timer", "hill", "hill_presence",
-                     "race_progress", "hill_motion", "stun", "contact_effect_admission"});
+                     "race_progress", "hill_motion", "stun", "contact_effect_admission", "shield"});
 }
 
 TEST_CASE("Registry visitation reaches every kind exactly once in declared order",

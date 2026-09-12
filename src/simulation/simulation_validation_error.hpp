@@ -124,6 +124,8 @@ enum class SimulationValidationCode {
   kNpcCatalogueMixedKind,
   kNpcCatalogueProfileMissing,
   kInputBatchJoinDeclarationInvalid,
+  kShieldActivationInvalid,
+  kShieldCancellationBeforeActivation,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -141,6 +143,10 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
     return "SIMULATION.NPC_CATALOGUE_PROFILE_MISSING";
   case SimulationValidationCode::kInputBatchJoinDeclarationInvalid:
     return "SIMULATION.INPUT_BATCH_JOIN_DECLARATION_INVALID";
+  case SimulationValidationCode::kShieldActivationInvalid:
+    return "SIMULATION.SHIELD_ACTIVATION_INVALID";
+  case SimulationValidationCode::kShieldCancellationBeforeActivation:
+    return "SIMULATION.SHIELD_CANCELLATION_BEFORE_ACTIVATION";
   case SimulationValidationCode::kTickWindowExpiryOverflow:
     return "SIMULATION.TICK_WINDOW_EXPIRY_OVERFLOW";
   case SimulationValidationCode::kInputBatchInputGenerationZero:

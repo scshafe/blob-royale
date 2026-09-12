@@ -503,6 +503,13 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("[movement]\n");
   configuration.append("acceleration_world_units_per_second_squared=400\n");
   configuration.append("normal_top_speed_world_units_per_second=10000\n\n");
+  // Required for every mode, this fixture's `sandbox` included: the ability system is shared, so a
+  // room whose shield timings nobody authored is refused before the server ever binds a port.
+  configuration.append("[abilities]\n");
+  configuration.append("shield_duration_seconds=0.4\n");
+  configuration.append("shield_perfect_window_seconds=0.08\n");
+  configuration.append("shield_cooldown_seconds=0.9\n");
+  configuration.append("parry_stun_duration_seconds=0.6\n\n");
   configuration.append("[royale]\n");
   configuration.append("zone_minimum_radius_world_units=10\n");
   configuration.append("zone_shrink_seconds=90\n");

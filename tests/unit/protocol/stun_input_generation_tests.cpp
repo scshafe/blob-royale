@@ -27,6 +27,17 @@ namespace {
       simulation::ControllerId::create(fixture::kController));
 }
 
+// The same session, the same stamps, the other kind that carries the token. Sharing the fixture's
+// specimen lists is the point: one activation token means one thing across the whole wire, and a
+// shield that drifted from thrust on what a generation may be would be two rules wearing one name.
+[[nodiscard]] protocol::CommandDecodeResult decode_shield_payload(const std::string_view payload) {
+  return protocol::decode_command_envelope(
+      std::string{R"({"kind":"shield","payload":)"} + std::string{payload} + "}",
+      simulation::CommandKindMask::create({simulation::CommandKind::kShield}),
+      simulation::EntityId::create(fixture::kEntity),
+      simulation::ControllerId::create(fixture::kController));
+}
+
 [[nodiscard]] std::string encode(const simulation::WorldSnapshot& snapshot,
                                  const v3::StubControllerDirectory& directory) {
   return protocol::encode_snapshot_message_v3(snapshot, directory, std::nullopt,
@@ -66,6 +77,52 @@ TEST_CASE("Thrust decoder rejects malformed generation tokens including zero rel
     CAPTURE(payload);
     CHECK(decode_payload(payload).rejection() == protocol::CommandDecodeRejection::kPayloadInvalid);
   }
+}
+
+TEST_CASE("Shield decoder spells the initial generation null and preserves positive tokens",
+          "[unit][protocol][v3][decoding][shield][input_generation]") {
+  const auto initial = decode_shield_payload(R"({"input_generation":null})");
+  REQUIRE(initial.is_accepted());
+  CHECK_FALSE(std::get<simulation::ShieldCommand>(*initial.command()).input_generation.has_value());
+  for (const auto generation : fixture::kAcceptedGenerations) {
+    CAPTURE(generation);
+    const auto result = decode_shield_payload(std::string{R"({"input_generation":)"} +
+                                              std::to_string(generation) + "}");
+    REQUIRE(result.is_accepted());
+    const auto& pulse = std::get<simulation::ShieldCommand>(*result.command());
+    CHECK(pulse.entity == simulation::EntityId::create(fixture::kEntity));
+    CHECK(pulse.input_generation == simulation::TickSequence::create(generation));
+  }
+}
+
+TEST_CASE("Shield decoder rejects every malformed generation token and the omitted key",
+          "[unit][protocol][v3][decoding][shield][input_generation][rejection]") {
+  for (const auto& specimen : fixture::kRejectedGenerations) {
+    // `null` is the single member of the shared thrust list a shield payload accepts, and the
+    // difference is stated once here rather than by keeping two lists. On thrust the member is
+    // optional, so `null` is a value the schema never describes; on shield it is required, so
+    // `null` is precisely how absence is spelled. Every other specimen -- zero, negative,
+    // fractional, decimal-integer, exponent, string, boolean, array, object, unsafe, overflowing --
+    // means the same thing on both kinds and is refused on both.
+    if (specimen.name == "null") {
+      continue;
+    }
+    CAPTURE(specimen.name);
+    const auto result = decode_shield_payload(std::string{R"({"input_generation":)"} +
+                                              std::string{specimen.encoded} + "}");
+    CHECK(result.rejection() == protocol::CommandDecodeRejection::kPayloadInvalid);
+    CHECK_FALSE(result.command().has_value());
+  }
+
+  // The member is required, and the closed payload has room for nothing else. An empty object is
+  // the case that makes it required at all: it is what a client meaning the initial generation
+  // would otherwise send, and it must not be the same bytes as a client that forgot the field.
+  CHECK(decode_shield_payload("{}").rejection() ==
+        protocol::CommandDecodeRejection::kPayloadInvalid);
+  CHECK(decode_shield_payload(R"({"generation":100})").rejection() ==
+        protocol::CommandDecodeRejection::kPayloadInvalid);
+  CHECK(decode_shield_payload(R"({"input_generation":100,"entity":2})").rejection() ==
+        protocol::CommandDecodeRejection::kPayloadInvalid);
 }
 
 TEST_CASE("Thrust generation decoder accepts the separate v3 positive example",

@@ -1,5 +1,6 @@
 #include "shared/status_system.hpp"
 
+#include "components/shield_component.hpp"
 #include "fixtures/status_fixture.hpp"
 #include "gameplay_validation_error.hpp"
 #include "shared/match_reset_system.hpp"
@@ -258,9 +259,17 @@ TEST_CASE("zero and delayed same-entity respawn remove stun but retain cancellat
 }
 
 TEST_CASE("a later physical collision moves a still-stunned body through the ordinary solver",
-          "[unit][gameplay][status][stun][kernel]") {
+          "[unit][gameplay][status][stun][shield][kernel]") {
+  // Step 18 rationale for extending this existing case: the system now also cancels protection, so
+  // the same collision has to show that a cancelled guard neither stops the later bump nor is
+  // erased by it. The guard is raised on the tick the stun lands, which is the earliest activation
+  // a positive activation tick allows in this fixture; only `ability` may remove a shield, and this
+  // pipeline declares none.
+  auto initial = fixture::later_collision_world();
+  initial.mutable_store<simulation::Shield>().insert_or_assign(fixture::entity(),
+                                                               fixture::shield(fixture::kOneTick));
   auto game = fixture::game({{fixture::kOneTick, {fixture::entity(), fixture::kLongDuration}}},
-                            fixture::later_collision_world());
+                            std::move(initial));
   fixture::advance(game, fixture::kOneTick);
   CHECK(testing::published_body(game.snapshot(), fixture::entity().value())->velocity() ==
         fixture::zero());
@@ -272,6 +281,72 @@ TEST_CASE("a later physical collision moves a still-stunned body through the ord
   REQUIRE(body.has_value());
   CHECK(body->velocity().x() < fixture::zero().x());
   CHECK(body->acceleration() == fixture::zero());
+  REQUIRE(bumped.components<simulation::Shield>().size() == fixture::kOneTick);
+  const auto& guard = bumped.components<simulation::Shield>().front().value;
+  CHECK(guard.activation_tick() == fixture::tick(fixture::kOneTick));
+  CHECK_FALSE(guard.shield_window().contains(game.tick_sequence()));
+  CHECK(guard.cooldown_window() == fixture::shield(fixture::kOneTick).cooldown_window());
+}
+
+TEST_CASE("an active stun cancels protection and preserves the rest of the shield",
+          "[unit][gameplay][status][stun][shield]") {
+  auto world = fixture::world_with_shield();
+  const auto raised = *world.store<simulation::Shield>().find(fixture::entity());
+  world.emit(simulation::StunRequest{fixture::entity(), fixture::kDuration});
+  const testing::TickHarness harness{fixture::tick(fixture::kAfterPerfectTick)};
+  gameplay::StatusSystem::create()->apply(world, harness.context());
+  const auto* cancelled = world.store<simulation::Shield>().find(fixture::entity());
+  REQUIRE(cancelled != nullptr);
+  // Protection ends exactly at the stun tick and no earlier: the guard held every tick up to it.
+  CHECK(cancelled->shield_window().expiry_tick() == fixture::tick(fixture::kAfterPerfectTick));
+  CHECK_FALSE(cancelled->shield_window().contains(fixture::tick(fixture::kAfterPerfectTick)));
+  CHECK(cancelled->shield_window().contains(
+      fixture::tick(fixture::kAfterPerfectTick - fixture::kOneTick)));
+  // Everything else survives. Being stunned mid-guard costs the guard, never the cooldown, so the
+  // stunned player pays the full re-activation wait rather than being handed a free reset.
+  CHECK(cancelled->activation_tick() == raised.activation_tick());
+  CHECK(cancelled->perfect_window() == raised.perfect_window());
+  CHECK(cancelled->cooldown_window() == raised.cooldown_window());
+  CHECK(cancelled->parry_stun_duration_ticks() == raised.parry_stun_duration_ticks());
+  CHECK(world.store<simulation::Stun>().find(fixture::entity()) != nullptr);
+}
+
+TEST_CASE("a stun after protection has already expired changes the shield not at all",
+          "[unit][gameplay][status][stun][shield]") {
+  auto world = fixture::world_with_shield();
+  const auto raised = *world.store<simulation::Shield>().find(fixture::entity());
+  world.emit(simulation::StunRequest{fixture::entity(), fixture::kDuration});
+  const testing::TickHarness harness{fixture::tick(fixture::kAfterShieldTick)};
+  gameplay::StatusSystem::create()->apply(world, harness.context());
+  REQUIRE(world.store<simulation::Shield>().find(fixture::entity()) != nullptr);
+  CHECK(*world.store<simulation::Shield>().find(fixture::entity()) == raised);
+}
+
+TEST_CASE("cancellation never erases a shield and an unstunned guard is untouched",
+          "[unit][gameplay][status][stun][shield]") {
+  auto world = fixture::world_with_shield();
+  // The second body carries the stun; the guard belongs to the first and must not move, because
+  // cancellation is per stunned entity and not a sweep over every shield in the world.
+  world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+      fixture::entity(fixture::kSecondEntity),
+      *world.store<simulation::PhysicsBody>().find(fixture::entity()));
+  const auto raised = *world.store<simulation::Shield>().find(fixture::entity());
+  world.emit(simulation::StunRequest{fixture::entity(fixture::kSecondEntity), fixture::kDuration});
+  const testing::TickHarness harness{fixture::tick(fixture::kAfterPerfectTick)};
+  gameplay::StatusSystem::create()->apply(world, harness.context());
+  CHECK(*world.store<simulation::Shield>().find(fixture::entity()) == raised);
+  CHECK(world.store<simulation::Shield>().find(fixture::entity(fixture::kSecondEntity)) == nullptr);
+
+  // Cancelling the same guard twice at the same tick is an exact no-op, and neither pass erases the
+  // component: empty protection with a live cooldown is exactly the state that still refuses the
+  // next pulse, and only `shared/ability_system.hpp` removes a shield.
+  world.emit(simulation::StunRequest{fixture::entity(), fixture::kDuration});
+  gameplay::StatusSystem::create()->apply(world, harness.context());
+  const auto once = *world.store<simulation::Shield>().find(fixture::entity());
+  gameplay::StatusSystem::create()->apply(world, harness.context());
+  REQUIRE(world.store<simulation::Shield>().find(fixture::entity()) != nullptr);
+  CHECK(*world.store<simulation::Shield>().find(fixture::entity()) == once);
+  CHECK(world.store<simulation::Shield>().size() == fixture::kOneTick);
 }
 
 TEST_CASE("round reset destroys stun and generation with their participant entity",

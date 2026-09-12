@@ -45,8 +45,9 @@ namespace blob_royale::gameplay {
 // sorted and de-duplicated the way `placement_recorder` sorts its own.
 //
 // It runs at `kLifecycle` because a body leaving the field is roster bookkeeping, which is what
-// that stage is for and where the elimination's producers -- `zone_elimination`, `lethal_hazard`,
-// a race's `track_bounds` -- have all already run
+// that stage is for and where the elimination's producers -- `zone_elimination`, the guarded
+// composition's lethal branch (which still reports the `lethal_hazard` diagnostic name), and the
+// shared support-loss trigger -- have all already run
 // (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "Where the framework has to
 // move").
 // related: ../../simulation/components/respawn_timer_component.hpp -- the counter this owns.

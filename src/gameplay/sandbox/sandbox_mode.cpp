@@ -2,6 +2,7 @@
 
 #include "game_mode_configuration.hpp"
 #include "gameplay_validation_error.hpp"
+#include "shared/ability_system.hpp"
 #include "shared/respawn_system.hpp"
 #include "shared/status_system.hpp"
 #include "shared/support_loss_trigger.hpp"
@@ -16,7 +17,7 @@ namespace blob_royale::gameplay {
 
 std::unique_ptr<const simulation::GameMode>
 SandboxMode::create(const GameModeConfiguration& configuration) {
-  return std::make_unique<const SandboxMode>(configuration.sandbox);
+  return std::make_unique<const SandboxMode>(configuration.sandbox, configuration.abilities);
 }
 
 std::unique_ptr<const simulation::GameMode> SandboxMode::create() {
@@ -27,6 +28,11 @@ simulation::SystemPipeline SandboxMode::systems() const {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               ThrustSteeringSystem::create()});
+  // `ability` is last at kPreKernel in every mode that declares it, mirroring "`status` runs last
+  // at kPostKernel": pulse admission reads the canonical input lock, so every kPreKernel system
+  // that can change what that lock answers has already run.
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              AbilitySystem::create(abilities_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
                                                               StatusSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{

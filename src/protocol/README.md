@@ -48,3 +48,16 @@ closed statuses and nullable fields without depending on runtime types; the serv
 adapter. The encoder and frame oracle enforce snapshot coverage, while the client additionally
 checks exact pending-request correlation. `set_movement_tuning` decoding uses the same closed
 command path and the mode's published accepted mask.
+
+Step 18 registers `shield` at both v3 extension points named above, which is the whole of this
+domain's share of the feature. `component_encoding.hpp` gains the `Shield` specialization, encoding
+exactly `activation_tick`, `shield_expiry_tick`, `perfect_expiry_tick`, `cooldown_expiry_tick`, then
+`parry_stun_duration_ticks` — that call order is the wire order and `docs/protocol/v3.md`
+§ "Object member order" states it — and `kV3ComponentKindNames` grows to sixteen with `"shield"`
+between `"score"` and `"stun"`, because component keys encode ascending by kind name.
+`command_wire_kind.hpp` gains the `ShieldCommand` specialization answering `"shield"`, which is what
+makes the kind reachable from the decoder at all, and `kV3ClientCommandKindNames` grows from six to
+seven in ascending order, moving `start_match`'s index from five to six. `command_decoding.cpp`
+decodes the closed payload's one required `input_generation`, `null` or a positive safe integer,
+and never an actor identity: the session still stamps its own current body. The protocol version
+constant does not move; `3.0` covers the whole coordinated development release.

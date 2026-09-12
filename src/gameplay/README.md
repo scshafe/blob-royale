@@ -22,13 +22,17 @@ src/gameplay/
   shared/                       mechanics and values more than one mode or section uses
     thrust_steering_system.*    held intent and current match tuning become stored acceleration
     input_lock.*               canonical active-stun admission predicate for self-propulsion
-    status_system.*            absolute stun windows, input invalidation, and expiry at PostKernel
+    status_system.*            absolute stun windows, input invalidation, shield cancellation, expiry
     locomotion.*               canonical normalization, scaling, and finite-step propulsion cap
     duration_ticks.*            the one conversion from an authored duration to tick counts
+    ability_configuration.*     one validated `[abilities]` section, in the tick counts a system reads
+    ability_system.*            admits shield pulses and erases fully expired shields at PreKernel
     hazard_archetype.*          one validated `[hazard.<kind>]` section, in the units a spawner reads
     hazard_spawn_system.*       schedules crossing births with pre-draw reservation/capacity checks
     create_crossing_hazard.*    canonical birth, lifetime, marker, and per-instance effect policy
-    lethal_hazard_contact_rule.* admitted source effect terminates player motion and emits elimination
+    guarded_pair_contact.*      the pure composition core over frozen guard facts, and the lethal
+                                phase/presence predicates the deleted row used to own
+    guarded_pair_contact_rule.* the live row: committed Shield windows in, typed world events out
     lifetime_expiry_system.*    decrements `Lifetime` and despawns what runs out
     roster.hpp                  the two populations a rule reads: who is alive, who is playing
     lobby_start_rule.hpp        every seat filled and a start requested
@@ -137,8 +141,11 @@ Four implementations are registered: `sandbox`, `royale`, `king_of_the_hill`, an
 is empty, which all current production modes inherit. Together with spawn policy and contact rules,
 it is the third kernel policy socket, not a fourth stage or a mode-owned event loop. Step 16 supplies
 injected support-capable trigger tests; production ground attachment, falling, and chronological
-race triggers remain Step 17. Shield/parry composition and its production stun requests remain
-Step 18. No current mode acquires those mechanics merely by inheriting the declaration.
+race triggers remain Step 17. ~~Shield/parry composition and its production stun requests remain
+Step 18.~~ Both landed at Step 18: every gameplay mode now declares the shared `guarded_pair` row
+above the built-ins and the shared `ability` system last at `kPreKernel`, and the composition is
+`StunRequest`'s production producer. A mode still does not acquire either by inheriting a
+declaration — it declares both explicitly, in its own source, like every other row and system.
 
 Hill motion is selected through the existing `HillMovementSystem`, not a second scoring path.
 `marker_tour` keeps its original arithmetic and zero hill-stream draws. `random_roam` commits
@@ -154,13 +161,32 @@ configuration inventory includes standalone `.cfg` files, inline unit-test strin
 `tests/integration/server_process_fixture.cpp::write_fixture_inputs`, which builds a temporary
 configuration for each server workload. A new required section must reach that builder too.
 
+`[abilities]` is the newest such section and obeys that rule exactly: `shield_duration_seconds`,
+`shield_perfect_window_seconds`, `shield_cooldown_seconds`, and `parry_stun_duration_seconds`, all
+required, validated by `shared/ability_configuration` and converted once through `duration_ticks`
+with the full `abilities.<key>` context. Rounded shield, perfect, and parry-stun durations must be
+positive and the perfect window may not exceed the shield —
+`GAMEPLAY.ABILITY_DURATION_NOT_POSITIVE` and `GAMEPLAY.ABILITY_PERFECT_WINDOW_EXCEEDS_SHIELD`.
+Cooldown is deliberately allowed to be zero or shorter than the shield: admission requires both that
+prior protection has ended and that the cooldown has expired, so a short cooldown cannot resurrect
+an active shield. It reaches every mode through `GameModeConfiguration::abilities`, like
+`movement` and `hazards`, and the replay fixtures deliberately author no `[abilities]` — the replay
+parser rejects unread keys and does not read the section, so replays inherit
+`GameModeConfiguration::defaults()`, exactly as they do for `[sandbox]`.
+
 ## `sandbox`
 
 Free play automatically enters countdown on tick one and running on tick two, never ends, accepts
-spawn/despawn/leave/thrust, and seats joiners at supported free markers. It uses built-in contacts,
-shared PreKernel steering and PostKernel status, an always-active
+five simulation command kinds — spawn, despawn, leave, thrust, and shield — and seats joiners at
+supported free markers. ~~It uses built-in contacts~~: as of Step 18 it declares the shared
+`guarded_pair` row above the built-ins like the other three modes, which makes those three
+unreachable here too. That is deliberate rather than incidental: Sandbox is where a player tries a
+mechanic, and a shield that worked everywhere except free play would be the surprise. It declares
+shared PreKernel steering then `ability`, PostKernel status, an always-active
 support-loss trigger, and shared lifecycle respawn with explicit `[sandbox] respawn_delay_seconds`.
 The initial delay is two seconds. No Sandbox-only component, event, or mode-state block is added.
+Its welcome now advertises two client-sendable kinds, `set_thrust` and `shield`; it still omits the
+four lobby controls and `set_movement_tuning`.
 
 The historical pre-status `SandboxMode` measurement was **89 lines** — a 52-line class block plus 37 lines of definitions — of which **58
 are code** once blank and `//` lines are removed. The measurement is the `class SandboxMode final`
@@ -218,11 +244,16 @@ Programmatic archetype sections retain the historical closing default. Simulatio
 in v3; absence means closing impact. This is source eligibility for gameplay effects, not a switch
 that gives a tangent or separating contact an impulse.
 
-The live `lethal_hazard` row reads that source eligibility. During a running match, an admitted
+The composition's lethal branch reads that source eligibility. During a running match, an admitted
 hazard effect emits elimination and immediately terminates the victim's remaining motion, so it
 cannot continue to later contacts/triggers in that solve. Existing elimination consumers still
-remove or respawn bodies after successful solving. The row remains first-match; production guard
-composition and its replacement are Step 18 work.
+remove or respawn bodies after successful solving. ~~The row remains first-match; production guard
+composition and its replacement are Step 18 work.~~ Step 18 did that replacement: the standalone
+`lethal_hazard` row is deleted, its phase and player-presence predicates now live in
+`shared/guarded_pair_contact`, and the one declared `guarded_pair` row is still first-match — it is
+simply the only row a gameplay pair reaches. A guarded defender takes the shared defensive response
+instead of dying; an unguarded one dies exactly as before, and the emitted `ContactEvent` still
+names `lethal_hazard` so the retained pass-through proofs read unchanged.
 
 The live motion cap is 256 physical bodies, including static objects, independently of the larger
 component-store and publication limits. The spawner's historical store check does not bypass that
@@ -234,10 +265,12 @@ capacity. The separate `hill` stream cannot advance hazards; marker tours draw n
 ## `royale`
 
 Thrust and drag inside a linearly shrinking circular safe zone, last blob standing
-(`docs/architecture/0005-royale-mode.md`). It accepts `spawn`, `despawn`, and `thrust`; uses the
-engine's built-in contact rows beneath `lethal_hazard`, which emits an eligible source effect and
-terminates victim motion without selecting another impulse equation for ordinary blobs; declares
-`thrust_steering` at `kPreKernel`, `zone_shrink` then
+(`docs/architecture/0005-royale-mode.md`). It accepts eleven simulation command kinds — spawn,
+despawn, thrust, shield, join, leave, set_movement_tuning, and the four lobby kinds, of which seven
+are client-sendable; declares the shared `guarded_pair` row above the engine's built-in contact
+rows, which composes the same accepted impulse equations for ordinary blobs and carries the lethal
+pass-through as its own branch; declares
+`thrust_steering` then `ability` at `kPreKernel`, `zone_shrink` then
 `zone_elimination`, then shared `status` at `kPostKernel`, and `placement_recorder`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn` then `elimination_grace_publisher` at `kLifecycle`; seats joiners on a rotating ring
 and only between matches; and ends when one blob or none is alive.
@@ -257,7 +290,9 @@ and later shared systems.
 What it contributed outside its own directory is two component headers plus one line in
 `component_registry.hpp`, one mode-state header plus one type and one schema id in
 `mode_match_state_registry.hpp`, and one row in `game_mode_registry.hpp`. It added no command kind,
-no contact rule, no world event kind, and no kernel phase.
+no contact rule, no world event kind, and no kernel phase — still true after Step 18, because
+`shield`, `Shield`, the `ability` system, and the `guarded_pair` row are all shared gameplay that
+royale declares rather than owns.
 
 `validate_map` rejects one map at startup, naming the map and the cause: one whose arena's
 circumscribed radius is not strictly greater than `zone_minimum_radius_world_units`, which would
@@ -290,8 +325,10 @@ tick `N` with delay `D` is offered to the mode's spawn policy at phase 0 of tick
 `D = 0`, on `N + 1`. A policy defers an entity that carries a timer, which is one predicate
 (`shared/next_free_spawn_point_policy.hpp`). At the end of the same lifecycle pass, the canonical
 registry sweep erases every `ComponentLifetime<C>::bound_to_body` kind on every bodyless entity.
-`HillPresence`, `ZoneExposure`, `Stun`, and `ContactEffectAdmission` declare that trait; their
-consumers perform no separate body-loss cleanup. Score, checkpoint progress, controller identity, and the timer survive. Royale still
+`HillPresence`, `ZoneExposure`, `Stun`, `ContactEffectAdmission`, and `Shield` declare that trait;
+their consumers perform no separate body-loss cleanup. `Shield` is the case where that matters most
+plainly: a returning body simply carries no shield and is therefore ready, with no reset field and
+no ability-system cleanup pass. Score, checkpoint progress, controller identity, and the timer survive. Royale still
 destroys whole entities, so its elimination path requires no additional sweep.
 
 `shared/match_reset_system` is royale's restart wipe generalized: on the single `lobby` tick whose
@@ -309,8 +346,9 @@ function of elapsed running ticks -- and every tick a player's centre is inside 
 the next point; a contested hill scores nobody unless `contested_hill_scores` says otherwise, and
 the first to `points_to_win`, or the leader when the clock runs out, wins
 (`docs/architecture/0007-king-of-the-hill-and-race-modes.md` § "King of the hill"). It accepts
-royale's ten command kinds; uses the engine's built-in contact rows beneath `lethal_hazard`;
-declares `thrust_steering` at `kPreKernel`, `hill_movement`, `hill_scoring`, then shared `status` at `kPostKernel`,
+royale's eleven simulation command kinds; declares the shared `guarded_pair` row above the engine's
+built-in contact rows;
+declares `thrust_steering` then `ability` at `kPreKernel`, `hill_movement`, `hill_scoring`, then shared `status` at `kPostKernel`,
 and `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `hill_rules_publisher` at
 `kLifecycle`; seats joiners at the next free point in every phase, because the field is open; and
 returns a knocked-out player after the configured respawn delay with its score intact.
@@ -325,7 +363,8 @@ What it contributed outside its own directory is two component headers plus one 
 `component_registry.hpp`, one mode-state header plus one type and one schema id in
 `mode_match_state_registry.hpp`, one row in `game_mode_registry.hpp`, one member on
 `GameModeConfiguration`, and the `[king_of_the_hill]` fields in the loader. It added no command
-kind, no contact rule, no world event kind, and no kernel phase, and it is the first mode built on
+kind, no contact rule, no world event kind, and no kernel phase — unchanged by Step 18, whose
+command kind, row, and system are shared and merely declared here — and it is the first mode built on
 the framework amendments of ADR 0007: the objective's tick context for its clock, the engine's
 `previous_phase` through the shared reset, and the shared respawn.
 
@@ -346,11 +385,15 @@ mode-owned production implementation, not the total cross-domain cost.
 The course binds `[race] road` to a named terrain corridor and uses ordered `checkpoint` markers
 as gates, with the last gate as the finish. Owned motion policies reuse canonical support-loss and
 ordered-gate queries; they terminate falling/finished racers within the tick. Course publication
-runs first PreKernel, before shared steering. PostKernel progress consumes certified facts, followed
+runs first PreKernel, before shared steering and before the shared `ability` system, which is
+declared last at that stage — the canonical input lock reads the published course to recognize a
+finished racer, so ability admission must see the block the publisher writes. PostKernel progress
+consumes certified facts, followed
 by shared status. The lifecycle systems run in this
 order: `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`,
 `hazard_spawn`; the engine evaluates the objective afterwards. The mode uses
-shared steering and lethal-hazard contact, and accepts the same ten command kinds as royale.
+shared steering and the shared `guarded_pair` contact row, and accepts the same eleven simulation
+command kinds as royale.
 
 `RaceMode::validate_map` builds and validates one `RaceCourse` before `systems()` reads it. The
 registry factory has configuration but no map, so the existing map-bearing declaration is the
@@ -390,7 +433,8 @@ declaration alone is 168 lines across its header/source. The race README is excl
 directory, race adds one `RaceProgress` component and one mode-state arm with their protocol and
 client registrations, one mode registry row, one configuration aggregate member, loader/build
 entries, its map and replay/browser fixtures. It adds no command or event kind, contact equation,
-or numbered kernel phase.
+or numbered kernel phase; Step 18 does not change that, since the shield command, the composed row,
+and the ability system are shared and race only declares them.
 
 ## Steering
 
@@ -439,9 +483,29 @@ positive `StunRequest`s before any mutation, merges active windows by maximum ex
 expired windows without bridging gaps, and assigns the positive committing tick as generation.
 Zero duration and missing/bodyless/static targets are no-ops. Expired status is erased; body loss
 is cleaned only through the Step 13 trait. Neither first application nor later locked ticks
-zero velocity: Step 18's impact owns momentum cancellation, and later bumps/lifetime continue.
-The `StunRequest` producer is test-injected until Step 18, a narrow ADR 0004 foundation exception,
-not a production stun command. `simulation::TickWindow` owns the checked half-open interval.
+zero velocity: the guarded composition's perfect branch owns momentum cancellation, inside the
+contact response, and later bumps/lifetime continue. ~~The `StunRequest` producer is test-injected
+until Step 18, a narrow ADR 0004 foundation exception, not a production stun command.~~ That
+producer is now the `guarded_pair` response and the exception is closed.
+`simulation::TickWindow` owns the checked half-open interval.
+
+`status` also cancels shield protection for every entity it stuns, in the same final pass that
+clears intent and acceleration, and never in the read-only aggregation loop whose stated invariant
+is that a later invalid request leaves nothing earlier changed. Cancellation shortens only a
+still-active protection window to this tick; the cooldown, the original activation, the elapsed
+perfect history, and the captured parry-stun duration all survive, so a stunned player is not
+handed a free re-activation. `status` never erases a `Shield`.
+
+`ability` runs last at `kPreKernel` in all four modes and is the only owner of shield activation and
+of removing a fully expired `Shield` — expired meaning protection *and* cooldown, both, because an
+empty or cancelled window with a live cooldown must survive to keep refusing. It admits at most one
+pulse per entity, over the canonical ascending-`EntityId` join of `Controllable` and `PhysicsBody`,
+and refuses unless the match is running, the tick is nonzero, the body is dynamic, the canonical
+input lock is clear, the pulse's optional generation matches exactly, no protection is active, and
+the cooldown has expired. **A refusal changes nothing at all**: no cooldown consumed, no queued
+activation, no error, no event. Queue acceptance and a local send are not activation confirmation;
+the published `Shield` windows are the proof that an activation committed. It holds an owned copy of
+`AbilityConfiguration`, never a pointer back at its mode.
 
 The propulsion cap constrains the canonical requested Euler endpoint to the computed squared
 speed bound `max(normal_top_speed², current_velocity·current_velocity)`, returning acceleration,

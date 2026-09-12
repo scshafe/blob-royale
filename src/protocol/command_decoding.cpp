@@ -8,6 +8,7 @@
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
+#include "commands/shield_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "seat_roster.hpp"
@@ -119,6 +120,47 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
   }
   return CommandDecodeResult::accepted(
       simulation::ThrustCommand{stamped_entity, simulation::Vector2::create(*x, *y), generation});
+}
+
+// One closed `shield` payload: `{input_generation}`, whose single member is **required** and is
+// either JSON `null` or a positive exact protocol-safe integer.
+//
+// Required-and-nullable is a deliberate difference from `set_thrust` above, where the same token is
+// optional, and the reason is that a pulse carries nothing else. On thrust, `x` and `y` are always
+// present, so an omitted generation is unambiguously "I have never been invalidated". Here an
+// omitted key would leave `{}`, and `{}` is exactly what a client sending an explicit
+// never-invalidated pulse would also produce -- the two would be indistinguishable, and a wire that
+// cannot tell "I mean the initial generation" from "I forgot the field" cannot fail closed on the
+// second. So absence is *spelled*, as `null`, and a missing key is `kPayloadInvalid`.
+//
+// The payload names no actor for the same reason `set_thrust` names none: the server stamps the
+// sending session's current body, so there is no field an attacker could point at somebody else
+// (`docs/protocol/v3.md` § "Client command model"). It carries no direction and no duration either
+// -- the mode's `[abilities]` configuration owns those, and a client that could name them would be
+// authoring balance from the wire.
+//
+// The minimum of 1 below is the wire's half of "a present generation must be positive", the same
+// rule `bounded_unsigned_of(*encoded_generation, 1, ...)` enforces for thrust; `CommandSink` and
+// `InputBatch::create` are the other two, independently.
+[[nodiscard]] CommandDecodeResult decode_shield(const json::object& payload,
+                                                const simulation::EntityId stamped_entity) {
+  if (payload.size() != 1) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const json::value* const encoded_generation = payload.if_contains("input_generation");
+  if (encoded_generation == nullptr) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+
+  std::optional<simulation::TickSequence> generation;
+  if (!encoded_generation->is_null()) {
+    const auto value = bounded_unsigned_of(*encoded_generation, 1, kMaximumSafeInteger);
+    if (!value.has_value()) {
+      return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+    }
+    generation = simulation::TickSequence::create(*value);
+  }
+  return CommandDecodeResult::accepted(simulation::ShieldCommand{stamped_entity, generation});
 }
 
 // One `{seat_index}` payload, shared by `clear_seat` and `seat_npc`'s first member. The bound is
@@ -274,6 +316,8 @@ decode_set_movement_tuning(const json::object& payload, const simulation::Contro
   switch (kind) {
   case simulation::CommandKind::kThrust:
     return decode_set_thrust(payload, stamped_entity);
+  case simulation::CommandKind::kShield:
+    return decode_shield(payload, stamped_entity);
   case simulation::CommandKind::kSetSeatCount:
     return decode_set_seat_count(payload, stamped_controller);
   case simulation::CommandKind::kClearSeat:

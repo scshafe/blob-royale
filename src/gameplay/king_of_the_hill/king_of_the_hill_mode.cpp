@@ -6,6 +6,7 @@
 #include "king_of_the_hill/hill_movement_system.hpp"
 #include "king_of_the_hill/hill_rules_publisher_system.hpp"
 #include "king_of_the_hill/hill_scoring_system.hpp"
+#include "shared/ability_system.hpp"
 #include "shared/hazard_spawn_system.hpp"
 #include "shared/lifetime_expiry_system.hpp"
 #include "shared/match_reset_system.hpp"
@@ -23,7 +24,7 @@ namespace blob_royale::gameplay {
 
 std::unique_ptr<const simulation::GameMode>
 KingOfTheHillMode::create(const GameModeConfiguration& configuration) {
-  return create(configuration.king_of_the_hill, configuration.hazards);
+  return create(configuration.king_of_the_hill, configuration.hazards, configuration.abilities);
 }
 
 std::unique_ptr<const simulation::GameMode> KingOfTheHillMode::create() {
@@ -38,7 +39,14 @@ KingOfTheHillMode::create(KingOfTheHillConfiguration configuration) {
 std::unique_ptr<const simulation::GameMode>
 KingOfTheHillMode::create(KingOfTheHillConfiguration configuration,
                           std::vector<HazardArchetype> hazards) {
-  return std::make_unique<const KingOfTheHillMode>(std::move(configuration), std::move(hazards));
+  return create(std::move(configuration), std::move(hazards), AbilityConfiguration::defaults());
+}
+
+std::unique_ptr<const simulation::GameMode>
+KingOfTheHillMode::create(KingOfTheHillConfiguration configuration,
+                          std::vector<HazardArchetype> hazards, AbilityConfiguration abilities) {
+  return std::make_unique<const KingOfTheHillMode>(std::move(configuration), std::move(hazards),
+                                                   abilities);
 }
 
 simulation::MotionTriggerTable KingOfTheHillMode::motion_triggers() const {
@@ -51,6 +59,11 @@ simulation::SystemPipeline KingOfTheHillMode::systems() const {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               ThrustSteeringSystem::create()});
+  // `ability` is last at kPreKernel in every mode that declares it, mirroring "`status` runs last
+  // at kPostKernel": pulse admission reads the canonical input lock, so every kPreKernel system
+  // that can change what that lock answers has already run.
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              AbilitySystem::create(abilities_)});
   // The order of the two `kPostKernel` systems is load-bearing: scoring reads the circle this
   // tick's `hill_movement` wrote.
   declared.push_back(simulation::SystemPipeline::StagedSystem{

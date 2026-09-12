@@ -34,6 +34,7 @@ add_executable(blob_simulation_unit_tests
   simulation/random_streams_promotion_tests.cpp
   simulation/random_stream_world_tests.cpp
   simulation/seat_roster_tests.cpp
+  simulation/shield_component_tests.cpp
   simulation/simulation_system_tests.cpp
   simulation/snapshot_tests.cpp
   simulation/spatial_grid_tests.cpp

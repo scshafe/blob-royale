@@ -119,6 +119,19 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
                                           command_position(submission_index));
     }
   }
+  // The same "present zero is invalid" rule the thrust arm enforces, on the shield's own context
+  // string: one code with one context per kind is the precedent `validate_seat_index` sets below,
+  // and it is what lets a log say which press was malformed without a second validation code that
+  // would mean the same thing. Comparing the optional against a bare TickSequence leaves absence
+  // legal, because an absent optional compares unequal to every value.
+  if (const auto* shield = std::get_if<ShieldCommand>(&command); shield != nullptr) {
+    if (shield->input_generation == TickSequence::zero()) {
+      throw SimulationValidationError(SimulationValidationCode::kInputBatchInputGenerationZero,
+                                      "input_batch.commands.shield.input_generation",
+                                      "a present input generation must be positive" +
+                                          command_position(submission_index));
+    }
+  }
   if (const auto* despawn = std::get_if<DespawnCommand>(&command); despawn != nullptr) {
     validate_despawn_target(*despawn, entity_id_reservation, submission_index);
   }

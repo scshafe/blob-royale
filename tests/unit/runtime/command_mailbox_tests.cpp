@@ -12,6 +12,7 @@
 #include <barrier>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -30,6 +31,13 @@ constexpr std::size_t kSubmissionsPerSubmitter = 64;
                                                  const double y) {
   return simulation::ThrustCommand{.entity = simulation::EntityId::create(entity_id),
                                    .direction = simulation::Vector2::create(x, y)};
+}
+
+[[nodiscard]] simulation::Command
+shield_fixture(const std::uint64_t entity_id,
+               const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::ShieldCommand{.entity = simulation::EntityId::create(entity_id),
+                                   .input_generation = generation};
 }
 
 [[nodiscard]] simulation::Command despawn_fixture(const std::uint64_t entity_id) {
@@ -60,6 +68,37 @@ TEST_CASE("CommandMailbox classifies spawn, despawn, join, and leave as entity l
   // A dropped join is a bot that sits nowhere for a second and is then retired for nothing.
   REQUIRE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kJoin));
   REQUIRE_FALSE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kThrust));
+  // A shield raises a guard on a body that already exists, so losing one costs the player one
+  // activation they can press again -- not a body nobody owns. It must never evict a queued spawn
+  // or despawn to make room for itself.
+  REQUIRE_FALSE(runtime::is_entity_lifecycle_command(simulation::CommandKind::kShield));
+}
+
+TEST_CASE("CommandMailbox supersedes a pending shield for the same entity and keeps kinds apart",
+          "[unit][runtime][mailbox][shield]") {
+  runtime::CommandMailbox mailbox(simulation::CommandKindMask::all());
+
+  REQUIRE(mailbox.submit(shield_fixture(kFirstEntityId)) ==
+          runtime::CommandSubmissionResult::kAccepted);
+  // A held ability button occupies one slot no matter the rate, which is what keeps one client
+  // unable to crowd another out of a shared bounded buffer.
+  REQUIRE(mailbox.submit(shield_fixture(kFirstEntityId, simulation::TickSequence::create(4))) ==
+          runtime::CommandSubmissionResult::kSuperseded);
+  // A different entity is a different slot, and so is a different kind for the same entity: the
+  // mailbox keys on (kind, addressed identity), never on the identity alone.
+  REQUIRE(mailbox.submit(shield_fixture(kSecondEntityId)) ==
+          runtime::CommandSubmissionResult::kAccepted);
+  REQUIRE(mailbox.submit(thrust_fixture(kFirstEntityId, 1.0, 0.0)) ==
+          runtime::CommandSubmissionResult::kAccepted);
+
+  const std::vector<simulation::Command> drained = mailbox.drain();
+
+  REQUIRE(drained.size() == 3);
+  CHECK(drained[0] == shield_fixture(kFirstEntityId, simulation::TickSequence::create(4)));
+  CHECK(drained[1] == shield_fixture(kSecondEntityId));
+  CHECK(drained[2] == thrust_fixture(kFirstEntityId, 1.0, 0.0));
+  CHECK(mailbox.statistics().superseded_command_count == 1);
+  CHECK(mailbox.statistics().dropped_command_count == 0);
 }
 
 TEST_CASE("CommandMailbox accepts a command of an accepted kind and hands it to one drain",

@@ -14,6 +14,7 @@ import {
   snapshotDocument,
   welcomeDocument,
 } from './fixtures/sessionFrames';
+import { SHIELD_WINDOWS } from './fixtures/shieldFrames';
 import {
   type SessionSequenceState,
   validateSessionCommand,
@@ -298,6 +299,30 @@ const snapshotMutations: readonly MutationCase<MutableSnapshotDocument>[] = [
     mutate: (document) => {
       document.data.match.mode_state.schema_id =
         'blob-royale://protocol/v3/mode-state/none';
+    },
+  },
+  {
+    name: 'shield perfect opening outliving the protection that contains it',
+    mutate: (document) => {
+      // Each endpoint is a valid tick on its own, so only the semantic pass can catch this: the
+      // perfect opening is a sub-interval of the protection, and a reader that accepted the
+      // inversion would report a parry window still open after the shield that granted it ended.
+      Reflect.set(playerEntity(document).components, 'shield', {
+        ...SHIELD_WINDOWS,
+        perfect_expiry_tick: SHIELD_WINDOWS.shield_expiry_tick + 1,
+      });
+    },
+  },
+  {
+    name: 'shield carrying a charge member the component does not publish',
+    mutate: (document) => {
+      // The published shield is closed at exactly five members. Charge lands in Step 19 with its
+      // own authoritative behaviour, so a charge field arriving now is a server this client does
+      // not know, not a field to ignore.
+      Reflect.set(playerEntity(document).components, 'shield', {
+        ...SHIELD_WINDOWS,
+        charge_expiry_tick: 13000,
+      });
     },
   },
 ];

@@ -163,6 +163,7 @@
         "race_progress",
         "respawn_timer",
         "score",
+        "shield",
         "stun",
         "team",
         "zone",
@@ -177,9 +178,10 @@
         "set_movement_tuning",
         "set_seat_count",
         "set_thrust",
+        "shield",
         "start_match"
       ],
-      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller. Availability is the mode's published accepted mask, so Sandbox advertises only set_thrust."
+      "$comment": "The client-sendable vocabulary only. spawn and despawn are server-issued and deliberately absent. Four kinds operate the pre-match lobby; set_movement_tuning changes shared propulsion through a seated controller; set_thrust and shield address the sender's own body. Availability is the mode's published accepted mask, so Sandbox advertises set_thrust and shield but no lobby kind and no tuning."
     },
     "lobby_id": {
       "type": "integer",

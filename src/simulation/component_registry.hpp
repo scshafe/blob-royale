@@ -12,6 +12,7 @@
 #include "components/race_progress_component.hpp"
 #include "components/respawn_timer_component.hpp"
 #include "components/score_component.hpp"
+#include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
 #include "components/team_component.hpp"
 #include "components/zone_component.hpp"
@@ -53,10 +54,16 @@ namespace blob_royale::simulation {
 // two headers and this one line (`components/hill_component.hpp`). `RaceProgress` is race's
 // ordered gate counter, retained while its racer awaits a body
 // (`components/race_progress_component.hpp`).
+//
+// `Shield` is the latest, and it belongs to `src/gameplay/shared/` for the same reason
+// `LethalOnContact` and `RespawnTimer` do: a body that can raise a guard for a moment is a
+// mechanic any mode may field, and every mode that fields abilities declares the one system that
+// writes it. It cost the same one header plus this one line, with no kernel file edited
+// (`components/shield_component.hpp`).
 using ComponentRegistry =
     ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
                   LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun,
-                  ContactEffectAdmission>;
+                  ContactEffectAdmission, Shield>;
 
 } // namespace blob_royale::simulation
 

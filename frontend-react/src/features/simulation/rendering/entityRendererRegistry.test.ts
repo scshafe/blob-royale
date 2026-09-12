@@ -182,6 +182,18 @@ describe('entityRendererRegistry', () => {
     expect(entityRendererRegistry.race_progress.renders).toBe(false);
   });
 
+  it('registers shield as non-visual while only its windows are authoritative', () => {
+    // Shield publishes four absolute endpoints and a captured stun duration: timing state the HUD
+    // reads, with no geometry of its own. Step 20 owns shield, perfect and stun presentation, so
+    // the registration exists to make that a decision rather than an omission -- and the pinned
+    // draw order below stays exactly as it was, because a kind that draws nothing must not move a
+    // single existing layer.
+    expect(entityRendererRegistry.shield.renders).toBe(false);
+    expect(
+      visualEntityRenderers().some((renderer) => renderer.kind === 'shield'),
+    ).toBe(false);
+  });
+
   it('registers stun as non-visual while its authoritative window controls input', () => {
     expect(entityRendererRegistry.stun.renders).toBe(false);
   });

@@ -2,6 +2,7 @@
 #define BLOB_ROYALE_TESTING_STATUS_FIXTURE_HPP
 
 #include "components/lifetime_component.hpp"
+#include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
 #include "events/stun_request_event.hpp"
 #include "fixtures/thrust_steering_fixture.hpp"
@@ -39,6 +40,19 @@ inline constexpr double kRadius = 10.0;
 inline constexpr std::size_t kSpawnPointCount = 4;
 inline constexpr std::uint64_t kAfterCollisionTick = 5;
 inline constexpr std::array<std::uint64_t, 2> kRespawnDelays{0, 3};
+// The authored ability tuning, so a status test cancels the same 160/32/360/240 guard a live
+// activation writes rather than a shorter one invented for the test.
+inline constexpr std::uint64_t kShieldDuration = 160;
+inline constexpr std::uint64_t kPerfectDuration = 32;
+inline constexpr std::uint64_t kCooldownDuration = 360;
+inline constexpr std::uint64_t kParryStunDuration = 240;
+// A guard raised on tick 2: protection [2, 162), perfect opening [2, 34), cooldown [2, 362).
+inline constexpr std::uint64_t kGuardActivation = 2;
+// Past the perfect opening and inside the protection, so "already-elapsed perfect history" is an
+// unambiguous fact of the window rather than a claim about a window still open at cancellation.
+inline constexpr std::uint64_t kAfterPerfectTick = 40;
+// Past the protection and inside the cooldown, which is the state a cancellation must not touch.
+inline constexpr std::uint64_t kAfterShieldTick = 170;
 
 [[nodiscard]] inline simulation::EntityId
 entity(const std::uint64_t value = thrust_steering_fixture::kEntity) {
@@ -66,6 +80,10 @@ entity(const std::uint64_t value = thrust_steering_fixture::kEntity) {
                                            const std::uint64_t duration = kDuration) {
   return {simulation::TickWindow::create(tick(activation), duration)};
 }
+[[nodiscard]] inline simulation::Shield shield(const std::uint64_t activation = kGuardActivation) {
+  return simulation::Shield::activate(tick(activation), kShieldDuration, kPerfectDuration,
+                                      kCooldownDuration, kParryStunDuration);
+}
 [[nodiscard]] inline simulation::ThrustCommand
 command(std::optional<simulation::TickSequence> generation = {},
         const simulation::Vector2& requested = direction()) {
@@ -87,6 +105,14 @@ world_with_status(const std::uint64_t activation = kActivation,
   auto* controllable = result.mutable_store<simulation::Controllable>().mutable_find(entity());
   controllable->input_generation = tick(activation);
   controllable->normalized_thrust_intent = zero();
+  return result;
+}
+
+// One guarded body with no stun yet: the world a cancellation case starts from.
+[[nodiscard]] inline simulation::GameWorld
+world_with_shield(const std::uint64_t activation = kGuardActivation) {
+  auto result = world();
+  result.mutable_store<simulation::Shield>().insert_or_assign(entity(), shield(activation));
   return result;
 }
 

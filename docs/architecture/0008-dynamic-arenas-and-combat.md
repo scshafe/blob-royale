@@ -314,6 +314,14 @@ This table governs abilities, not a silent change to current lobby steering. Adv
 kinds only once authoritative handlers exist; phase-specific eligibility is explicit published
 state and is rechecked by the server, not inferred from the presence of a button.
 
+**Amended 2026-09-12 (plan Step 18).** The shield half of this table is now enforced rather than
+proposed: the shared `ability` system admits a pulse only in `running`, with a `Controllable` and a
+non-static body, outside the canonical input lock, at a matching input generation, with no active
+protection and an expired cooldown. All four gameplay modes declare the system and advertise
+`shield`, including Sandbox, so the last row's "Enabled" is now true of a real command. The charge
+half remains a proposal until Step 19. See § "Amendment: tap shield and the live guarded
+composition, 2026-09-12 (plan Step 18)" below.
+
 ### Charge
 
 `charge(direction)` is a one-shot activation, not a held acceleration buff. Normalize/validate the
@@ -335,16 +343,36 @@ activation cooldown is 900 ms. At 400 Hz these are 160, 32, and 360 ticks. Windo
 `[activation_tick, activation_tick + duration_ticks)`. Cooldown starts on activation. These numbers
 are hypotheses to tune with real latency, not a reproduction of Smash's exact mechanics.
 
+**Amended 2026-09-12 (plan Step 18):** ~~Recommended first version~~ — these four values are now the
+authored required `[abilities]` section (`shield_duration_seconds`, `shield_perfect_window_seconds`,
+`shield_cooldown_seconds`, `parry_stun_duration_seconds`), validated by
+`gameplay::AbilityConfiguration` and converted once through the shared `duration_ticks` rule.
+Landing them as configuration does **not** promote them from hypothesis to balance:
+0.4/0.08/0.9/0.6 seconds — 160/32/360/240 ticks — remain the ADR's initial tuning assumptions, not
+owner-selected values, and they change by editing the section rather than by amending this ADR.
+The half-open window and activation-start cooldown sentences above are now the shipped
+`TickWindow` semantics verbatim.
+
 - Normal shield blocks lethal-contact elimination and targets 25% of the ordinary received
   collision impulse. Every guarded response must also leave the pair non-closing. If the nominal
   reduction conflicts with separation (notably two ordinary shields moving toward one another),
   the pair-level dissipative separation correction takes precedence over the exact percentage.
-  Do not independently scale two velocity deltas and assume the pair remains valid. The prototype
-  must pin the formula, mass/static behavior, energy behavior, and dual-shield golden cases.
-  Shield is not immunity to cliffs or zone rules.
+  Do not independently scale two velocity deltas and assume the pair remains valid. ~~The prototype
+  must pin the formula, mass/static behavior, energy behavior, and dual-shield golden cases.~~
+  Satisfied on 2026-09-12 (plan Step 18): the shipped pure core is the pinned formula, and Step 18
+  calls it rather than restating it. The quarter target remains **initial tuning** and the
+  pair-level non-closing correction still takes precedence over the exact fraction; this bullet,
+  § "The guarded-pair core", the `(10, 9) -> (9.75, 10)` worked example, and § "Owner decision:
+  ordinary protection after the perfect opening, 2026-09-10" are the four statements of it, and
+  Step 18 deliberately adds no fifth.
+  Shield is not immunity to cliffs or zone rules; support loss and zone exposure never consult a
+  guard, which is live behaviour as of Step 17 and Step 18 respectively.
 - Perfect shield adds a 600 ms / 240 tick stun to the incoming **dynamic** body, including a
   bounceable hazard. Static walls cannot be stunned. Require actual incoming motion; ramming a
   stationary target with a shield does not manufacture a defensive perfect-shield bonus.
+  Implemented 2026-09-12 (plan Step 18) as authored `[abilities] parry_stun_duration_seconds`,
+  captured on the defender's `Shield` at activation and read back off the **defending** body when
+  the composition's stun fact is translated, so the frozen defender supplies the effect it owns.
 - The perfect benefit applies to all qualifying impacts while its short window is open. No
   first-hit consumption is implied. Both sides are evaluated symmetrically; simultaneous eligible
   perfect shields cause mutual stun, not an EntityId-dependent winner.
@@ -364,6 +392,16 @@ remaining event stream. Guarded lethal contact instead takes the shared defensiv
 composition is the one response for every dynamic pair, and the unguarded pass-through is its
 lethal branch rather than a separate row (decided at Step 1 on 2026-09-10).
 
+**Implemented 2026-09-12 (plan Step 18).** This prediction is now the shipped arrangement. The
+standalone `lethal_hazard` row and `src/gameplay/shared/lethal_hazard_contact_rule.{hpp,cpp}` are
+deleted; its running-phase and player-presence predicates and its diagnostic name move unchanged
+into `guarded_pair_contact.{hpp,cpp}`, and its response is the composition's lethal branch. The one
+declared row is `guarded_pair`, declared above the built-ins by all four gameplay modes. That one
+row carries **two** diagnostic names: a lethal contact still reports `rule_name == "lethal_hazard"`,
+so the retained pass-through proofs read exactly as before, while every composed non-lethal contact
+now reports `guarded_pair` where it previously reported `elastic_disc`, `variable_impulse`, or
+`reflect_static`. This is one row with two names, not a rename.
+
 ### Stun and input lifecycle
 
 Stun is a reusable temporary control lock on a dynamic entity, not a bot-only flag or an `is_static`
@@ -377,6 +415,17 @@ same 2.5 ms tick. This bounded grace is intentional; changing it would require c
 mutation and a new contract, not a hidden implementation choice. Duration starts at the committed
 impact tick. The no-input interval and exact expiry tick must be tested.
 
+**Implemented 2026-09-12 (plan Step 18), and the grace is preserved, not retracted.** `StatusSystem`
+cancels still-active protection at `kPostKernel` by shortening the shield window, and the perfect
+opening it contains, to the cancellation tick; the original activation, any already-elapsed perfect
+history, the cooldown window, and the captured parry-stun duration all survive, so a cancelled
+shield still refuses a new pulse for the rest of its cooldown. Because a response reads the frozen post-`kPreKernel` world and
+`StatusSystem` runs after the solve, that cancellation first takes effect on tick N+1 — which is
+exactly the bounded grace this paragraph describes, now realized rather than merely permitted.
+Cancelling at the activation tick legitimately yields empty protection, cancelling twice is an
+exact no-op, and cancelling before activation is a named chronology error. Only the `ability`
+system removes a fully expired `Shield`; `StatusSystem` never erases one.
+
 Current hazards have zero acceleration/drag and an assigned initial velocity, not an ongoing
 driver (`src/gameplay/shared/hazard_spawn_system.cpp:83`). After stun they stay stopped until bumped;
 their lifetime keeps counting down to preserve existing population bounds. Future driven objects
@@ -388,7 +437,10 @@ fresh press. ~~A continuously held movement key may resume through a newly accep
 expiry.~~ The owner-approved Step 14 generation contract below invalidates that activation even
 when every active-stun snapshot is missed; only a fresh press captures the new generation.
 Clear body-bound states on elimination; reset abilities to ready on respawn
-for the first version, and on round restart. Test zero-delay respawn explicitly.
+for the first version, and on round restart. Test zero-delay respawn explicitly. Live as of
+2026-09-12 (plan Step 18) for shield: `Shield` declares the Step 13 body-bound lifetime trait and
+nothing else, so body loss and round reset clear it through the one registry sweep, and a returning
+body is ready because it carries no `Shield` at all — no per-owner cleanup and no reset field.
 
 The mailbox coalesces same-kind inputs, so multiple same-tick activation pulses mean at most one
 attempt, not queued charges. Key repeat cannot reactivate; blur/disconnect/body loss clears local
@@ -745,7 +797,10 @@ partial results. Responses can change velocity/acceleration and terminate their 
 bodies; geometry/filter changes and teleportation are invalid prototype responses. The existing
 `ContactResponse`, mode declarations, component registry, event registry, and live kernel are not
 adopted or extended here. Step 16 uses this same driver and disposition type; Step 18 adapts the
-same guarded-pair core instead of implementing another composition.
+same guarded-pair core instead of implementing another composition — done on 2026-09-12 by
+`src/gameplay/shared/guarded_pair_contact_rule.{hpp,cpp}`, which projects committed `Shield`
+windows into the core's frozen guard facts and translates its typed consequences, calling
+`compose_guarded_pair` unchanged.
 
 Motion anchors change only when that body's velocity changes or its motion terminates. Pair
 roots use the fixed common epoch beginning at the later of the two anchors; body/wall roots use
@@ -884,9 +939,10 @@ still move the dynamic body, as in the existing proposed stun lifecycle.
 has left behavior after the perfect opening undecided. The existing pure ordinary-shield tests
 and advisory benchmark remain historical prototype evidence, not approval of that behavior.
 Neither continued ordinary shielding nor an immediately inactive shield may be silently chosen.
-Resolve the complete lifecycle before Step 18. The owner confirmed a short opening, not new
+~~Resolve the complete lifecycle before Step 18.~~ The owner confirmed a short opening, not new
 exact duration/cooldown/stun values; existing numerical proposals remain tuning candidates.
-This historical deferral is superseded by the later owner decision below.
+This historical deferral is superseded by the later owner decision below, and that decision was
+implemented on 2026-09-12 at plan Step 18.
 
 ### Mouse direction with authoritative fixed strength
 
@@ -969,7 +1025,10 @@ durations likewise remain tuning candidates. Reuse the permanent pure compositio
 shared tick-window lifecycle rather than introducing a second shield response.
 
 This is a gameplay decision, not approval of live continuous-physics adoption at Step 5,
-native capacity/performance certification, or evidence that the live shield is implemented.
+native capacity/performance certification, or ~~evidence that the live shield is implemented~~ —
+the live shield landed on 2026-09-12 at plan Step 18 and is recorded in its own dated section
+below; this decision remains the gameplay authority for what it does, not the evidence that it
+works.
 
 ## Session terrain publication contract, 2026-09-10 (plan Step 7)
 
@@ -1174,9 +1233,13 @@ One-tick duration expires at the next steering evaluation because application is
 
 The first shared gameplay lock predicate is introduced here; Step 10 supplied intent but no
 lock. `StatusSystem` runs last in each mode's PostKernel list before unchanged lifecycle stages.
-It clears self-propulsion and explicit-zero intent, not velocity. Actual impact momentum kill
-remains Step 18; subsequent bumps and hazard lifetime continue. Body loss uses the Step 13 trait.
-The narrow StunRequest test-foundation/Step 18 production exception is recorded in ADR 0004.
+It clears self-propulsion and explicit-zero intent, not velocity. ~~Actual impact momentum kill
+remains Step 18~~ — it landed on 2026-09-12 in the guarded composition's perfect branch, which
+zeroes the incoming body's velocity and acceleration inside the response rather than in status;
+subsequent bumps and hazard lifetime continue. Body loss uses the Step 13 trait.
+~~The narrow StunRequest test-foundation/Step 18 production exception is recorded in ADR 0004.~~
+That exception closed on 2026-09-12 when the production producer landed; ADR 0004 records its
+terminus in place.
 The detailed implementation/test contract is
 `docs/reviews/2026-09-11-stun-input-generation-review.md`. No unstunned fixture or existing bot
 random behavior changes, no new kernel policy socket, and no Phase C authority are implied.
@@ -1198,8 +1261,9 @@ closing-impact eligibility, player-center support loss, and ordinary post-perfec
 remain the already-resolved gameplay decisions.
 
 Phase C may now proceed in plan order without a motion-model redesign. Step 16 owns live solver
-and per-object-policy adoption; Step 17 owns production falling/race chronology; subsequent steps
-own shield, charge, visuals, and controls. Approval does not itself implement or verify those
+and per-object-policy adoption; Step 17 owns production falling/race chronology; Step 18 owns the
+tap shield and the live guarded composition (landed 2026-09-12); the remaining steps own charge,
+visuals, and controls. Approval does not itself implement or verify those
 steps, change the 400 Hz clock or representation, certify native capacity/performance, or authorize
 push/deployment. Native evidence remains required for Step 24 performance/release claims.
 
@@ -1220,3 +1284,72 @@ solver adapter. RaceStanding publishes normalized finished_tick_offset in [0,1],
 tie bucketing or tick-plus-fraction summation. Very large coincident courses can exceed the unchanged
 motion-event work cap; that is explicit transactional refusal, never a partial finish or fallback.
 See the [Step 17 contract](../reviews/2026-09-11-falling-race-return-contract.md).
+
+## Amendment: tap shield and the live guarded composition, 2026-09-12 (plan Step 18)
+
+The timed tap shield and the live guarded contact composition are implemented. This section
+records what landed; the sections above carry the in-place dated corrections it makes true.
+
+One required `[abilities]` section is authored for every application configuration, validated by
+`gameplay::AbilityConfiguration` and carried into each mode through `GameModeConfiguration`:
+`shield_duration_seconds=0.4`, `shield_perfect_window_seconds=0.08`, `shield_cooldown_seconds=0.9`,
+`parry_stun_duration_seconds=0.6`. Converted once by the shared `duration_ticks` rule those are
+160, 32, 360, and 240 ticks, matching § "Timed shield and perfect opening" exactly. **These are
+this ADR's initial tuning assumptions, not owner-selected balance values.** Rounded shield, perfect,
+and parry-stun durations must be positive and the perfect window may not exceed the shield;
+cooldown may legally be zero or shorter than the shield, because admission requires both that prior
+protection has ended and that the cooldown has expired, so a short cooldown cannot resurrect an
+active shield. Convenience mode factories keep `AbilityConfiguration::defaults()`; the registry
+path consumes the authored value.
+
+Body-bound `simulation::Shield` holds three `TickWindow`s sharing one positive activation tick —
+protection, perfect, cooldown — plus the parry-stun duration captured at activation, so the frozen
+defender supplies the effect it actually owns and no contact-time reader needs the configuration.
+Cancellation shortens only still-active protection: the shield window, and the perfect opening it
+contains, both end at the cancellation tick, because an opening that outlived a cancelled shield
+would still answer "perfect" to a contact response. An opening that has already elapsed is
+untouched, and the original activation, the cooldown, and the captured duration never move. It
+declares only the Step 13 body-bound lifetime trait.
+
+The shared `ability` system runs **last at `kPreKernel`** in all four gameplay modes, mirroring
+`StatusSystem`'s "last at `kPostKernel`" and satisfying race's constraint that `course_publisher`
+publish the course before ability admission reads the canonical input lock. It erases a `Shield`
+only when protection *and* cooldown have both expired, then admits at most one pulse per entity in
+ascending `EntityId` order under the matrix in § "Charge, shield, and stun". A refusal changes
+nothing at all: no cooldown consumed, no queued activation, no error, and no event. Queue
+acceptance and a local send are not activation confirmation; the published `Shield` windows are
+the positive proof of a committed activation, and this step adds no per-request negative receipt.
+
+The perfect opening cancels a qualifying incoming opponent's velocity **and** acceleration and
+stuns it for the **defender's** captured duration, taken from the defending body's committed
+`Shield` rather than from a global. Ordinary protection with reduced knockback continues for the
+rest of the shield window, without momentum cancellation or parry stun. The quarter-impulse target
+stays initial tuning with the pair-level non-closing correction taking precedence, and this
+amendment states no fifth version of that formula. Cliffs and zone rules bypass shield in every
+phase.
+
+One pair-symmetric row, `guarded_pair`, is declared above the built-ins by royale, king of the
+hill, race, and Sandbox. Its adapter projects `GuardState` from the committed world — never from
+the working subject bodies — forcing `kNone` for a static subject, and then calls the existing pure
+`compose_guarded_pair` core with no second equation and no second timer arithmetic. Static/static
+pairs never reach a row, so the symmetric predicate pair is safe for walls. The standalone
+`lethal_hazard` row is deleted and its predicates, rationale, and diagnostic name are rehomed into
+the composition. Engine-only modes that declare no row still reach the three built-ins; in the four
+gameplay modes they are now unreachable.
+
+`StatusSystem` cancels still-active protection on stun while preserving cooldown, the original
+activation, and elapsed perfect history. Because responses read the frozen post-`kPreKernel` world,
+that cancellation first bites on the next tick, which is the same-tick defensive grace
+§ "Stun and input lifecycle" already documents — preserved here, not retracted.
+
+Publication is complete in this commit: the `shield` component kind with exactly `activation_tick`,
+`shield_expiry_tick`, `perfect_expiry_tick`, `cooldown_expiry_tick`, and `parry_stun_duration_ticks`;
+the client-sendable `shield` command carrying only a required `input_generation` that is null or a
+positive exact tick; schema, encoder, generated types, strict client validation, examples, and the
+`docs/protocol/v3.md` row. The session major stays `3.0` and no close code is added.
+
+**Not claimed here.** No charge field, key binding, or visual treatment landed: charge is Step 19,
+visuals are Step 20, and controls are Step 21. No new kernel policy socket, ninth mode declaration,
+event root, second pair equation, command-receipt channel, or `Controller` capability was added.
+This records implementation, not verification, native capacity, or release certification.
+See the [Step 18 contract](../reviews/2026-09-12-shield-composition-contract.md).

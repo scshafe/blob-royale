@@ -62,13 +62,18 @@ Step 6 strict-schema migration replaces the unused `[race] track_half_width_worl
 the fixture ceiling 10000. Fresh benchmark worlds seed that pair as current/default movement.
 Step 16 adds explicit `contact_effect_policy=closing_impact` to its existing hazard sections.
 Step 17 adds required `[sandbox] respawn_delay_seconds=2.0`; royale does not consume that section.
+Step 18 adds required `[abilities]` at 0.4/0.08/0.9/0.6 s, which royale *does* consume: the shared
+ability system runs in every mode. The authored values are exactly
+`gameplay::AbilityConfiguration::defaults()`, so this migration authors what the fixture would
+otherwise inherit and changes no measured input; the ability system itself is a Step 18 workload
+change, not a fixture change.
 It is no longer a byte-for-byte historical configuration. Historical workload values remain,
 and the provenance comment and JSON identify these migrations. This migration is not a new
 timing baseline or a claim of native performance certification.
 That commit identifies the **configuration only**; `MapLoader` still loads the named
 `arena-960x640` from the current repository's `maps/`, not a historical map checkout. The
 production `ApplicationConfigLoader` reads the reference `[simulation]`, `[movement]`,
-`[royale]`, and `[hazard.*]` sections. Only the lobby widens from the reference four seats to the
+`[abilities]`, `[royale]`, and `[hazard.*]` sections. Only the lobby widens from the reference four seats to the
 budgeted eight. JSON records both counts and explicit provenance under `historical_reference`,
 including `represents_current_deployment=false` and the current map source. No live configuration
 is edited, no mode is silently overridden, and a missing/invalid reference remains a hard failure.

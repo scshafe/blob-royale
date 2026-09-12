@@ -24,14 +24,16 @@ add_library(blob_gameplay STATIC
   royale/zone_elimination_system.cpp
   royale/zone_shrink_system.cpp
   sandbox/sandbox_mode.cpp
+  shared/ability_configuration.cpp
+  shared/ability_system.cpp
   shared/duration_ticks.cpp
   shared/guarded_pair_contact.cpp
+  shared/guarded_pair_contact_rule.cpp
   shared/hazard_archetype.cpp
   shared/hazard_crossing.cpp
   shared/hazard_spawn_system.cpp
   shared/create_crossing_hazard.cpp
   shared/input_lock.cpp
-  shared/lethal_hazard_contact_rule.cpp
   shared/lifetime_expiry_system.cpp
   shared/locomotion.cpp
   shared/match_reset_system.cpp

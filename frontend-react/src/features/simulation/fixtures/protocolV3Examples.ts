@@ -4,6 +4,7 @@ export { default as seatNpcProfileCommandExample } from '../../../../../docs/pro
 export { default as sessionWelcomeProfileMessageExample } from '../../../../../docs/protocol/schema/v3/examples/welcome-profile-message.json';
 export { default as sessionErrorResponseExample } from '../../../../../docs/protocol/schema/v3/examples/error-response.json';
 export { default as hillMotionComponentExample } from '../../../../../docs/protocol/schema/v3/examples/hill-motion-component.json';
+export { default as shieldComponentExample } from '../../../../../docs/protocol/schema/v3/examples/shield-component.json';
 export { default as stunComponentExample } from '../../../../../docs/protocol/schema/v3/examples/stun-component.json';
 export { default as controllableInputGenerationExample } from '../../../../../docs/protocol/schema/v3/examples/controllable-input-generation-component.json';
 export { default as setThrustInputGenerationExample } from '../../../../../docs/protocol/schema/v3/examples/set-thrust-input-generation-command.json';

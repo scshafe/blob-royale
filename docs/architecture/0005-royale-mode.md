@@ -91,9 +91,9 @@ a tick (ADR 0004 § "Game modes and the match lifecycle").
 | Declaration | What `RoyaleMode` returns | Interface |
 |---|---|---|
 | `name()` | `royale` | ADR 0004 § "Game modes and the match lifecycle" |
-| `systems()` | `thrust_steering` at `kPreKernel`; `zone_shrink` then `zone_elimination` at `kPostKernel`; `placement_recorder`, `lifetime_expiry`, `hazard_spawn` then `elimination_grace_publisher` at `kLifecycle` | ADR 0004 § "The tick: one fixed kernel, three named stages" |
-| `contact_rules()` | `lethal_hazard`, then `ContactRuleTable::built_in()`'s own rows | ADR 0004 § "Contact rules" |
-| `accepted_command_kinds()` | spawn, despawn, thrust | ADR 0004 § "Commands" |
+| `systems()` | `thrust_steering` then `ability` at `kPreKernel`; `zone_shrink`, `zone_elimination` then `status` at `kPostKernel`; `placement_recorder`, `match_reset`, `lifetime_expiry`, `hazard_spawn` then `elimination_grace_publisher` at `kLifecycle` | ADR 0004 § "The tick: one fixed kernel, three named stages" |
+| `contact_rules()` | `guarded_pair`, then `ContactRuleTable::built_in()`'s own rows | ADR 0004 § "Contact rules" |
+| `accepted_command_kinds()` | eleven `Command` variant kinds: spawn, despawn, thrust, shield, join, leave, set_movement_tuning, and the four lobby kinds. Of those, seven are client-sendable and reach a welcome's `accepted_command_kinds`: set_thrust, shield, set_movement_tuning, and the four lobby kinds | ADR 0004 § "Commands" |
 | `spawn_policy()` | `RotatingRingSpawnPolicy` over the map's spawn markers (§ "Spawning") | ADR 0004 § "Game modes and the match lifecycle" |
 | `objective()` | `RoyaleObjective` (§ "Match lifecycle") | ADR 0004 § "Game modes and the match lifecycle" |
 | `validate_map()` | rejects an arena whose `R_full` is not strictly greater than the zone minimum; the spawn-marker-per-seat check moved to the application's `require_lobby_fits_map` on 2026-09-09 (ADR 0006, plan Step 10) | ADR 0004 § "Maps as data" |
@@ -106,7 +106,10 @@ evaluated.
 
 Royale uses the engine components `PhysicsBody` and `Controllable` unchanged and adds two of its
 own, `Zone` and `ZoneExposure` (§ "Where zone and elimination state live"). It adds no command kind,
-no event kind, and no contact rule.
+no event kind, and no contact rule. **Amended 2026-09-12 (plan Step 18):** still true of royale's
+own directory — the `shield` command kind, the `Shield` component, the shared `ability` system, and
+the `guarded_pair` row are all shared gameplay that royale declares rather than owns, exactly as
+`lethal_hazard` was.
 
 **Why `contact_rules()` is the built-in table verbatim.** Royale changes no collision equation. Blob
 meets blob is the accepted equal-mass exchange and blob meets wall or static body is the accepted
@@ -114,6 +117,16 @@ reflection, so the mode declares `ContactRuleTable::built_in()` and adds nothing
 § "Contact rules"). That one line is why every accepted pair and wall fixture in ADR 0003 § "Fixture
 contract and expected outcomes" stays valid without regeneration: the mode is structurally incapable
 of reaching those equations.
+
+**Superseded 2026-09-12 (plan Step 18).** Royale declares one row, `guarded_pair`, above the
+built-ins, and because `first_match` takes the first matching row that composed row is now the one
+response for every pair royale can form. The claim this paragraph was really making survives in a
+sharper form: the composition **selects** the same accepted equations by the same
+`body_has_baseline_physics` test and returns their output unchanged whenever neither side carries a
+guard, so an unguarded ordinary pair still gets the accepted arithmetic — it now reaches it through
+the composition rather than through `elastic_disc`. ADR 0003 § "Canonical tick" states precisely
+what that does and does not change, including the one difference: a composed non-lethal contact
+reports the diagnostic rule name `guarded_pair`.
 
 ### Scope, vocabulary, and evaluation order
 
@@ -846,6 +859,12 @@ discharged by the framework, not by this game.
 that row computes no physics at all — it returns both bodies unchanged and emits one
 `EliminationEvent` — so the mode is still structurally incapable of reaching a different collision
 equation for a pair of ordinary blobs, which is what § "The mode declaration" was really claiming.
+**Re-pointed 2026-09-12 (plan Step 18):** the row named here no longer exists as a row. Its
+response is now the lethal branch of the one declared `guarded_pair` row, reached by the same
+predicates, still computing no physics for the surviving hazard and still emitting one
+`EliminationEvent`, and still naming itself `lethal_hazard` in the `ContactEvent` it emits. Read
+"declares `lethal_hazard` above the built-in rows" as "declares the composition above the built-in
+rows"; every other word of this amendment stands.
 `kLifecycle` gains `lifetime_expiry` and `hazard_spawn` beside `placement_recorder`, both of which
 live in `src/gameplay/shared/` because objects crossing an arena are a mode-agnostic mechanic.
 Nothing above about the zone, elimination, placement, spawning, or the match lifecycle changes, and
@@ -876,6 +895,15 @@ step 3 of the recorder never coincides with step 2, and the winner receives no p
 gate is the row's rather than the recorder's so that an event nobody consumes stays a visible
 producer bug and a boulder does not vanish when a match ends. No number, rule, or fixture horizon
 changes, and the decision and its `Accepted` status are unchanged.
+
+**Re-pointed 2026-09-12 (plan Step 18), and deliberately not deleted.** The standalone
+`lethal_hazard` row is gone, but this paragraph is the only record of *why* the running-phase gate
+lives on the lethality predicate rather than on `placement_recorder`, and that predicate survives
+verbatim inside the composition. The gate moved house, not owner: `body_is_lethal_hazard` still
+reads the committed phase beside the `LethalOnContact` marker, so outside `running` a pair simply
+takes the composition's ordinary impulse branch and a comet shoves rather than kills — the same
+outcome the 2026-09-09 correction bought, reached through the composed row instead of by falling
+through to `variable_impulse`. The reasoning above still governs any future change to that gate.
 
 **Amended 2026-09-09 (ADR 0007, plan Step 2):** `previous_phase` is engine state. § "Where zone
 and elimination state live" and § "Spawning" describe royale observing "the lifecycle phase this
@@ -943,6 +971,40 @@ never invalidated, preserving the existing unstunned fixtures and arithmetic.
 
 Royale appends the shared status consumer last at PostKernel, after zone elimination, without
 changing lifecycle order or its whole-entity elimination. Status application validates windows,
-merges active expiry, and never freezes later collision motion or hazard lifetime. The production
-impact producer remains Step 18 under the separate human physics gate. ADR 0008 owns the complete
-window/input contract; ADR 0004 records the narrow test-foundation event exception.
+merges active expiry, and never freezes later collision motion or hazard lifetime. ~~The production
+impact producer remains Step 18 under the separate human physics gate.~~ ADR 0008 owns the complete
+window/input contract; ~~ADR 0004 records the narrow test-foundation event exception~~.
+
+**Amended 2026-09-12 (plan Step 18).** The production impact producer landed: the guarded-pair
+contact response emits `StunRequest`, so ADR 0004's foundation exception is closed rather than
+recorded. The shared status consumer gained one obligation in the same commit — for each entity it
+stuns, it also cancels that entity's still-active shield protection, shortening only the protection
+window and leaving the cooldown, the original activation, the elapsed perfect history, and the
+captured parry-stun duration intact. It still validates every request before mutating anything, and
+it still never erases a `Shield`; only the shared `ability` system does that, and only once
+protection and cooldown have both expired.
+
+## Amendment: shared ability authoring, 2026-09-12 (plan Step 18)
+
+§ "Mode configuration"'s rule that every balance number a mode owns lives in that mode's own
+section is unchanged, and so is its conversion rule: for a duration `x` in seconds,
+`ticks(x) = nearest integer to (x × 400), ties away from zero`, applied once at load. Shield is not
+a royale balance number. Like `[movement]`, it is one required shared section, `[abilities]`,
+authored once for the whole application and carried to every mode through `GameModeConfiguration`:
+`shield_duration_seconds`, `shield_perfect_window_seconds`, `shield_cooldown_seconds`, and
+`parry_stun_duration_seconds`. Initial values 0.4/0.08/0.9/0.6 convert to 160/32/360/240 ticks by
+the rule above; they are ADR 0008's tuning assumptions, not owner-selected balance.
+
+`gameplay::AbilityConfiguration` is the validated form. Rounded shield, perfect, and parry-stun
+durations must be positive, and the perfect window may not exceed the shield. Cooldown is the
+deliberate exception: zero is legal and a cooldown shorter than the shield is legal, because
+admission requires *both* that prior protection has ended and that the cooldown has expired, so a
+short cooldown can never resurrect an active shield. Every key is required, no key has a silent
+default, and the section is required regardless of `[match] mode`, which means every full
+application configuration, every inline unit-test configuration string, and the integration
+fixture's configuration builder author it.
+
+Royale's `[royale]` keys, the kernel's drag, and the shared `[movement]` pair keep their existing
+owners. No mode reads another mode's section, and no system reads seconds at runtime.
+The complete contract is
+[`2026-09-12-shield-composition-contract.md`](../reviews/2026-09-12-shield-composition-contract.md).

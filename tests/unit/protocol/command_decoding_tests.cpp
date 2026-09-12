@@ -10,17 +10,22 @@
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
+#include "commands/shield_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 #include <boost/json/parse.hpp>
 #include <boost/json/serialize.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -58,6 +63,12 @@ inline constexpr std::uint64_t kStampedControllerId = 3;
        simulation::CommandKind::kStartMatch, simulation::CommandKind::kSetMovementTuning});
 }
 
+// Sandbox's shape once it declares the ability: the pulse and nothing else, so a rejection in these
+// cases is the payload's answer rather than the mask's.
+[[nodiscard]] simulation::CommandKindMask shield_only() {
+  return simulation::CommandKindMask::create({simulation::CommandKind::kShield});
+}
+
 [[nodiscard]] protocol::CommandDecodeResult decode(const std::string_view frame) {
   const std::vector<std::string> npc_kinds = published_npc_kinds();
   return protocol::decode_command_envelope(frame, thrust_only(), stamped_entity(),
@@ -70,6 +81,13 @@ inline constexpr std::uint64_t kStampedControllerId = 3;
   return protocol::decode_command_envelope(frame, lobby_kinds(), stamped_entity(),
                                            stamped_controller(),
                                            simulation::NpcCatalogue::create(npc_kinds));
+}
+
+[[nodiscard]] protocol::CommandDecodeResult decode_shield(const std::string_view payload) {
+  const std::vector<std::string> npc_kinds = published_npc_kinds();
+  return protocol::decode_command_envelope(
+      std::string{R"({"kind":"shield","payload":)"} + std::string{payload} + "}", shield_only(),
+      stamped_entity(), stamped_controller(), simulation::NpcCatalogue::create(npc_kinds));
 }
 
 void require_rejection(const std::string_view frame,
@@ -203,6 +221,132 @@ TEST_CASE("Command decoder rejects the server-issued kinds the wire deliberately
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kClearSeat) == "clear_seat");
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kSeatNpc) == "seat_npc");
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kStartMatch) == "start_match");
+  CHECK(protocol::client_command_wire_name(simulation::CommandKind::kShield) == "shield");
+}
+
+TEST_CASE("The closed v3 client command vocabulary is ascending and selects one kind per name",
+          "[unit][protocol][v3][decoding][vocabulary]") {
+  // Seven since Step 18's `shield`. The two static_asserts in `command_wire_kind.hpp` check only
+  // the count and that every published name selects *a* kind, and a consistently wrong permutation
+  // satisfies both -- so the mapping is written out here name by name. That is what catches an
+  // index left behind when `"shield"` was inserted between `set_thrust` and `start_match` and moved
+  // `start_match` from 5 to 6.
+  CHECK(protocol::kV3ClientCommandKindNames.size() == 7);
+  CHECK(std::ranges::is_sorted(protocol::kV3ClientCommandKindNames));
+  CHECK(protocol::kV3ClientCommandKindNames ==
+        std::array<std::string_view, 7>{"clear_seat", "seat_npc", "set_movement_tuning",
+                                        "set_seat_count", "set_thrust", "shield", "start_match"});
+
+  CHECK(protocol::client_command_kind_of_wire_name("clear_seat") ==
+        simulation::CommandKind::kClearSeat);
+  CHECK(protocol::client_command_kind_of_wire_name("seat_npc") ==
+        simulation::CommandKind::kSeatNpc);
+  CHECK(protocol::client_command_kind_of_wire_name("set_movement_tuning") ==
+        simulation::CommandKind::kSetMovementTuning);
+  CHECK(protocol::client_command_kind_of_wire_name("set_seat_count") ==
+        simulation::CommandKind::kSetSeatCount);
+  CHECK(protocol::client_command_kind_of_wire_name("set_thrust") ==
+        simulation::CommandKind::kThrust);
+  CHECK(protocol::client_command_kind_of_wire_name("shield") == simulation::CommandKind::kShield);
+  CHECK(protocol::client_command_kind_of_wire_name("start_match") ==
+        simulation::CommandKind::kStartMatch);
+
+  CHECK(protocol::is_v3_client_command_kind("shield"));
+  CHECK_FALSE(protocol::client_command_kind_of_wire_name("shielded").has_value());
+  CHECK_FALSE(protocol::client_command_kind_of_wire_name("").has_value());
+}
+
+TEST_CASE("Shield decoder accepts a spelled generation and stamps the session's own entity",
+          "[unit][protocol][v3][decoding][shield]") {
+  const protocol::CommandDecodeResult positive = decode_shield(R"({"input_generation":100})");
+  REQUIRE(positive.is_accepted());
+  const auto* const pulse = std::get_if<simulation::ShieldCommand>(&*positive.command());
+  REQUIRE(pulse != nullptr);
+  CHECK(pulse->entity == stamped_entity());
+  CHECK(pulse->input_generation == simulation::TickSequence::create(100));
+
+  // `null` is the wire's spelling of the initial generation and decodes to absence -- the same
+  // value an omitted `input_generation` gives a `set_thrust`. The member is required here rather
+  // than optional because a pulse carries nothing else: an omitted key would leave `{}`, which is
+  // also what a client meaning the initial generation would send, and the two must not be the same
+  // bytes.
+  const protocol::CommandDecodeResult initial = decode_shield(R"({"input_generation":null})");
+  REQUIRE(initial.is_accepted());
+  const auto* const initial_pulse = std::get_if<simulation::ShieldCommand>(&*initial.command());
+  REQUIRE(initial_pulse != nullptr);
+  CHECK(initial_pulse->entity == stamped_entity());
+  CHECK_FALSE(initial_pulse->input_generation.has_value());
+
+  // The top of the exact tick domain still round-trips: the bound is the protocol's safe integer,
+  // not a double.
+  const protocol::CommandDecodeResult maximum =
+      decode_shield(R"({"input_generation":9007199254740991})");
+  REQUIRE(maximum.is_accepted());
+  CHECK(std::get<simulation::ShieldCommand>(*maximum.command()).input_generation ==
+        simulation::TickSequence::create(simulation::TickSequence::kMaximumValue));
+}
+
+TEST_CASE("Shield decoder refuses an omitted, extra, or out-of-range generation member",
+          "[unit][protocol][v3][decoding][shield][rejection]") {
+  const auto require_shield_rejection = [](const std::string_view payload,
+                                           const protocol::CommandDecodeRejection expected) {
+    CAPTURE(payload);
+    const protocol::CommandDecodeResult result = decode_shield(payload);
+    CHECK_FALSE(result.is_accepted());
+    CHECK(result.rejection() == expected);
+    CHECK_FALSE(result.command().has_value());
+  };
+
+  // The key is required, so an empty payload is not "the initial generation" -- it is a payload
+  // that failed to say which generation it meant, and the boundary cannot guess.
+  require_shield_rejection("{}", protocol::CommandDecodeRejection::kPayloadInvalid);
+  require_shield_rejection(R"({"generation":100})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  // Closed, exactly as `set_thrust` is: an entity id is a shape the payload does not have rather
+  // than a member to ignore, which is what makes actor spoofing unexpressible instead of filtered.
+  require_shield_rejection(R"({"input_generation":100,"entity_id":9})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+
+  // A present zero is the release token, and it is invalid on a pulse for the same reason it is on
+  // a thrust: the wire's minimum is 1, and absence is spelled `null`.
+  require_shield_rejection(R"({"input_generation":0})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  require_shield_rejection(R"({"input_generation":-1})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  // Refused rather than truncated: the schema types this member as an integer.
+  require_shield_rejection(R"({"input_generation":1.5})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  require_shield_rejection(R"({"input_generation":100.0})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  require_shield_rejection(R"({"input_generation":"100"})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  require_shield_rejection(R"({"input_generation":true})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  require_shield_rejection(R"({"input_generation":[]})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+  // Past the exact safe integer, where a double would silently round.
+  require_shield_rejection(R"({"input_generation":9007199254740992})",
+                           protocol::CommandDecodeRejection::kPayloadInvalid);
+
+  // A non-object payload never reaches the shield arm at all: the envelope walk answers
+  // `kMalformed` before any kind's closed schema runs, so the shape of the frame and the shape of
+  // the payload stay two separate answers.
+  require_shield_rejection("[]", protocol::CommandDecodeRejection::kMalformed);
+  require_shield_rejection("null", protocol::CommandDecodeRejection::kMalformed);
+  require_shield_rejection("100", protocol::CommandDecodeRejection::kMalformed);
+}
+
+TEST_CASE("A mode whose accepted mask omits the shield refuses the pulse before its payload",
+          "[unit][protocol][v3][decoding][shield][rejection]") {
+  // Admission-order step 6's second half, and the reason `welcome` is an advertisement rather than
+  // an enforcement point. `require_rejection` carries the thrust-only mask, so a perfectly valid
+  // shield envelope is `kKindRejected` -- the mode's answer -- and an invalid one is refused for
+  // exactly the same reason, which keeps the refusal from telling a prober which payloads this
+  // build understands.
+  require_rejection(R"({"kind":"shield","payload":{"input_generation":null}})",
+                    protocol::CommandDecodeRejection::kKindRejected);
+  require_rejection(R"({"kind":"shield","payload":{"input_generation":0}})",
+                    protocol::CommandDecodeRejection::kKindRejected);
 }
 
 TEST_CASE("Command decoder rejects a registered kind the running mode does not accept",

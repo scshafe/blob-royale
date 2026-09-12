@@ -24,16 +24,34 @@ copying/moving a course cannot leave its centreline dangling. Calling
 `systems` before successful validation throws `GAMEPLAY.RACE_COURSE_UNBOUND`; failed validation
 clears any prior binding.
 
-The declared order is `course_publisher` then `thrust_steering` at `kPreKernel`,
+The declared order is `course_publisher`, `thrust_steering`, then shared `ability` at `kPreKernel`,
 `checkpoint_progress` then shared `status` at `kPostKernel`, and `standings_recorder`,
 `checkpoint_respawn`, shared `respawn`, `match_reset`, `lifetime_expiry`, `hazard_spawn` at
-`kLifecycle`. The motion declaration owns shared running-only support loss and ordered gates.
+`kLifecycle`. **`ability` after `course_publisher` is a hard constraint, not a preference.** Ability
+admission consults the canonical input lock, and that predicate recognizes a finished racer by
+reading the `RaceModeState` block the publisher writes. Declared before the publisher, it would see
+no course on a quantum's first tick and would admit a shield pulse from a racer whose retained
+`RaceProgress` has already completed the course — the same first-tick seeding hole the publisher was
+moved to `kPreKernel` to close for steering. Its position relative to `thrust_steering` is free:
+the two share no field, one writing `PhysicsBody::acceleration` and the other a `Shield` component.
+Race declares no ability configuration of its own; the shared `[abilities]` section reaches it
+through `GameModeConfiguration` like `[movement]`.
+
+The motion declaration owns shared running-only support loss and ordered gates.
 Both use the canonical solver queries. Progress attaches at zero even before the first gate,
 then consumes certified RaceCheckpointEvent facts; several gates can advance in a tick.
 Support loss terminates immediately and wins exact ties with finish. Earlier gates remain earned
 after later falling. Finishing zeros motion, terminates the quantum, and releases input intents.
 The shared input lock recognizes completed progress; first PreKernel publication establishes its
 course facts even for a directly seeded completed racer. TrackBoundsSystem is deleted.
+
+Shield changes none of that. A guard is never read by support loss or by the ordered-gate trigger,
+so a shielded racer falls off a cliff exactly like an unshielded one and takes gates on the same
+certified times. What shield does reach is contact: race declares the shared `guarded_pair` row
+above the built-ins, so a racer bumping another racer, a wall, or a crossing hazard goes through the
+composition. A finished racer activates nothing, because the same lock that stops its steering stops
+its ability admission, and a racer waiting to return carries no `Shield` at all — the component is
+body-bound and the shared sweep clears it with the body.
 
 `GridSpawnPolicy` uses the shared next-free policy between matches and allows only a timer-free
 `RaceProgress{0}` racer to return to the grid while running. `checkpoint_respawn` uses the engine's

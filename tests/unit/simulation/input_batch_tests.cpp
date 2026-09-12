@@ -5,6 +5,7 @@
 #include "commands/join_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_seat_count_command.hpp"
+#include "commands/shield_command.hpp"
 #include "commands/spawn_command.hpp"
 #include "commands/start_match_command.hpp"
 #include "commands/thrust_command.hpp"
@@ -15,12 +16,14 @@
 #include "seat_roster.hpp"
 #include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
+#include "tick_sequence.hpp"
 #include "vector2.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -46,6 +49,13 @@ namespace {
                                                        simulation::Vector2::create(x, y)}};
 }
 
+[[nodiscard]] simulation::Command
+shield(const simulation::EntityId::Value entity,
+       const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::Command{
+      simulation::ShieldCommand{simulation::EntityId::create(entity), generation}};
+}
+
 // "<wire name>:<addressed identity>", which is exactly what the canonical order is stated over.
 [[nodiscard]] std::string describe(const simulation::Command& command) {
   const std::string name{simulation::command_kind_name_of(simulation::command_kind_of(command))};
@@ -56,6 +66,10 @@ namespace {
   if (const auto* despawn_command = std::get_if<simulation::DespawnCommand>(&command);
       despawn_command != nullptr) {
     return name + ":" + std::to_string(despawn_command->entity.value());
+  }
+  if (const auto* shield_command = std::get_if<simulation::ShieldCommand>(&command);
+      shield_command != nullptr) {
+    return name + ":" + std::to_string(shield_command->entity.value());
   }
   return name + ":" + std::to_string(std::get<simulation::ThrustCommand>(command).entity.value());
 }
@@ -141,6 +155,82 @@ TEST_CASE("InputBatch de-duplicates one entity without disturbing another entity
   REQUIRE(batch.commands().size() == 2);
   CHECK(batch.commands()[0] == thrust(2, 0.5, 0.0));
   CHECK(batch.commands()[1] == thrust(5, 0.0, -1.0));
+}
+
+TEST_CASE("InputBatch accepts a shield with no generation and one with a positive generation",
+          "[unit][simulation][input_batch][shield]") {
+  // Absence is the token of an entity whose input has never been invalidated, so a pulse that
+  // carries none is the ordinary first press rather than a malformed one.
+  for (const auto generation :
+       {std::optional<simulation::TickSequence>{},
+        std::optional{simulation::TickSequence::create(1)},
+        std::optional{simulation::TickSequence::create(simulation::TickSequence::kMaximumValue)}}) {
+    const simulation::Command command = shield(5, generation);
+    const simulation::InputBatch batch = simulation::InputBatch::create(
+        {command}, simulation::CommandKindMask::all(), reservation());
+
+    REQUIRE(batch.commands().size() == 1);
+    CHECK(batch.commands()[0] == command);
+  }
+}
+
+TEST_CASE("InputBatch rejects a shield carrying a present zero input generation",
+          "[unit][simulation][input_batch][shield][validation]") {
+  // The same rule the thrust arm enforces, reported on the shield's own context so a log names the
+  // press that was malformed rather than a command the client never sent.
+  try {
+    static_cast<void>(simulation::InputBatch::create({shield(5, simulation::TickSequence::zero())},
+                                                     simulation::CommandKindMask::all(),
+                                                     reservation()));
+    FAIL("a present zero shield generation was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kInputBatchInputGenerationZero);
+    CHECK(error.code() == std::string_view{"SIMULATION.INPUT_BATCH_INPUT_GENERATION_ZERO"});
+    CHECK(error.context() == "input_batch.commands.shield.input_generation");
+  }
+}
+
+TEST_CASE("InputBatch keeps the last shield pulse an entity submitted in one tick",
+          "[unit][simulation][input_batch][shield]") {
+  // A held button is one decision per tick. The last pulse wins, exactly as the last thrust does,
+  // so an ability that needed to count presses inside one tick could not be expressed here.
+  const simulation::InputBatch batch =
+      simulation::InputBatch::create({shield(5), shield(5, simulation::TickSequence::create(2)),
+                                      shield(5, simulation::TickSequence::create(3)), shield(9)},
+                                     simulation::CommandKindMask::all(), reservation());
+
+  REQUIRE(batch.commands().size() == 2);
+  CHECK(batch.commands()[0] == shield(5, simulation::TickSequence::create(3)));
+  CHECK(batch.commands()[1] == shield(9));
+}
+
+TEST_CASE("InputBatch orders a shield after every other kind that names the same entity",
+          "[unit][simulation][input_batch][shield]") {
+  // A shield is recorded rather than applied, so it takes the last application rank: a body the
+  // same batch despawned has no Controllable left to record the pulse against.
+  const simulation::InputBatch batch =
+      simulation::InputBatch::create({shield(5), thrust(5, 1.0, 0.0), despawn(5)},
+                                     simulation::CommandKindMask::all(), reservation());
+
+  CHECK(describe(batch) == std::vector<std::string>{"despawn:5", "thrust:5", "shield:5"});
+}
+
+TEST_CASE("InputBatch rejects a shield the mode does not accept",
+          "[unit][simulation][input_batch][shield][validation]") {
+  // A mode that fields no abilities never advertises the kind, and a pulse reaching this factory
+  // anyway is the boundary disagreeing with the engine, which stays a hard failure.
+  const simulation::CommandKindMask thrust_only =
+      simulation::CommandKindMask::none().with(simulation::CommandKind::kThrust);
+
+  try {
+    static_cast<void>(simulation::InputBatch::create({shield(5)}, thrust_only, reservation()));
+    FAIL("a shield absent from the accepted set was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kInputBatchCommandKindNotAccepted);
+    CHECK(error.context() == "input_batch.commands.kind");
+  }
 }
 
 TEST_CASE("InputBatch rejects a despawn naming an id inside the tick's own reservation",

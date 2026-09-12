@@ -11,6 +11,7 @@
       "set_movement_tuning",
       "set_seat_count",
       "set_thrust",
+      "shield",
       "start_match"
     ],
     "npc_controller_kinds": ["wanderer", "chaser"],

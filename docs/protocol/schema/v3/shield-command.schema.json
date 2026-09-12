@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/shield-command.schema.json",
+  "title": "Blob Royale protocol v3 shield command payload",
+  "description": "One shield pulse. The payload names no entity: the server stamps the sending session's current body, so an entity id is not merely ignored here, it is a closed-schema violation that closes the connection. It names no duration either: the server's [abilities] configuration owns the shield, perfect-opening and cooldown lengths, so a client cannot lengthen its own protection by authoring one. Acceptance of this message is not activation; only the published shield component proves a committed activation, and a pulse the tick refuses produces no receipt and consumes no cooldown.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["input_generation"],
+  "properties": {
+    "input_generation": {
+      "oneOf": [{ "$ref": "common.schema.json#/$defs/tick_sequence" }, { "type": "null" }],
+      "description": "The exact generation this pulse was authored against, or null for an entity that has never been invalidated. Server admission requires exact equality with the entity's current generation and no active stun; a stale token cannot activate and is dropped, never retagged with a newer one."
+    }
+  },
+  "$comment": "input_generation is required and nullable here while set_thrust leaves it optional, and the difference is deliberate. set_thrust carries x and y whatever happens, so an omitted generation still reads as a considered steering payload in the pre-generation shape; shield has no other member, so an optional one would make {} the whole message and a truncated or defaulted send indistinguishable from an authored never-invalidated pulse. An explicit null makes the absence authored. Null and a matching token are the only values that can activate: a present zero is a schema violation on this wire and a named refusal at the batch boundary for in-process producers, because zero is not the absence of a generation."
+}

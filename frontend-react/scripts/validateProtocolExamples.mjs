@@ -66,6 +66,7 @@ const protocolVersions = [
       ['seat-npc-profile-command.json', 'seat-npc-command.schema.json'],
       ['welcome-profile-message.json', 'welcome-message.schema.json'],
       ['stun-component.json', 'stun-component.schema.json'],
+      ['shield-component.json', 'shield-component.schema.json'],
       [
         'contact-effect-admission-component.json',
         'contact-effect-admission-component.schema.json',
@@ -78,6 +79,7 @@ const protocolVersions = [
         'set-thrust-input-generation-command.json',
         'set-thrust-command.schema.json',
       ],
+      ['shield-command.json', 'shield-command.schema.json'],
       ['hill-motion-component.json', 'hill-motion-component.schema.json'],
       [
         'set-movement-tuning-command.json',

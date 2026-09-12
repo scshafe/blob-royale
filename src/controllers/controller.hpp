@@ -141,6 +141,42 @@ protected:
   [[nodiscard]] std::vector<simulation::Command>
   request_thrust(const Observation& observation, const simulation::Vector2& direction) const;
 
+  // canonical: controller_ability_request -- the two combat pulses, on request_thrust's terms.
+  //
+  // **Siblings of `request_thrust`, never raw commands a behavior appends beside it.** All three
+  // share one suppression -- a foreign observation, no seated entity, a missing or `is_static()`
+  // `PhysicsBody`, an observed `Stun` whose window contains the observed tick, and a `Controllable`
+  // whose `controller_id` is this controller's -- and each stamps `input_generation` from that same
+  // observed `Controllable`. A behavior that built an ability command itself would emit one on
+  // exactly the pass where its thrust was correctly suppressed: the stun pass, which is the one
+  // pass an ability is most tempting and least admissible.
+  //
+  // **The generation is copied, never constructed.** Absence is a real value -- an entity whose
+  // input has never been invalidated -- while a *present zero* is a hard tick failure
+  // `InputBatch::create` refuses before any system sees it, so the only safe source is the one the
+  // world published. The payload asymmetry the two commands carry is theirs and not these helpers':
+  // a shield is a bare pulse and a charge carries a direction, which is why only one of these takes
+  // one, and on the wire the asymmetry runs the other way round -- `shield`'s single generation is
+  // required-and-nullable because a pulse carrying nothing else could not tell "I mean the initial
+  // generation" from "I forgot the field", while `charge`'s is optional beside its `x` and `y`
+  // exactly as a thrust's is (`../protocol/command_decoding.cpp`). Nothing here touches the wire.
+  //
+  // **They deliberately do not check match-running, tick zero, or a completed race course**, which
+  // is the omission `request_thrust` already makes and `AbilitySystem` already covers -- it refuses
+  // all three, and a refusal consumes no cooldown, queues nothing, throws nothing and emits no
+  // event. Duplicating the three gates here would give one rule two homes, and the copy in this
+  // library could not see the mode's input lock at all. The choice is written down rather than left
+  // as an oversight because it is not free: a bot that keeps pulsing a shield after finishing a
+  // race burns nothing and logs nothing, while a reader of mailbox refusal statistics sees a fault.
+  // That cost is accepted here, in the open.
+  // related: ../simulation/commands/shield_command.hpp -- the pulse, and why it names nothing else.
+  // related: ../simulation/commands/charge_command.hpp -- the direction, and why it names no gain.
+  // related: ../gameplay/shared/ability_system.hpp -- the three gates this deliberately omits.
+  [[nodiscard]] std::vector<simulation::Command>
+  request_shield(const Observation& observation) const;
+  [[nodiscard]] std::vector<simulation::Command>
+  request_charge(const Observation& observation, const simulation::Vector2& direction) const;
+
 private:
   // The behavior half, and the one function a new bot writes. It is called with an observation
   // already verified to be this controller's own, and it never has to record its own entity.

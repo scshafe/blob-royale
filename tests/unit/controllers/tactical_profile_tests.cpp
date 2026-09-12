@@ -16,34 +16,48 @@ namespace controllers = blob_royale::controllers;
 namespace fixture = blob_royale::testing::tactical_profile_fixture;
 
 namespace {
-// The four weight members in `TacticalObjectiveKind` ordinal order. This table is the test's own
+// The weight members in `TacticalObjectiveKind` ordinal order. This table is the test's own
 // second opinion: production reaches a weight through the switch in `tactical_objective_weight_of`,
 // and one case below proves the two agree ordinal by ordinal. It is also what lets a case set "the
-// weight of kind n" without a switch of its own.
-constexpr std::array<double controllers::TacticalObjectiveWeights::*, 4> kWeightMembers{
-    &controllers::TacticalObjectiveWeights::hill, &controllers::TacticalObjectiveWeights::zone,
-    &controllers::TacticalObjectiveWeights::race_gate,
-    &controllers::TacticalObjectiveWeights::race_recovery};
+// weight of kind n" without a switch of its own. The pointee is `AuthoredObjectiveWeight` and not
+// `double`, which is the type change that makes an omitted weight a compile error at every
+// construction site in the tree rather than a silent zero.
+constexpr std::array<controllers::AuthoredObjectiveWeight controllers::TacticalObjectiveWeights::*,
+                     5>
+    kWeightMembers{&controllers::TacticalObjectiveWeights::hill,
+                   &controllers::TacticalObjectiveWeights::zone,
+                   &controllers::TacticalObjectiveWeights::race_gate,
+                   &controllers::TacticalObjectiveWeights::race_recovery,
+                   &controllers::TacticalObjectiveWeights::shove_setup};
 static_assert(kWeightMembers.size() == controllers::kTacticalObjectiveKindCount);
 
 constexpr controllers::TacticalObjectiveWeights kWeights{
-    .hill = 1.0, .zone = 0.5, .race_gate = 0.25, .race_recovery = 0.125};
+    .hill = 1.0, .zone = 0.5, .race_gate = 0.25, .race_recovery = 0.125, .shove_setup = 0.0625};
 constexpr double kRiskTolerance = 0.5;
 constexpr std::uint64_t kPredictionHorizonTicks = 40;
+constexpr double kChargeScreenDiagonalFraction = 0.75;
+constexpr std::uint64_t kShieldAnticipationTicks = 24;
 
-// The fixture owns the four Step 15 settings; this file authors the three the pipeline added, so a
-// case here proves a rule of `create` rather than a fixture value. One case at the end separately
-// proves the fixture authors them, which is where a caller left behind by a new setting surfaces.
+// The fixture owns the four Step 15 settings; this file authors the five the pipeline and this
+// step's combat added, so a case here proves a rule of `create` rather than a fixture value. One
+// case at the end separately proves the fixture authors them, which is where a caller left behind
+// by a new setting surfaces.
 [[nodiscard]] controllers::TacticalProfile::Section authored_section() {
   auto section = fixture::immediate_section();
   section.objective_weights = kWeights;
   section.risk_tolerance = kRiskTolerance;
   section.prediction_horizon_ticks = kPredictionHorizonTicks;
+  section.charge_screen_diagonal_fraction = kChargeScreenDiagonalFraction;
+  section.shield_anticipation_ticks = kShieldAnticipationTicks;
   return section;
 }
 
 [[nodiscard]] controllers::TacticalObjectiveWeights uniform_weights(const double weight) noexcept {
-  return {.hill = weight, .zone = weight, .race_gate = weight, .race_recovery = weight};
+  return {.hill = weight,
+          .zone = weight,
+          .race_gate = weight,
+          .race_recovery = weight,
+          .shove_setup = weight};
 }
 
 [[nodiscard]] std::string key_context(const std::string_view key) {
@@ -66,6 +80,15 @@ std::string require_rejection(const controllers::TacticalProfile::Section& secti
 } // namespace
 
 static_assert(!std::is_default_constructible_v<controllers::TacticalProfile>);
+// **The set of authored weights is closed by the compiler at every construction site.** A weight is
+// not a `double`, so a braced list one member short of `TacticalObjectiveKind` cannot
+// value-initialize the member it omitted: `TacticalObjectiveWeights` inherits the deleted default
+// constructor and the site fails to build. That is the whole reason `AuthoredObjectiveWeight`
+// exists, and this pair of assertions is where the tree states it -- the degenerate-set rejection
+// below can only catch a *complete* set of zeros and never caught an omission beside four authored
+// numbers.
+static_assert(!std::is_default_constructible_v<controllers::AuthoredObjectiveWeight>);
+static_assert(!std::is_default_constructible_v<controllers::TacticalObjectiveWeights>);
 
 TEST_CASE("Tactical profile retains every authored setting and bounded identity",
           "[unit][controllers][tactical_profile]") {
@@ -79,6 +102,8 @@ TEST_CASE("Tactical profile retains every authored setting and bounded identity"
   CHECK(profile.objective_weights() == kWeights);
   CHECK(profile.risk_tolerance() == kRiskTolerance);
   CHECK(profile.prediction_horizon_ticks() == kPredictionHorizonTicks);
+  CHECK(profile.charge_screen_diagonal_fraction() == kChargeScreenDiagonalFraction);
+  CHECK(profile.shield_anticipation_ticks() == kShieldAnticipationTicks);
   CHECK(profile == controllers::TacticalProfile::create(section));
   for (const auto invalid : fixture::kInvalidNames) {
     auto changed = section;
@@ -138,13 +163,15 @@ TEST_CASE("Tactical objective weight names and lookup stay closed against the ki
         "objective_weight_race_gate");
   CHECK(controllers::tactical_objective_weight_key(
             controllers::TacticalObjectiveKind::kRaceRecovery) == "objective_weight_race_recovery");
+  CHECK(controllers::tactical_objective_weight_key(
+            controllers::TacticalObjectiveKind::kShoveSetup) == "objective_weight_shove_setup");
   const auto profile = controllers::TacticalProfile::create(authored_section());
   for (std::size_t ordinal = 0; ordinal < controllers::kTacticalObjectiveKindCount; ++ordinal) {
     const auto kind = static_cast<controllers::TacticalObjectiveKind>(ordinal);
     CHECK(controllers::tactical_objective_kind_ordinal(kind) == ordinal);
     CHECK(controllers::tactical_objective_weight_of(kWeights, kind) ==
-          kWeights.*kWeightMembers[ordinal]);
-    CHECK(profile.objective_weight(kind) == kWeights.*kWeightMembers[ordinal]);
+          (kWeights.*kWeightMembers[ordinal]).value());
+    CHECK(profile.objective_weight(kind) == (kWeights.*kWeightMembers[ordinal]).value());
   }
   // A cast past the declared kinds is an error answer, never the plausible zero that would read as
   // "this profile ignores that objective".
@@ -235,10 +262,56 @@ TEST_CASE("Tactical profile admits risk tolerance and prediction horizon endpoin
         key_context("prediction_horizon_ticks"));
 }
 
+TEST_CASE("Tactical profile admits both combat endpoints and refuses past either bound",
+          "[unit][controllers][tactical_profile]") {
+  // **Both zeros are authored answers, and they mean opposite things.** A zero charge screen
+  // examines nothing and so refuses nothing, which is the permissive end; a zero anticipation
+  // window predicts nothing and raises no speculative shield, which is the inert end -- the same
+  // reading a zero `prediction_horizon_ticks` already has. Neither is a clamped-away value, so both
+  // are asserted to survive `create` and to read back exactly.
+  auto section = authored_section();
+  for (const double fraction : {0.0, controllers::kMaximumTacticalChargeScreenDiagonalFraction}) {
+    section.charge_screen_diagonal_fraction = fraction;
+    for (const std::uint64_t window :
+         {std::uint64_t{0}, controllers::kMaximumTacticalShieldAnticipationTicks}) {
+      section.shield_anticipation_ticks = window;
+      const auto profile = controllers::TacticalProfile::create(section);
+      CHECK(profile.charge_screen_diagonal_fraction() == fraction);
+      CHECK(profile.shield_anticipation_ticks() == window);
+    }
+  }
+  // The charge screen is a finite fraction, so it refuses exactly what every other `[0,1]` setting
+  // in this file refuses, and by the same shared list.
+  for (const double invalid : fixture::kInvalidProbabilities) {
+    auto changed = authored_section();
+    changed.charge_screen_diagonal_fraction = invalid;
+    CHECK(
+        require_rejection(
+            changed, controllers::ControllersValidationCode::kTacticalProfileChargeScreenInvalid) ==
+        key_context("charge_screen_diagonal_fraction"));
+  }
+  // One tick past the bound, and the whole unsigned range, exactly as the horizon above: the first
+  // proves the bound is where the constant says it is, the second that no integer escapes it.
+  auto beyond = authored_section();
+  beyond.shield_anticipation_ticks = controllers::kMaximumTacticalShieldAnticipationTicks + 1;
+  CHECK(require_rejection(
+            beyond,
+            controllers::ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid) ==
+        key_context("shield_anticipation_ticks"));
+  beyond.shield_anticipation_ticks = std::numeric_limits<std::uint64_t>::max();
+  CHECK(require_rejection(
+            beyond,
+            controllers::ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid) ==
+        key_context("shield_anticipation_ticks"));
+}
+
 TEST_CASE("Tactical profile reports the first declared key when several are invalid",
           "[unit][controllers][tactical_profile]") {
   // Declared key order is the configuration family's order: seek probability, reaction delay, aim
-  // error, target persistence, the four objective weights in kind order, risk tolerance, horizon.
+  // error, target persistence, the five objective weights in kind order, risk tolerance, horizon,
+  // charge screen, shield anticipation. The two combat keys are last because they were appended
+  // rather than interleaved, which is what keeps an existing multi-defect section blaming the same
+  // key it blamed before Step 22b.
   // Every case below spoils a later key too, so only the ordering can decide which is reported.
   auto section = authored_section();
   section.objective_seek_probability = 1.01;
@@ -246,6 +319,8 @@ TEST_CASE("Tactical profile reports the first declared key when several are inva
   section.objective_weights.zone = 1.01;
   section.risk_tolerance = 1.01;
   section.prediction_horizon_ticks = controllers::kMaximumTacticalPredictionHorizonTicks + 1;
+  section.charge_screen_diagonal_fraction = 1.01;
+  section.shield_anticipation_ticks = controllers::kMaximumTacticalShieldAnticipationTicks + 1;
   require_rejection(section,
                     controllers::ControllersValidationCode::kTacticalProfileProbabilityInvalid);
   section.objective_seek_probability = 1.0;
@@ -272,11 +347,28 @@ TEST_CASE("Tactical profile reports the first declared key when several are inva
             controllers::ControllersValidationCode::kTacticalProfileObjectiveWeightInvalid) ==
         key_context("objective_weight_race_gate"));
   section.objective_weights.race_gate = 0.25;
+  // The fifth weight is blamed after the fourth and before risk tolerance, which is the ordinal
+  // order the validation loop walks and the order `kConfigFamilyFieldSpecs` declares.
+  section.objective_weights.shove_setup = -0.01;
+  CHECK(require_rejection(
+            section,
+            controllers::ControllersValidationCode::kTacticalProfileObjectiveWeightInvalid) ==
+        key_context("objective_weight_shove_setup"));
+  section.objective_weights.shove_setup = 0.0625;
   require_rejection(section,
                     controllers::ControllersValidationCode::kTacticalProfileRiskToleranceInvalid);
   section.risk_tolerance = 1.0;
   require_rejection(
       section, controllers::ControllersValidationCode::kTacticalProfilePredictionHorizonInvalid);
+  section.prediction_horizon_ticks = 0;
+  CHECK(require_rejection(
+            section, controllers::ControllersValidationCode::kTacticalProfileChargeScreenInvalid) ==
+        key_context("charge_screen_diagonal_fraction"));
+  section.charge_screen_diagonal_fraction = 0.75;
+  CHECK(require_rejection(
+            section,
+            controllers::ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid) ==
+        key_context("shield_anticipation_ticks"));
   // An invalid name outranks every setting, exactly as it did before these keys existed.
   section.profile_name = "Upper";
   require_rejection(section, controllers::ControllersValidationCode::kTacticalProfileNameInvalid);
@@ -285,8 +377,21 @@ TEST_CASE("Tactical profile reports the first declared key when several are inva
 TEST_CASE("Tactical profile fixture sections author every family key",
           "[unit][controllers][tactical_profile]") {
   // An omitted aggregate initializer is a zero, not a compile error, so a fixture left behind by a
-  // new setting would quietly hand every controllers case an unweighted profile. These two calls
-  // are what turn that into one named failure instead of a surprise in some unrelated case.
+  // new setting would quietly hand every controllers case a profile with that setting off. These
+  // two calls are what turn that into one named failure instead of a surprise in some unrelated
+  // case.
   CHECK_NOTHROW(controllers::TacticalProfile::create(fixture::immediate_section()));
   CHECK_NOTHROW(controllers::TacticalProfile::create(fixture::configured_section()));
+  // **Constructing is not enough for a setting whose inert value is legal.** Zero passes `create`
+  // for both combat keys and means "never screens" and "never anticipates", so a fixture that
+  // omitted either would build, load, and silently switch off the behaviour every combat case in
+  // `tactical_controller_tests.cpp` is written to observe. The weights need no such assertion:
+  // `AuthoredObjectiveWeight` has no default constructor, so omitting one is a build failure at the
+  // fixture rather than a value here.
+  const auto immediate = fixture::immediate_section();
+  const auto configured = fixture::configured_section();
+  CHECK(immediate.charge_screen_diagonal_fraction > 0.0);
+  CHECK(immediate.shield_anticipation_ticks > 0);
+  CHECK(configured.charge_screen_diagonal_fraction > 0.0);
+  CHECK(configured.shield_anticipation_ticks > 0);
 }

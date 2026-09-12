@@ -83,11 +83,15 @@ TEST_CASE("authored tactical profiles preserve values order and independent fami
 
 TEST_CASE("each authored selection setting reaches the loaded profile under the key that names it",
           "[unit][application][config][tactical]") {
-  // The four settings Step 15 authored are covered above; these six keys carry the three that a
-  // profile's *choice* of objective now reads. Equality alone would pass while two weight keys fed
-  // each other's field, so this walks the kinds and reads each weight back through the accessor a
-  // selection stage uses, and asserts the four authored values are distinct first -- against four
-  // equal weights the walk would prove nothing.
+  // The four settings Step 15 authored are covered above; these nine keys carry the five that a
+  // profile's *choice* of objective and its two combat pulses now read. Equality alone would pass
+  // while two weight keys fed each other's field, so this walks the kinds and reads each weight
+  // back through the accessor a selection stage uses, and asserts the authored values are distinct
+  // first -- against equal weights the walk would prove nothing.
+  //
+  // The two combat scalars are read back individually for the same reason and one more: both are
+  // trailing members of `Section` that a designated initializer would value-initialize to a legal
+  // zero, so an expectation that omitted either would agree with a loader that dropped it.
   TemporaryApplicationInputWorkspace workspace;
   const ApplicationConfig loaded = fixture::load(workspace, fixture::configuration());
   const auto profiles = loaded.tactical_profiles().profiles();
@@ -96,6 +100,12 @@ TEST_CASE("each authored selection setting reaches the loaded profile under the 
   CHECK(profiles[0].risk_tolerance() == fixture::kFirstProfileValues.risk_tolerance);
   CHECK(profiles[0].prediction_horizon_ticks() ==
         fixture::kFirstProfileValues.prediction_horizon_ticks);
+  CHECK(profiles[0].charge_screen_diagonal_fraction() ==
+        fixture::kFirstProfileValues.charge_screen_diagonal_fraction);
+  CHECK(profiles[0].shield_anticipation_ticks() ==
+        fixture::kFirstProfileValues.shield_anticipation_ticks);
+  CHECK(profiles[0].charge_screen_diagonal_fraction() > 0.0);
+  CHECK(profiles[0].shield_anticipation_ticks() > 0);
 
   std::vector<double> authored;
   for (std::size_t ordinal = 0; ordinal < controllers::kTacticalObjectiveKindCount; ++ordinal) {

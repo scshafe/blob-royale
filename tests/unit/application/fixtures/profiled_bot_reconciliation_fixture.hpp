@@ -34,12 +34,17 @@ declaration(const std::string_view profile = kSteady, const std::string_view kin
   return {simulation::SeatKindName::create(kind), simulation::BotProfileName::create(profile)};
 }
 
+// Two whole sections, written positionally so that a new `TacticalProfile::Section` member is
+// visible here as a missing argument rather than as a value. The five weights cannot go short --
+// `AuthoredObjectiveWeight` has no default constructor -- but the two trailing combat scalars can,
+// and a value-initialized zero is legal for both, so they are authored rather than left off.
+// Nothing in reconciliation reads them; they are here to keep this fixture a complete section.
 [[nodiscard]] inline controllers::TacticalProfileCatalogue profiles() {
   return controllers::TacticalProfileCatalogue::create(
       {controllers::TacticalProfile::create(
-           {std::string{kSteady}, 1, 80, 0.05, 400, {1.0, 1.0, 1.0, 1.0}, 0.5, 80}),
+           {std::string{kSteady}, 1, 80, 0.05, 400, {1.0, 1.0, 1.0, 1.0, 1.0}, 0.5, 80, 0.25, 8}),
        controllers::TacticalProfile::create(
-           {std::string{kQuick}, 1, 0, 0, 0, {1.0, 1.0, 1.0, 1.0}, 0.5, 0})});
+           {std::string{kQuick}, 1, 0, 0, 0, {1.0, 1.0, 1.0, 1.0, 1.0}, 0.5, 0, 0.25, 8})});
 }
 
 [[nodiscard]] inline simulation::NpcCatalogue catalogue() {

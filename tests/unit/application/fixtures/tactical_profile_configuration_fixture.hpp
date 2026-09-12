@@ -39,15 +39,20 @@ inline constexpr std::string_view kDuplicateProfileRoster =
     "tactical@porcelain_otter:1,tactical@porcelain_otter:2";
 inline constexpr std::string_view kFirstProfileHeader = "[bot_profile.porcelain_otter]";
 
-// **Every authored weight here is a distinct exact binary fraction, and the two profiles run in
-// opposite directions across the kinds.** Four equal weights, or values that only round-trip to a
-// hand-counted number of decimal places, would let a section whose keys were wired to the wrong
-// fields still compare equal, which would turn the round-trip proof in
-// `tactical_profile_configuration_tests.cpp` into a size check. The four weight keys are spelled
+// **Every authored number here is a distinct exact binary fraction, and no key holds the same
+// value in both profiles.** Equal weights, or values that only round-trip to a hand-counted number
+// of decimal places, would let a section whose keys were wired to the wrong fields still compare
+// equal, which would turn the round-trip proof in
+// `tactical_profile_configuration_tests.cpp` into a size check. The weight keys are spelled
 // out rather than built from `controllers::tactical_objective_weight_key` because these two are the
 // readable examples every other test substitutes into, and a literal section is what a reader
 // compares against `config/blob-royale.cfg`; the bound sections below are built from the names and
 // the limits instead, because those are about the limits and must follow them when they move.
+//
+// The three keys Step 22b added are authored here on the same terms: a fifth weight, a charge
+// screen distinct from every other fraction in its section -- `risk_tolerance` included, since the
+// two are both plain `[0,1]` doubles and a crossed pair would otherwise pass -- and an anticipation
+// window distinct from every other tick count in its section.
 inline constexpr std::string_view kFirstProfileSection = "\n[bot_profile.porcelain_otter]\n"
                                                          "objective_seek_probability=1\n"
                                                          "reaction_delay_ticks=80\n"
@@ -57,8 +62,11 @@ inline constexpr std::string_view kFirstProfileSection = "\n[bot_profile.porcela
                                                          "objective_weight_zone=0.5\n"
                                                          "objective_weight_race_gate=0.25\n"
                                                          "objective_weight_race_recovery=0.125\n"
+                                                         "objective_weight_shove_setup=0.0625\n"
                                                          "risk_tolerance=0.4\n"
-                                                         "prediction_horizon_ticks=64\n";
+                                                         "prediction_horizon_ticks=64\n"
+                                                         "charge_screen_diagonal_fraction=0.75\n"
+                                                         "shield_anticipation_ticks=12\n";
 inline constexpr std::string_view kSecondProfileSection = "\n[bot_profile.velvet_ibis]\n"
                                                           "objective_seek_probability=0.25\n"
                                                           "reaction_delay_ticks=23\n"
@@ -68,8 +76,11 @@ inline constexpr std::string_view kSecondProfileSection = "\n[bot_profile.velvet
                                                           "objective_weight_zone=0.25\n"
                                                           "objective_weight_race_gate=0.5\n"
                                                           "objective_weight_race_recovery=1\n"
+                                                          "objective_weight_shove_setup=0.75\n"
                                                           "risk_tolerance=0.9\n"
-                                                          "prediction_horizon_ticks=16\n";
+                                                          "prediction_horizon_ticks=16\n"
+                                                          "charge_screen_diagonal_fraction=0.375\n"
+                                                          "shield_anticipation_ticks=31\n";
 inline constexpr std::string_view kHazardSection = "\n[hazard.porcelain_otter]\n"
                                                    "radius_world_units=10\n"
                                                    "mass=1\n"
@@ -92,9 +103,10 @@ inline constexpr std::string_view kHazardSection = "\n[hazard.porcelain_otter]\n
   return std::string{buffer.data(), end};
 }
 
-// The four weight lines of one section, keyed by `controllers::tactical_objective_weight_key` and
-// walked by ordinal rather than by a written list of kinds. Nothing here spells a key, so a fifth
-// objective kind widens every section this builds and cannot leave one silently unauthored.
+// The weight lines of one section, keyed by `controllers::tactical_objective_weight_key` and
+// walked by ordinal rather than by a written list of kinds. Nothing here spells a key, so a new
+// objective kind widens every section this builds and cannot leave one silently unauthored --
+// which is how the bound sections below already carried Step 22b's fifth weight for free.
 [[nodiscard]] inline std::string
 objective_weight_lines(const controllers::TacticalObjectiveWeights& weights) {
   std::string lines;
@@ -108,56 +120,82 @@ objective_weight_lines(const controllers::TacticalObjectiveWeights& weights) {
   return lines;
 }
 
+// **Every member is named and none is omitted.** A designated initializer value-initializes the
+// members it leaves out rather than refusing to compile, and zero is a legal authored value for
+// both trailing combat settings, so an omission here would be a section that loads, validates, and
+// silently disagrees with the text above it in exactly the field the text was added to prove.
 inline const controllers::TacticalProfile::Section kFirstProfileValues{
     .profile_name = "porcelain_otter",
     .objective_seek_probability = 1,
     .reaction_delay_ticks = 80,
     .aim_error = 0.05,
     .target_persistence_ticks = 400,
-    .objective_weights = {.hill = 1.0, .zone = 0.5, .race_gate = 0.25, .race_recovery = 0.125},
+    .objective_weights = {.hill = 1.0,
+                          .zone = 0.5,
+                          .race_gate = 0.25,
+                          .race_recovery = 0.125,
+                          .shove_setup = 0.0625},
     .risk_tolerance = 0.4,
-    .prediction_horizon_ticks = 64};
+    .prediction_horizon_ticks = 64,
+    .charge_screen_diagonal_fraction = 0.75,
+    .shield_anticipation_ticks = 12};
 inline const controllers::TacticalProfile::Section kSecondProfileValues{
     .profile_name = "velvet_ibis",
     .objective_seek_probability = 0.25,
     .reaction_delay_ticks = 23,
     .aim_error = 0.125,
     .target_persistence_ticks = 71,
-    .objective_weights = {.hill = 0.125, .zone = 0.25, .race_gate = 0.5, .race_recovery = 1.0},
+    .objective_weights =
+        {.hill = 0.125, .zone = 0.25, .race_gate = 0.5, .race_recovery = 1.0, .shove_setup = 0.75},
     .risk_tolerance = 0.9,
-    .prediction_horizon_ticks = 16};
+    .prediction_horizon_ticks = 16,
+    .charge_screen_diagonal_fraction = 0.375,
+    .shield_anticipation_ticks = 31};
 
 // The two bound sections are written from the named limits rather than from copied numerals, so
 // the "accepts exact inclusive bounds without clamping" case keeps testing the bound after a limit
 // moves instead of quietly testing an interior value.
 //
-// **The minimum section cannot author four zero weights**, because that combination is refused by
-// `TacticalProfile::create` as an omission rather than a personality
+// **The minimum section cannot author every weight at zero**, because that combination is refused
+// by `TacticalProfile::create` as a set that expresses nothing
 // (`CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHTS_DEGENERATE`, exercised by its own domain-failure
-// case below). One weight therefore sits at its maximum while the other three sit at the inclusive
+// case below). One weight therefore sits at its maximum while the rest sit at the inclusive
 // zero this case exists to prove is accepted rather than clamped away.
+//
+// **The two combat settings pull in opposite directions here, and the minimum section is the
+// permissive one.** A zero `charge_screen_diagonal_fraction` is a screen that examines nothing and
+// so refuses nothing, while its maximum is the strictest screen a profile can author; a zero
+// `shield_anticipation_ticks` anticipates nothing at all. Both zeros are real authored answers,
+// which is why they belong in the section that proves the inclusive low end is accepted.
 inline const controllers::TacticalObjectiveWeights kMinimumObjectiveWeights{
     .hill = controllers::kMaximumTacticalObjectiveWeight,
     .zone = 0.0,
     .race_gate = 0.0,
-    .race_recovery = 0.0};
+    .race_recovery = 0.0,
+    .shove_setup = 0.0};
 inline const controllers::TacticalObjectiveWeights kMaximumObjectiveWeights{
     .hill = controllers::kMaximumTacticalObjectiveWeight,
     .zone = controllers::kMaximumTacticalObjectiveWeight,
     .race_gate = controllers::kMaximumTacticalObjectiveWeight,
-    .race_recovery = controllers::kMaximumTacticalObjectiveWeight};
+    .race_recovery = controllers::kMaximumTacticalObjectiveWeight,
+    .shove_setup = controllers::kMaximumTacticalObjectiveWeight};
 inline const std::string kMinimumProfileSection =
     std::string{"\n[bot_profile.porcelain_otter]\nobjective_seek_probability=0\n"
                 "reaction_delay_ticks=0\naim_error=0\ntarget_persistence_ticks=0\n"} +
     objective_weight_lines(kMinimumObjectiveWeights) + "risk_tolerance=0\n" +
-    "prediction_horizon_ticks=0\n";
+    "prediction_horizon_ticks=0\n" + "charge_screen_diagonal_fraction=0\n" +
+    "shield_anticipation_ticks=0\n";
 inline const std::string kMaximumProfileSection =
     std::string{"\n[bot_profile.porcelain_otter]\nobjective_seek_probability=1\n"
                 "reaction_delay_ticks=4000\naim_error=0.25\ntarget_persistence_ticks=4000\n"} +
     objective_weight_lines(kMaximumObjectiveWeights) +
     "risk_tolerance=" + authored_decimal(controllers::kMaximumTacticalRiskTolerance) + "\n" +
     "prediction_horizon_ticks=" +
-    std::to_string(controllers::kMaximumTacticalPredictionHorizonTicks) + "\n";
+    std::to_string(controllers::kMaximumTacticalPredictionHorizonTicks) + "\n" +
+    "charge_screen_diagonal_fraction=" +
+    authored_decimal(controllers::kMaximumTacticalChargeScreenDiagonalFraction) + "\n" +
+    "shield_anticipation_ticks=" +
+    std::to_string(controllers::kMaximumTacticalShieldAnticipationTicks) + "\n";
 inline const controllers::TacticalProfile::Section kMinimumProfileValues{
     .profile_name = "porcelain_otter",
     .objective_seek_probability = 0,
@@ -166,7 +204,9 @@ inline const controllers::TacticalProfile::Section kMinimumProfileValues{
     .target_persistence_ticks = 0,
     .objective_weights = kMinimumObjectiveWeights,
     .risk_tolerance = 0,
-    .prediction_horizon_ticks = 0};
+    .prediction_horizon_ticks = 0,
+    .charge_screen_diagonal_fraction = 0,
+    .shield_anticipation_ticks = 0};
 inline const controllers::TacticalProfile::Section kMaximumProfileValues{
     .profile_name = "porcelain_otter",
     .objective_seek_probability = 1,
@@ -175,7 +215,9 @@ inline const controllers::TacticalProfile::Section kMaximumProfileValues{
     .target_persistence_ticks = 4000,
     .objective_weights = kMaximumObjectiveWeights,
     .risk_tolerance = controllers::kMaximumTacticalRiskTolerance,
-    .prediction_horizon_ticks = controllers::kMaximumTacticalPredictionHorizonTicks};
+    .prediction_horizon_ticks = controllers::kMaximumTacticalPredictionHorizonTicks,
+    .charge_screen_diagonal_fraction = controllers::kMaximumTacticalChargeScreenDiagonalFraction,
+    .shield_anticipation_ticks = controllers::kMaximumTacticalShieldAnticipationTicks};
 
 struct RequiredField final {
   std::string_view line;
@@ -195,9 +237,15 @@ inline constexpr std::array kRequiredFields{
                   "bot_profile.porcelain_otter.objective_weight_race_gate"},
     RequiredField{"objective_weight_race_recovery=0.125\n",
                   "bot_profile.porcelain_otter.objective_weight_race_recovery"},
+    RequiredField{"objective_weight_shove_setup=0.0625\n",
+                  "bot_profile.porcelain_otter.objective_weight_shove_setup"},
     RequiredField{"risk_tolerance=0.4\n", "bot_profile.porcelain_otter.risk_tolerance"},
     RequiredField{"prediction_horizon_ticks=64\n",
-                  "bot_profile.porcelain_otter.prediction_horizon_ticks"}};
+                  "bot_profile.porcelain_otter.prediction_horizon_ticks"},
+    RequiredField{"charge_screen_diagonal_fraction=0.75\n",
+                  "bot_profile.porcelain_otter.charge_screen_diagonal_fraction"},
+    RequiredField{"shield_anticipation_ticks=12\n",
+                  "bot_profile.porcelain_otter.shield_anticipation_ticks"}};
 
 struct ParserFailure final {
   std::string_view original;
@@ -243,8 +291,8 @@ inline constexpr std::array kParserFailures{
                   ApplicationInputErrorCode::kConfigurationValueInvalid},
     ParserFailure{"target_persistence_ticks=400", "target_persistence_ticks=18446744073709551616",
                   ApplicationInputErrorCode::kConfigurationValueOutOfRange},
-    // The six selection keys answer to the same closed-schema rules the four above do. The
-    // unknown-key cases are the near-misses an author actually types -- a pluralised kind, a
+    // The nine selection and combat keys answer to the same closed-schema rules the four above do.
+    // The unknown-key cases are the near-misses an author actually types -- a pluralised kind, a
     // misspelled tolerance, a horizon in the wrong unit -- because a key that is almost right is
     // the one a laxer parser would silently ignore, leaving that setting at whatever an aggregate
     // initializer had zeroed it to.
@@ -276,6 +324,28 @@ inline constexpr std::array kParserFailures{
     ParserFailure{"prediction_horizon_ticks=64", "prediction_horizon_ticks=6e1",
                   ApplicationInputErrorCode::kConfigurationValueInvalid},
     ParserFailure{"prediction_horizon_ticks=64", "prediction_horizon_ticks=18446744073709551616",
+                  ApplicationInputErrorCode::kConfigurationValueOutOfRange},
+    // Step 22b's three, on the same terms. The two near-misses are the ones ADR 0008's concepts
+    // invite: `aggression` above is the concept that has no key at all, and these are the two that
+    // do have keys but not under the names a reader of the ADR would reach for -- a bare
+    // `charge_screen` in unstated units, and a shield window spelled as the timing *error* the ADR
+    // originally named. Both must be refused by name rather than ignored.
+    ParserFailure{"objective_weight_shove_setup=0.0625", "objective_weight_shove=0.0625",
+                  ApplicationInputErrorCode::kConfigurationKeyUnknown},
+    ParserFailure{"charge_screen_diagonal_fraction=0.75", "charge_screen=0.75",
+                  ApplicationInputErrorCode::kConfigurationKeyUnknown},
+    ParserFailure{"shield_anticipation_ticks=12", "shield_timing_error=12",
+                  ApplicationInputErrorCode::kConfigurationKeyUnknown},
+    ParserFailure{"charge_screen_diagonal_fraction=0.75",
+                  "charge_screen_diagonal_fraction=0.75\ncharge_screen_diagonal_fraction=0.25",
+                  ApplicationInputErrorCode::kConfigurationKeyDuplicate},
+    ParserFailure{"charge_screen_diagonal_fraction=0.75", "charge_screen_diagonal_fraction=",
+                  ApplicationInputErrorCode::kConfigurationValueInvalid},
+    ParserFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=1.2",
+                  ApplicationInputErrorCode::kConfigurationValueInvalid},
+    ParserFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=-1",
+                  ApplicationInputErrorCode::kConfigurationValueInvalid},
+    ParserFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=18446744073709551616",
                   ApplicationInputErrorCode::kConfigurationValueOutOfRange}};
 
 struct DomainFailure final {
@@ -318,8 +388,8 @@ inline constexpr std::array kDomainFailures{
     // **One rejection per new key, each perturbing exactly that key**, so the case proves both the
     // code and the `<family>.<instance>.<key>` context the domain reports it under -- which is the
     // half a "does it throw" assertion misses and the half an author reading a startup failure
-    // actually needs. The four weights take one failure mode each: below the range, above it, and
-    // both non-finite spellings.
+    // actually needs. The five weights take one failure mode each, which is exactly the five a
+    // finite `[0,1]` bound has: below the range, above it, and the three non-finite spellings.
     DomainFailure{"objective_weight_hill=1", "objective_weight_hill=-0.01",
                   controllers::ControllersValidationCode::kTacticalProfileObjectiveWeightInvalid,
                   "bot_profile.porcelain_otter.objective_weight_hill"},
@@ -332,13 +402,20 @@ inline constexpr std::array kDomainFailures{
     DomainFailure{"objective_weight_race_recovery=0.125", "objective_weight_race_recovery=inf",
                   controllers::ControllersValidationCode::kTacticalProfileObjectiveWeightInvalid,
                   "bot_profile.porcelain_otter.objective_weight_race_recovery"},
-    // Four individually legal zeros, refused as a combination. The context names the section
-    // because no single key is at fault, which is the one rejection in this list that does.
+    DomainFailure{"objective_weight_shove_setup=0.0625", "objective_weight_shove_setup=-inf",
+                  controllers::ControllersValidationCode::kTacticalProfileObjectiveWeightInvalid,
+                  "bot_profile.porcelain_otter.objective_weight_shove_setup"},
+    // Five individually legal zeros, refused as a combination. The context names the section
+    // because no single key is at fault, which is the one rejection in this list that does. The
+    // fifth line is not optional: leave `objective_weight_shove_setup` positive and the set still
+    // expresses a preference, so this case would stop reaching the rule it is named for.
     DomainFailure{
         "objective_weight_hill=1\nobjective_weight_zone=0.5\n"
-        "objective_weight_race_gate=0.25\nobjective_weight_race_recovery=0.125",
+        "objective_weight_race_gate=0.25\nobjective_weight_race_recovery=0.125\n"
+        "objective_weight_shove_setup=0.0625",
         "objective_weight_hill=0\nobjective_weight_zone=0\n"
-        "objective_weight_race_gate=0\nobjective_weight_race_recovery=0",
+        "objective_weight_race_gate=0\nobjective_weight_race_recovery=0\n"
+        "objective_weight_shove_setup=0",
         controllers::ControllersValidationCode::kTacticalProfileObjectiveWeightsDegenerate,
         "bot_profile.porcelain_otter"},
     DomainFailure{"risk_tolerance=0.4", "risk_tolerance=-0.01",
@@ -360,7 +437,22 @@ inline constexpr std::array kDomainFailures{
                   "bot_profile.porcelain_otter.prediction_horizon_ticks"},
     DomainFailure{"prediction_horizon_ticks=64", "prediction_horizon_ticks=18446744073709551615",
                   controllers::ControllersValidationCode::kTacticalProfilePredictionHorizonInvalid,
-                  "bot_profile.porcelain_otter.prediction_horizon_ticks"}};
+                  "bot_profile.porcelain_otter.prediction_horizon_ticks"},
+    // The charge screen is a finite fraction, so it fails the way the weights do; the anticipation
+    // window is a tick count, so it fails the way the horizon does -- one past the bound, and the
+    // whole unsigned range the parser accepts lexically.
+    DomainFailure{"charge_screen_diagonal_fraction=0.75", "charge_screen_diagonal_fraction=1.01",
+                  controllers::ControllersValidationCode::kTacticalProfileChargeScreenInvalid,
+                  "bot_profile.porcelain_otter.charge_screen_diagonal_fraction"},
+    DomainFailure{"charge_screen_diagonal_fraction=0.75", "charge_screen_diagonal_fraction=nan",
+                  controllers::ControllersValidationCode::kTacticalProfileChargeScreenInvalid,
+                  "bot_profile.porcelain_otter.charge_screen_diagonal_fraction"},
+    DomainFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=41",
+                  controllers::ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid,
+                  "bot_profile.porcelain_otter.shield_anticipation_ticks"},
+    DomainFailure{"shield_anticipation_ticks=12", "shield_anticipation_ticks=18446744073709551615",
+                  controllers::ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid,
+                  "bot_profile.porcelain_otter.shield_anticipation_ticks"}};
 
 struct SelectionFailure final {
   std::string_view roster;

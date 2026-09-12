@@ -43,7 +43,7 @@ Zero instances is legal and is what every configuration in this tree looked like
 instance-name *grammar* belongs to the value that publishes the name, exactly as `[match] mode` does:
 the loader refuses only an empty instance name, and `HazardArchetype::create` refuses one outside
 `common.schema.json#/$defs/kind_name`. Tactical profiles are the second customer:
-`[bot_profile.<name>]` uses the same parser, with ten required controller-owned values.
+`[bot_profile.<name>]` uses the same parser, with thirteen required controller-owned values.
 
 `TacticalProfileCatalogue` retains up to 16 unique profiles in declaration order. Step 15 required
 four keys: `objective_seek_probability` (finite 0..1), `reaction_delay_ticks` (integer 0..4000),
@@ -72,20 +72,58 @@ six.** Those files are `config/blob-royale.cfg`;
 `frontend-react/e2e/fixtures/blob-royale-browser-e2e-tactical-movement.cfg` and
 `...-tactical-profiles.cfg`;
 `tests/unit/application/fixtures/tactical_profile_configuration_fixture.hpp`;
-and three of the four fuzz seeds — `tests/fuzz/corpus/application/valid-tactical-profile.cfg`,
-`rejected-tactical-profile-missing-key.cfg`, `rejected-tactical-profile-probability.cfg` and
-`rejected-tactical-profile-unknown-roster.cfg`. Each `rejected-*` seed keeps the reason its name
-states. The fourth, `rejected-tactical-profile-inert-combat.cfg`, was **deliberately not migrated**:
-it authors `aggression=1` to enforce ADR 0008's rule that no inert aggression, charge or shield
-setting is accepted before its behaviour exists, and it still fails for exactly that reason, because
-the parser refuses an unknown key at the line carrying it, before the missing-key sweep runs at the
-end of the document. Leaving it pointed at `aggression` is what keeps it testing what it names.
+and all five fuzz seeds under `tests/fuzz/corpus/application/` — `valid-tactical-profile.cfg`,
+`rejected-tactical-profile-missing-key.cfg`, `-probability.cfg`, `-unknown-roster.cfg` and
+`-inert-combat.cfg`. Each `rejected-*` seed keeps the reason its name states, the inert-combat one
+included: it was migrated with the rest and still fails on its `aggression=1` line, because the
+parser refuses an unknown key at the line carrying it, before the missing-key sweep runs at the end
+of the document. An earlier revision of this file said that seed had been **deliberately not
+migrated**. The mechanism was right and the fact was wrong — `git show 5b400cd` adds six lines to
+it — and the mechanism is what makes the fact harmless: an unknown key is refused where it sits, so
+migrating the seed cannot move which rule it tests.
 
-No implicit profile or inactive combat setting is accepted. Domain validation adds four rejections:
-`CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHT_INVALID`, `..._RISK_TOLERANCE_INVALID` and
-`..._PREDICTION_HORIZON_INVALID` name the failed key, while `..._OBJECTIVE_WEIGHTS_DEGENERATE` names
-the section — it rejects all four weights at zero, the one combination whose every value is legal
-alone but which is indistinguishable from an unauthored one and which makes selection inexpressive.
+**The seed is not an executable guard at all, and that is the more useful correction.**
+`verify-fuzz-regressions` replays each corpus member and asserts only that the target does not
+crash, while `tests/fuzz/application_config_fuzzer.cpp` catches every typed loader error —
+`ApplicationInputError`, `ServerConfigValidationError`, `SimulationValidationError`,
+`GameplayValidationError`, `ControllersValidationError` — and returns zero. A seed that stopped
+being rejected and started being *accepted* would still pass. What actually holds ADR 0008's rule
+that no inert combat setting is accepted before its behaviour exists is a unit-test row: the
+`ParserFailure{"aim_error=0.05", "aggression=0.05", kConfigurationKeyUnknown}` entry in
+`tests/unit/application/fixtures/tactical_profile_configuration_fixture.hpp`, which asserts the key
+is refused *by name*. The seed is corpus coverage of the same path and is worth keeping as that,
+which is all it ever was.
+
+**Step 22b adds three more keys, carrying three settings, and the closed family made it the same
+migration again over the same authored sections.** They are `objective_weight_shove_setup`
+(finite 0..1), the fifth `controllers::TacticalObjectiveKind` weight, forced into existence by the
+shove objective and spelled through `controllers::tactical_objective_weight_key` like the other
+four; `charge_screen_diagonal_fraction` (finite 0..1), the charge screen's ray length as a fraction
+of the *observed arena diagonal* and never in world units, so one authored number means the same
+thing on a 960-unit fixture map and on a ten-kilometre one, where an absolute scalar would mean two
+orders of magnitude of different things across the configurations already in this tree; and
+`shield_anticipation_ticks` (integer 0..40 — 100 ms of committed time, the shortest tick bound this
+family authors). Each is read by behaviour landing in the same commit, which is ADR 0008's legality
+test for a profile key, and each appends rather than interleaves.
+
+**There is deliberately no `aggression` key**, so both pinned rejections above stay verbatim: the
+`aggression=0.05` `ParserFailure` row and the inert-combat seed's `aggression=1` line.
+ADR 0008 lists aggression as a *concept* a profile configures, not a key name, and the concept is
+already spent: its preference half **is** `objective_weight_shove_setup` under the one-key-per-kind
+rule, and its danger-appetite half is exactly what `risk_tolerance`'s one-signed bound was built to
+forbid. Two authored numbers fighting over one term of the utility score is the defect that bound
+exists to prevent.
+
+No implicit profile or inactive combat setting is accepted. Domain validation adds six rejections:
+`CONTROLLERS.TACTICAL_PROFILE_OBJECTIVE_WEIGHT_INVALID`, `..._RISK_TOLERANCE_INVALID`,
+`..._PREDICTION_HORIZON_INVALID`, `..._CHARGE_SCREEN_INVALID` and `..._SHIELD_ANTICIPATION_INVALID`
+name the failed key, while `..._OBJECTIVE_WEIGHTS_DEGENERATE` names the section — it rejects all
+five weights at zero, the one combination whose every value is legal alone but which makes selection
+inexpressive, collapsing every score onto the stable kind ordinal. That rule no longer has to double
+as a guard against a C++ construction site that omitted a weight:
+`controllers::TacticalObjectiveWeights` now holds `AuthoredObjectiveWeight` members with no default
+constructor, so an omission is a build failure at the site that made it rather than a zero this
+parser cannot see.
 Roster terms are `tactical@<profile>:<count>`; plain `kind:count` keeps its meaning. Profiled
 choices are supported in hill, race, and royale, but rejected at Sandbox startup because that mode
 has no stable authored-seat identity.
@@ -93,7 +131,11 @@ has no stable authored-seat identity.
 The composition root derives one `NpcCatalogue` from registry metadata and these validated profile
 values. The same value supplies runtime admission and the session's plain/profile projections.
 Missing, unknown, and mismatched selections fail before a bot is constructed. Profile values stay
-server-side; the browser names a published choice rather than sending numeric settings.
+server-side; the browser names a published choice rather than sending numeric settings. Step 22b
+gives a profiled bot two more command kinds — `Controller::request_shield` and `request_charge` —
+and composes no second admission path for them: both reach the room's one `CommandSink` and the
+shared `ability` system exactly as a session's do, and the roster, seat and reconciliation rules
+above are unchanged by their existence.
 
 Map authoring uses the same section-family convention in `MapLoader`'s private strict INI reader.
 Every `map.cfg` must declare `[terrain] ground=solid` or `ground=corridors`; an older file with no

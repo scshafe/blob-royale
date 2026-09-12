@@ -199,8 +199,8 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
 // naming the section it came from. Two copies of that grammar in one library would be the second
 // source of truth this concept exists to avoid.
 //
-// `[bot_profile.steady]` uses the same seam: its ten keys are closed, while names are authored in
-// configuration alone. Each domain validates its own collected values after this strict parse.
+// `[bot_profile.steady]` uses the same seam: its thirteen keys are closed, while names are authored
+// in configuration alone. Each domain validates its own collected values after this strict parse.
 enum class ConfigSectionFamily : std::size_t {
   kHazard,
   kBotProfile,
@@ -226,8 +226,11 @@ enum class ConfigFamilyField : std::size_t {
   kBotProfileObjectiveWeightZone,
   kBotProfileObjectiveWeightRaceGate,
   kBotProfileObjectiveWeightRaceRecovery,
+  kBotProfileObjectiveWeightShoveSetup,
   kBotProfileRiskTolerance,
   kBotProfilePredictionHorizonTicks,
+  kBotProfileChargeScreenDiagonalFraction,
+  kBotProfileShieldAnticipationTicks,
   kCount,
 };
 
@@ -257,7 +260,7 @@ constexpr char kConfigSectionFamilySeparator = '.';
 // `kMaximumBotRosterEntryCount` applies to the roster line.
 constexpr std::size_t kMaximumConfigSectionFamilyInstanceCount = 64;
 
-// **The four objective-weight keys spell their names nowhere.** They are the one place this file's
+// **The five objective-weight keys spell their names nowhere.** They are the one place this file's
 // closed key schema meets a closed enumeration another library owns, and a copied spelling here
 // would be a second source of truth for a key: `controllers::tactical_objective_weight_key` is the
 // single name of each, read by this list, by the domain's own rejection diagnostics, and by the
@@ -290,8 +293,12 @@ constexpr std::array<ConfigFamilyFieldSpec, static_cast<std::size_t>(ConfigFamil
                                                 controllers::TacticalObjectiveKind::kRaceGate)},
          {ConfigSectionFamily::kBotProfile, controllers::tactical_objective_weight_key(
                                                 controllers::TacticalObjectiveKind::kRaceRecovery)},
+         {ConfigSectionFamily::kBotProfile, controllers::tactical_objective_weight_key(
+                                                controllers::TacticalObjectiveKind::kShoveSetup)},
          {ConfigSectionFamily::kBotProfile, "risk_tolerance"},
-         {ConfigSectionFamily::kBotProfile, "prediction_horizon_ticks"}}};
+         {ConfigSectionFamily::kBotProfile, "prediction_horizon_ticks"},
+         {ConfigSectionFamily::kBotProfile, "charge_screen_diagonal_fraction"},
+         {ConfigSectionFamily::kBotProfile, "shield_anticipation_ticks"}}};
 
 // One declared `[<family>.<instance>]` section: its family, its open name, and one slot per key of
 // the closed schema. The slots a sibling family owns stay empty, which costs a startup-only parse
@@ -794,11 +801,17 @@ parse_tactical_profiles(const StrictIniDocument& document) {
                 .race_gate = parse_double_family_value(
                     instance, ConfigFamilyField::kBotProfileObjectiveWeightRaceGate),
                 .race_recovery = parse_double_family_value(
-                    instance, ConfigFamilyField::kBotProfileObjectiveWeightRaceRecovery)},
+                    instance, ConfigFamilyField::kBotProfileObjectiveWeightRaceRecovery),
+                .shove_setup = parse_double_family_value(
+                    instance, ConfigFamilyField::kBotProfileObjectiveWeightShoveSetup)},
         .risk_tolerance =
             parse_double_family_value(instance, ConfigFamilyField::kBotProfileRiskTolerance),
         .prediction_horizon_ticks = parse_unsigned_family_value(
-            instance, ConfigFamilyField::kBotProfilePredictionHorizonTicks)}));
+            instance, ConfigFamilyField::kBotProfilePredictionHorizonTicks),
+        .charge_screen_diagonal_fraction = parse_double_family_value(
+            instance, ConfigFamilyField::kBotProfileChargeScreenDiagonalFraction),
+        .shield_anticipation_ticks = parse_unsigned_family_value(
+            instance, ConfigFamilyField::kBotProfileShieldAnticipationTicks)}));
   }
   return controllers::TacticalProfileCatalogue::create(std::move(profiles));
 }

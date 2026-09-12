@@ -60,6 +60,8 @@ enum class ControllersValidationCode {
   kTacticalProfileObjectiveWeightsDegenerate,
   kTacticalProfileRiskToleranceInvalid,
   kTacticalProfilePredictionHorizonInvalid,
+  kTacticalProfileChargeScreenInvalid,
+  kTacticalProfileShieldAnticipationInvalid,
   kTacticalProfileCatalogueFull,
   kTacticalProfileNameDuplicate,
   kControllerCreationContextInvalid,
@@ -121,6 +123,10 @@ controllers_validation_code_name(const ControllersValidationCode code) noexcept 
     return "CONTROLLERS.TACTICAL_PROFILE_RISK_TOLERANCE_INVALID";
   case ControllersValidationCode::kTacticalProfilePredictionHorizonInvalid:
     return "CONTROLLERS.TACTICAL_PROFILE_PREDICTION_HORIZON_INVALID";
+  case ControllersValidationCode::kTacticalProfileChargeScreenInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_CHARGE_SCREEN_INVALID";
+  case ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid:
+    return "CONTROLLERS.TACTICAL_PROFILE_SHIELD_ANTICIPATION_INVALID";
   case ControllersValidationCode::kTacticalProfileCatalogueFull:
     return "CONTROLLERS.TACTICAL_PROFILE_CATALOGUE_FULL";
   case ControllersValidationCode::kTacticalProfileNameDuplicate:

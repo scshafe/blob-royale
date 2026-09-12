@@ -39,7 +39,7 @@ TacticalProfile TacticalProfile::create(const Section& section) {
                                      context + "target_persistence_ticks",
                                      "target persistence must be an integer in [0,4000]");
   }
-  // Ordinal order *is* declared key order: the four weight keys are declared in
+  // Ordinal order *is* declared key order: the five weight keys are declared in
   // `TacticalObjectiveKind` order in `kConfigFamilyFieldSpecs`, which is the same stable ordinal
   // the candidate tie-break already uses, so no reader keeps a second ordering and a section with
   // two bad weights blames the same one at every layer. Walking ordinals rather than a written list
@@ -57,15 +57,22 @@ TacticalProfile TacticalProfile::create(const Section& section) {
     }
     weighted = weighted || weight > 0.0;
   }
-  // **Every weight at zero is an omission, not a personality.** Each zero is individually legal --
-  // "this profile does not care about that objective" -- but all four together is the one authored
-  // value indistinguishable from a caller left behind by this setting, because C++ fills an omitted
-  // aggregate initializer with zeros rather than refusing to compile, and the parser cannot catch
-  // that: it only sees the keys a `.cfg` did or did not write. It is also the only weight set that
-  // makes selection inexpressive -- with no positive term every candidate scores alike and the
-  // choice collapses onto the stable kind ordinal, which is a bot deciding by tie-break. A profile
-  // that genuinely has no preference authors equal *positive* weights and keeps distance ordering.
-  // The context names the section rather than a key, because no single key is at fault.
+  // **Every weight at zero expresses nothing, so it is refused.** Each zero is individually legal
+  // -- "this profile does not care about that objective" -- but all five together is the one
+  // authored set that makes selection inexpressive: with no positive term every candidate scores
+  // alike and the choice collapses onto the stable kind ordinal, which is a bot deciding by
+  // tie-break. A profile that genuinely has no preference authors equal *positive* weights and
+  // keeps distance ordering. The context names the section rather than a key, because no single
+  // key is at fault.
+  //
+  // **What this rejection no longer has to catch is a C++ caller left behind.** It used to be the
+  // only thing between a construction site that omitted a weight and a bot that silently ignored an
+  // objective, and it was never equal to that job: it fires only when *every* weight is zero, so an
+  // omission sitting beside four authored numbers passed straight through it. That hole is closed
+  // one layer up and at the site itself, by `AuthoredObjectiveWeight` having no default constructor
+  // (`tactical_profile.hpp`), which is why this rule may now be read as what it always should have
+  // been alone -- a domain rule about an authored section, the only remaining way five zeros
+  // arrive.
   if (!weighted) {
     throw ControllersValidationError(
         ControllersValidationCode::kTacticalProfileObjectiveWeightsDegenerate,
@@ -82,6 +89,18 @@ TacticalProfile TacticalProfile::create(const Section& section) {
         ControllersValidationCode::kTacticalProfilePredictionHorizonInvalid,
         context + "prediction_horizon_ticks", "prediction horizon must be an integer in [0,400]");
   }
+  if (!std::isfinite(section.charge_screen_diagonal_fraction) ||
+      section.charge_screen_diagonal_fraction < 0.0 ||
+      section.charge_screen_diagonal_fraction > kMaximumTacticalChargeScreenDiagonalFraction) {
+    throw ControllersValidationError(ControllersValidationCode::kTacticalProfileChargeScreenInvalid,
+                                     context + "charge_screen_diagonal_fraction",
+                                     "charge screen must be finite in [0,1]");
+  }
+  if (section.shield_anticipation_ticks > kMaximumTacticalShieldAnticipationTicks) {
+    throw ControllersValidationError(
+        ControllersValidationCode::kTacticalProfileShieldAnticipationInvalid,
+        context + "shield_anticipation_ticks", "shield anticipation must be an integer in [0,40]");
+  }
   return TacticalProfile(simulation::BotProfileName::create(section.profile_name), section);
 }
 
@@ -90,6 +109,8 @@ TacticalProfile::TacticalProfile(simulation::BotProfileName name, const Section&
       reaction_delay_ticks_(section.reaction_delay_ticks), aim_error_(section.aim_error),
       target_persistence_ticks_(section.target_persistence_ticks),
       objective_weights_(section.objective_weights), risk_tolerance_(section.risk_tolerance),
-      prediction_horizon_ticks_(section.prediction_horizon_ticks) {}
+      prediction_horizon_ticks_(section.prediction_horizon_ticks),
+      charge_screen_diagonal_fraction_(section.charge_screen_diagonal_fraction),
+      shield_anticipation_ticks_(section.shield_anticipation_ticks) {}
 
 } // namespace blob_royale::controllers

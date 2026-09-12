@@ -1718,3 +1718,65 @@ one does not take.
 This records the boundary, not an implementation. Step 22a builds the decision pipeline from
 published state; Step 22b builds the combat behaviours under this decision. Neither publishes a new
 wire field, adds a kernel seam, or gives a controller a gameplay dependency.
+
+## Amendment: shoving and the combat abilities, 2026-09-12 (plan Step 22b)
+
+Step 22b builds the combat half under § "Owner decision: authored caution for bot combat". This
+entry records where the settings this document named turned out to be the wrong shape, and corrects
+one sentence in that decision that is not true.
+
+**"Aggression" and "charge appetite" are not keys.** § "Tactical personalities without a class per
+mood" lists nine settings a profile configures. Two of them do not survive contact with Step 22a's
+one-key-per-kind rule. Aggression's preference half **is** `objective_weight_shove_setup`, the
+fifth objective weight that the new `kShoveSetup` kind forces into existence; a second scalar beside
+it would be two authored numbers steering one ranking. Aggression's other half, an appetite for
+danger, is precisely what `risk_tolerance` was built one-signed to forbid — that constant's own
+argument says no value of it may add score to a dangerous candidate "because a knob that did would
+be Step 22b's aggression". Two knobs fighting over one term of the score is the defect that rule
+exists to prevent. Charge appetite likewise becomes `charge_screen_diagonal_fraction`, inverted: a
+profile authoring a short screen charges more often. Both concepts survive; neither is a key of its
+own, and the list above should be read as naming what a profile configures rather than how it spells
+it.
+
+**"Shield timing error" is replaced by an anticipation window in ticks.** A timing error presumes a
+window to be early or late against, and the owner decision is that the bot has no window to aim at.
+What it authors instead is a lead. Note what that changes about this document's own promise that a
+bot's "shield will often be early or late": a window is a one-signed lead, so the lateness now comes
+entirely from the unobservable one-to-twenty-one-tick activation jitter, not from a signed key.
+
+**The perfect opening's length is derivable, and the sentence saying otherwise is wrong.** §
+"Owner decision" states that the length "is never published — only the endpoints of a shield that
+already exists." The endpoints *are* the length: every `Shield` value is published verbatim, because
+there is no `ComponentPublication<Shield>` specialization, so `perfect_expiry_tick - activation_tick`
+is observable the moment anyone in the room raises a shield. What is genuinely unpublished is the
+length *before* any shield exists. The derivation is symmetric — a browser reads the same field — so
+no boundary weakens and the decision stands unchanged; but the step's shield reasoning rests on that
+sentence and it should not rest on a false one.
+
+**The shield decision is named as prediction, not as authored caution.** This document already
+authorises it: "Perfect-shield anticipation uses visible trajectories plus profile reaction/error,
+not a collision callback available only to bots." The owner's line is drawn at unpublished physics,
+not at arithmetic over published state, and the decision says a profile's combat *numbers* are
+authored caution. The number is the window; the closing test is a bounded linear extrapolation of
+published position and velocity, carrying no drag term because `drag_per_second` is unpublished, and
+therefore biased early wherever drag is nonzero. Calling that extrapolation "authored caution" would
+be exactly the dressing-up § "Owner decision" forbids, so the code names it prediction and states
+the bias.
+
+**Two limits recorded rather than repaired.** A hosted bot pays no command-rate cost: the
+per-session token bucket lives on the WebSocket session, and a bot reaches the mailbox without
+entering the server library, so traffic a human would be disconnected for costs a bot nothing. The
+kind mask is symmetric; only rate is not. That is defensible as a denial-of-service control on an
+untrusted socket rather than a gameplay rule, and the honest response is not a second rate authority
+but a controller that emits at most one ability per decision pass. Separately, abilities sit behind
+the same reaction gate as everything else — which this document requires, in "plus profile
+reaction/error" — so at the shipped profile's reaction delay roughly four passes in five decide
+nothing, and a defensive shield is derated accordingly. Neither is tuned away here.
+
+**The named personalities move to Step 22c.** Three of the four need shared mechanism rather than
+numbers: Keeper's "brake relative to its motion" is a steering law the pipeline has no primitive
+for, Opportunist's "prefer distracted/exposed targets" needs a per-candidate quality and a score
+term for one, and Cautious Racer's "avoid expensive fights" needs a zero weight to veto rather than
+to score zero. None is a profile value, so none could ship as one. When they land, this document
+owes Opportunist's clause a correction too: "distracted" is not observable from published state,
+while "exposed" — an active stun, a shield on cooldown, a spent charge, zone exposure — is.

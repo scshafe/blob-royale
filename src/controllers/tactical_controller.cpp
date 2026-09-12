@@ -1,6 +1,8 @@
 #include "tactical_controller.hpp"
 
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
+#include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
 #include "controller_observation_queries.hpp"
 #include "controller_steering.hpp"
@@ -33,9 +35,47 @@ namespace {
       profile.objective_weight(TacticalObjectiveKind::kRaceGate);
   policy.objective_weights[tactical_objective_kind_ordinal(TacticalObjectiveKind::kRaceRecovery)] =
       profile.objective_weight(TacticalObjectiveKind::kRaceRecovery);
+  policy.objective_weights[tactical_objective_kind_ordinal(TacticalObjectiveKind::kShoveSetup)] =
+      profile.objective_weight(TacticalObjectiveKind::kShoveSetup);
   policy.risk_tolerance = profile.risk_tolerance();
   policy.prediction_horizon_ticks = profile.prediction_horizon_ticks();
+  policy.charge_screen_diagonal_fraction = profile.charge_screen_diagonal_fraction();
+  policy.shield_anticipation_ticks = profile.shield_anticipation_ticks();
   return policy;
+}
+
+// canonical: tactical_visible_ability_refusal -- this bot's own published ability windows, read in
+// the order `AbilitySystem` reads them.
+//
+// Not a correctness gate: a pulse the tick refuses consumes no cooldown, queues nothing and throws
+// nothing, so nothing breaks if these are wrong. They exist because a bot pays none of the rate
+// cost a human's socket pays, and declining a pulse it can already see will be refused is what
+// keeps that asymmetry from reading as an advantage.
+//
+// A shield is refused by its own protection -- one activation cannot be raised twice -- and by its
+// own cooldown, and admission requires both, which is exactly why an expired-protection `Shield`
+// with a live cooldown is still published rather than swept.
+[[nodiscard]] bool shield_pulse_refused(const simulation::WorldSnapshot& snapshot,
+                                        const simulation::EntityId self,
+                                        const simulation::TickSequence now) noexcept {
+  const auto* shield = find_observed_component<simulation::Shield>(snapshot, self);
+  return shield != nullptr &&
+         (shield->shield_window().contains(now) || !shield->cooldown_window().expired(now));
+}
+
+// A charge is refused by its own cooldown and by this body's own live protection -- `AbilitySystem`
+// spells that second term `!protection_active`, because a guarded body may not charge out of its
+// own guard. A live *shield cooldown* is deliberately not one of them: the two cooldowns are
+// separate keys on separate components and neither gates the other.
+[[nodiscard]] bool charge_pulse_refused(const simulation::WorldSnapshot& snapshot,
+                                        const simulation::EntityId self,
+                                        const simulation::TickSequence now) noexcept {
+  const auto* shield = find_observed_component<simulation::Shield>(snapshot, self);
+  if (shield != nullptr && shield->shield_window().contains(now)) {
+    return true;
+  }
+  const auto* charge = find_observed_component<simulation::Charge>(snapshot, self);
+  return charge != nullptr && !charge->cooldown_window().expired(now);
 }
 
 } // namespace
@@ -235,7 +275,83 @@ std::vector<simulation::Command> TacticalController::decide_next(const Observati
     next.reason = TacticalDecisionReason::kArrived;
   }
   next.held_direction = direction;
-  return request_thrust(observation, direction);
+  auto commands = request_thrust(observation, direction);
+  // The ability is decided here, after the movement branch and outside both draws, and it rides
+  // beside the thrust rather than replacing it: a bot that is steering somewhere is still the bot
+  // that has to defend itself on the way. `request_ability` returns zero or one command and only
+  // the first is taken, so "at most one ability per pass" is enforced at the join rather than
+  // asserted about the branches above it.
+  const auto ability = request_ability(observation, *body, policy, selected, next);
+  if (!ability.empty()) {
+    commands.push_back(ability.front());
+  }
+  return commands;
+}
+
+std::vector<simulation::Command>
+TacticalController::request_ability(const Observation& observation,
+                                    const simulation::PhysicsBody& body,
+                                    const TacticalObjectivePolicy& policy,
+                                    const TacticalObjectiveCandidate& selected, State& next) const {
+  const auto& snapshot = observation.snapshot();
+  const auto self = *observation.entity();
+  const auto now = observation.tick_sequence();
+  // **Shield before charge, and for the engine's reason rather than for taste.** `AbilitySystem`
+  // spells its priority `charge_admissible && !shield_eligible`, so a local order that preferred
+  // offence would be one the tick contradicts on the pass both were wanted. The closing test is
+  // over every published opponent and not only the selected candidate's: a shield answers whoever
+  // is arriving, and scoping it to the target this bot chose to pursue would be the same defect as
+  // gating it on the seek draw, one branch further down.
+  if (tactical_opponent_closes_to_contact(observation, body, policy)) {
+    if (shield_pulse_refused(snapshot, self, now)) {
+      next.reason = TacticalDecisionReason::kShieldUnavailable;
+      return {};
+    }
+    next.reason = TacticalDecisionReason::kShieldAnticipated;
+    return request_shield(observation);
+  }
+  // A charge is an action on a chosen target, so unlike the shield it is scoped to the selection.
+  // One lookup answers both ways that can fail: the collector's exported
+  // `tactical_shove_opponent_body` returns nullptr for a candidate of any other kind and for an
+  // opponent that has left the snapshot, and in both this bot has nothing to aim a burst at. It is
+  // the one owner of "which body is this candidate about?", so this file does not keep a second
+  // copy of that scan for the sake of the heading it needs below.
+  const auto* opponent = tactical_shove_opponent_body(snapshot, selected);
+  if (opponent == nullptr) {
+    return {};
+  }
+  const auto delta = controller_target_offset(body.position(), opponent->position());
+  const double distance = controller_magnitude(delta);
+  if (!(distance > 0.0)) {
+    // Two published centres at the same point leave no commanded direction, so there is nothing for
+    // either gate below to be about and no cause for a reason code to name. The movement branch's
+    // reason stands, because this pass did not refuse a charge -- it never had one to refuse.
+    return {};
+  }
+  if (!tactical_charge_alignment_admits(observation, body, selected)) {
+    next.reason = TacticalDecisionReason::kChargeMisaligned;
+    return {};
+  }
+  if (!tactical_charge_screen_admits(observation, body, selected, policy)) {
+    next.reason = TacticalDecisionReason::kChargeGroundEndsFirst;
+    return {};
+  }
+  // Last, so that a bot on cooldown still reports the more specific refusal when it has one and
+  // this branch is only reached by a charge that would otherwise have been sent.
+  if (charge_pulse_refused(snapshot, self, now)) {
+    next.reason = TacticalDecisionReason::kChargeUnavailable;
+    return {};
+  }
+  next.reason = TacticalDecisionReason::kChargeCommitted;
+  // **The burst is aimed at the opponent, not at the standing point.** S is where the bot stands to
+  // shove *from* -- one standoff behind the opponent, on the side away from the hazard -- so a
+  // charge along `B -> S` would push nothing anywhere. Normalised in this file's written order,
+  // subtract then magnitude then divide, and clamped for the reason the seek path clamps: a
+  // component rounded a bit past one is a hard `InputBatch::create` refusal, and the clamp is the
+  // cheaper of the two places to notice.
+  const double heading_x = clamp_controller_direction_component(delta.x / distance);
+  const double heading_y = clamp_controller_direction_component(delta.y / distance);
+  return request_charge(observation, simulation::Vector2::create(heading_x, heading_y));
 }
 
 } // namespace blob_royale::controllers

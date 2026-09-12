@@ -22,7 +22,9 @@ namespace blob_royale::gameplay {
 //
 // This is the one place a mode name becomes a mode. `[match] mode=` names a row here, the snapshot
 // publishes the same name back through `GameSimulation::snapshot().match().mode_name()`, and no
-// other file in the tree knows that `sandbox` or `royale` exists
+// other runtime factory chooses which mode class to construct. Application startup separately
+// names race for the configured-player-radius/checkpoint cross-value admission rule; it creates
+// no mode and adds no kernel socket. This is an explicit cross-value validation exception
 // (`docs/architecture/0004-gameplay-architecture.md` § "Libraries, and where a new thing goes").
 //
 // **Adding a game touches exactly one existing file, and this is it:**
@@ -43,8 +45,8 @@ namespace blob_royale::gameplay {
 //
 // A factory is handed the validated `[<mode>]` configuration sections as one
 // `GameModeConfiguration` and reads only its own member (`game_mode_configuration.hpp`). One
-// signature rather than one per configured mode is what keeps this the only file that knows which
-// games exist: a caller that had to choose a factory shape per mode would be a second such file.
+// signature rather than one per configured mode keeps construction here; callers never choose a
+// factory shape per mode.
 //
 // Four implementations of this seam, all registered below: `sandbox`, `royale`,
 // `king_of_the_hill`, and `race`.

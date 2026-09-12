@@ -145,6 +145,7 @@ function blobEntity(
         collision_layer: 1,
         collision_mask: 3,
         is_static: false,
+        ground_attachment: 'ground_bound',
         mass: 1,
         position: { x: 120, y: 80 },
         radius: 10,
@@ -301,6 +302,7 @@ describe('entityRendererRegistry', () => {
           collision_layer: 1,
           collision_mask: 1,
           is_static: false,
+          ground_attachment: 'ground_bound',
         },
       },
     };

@@ -74,20 +74,20 @@ TEST_CASE("RaceMode declares the fourth game with the shared contact rows and te
   CHECK(gameplay::GameModeRegistry::registrations().size() == 4);
 }
 
-TEST_CASE("RaceMode declares eleven systems with progress before bounds and return before respawn",
+TEST_CASE("RaceMode declares course before steering and certified progress before return",
           "[unit][gameplay][race][mode]") {
   const gameplay::RaceMode mode{testing::race_test_configuration()};
   mode.validate_map(testing::race_test_map());
   const auto systems = mode.systems();
-  CHECK(systems.size() == 11);
+  CHECK(systems.size() == 10);
   CHECK(system_names_at(systems, simulation::SystemStage::kPreKernel) ==
-        std::vector<std::string_view>{"thrust_steering"});
+        std::vector<std::string_view>{"course_publisher", "thrust_steering"});
   CHECK(system_names_at(systems, simulation::SystemStage::kPostKernel) ==
-        std::vector<std::string_view>{"checkpoint_progress", "track_bounds", "status"});
+        std::vector<std::string_view>{"checkpoint_progress", "status"});
   CHECK(system_names_at(systems, simulation::SystemStage::kLifecycle) ==
         std::vector<std::string_view>{"standings_recorder", "checkpoint_respawn", "respawn",
-                                      "match_reset", "lifetime_expiry", "hazard_spawn",
-                                      "course_publisher"});
+                                      "match_reset", "lifetime_expiry", "hazard_spawn"});
+  CHECK(mode.motion_triggers().size() == 2);
 }
 
 TEST_CASE("RaceMode requires a successfully bound course and failed revalidation clears it",
@@ -125,6 +125,9 @@ TEST_CASE("race systems own their course after both their source mode and source
                                                        simulation::Vector2::create(700.0, 320.0)})};
   simulation::GameWorld world =
       testing::race_test_world({simulation::Vector2::create(300.0, 320.0)});
+  for (const auto& declared : systems.systems_at(simulation::SystemStage::kPreKernel)) {
+    declared.system->apply(world, harness.context());
+  }
   for (const auto& declared : systems.systems_at(simulation::SystemStage::kPostKernel)) {
     declared.system->apply(world, harness.context());
   }
@@ -134,7 +137,7 @@ TEST_CASE("race systems own their course after both their source mode and source
   REQUIRE(world.store<simulation::RaceProgress>().find(simulation::EntityId::create(1)) != nullptr);
   CHECK(world.store<simulation::RaceProgress>()
             .find(simulation::EntityId::create(1))
-            ->next_checkpoint == 1);
+            ->next_checkpoint == 0);
   const auto* block = std::get_if<simulation::RaceModeState>(&world.match().mode_state);
   REQUIRE(block != nullptr);
   CHECK(block->checkpoints ==
@@ -142,8 +145,8 @@ TEST_CASE("race systems own their course after both their source mode and source
                                          simulation::Vector2::create(600.0, 320.0)});
 }
 
-TEST_CASE("a race publishes its course on the first lobby tick and finishes one overlapping gate "
-          "per tick",
+TEST_CASE("a race publishes its course on the first lobby tick and finishes overlapping gates "
+          "in one running quantum",
           "[unit][gameplay][race][mode][match]") {
   const auto configuration = testing::race_test_configuration();
   const auto map =
@@ -170,27 +173,25 @@ TEST_CASE("a race publishes its course on the first lobby tick and finishes one 
   CHECK(snapshot.components<simulation::RaceProgress>().empty());
   snapshot = race.step();
   REQUIRE(snapshot.components<simulation::RaceProgress>().size() == 1);
-  CHECK(snapshot.components<simulation::RaceProgress>()[0].value.next_checkpoint == 1);
-  CHECK(snapshot.match().phase() == simulation::MatchPhase::kRunning);
-  snapshot = race.step();
   CHECK(snapshot.components<simulation::RaceProgress>()[0].value.next_checkpoint == 2);
   CHECK(snapshot.match().phase() == simulation::MatchPhase::kEnded);
   CHECK(snapshot.match().outcome() ==
         simulation::MatchOutcome::won_by_entity(simulation::EntityId::create(1)));
   REQUIRE(block_of(snapshot).standings.size() == 1);
-  CHECK(block_of(snapshot).standings.front().finished_tick == simulation::TickSequence::create(4));
+  CHECK(block_of(snapshot).standings.front().finished_tick == simulation::TickSequence::create(3));
+  CHECK(block_of(snapshot).standings.front().finished_tick_offset ==
+        simulation::MotionTime::start());
   CHECK(testing::published_body(snapshot, 1).has_value());
 }
 
-TEST_CASE("a same-tick race finish is recorded before an off-road elimination removes its body",
+TEST_CASE("support loss at a finish occupancy tie terminates before any finish credit",
           "[unit][gameplay][race][mode][match]") {
-  // The explicit map contract permits a gate centre on the corridor edge. This centre is inside
-  // that gate but outside the corridor, exercising the specified progress -> bounds -> record
-  // -> respawn order in one real kernel tick.
+  // The checkpoint disc is supported, but its larger trigger circle overlaps void. Both the gate
+  // and support loss propose time zero; support's canonical priority wins before checkpoint.
   const auto map = testing::race_test_map("race_finish_and_elimination",
-                                          {simulation::Vector2::create(300.0, 390.0)});
+                                          {simulation::Vector2::create(300.0, 370.0)});
   simulation::GameWorld world =
-      testing::race_test_world({simulation::Vector2::create(300.0, 420.0)});
+      testing::race_test_world({simulation::Vector2::create(300.0, 400.0)});
   testing::SteppedGame driver{simulation::GameSimulation::create(
       testing::gameplay_configuration(), std::move(world),
       simulation::GameSimulationSetup::of_mode(
@@ -204,13 +205,10 @@ TEST_CASE("a same-tick race finish is recorded before an off-road elimination re
   CHECK(block_of(snapshot).road.value() == "road");
   CHECK(snapshot.terrain().find_corridor(block_of(snapshot).road.value()) != nullptr);
   CHECK(block_of(snapshot).checkpoints ==
-        std::vector<simulation::Vector2>{simulation::Vector2::create(300.0, 390.0)});
-  REQUIRE(block_of(snapshot).standings.size() == 1);
-  CHECK(block_of(snapshot).standings.front().entity == simulation::EntityId::create(1));
-  CHECK(block_of(snapshot).standings.front().finished_tick == simulation::TickSequence::create(1));
+        std::vector<simulation::Vector2>{simulation::Vector2::create(300.0, 370.0)});
+  CHECK(block_of(snapshot).standings.empty());
   CHECK_FALSE(testing::published_body(snapshot, 1).has_value());
   CHECK(snapshot.components<simulation::RespawnTimer>().size() == 1);
-  CHECK(snapshot.match().phase() == simulation::MatchPhase::kEnded);
-  CHECK(snapshot.match().outcome() ==
-        simulation::MatchOutcome::won_by_entity(simulation::EntityId::create(1)));
+  CHECK(snapshot.match().phase() == simulation::MatchPhase::kRunning);
+  CHECK(snapshot.match().outcome() == simulation::MatchOutcome::undecided());
 }

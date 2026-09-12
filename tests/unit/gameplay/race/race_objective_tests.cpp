@@ -63,13 +63,14 @@ field(const std::initializer_list<std::optional<std::uint64_t>> progress) {
                                                 const std::uint64_t placement,
                                                 const std::uint64_t tick = kFirstFinish) {
   return simulation::RaceStanding{entity(id), simulation::ControllerId::create(id), placement,
-                                  simulation::TickSequence::create(tick)};
+                                  simulation::TickSequence::create(tick),
+                                  simulation::MotionTime::start()};
 }
 
 void record_standings(simulation::GameWorld& world,
                       std::vector<simulation::RaceStanding> standings) {
-  const auto course = gameplay::RaceCourse::create(testing::race_test_map(),
-                                                   testing::race_test_configuration());
+  const auto course =
+      gameplay::RaceCourse::create(testing::race_test_map(), testing::race_test_configuration());
   gameplay::race_mode_state_in(world, course).standings = std::move(standings);
 }
 

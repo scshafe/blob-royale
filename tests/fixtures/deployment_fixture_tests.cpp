@@ -179,6 +179,9 @@ TEST_CASE("the deployed hazard table is the one intended and fits the snapshot e
       application_config.match_configuration(), map, hazards));
   CHECK_NOTHROW(blob_royale::application::require_map_matches_published_world(
       application_config.simulation_config(), map));
+  CHECK_NOTHROW(blob_royale::application::require_race_checkpoint_returns_supported(
+      application_config.match_configuration(), application_config.game_mode_configuration(),
+      application_config.simulation_config(), map));
   // Four seats on the eight-spawn hill map, and four rooms of it: the intended compact playtest.
   CHECK(application_config.match_configuration().lobby_seat_count() == 4);
   CHECK(application_config.lobbies_configuration().count() == 4);

@@ -409,6 +409,9 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
   // describes a match that would only fail once it was being played. They hold for every room,
   // because every room plays the same match on the same map.
   require_map_matches_published_world(application_config.simulation_config(), map);
+  require_race_checkpoint_returns_supported(application_config.match_configuration(),
+                                            application_config.game_mode_configuration(),
+                                            application_config.simulation_config(), map);
   // The hazard table travels with the other two, because the standing hazard population is part of
   // the worst case and no one of the three values can see the other two on its own.
   require_match_fits_snapshot_bound(application_config.match_configuration(), map,

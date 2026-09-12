@@ -9,6 +9,7 @@
 #include "match_phase.hpp"
 #include "mode_states/race_mode_state.hpp"
 #include "physics_body.hpp"
+#include "simulation_limits.hpp"
 #include "tick_sequence.hpp"
 #include "vector2.hpp"
 #include "world_snapshot.hpp"
@@ -16,6 +17,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -29,6 +31,25 @@ namespace testing = blob_royale::testing;
 namespace {
 
 using Snapshots = std::vector<simulation::WorldSnapshot>;
+
+// These replays share a=4000, dt=1/400, and gate radius five. Their command comments derive
+// each finish epoch independently. Analytical fractions allow accumulated binary64 position
+// rounding; the 100-run whole-snapshot comparisons below additionally require exact MotionTime
+// identity. No expected fraction is read back from a solver result.
+constexpr double kGateRadius = 5.0;
+constexpr double kAccelerationTickDisplacementScale = 0.025;
+constexpr double kAnalyticalMotionMargin = 1e-10;
+
+void check_standing(const simulation::RaceStanding& standing, const simulation::EntityId entity,
+                    const std::uint64_t controller, const std::uint64_t placement,
+                    const std::uint64_t tick, const double expected_tick_offset) {
+  CHECK(standing.entity == entity);
+  CHECK(standing.controller == simulation::ControllerId::create(controller));
+  CHECK(standing.placement == placement);
+  CHECK(standing.finished_tick == simulation::TickSequence::create(tick));
+  CHECK(standing.finished_tick_offset.value() ==
+        Catch::Approx(expected_tick_offset).epsilon(0.0).margin(kAnalyticalMotionMargin));
+}
 
 [[nodiscard]] const simulation::WorldSnapshot& at_tick(const Snapshots& snapshots,
                                                        const std::uint64_t tick) {
@@ -140,10 +161,22 @@ TEST_CASE("a solo race brakes at the bend and takes each gate on its derived tic
   const auto& finished = at_tick(snapshots, 127);
   CHECK(finished.match().phase() == simulation::MatchPhase::kEnded);
   CHECK(finished.match().outcome() == simulation::MatchOutcome::won_by_entity(racer));
-  CHECK(component_of<simulation::PhysicsBody>(finished, racer).has_value());
-  CHECK(race_of(finished).standings ==
-        std::vector<simulation::RaceStanding>{{racer, simulation::ControllerId::create(1), 1,
-                                               simulation::TickSequence::create(127)}});
+  // Forty-four upward quanta end at y=320-.025*44*45/2=295.25. Quantum 45 would move
+  // another 1.125 units, but the certified gate entry at y=290+(5+tolerance) stops it first.
+  const double before_finish_y = 320.0 - kAccelerationTickDisplacementScale * 44.0 * 45.0 / 2.0;
+  const double finish_y = 290.0 + kGateRadius + simulation::kPositionTolerance;
+  const double finish_displacement = kAccelerationTickDisplacementScale * 45.0;
+  const double finish_offset = (before_finish_y - finish_y) / finish_displacement;
+  const auto finished_body = component_of<simulation::PhysicsBody>(finished, racer);
+  REQUIRE(finished_body.has_value());
+  CHECK(finished_body->position().x() ==
+        Catch::Approx(140.0).epsilon(0.0).margin(kAnalyticalMotionMargin));
+  CHECK(finished_body->position().y() ==
+        Catch::Approx(finish_y).epsilon(0.0).margin(kAnalyticalMotionMargin));
+  CHECK(finished_body->velocity() == simulation::Vector2::create(0.0, 0.0));
+  CHECK(finished_body->acceleration() == simulation::Vector2::create(0.0, 0.0));
+  REQUIRE(race_of(finished).standings.size() == 1);
+  check_standing(race_of(finished).standings.front(), racer, 1, 1, 127, finish_offset);
   CHECK(at_tick(snapshots, 128).match().phase() == simulation::MatchPhase::kLobby);
   CHECK(component_of<simulation::PhysicsBody>(at_tick(snapshots, 128), racer).has_value());
   CHECK(at_tick(snapshots, 129).players().empty());
@@ -205,11 +238,27 @@ TEST_CASE("two racers crossing together share first placement and finish with a 
   const auto& finished = at_tick(snapshots, 48);
   CHECK(finished.match().phase() == simulation::MatchPhase::kEnded);
   CHECK(finished.match().outcome() == simulation::MatchOutcome::drawn());
-  CHECK(
-      race_of(finished).standings ==
-      std::vector<simulation::RaceStanding>{
-          {first, simulation::ControllerId::create(1), 1, simulation::TickSequence::create(48)},
-          {second, simulation::ControllerId::create(2), 1, simulation::TickSequence::create(48)}});
+  // Symmetric dy=+/-3 lanes have the same horizontal gate reach sqrt((5+tolerance)^2-3^2).
+  // Tick 47 ends at x=100+.025*45*46/2=125.875; tick 48's velocity would move 1.15 units.
+  const double admitted_radius = kGateRadius + simulation::kPositionTolerance;
+  const double horizontal_reach = std::sqrt(admitted_radius * admitted_radius - 3.0 * 3.0);
+  const double finish_x = 130.0 - horizontal_reach;
+  const double before_finish_x = 100.0 + kAccelerationTickDisplacementScale * 45.0 * 46.0 / 2.0;
+  const double finish_offset =
+      (finish_x - before_finish_x) / (kAccelerationTickDisplacementScale * 46.0);
+  const auto& standings = race_of(finished).standings;
+  REQUIRE(standings.size() == 2);
+  check_standing(standings[0], first, 1, 1, 48, finish_offset);
+  check_standing(standings[1], second, 2, 1, 48, finish_offset);
+  CHECK(standings[0].finished_tick_offset == standings[1].finished_tick_offset);
+  for (const auto racer : {first, second}) {
+    const auto body = component_of<simulation::PhysicsBody>(finished, racer);
+    REQUIRE(body.has_value());
+    CHECK(body->position().x() ==
+          Catch::Approx(finish_x).epsilon(0.0).margin(kAnalyticalMotionMargin));
+    CHECK(body->velocity() == simulation::Vector2::create(0.0, 0.0));
+    CHECK(body->acceleration() == simulation::Vector2::create(0.0, 0.0));
+  }
 }
 
 TEST_CASE("the first finisher stays physical and its finish window takes precedence over the clock",
@@ -222,6 +271,13 @@ TEST_CASE("the first finisher stays physical and its finish window takes precede
   CHECK_FALSE(first_tick_with_progress(snapshots, unfinished, 1).has_value());
   CHECK(fixture.race().time_limit_ticks() == 48);
   CHECK(fixture.race().finish_window_ticks() == 8);
+  // The first 44 acceleration quanta reach x=124.75. Quantum 45 enters x=125-tolerance
+  // after (.25-tolerance)/1.125 of the tick. Termination clears motion/intent immediately;
+  // the still-held original thrust cannot restart it while the whole-tick finish window runs.
+  const double before_finish_x = 100.0 + kAccelerationTickDisplacementScale * 44.0 * 45.0 / 2.0;
+  const double finish_x = 130.0 - (kGateRadius + simulation::kPositionTolerance);
+  const double finish_offset =
+      (finish_x - before_finish_x) / (kAccelerationTickDisplacementScale * 45.0);
   for (std::uint64_t tick = 47; tick < 55; ++tick) {
     INFO("open finish window tick " << tick);
     const auto& snapshot = at_tick(snapshots, tick);
@@ -229,10 +285,13 @@ TEST_CASE("the first finisher stays physical and its finish window takes precede
     CHECK(snapshot.match().outcome() == simulation::MatchOutcome::undecided());
     const auto body = component_of<simulation::PhysicsBody>(snapshot, winner);
     REQUIRE(body.has_value());
-    CHECK(body->velocity().x() == static_cast<double>(tick - 2) * 10.0);
-    CHECK(race_of(snapshot).standings ==
-          std::vector<simulation::RaceStanding>{{winner, simulation::ControllerId::create(1), 1,
-                                                 simulation::TickSequence::create(47)}});
+    CHECK(body->position().x() ==
+          Catch::Approx(finish_x).epsilon(0.0).margin(kAnalyticalMotionMargin));
+    CHECK(body->position().y() == 320.0);
+    CHECK(body->velocity() == simulation::Vector2::create(0.0, 0.0));
+    CHECK(body->acceleration() == simulation::Vector2::create(0.0, 0.0));
+    REQUIRE(race_of(snapshot).standings.size() == 1);
+    check_standing(race_of(snapshot).standings.front(), winner, 1, 1, 47, finish_offset);
   }
   CHECK(at_tick(snapshots, 55).match().phase() == simulation::MatchPhase::kEnded);
   CHECK(at_tick(snapshots, 55).match().outcome() ==

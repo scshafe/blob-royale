@@ -681,4 +681,16 @@ existing larger capacity. No performance certification follows from these correc
 The exact integration boundary and pure-move prerequisites are recorded in
 [`2026-09-11-live-motion-integration-contract.md`](../reviews/2026-09-11-live-motion-integration-contract.md)
 and [`2026-09-11-live-motion-prerequisite-review.md`](../reviews/2026-09-11-live-motion-prerequisite-review.md).
-Production support/race triggers and guarded pair composition remain Steps 17 and 18.
+Production support/race triggers are supplied by Step 17; guarded pair composition remains Step 18.
+
+## Amended 2026-09-11: Ground attachment and safe seating (Step 17)
+
+PhysicsBody's validated GroundAttachment is independent of bounds behavior, collision material,
+and radius. Generic typed bodies default floating; production player seating/scenario construction
+explicitly binds players to ground. Existing crossing hazards remain floating. Shared gameplay
+registers the same canonical center-support query for bound dynamic bodies, with termination and
+typed player elimination/nonplayer despawn consequences. No kernel mode branch or second solver.
+Safe seating separately requires a supported full player disc and clearance against actual effective
+body radii, using written square-root arithmetic and canonical tolerances. Every successful seat
+refreshes subsequent marker admission against the updated live store. Work exhaustion still rolls
+back the entire quantum; map shape admission does not guarantee every trajectory fits the event cap.

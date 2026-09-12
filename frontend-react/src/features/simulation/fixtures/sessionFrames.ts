@@ -88,6 +88,7 @@ export function hillSnapshotDocument(messageSequence = 2) {
               collision_layer: 1,
               collision_mask: 3,
               is_static: false,
+              ground_attachment: 'ground_bound',
             },
             score: { points: 4 },
           },
@@ -109,6 +110,7 @@ export function hillSnapshotDocument(messageSequence = 2) {
               collision_layer: 1,
               collision_mask: 3,
               is_static: false,
+              ground_attachment: 'ground_bound',
             },
             score: { points: 6 },
           },
@@ -284,6 +286,7 @@ export function raceScenarioDocument(scenario: RaceSnapshotScenario) {
       controller_id: 3,
       placement: 1,
       finished_tick: 12504,
+      finished_tick_offset: 0.25,
     });
   }
   if (scenario === 'finish_window_expired') {
@@ -311,6 +314,7 @@ export function raceScenarioDocument(scenario: RaceSnapshotScenario) {
       controller_id: 4,
       placement: 1,
       finished_tick: 12504,
+      finished_tick_offset: 0.25,
     });
     match.phase = 'ended';
     match.phase_started_tick = document.data.tick_sequence;

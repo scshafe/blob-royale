@@ -2,6 +2,8 @@
 
 #include "shared/lethal_hazard_contact_rule.hpp"
 
+#include "components/respawn_timer_component.hpp"
+#include "fixtures/falling_mode_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
 
 #include "command_kind_mask.hpp"
@@ -69,11 +71,12 @@ namespace {
 
 } // namespace
 
-TEST_CASE("KingOfTheHillMode declares the hill game as seven answers",
+TEST_CASE("KingOfTheHillMode declares the hill game as eight answers",
           "[unit][gameplay][king_of_the_hill]") {
   const gameplay::KingOfTheHillMode mode = default_mode();
 
   CHECK(mode.name() == std::string_view{"king_of_the_hill"});
+  CHECK(mode.motion_triggers().size() == 1);
   const simulation::ContactRuleTable rules = mode.contact_rules();
   const simulation::ContactRuleTable built_in = simulation::ContactRuleTable::built_in();
   REQUIRE(rules.size() == built_in.size() + 1);
@@ -90,6 +93,47 @@ TEST_CASE("KingOfTheHillMode declares the hill game as seven answers",
              simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
+}
+
+TEST_CASE("hill falling removes body-bound state and returns on N plus D plus one",
+          "[unit][gameplay][king_of_the_hill][falling][respawn]") {
+  namespace falling = testing::falling_mode_fixture;
+  auto section = gameplay::KingOfTheHillConfiguration::default_section();
+  section.respawn_delay_seconds = 0.005;
+  auto game = falling::game(
+      gameplay::KingOfTheHillMode::create(gameplay::KingOfTheHillConfiguration::create(section)));
+  const auto fallen = falling::step(game);
+  CHECK(falling::component<simulation::PhysicsBody>(fallen, 1) == nullptr);
+  CHECK(falling::component<simulation::Controllable>(fallen, 1) != nullptr);
+  CHECK(falling::component<simulation::ContactEffectAdmission>(fallen, 1) == nullptr);
+  REQUIRE(falling::component<simulation::RespawnTimer>(fallen, 1) != nullptr);
+  CHECK(falling::component<simulation::RespawnTimer>(fallen, 1)->ticks_remaining == 2);
+  for (unsigned elapsed = 0; elapsed < 2; ++elapsed) {
+    const auto waiting = falling::step(game);
+    CHECK(falling::component<simulation::PhysicsBody>(waiting, 1) == nullptr);
+  }
+  const auto returned = falling::step(game);
+  CHECK(returned.tick_sequence().value() == 4);
+  const auto* body = falling::component<simulation::PhysicsBody>(returned, 1);
+  REQUIRE(body != nullptr);
+  CHECK(body->position() == falling::point(100, 320));
+  CHECK(body->velocity() == falling::point(0, 0));
+  CHECK(body->ground_attachment() == simulation::GroundAttachment::kGroundBound);
+  const auto resting = falling::step(game);
+  REQUIRE(falling::component<simulation::PhysicsBody>(resting, 1) != nullptr);
+  CHECK(falling::component<simulation::PhysicsBody>(resting, 1)->velocity() ==
+        falling::point(0, 0));
+}
+
+TEST_CASE("hill support loss stays inactive before the running phase",
+          "[unit][gameplay][king_of_the_hill][falling]") {
+  namespace falling = testing::falling_mode_fixture;
+  for (const auto phase : {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown}) {
+    auto game = falling::game(gameplay::KingOfTheHillMode::create(), phase);
+    const auto stepped = falling::step(game);
+    CHECK(falling::component<simulation::PhysicsBody>(stepped, 1) != nullptr);
+    CHECK(falling::component<simulation::RespawnTimer>(stepped, 1) == nullptr);
+  }
 }
 
 TEST_CASE("KingOfTheHillMode declares nine systems in the order its rules depend on",

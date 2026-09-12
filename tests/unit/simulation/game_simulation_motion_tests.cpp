@@ -242,9 +242,11 @@ enum class Fault : std::int64_t {
   kPairThrow,
   kPairTeleport,
   kPairMass,
+  kPairGroundAttachment,
   kPairDisposition,
   kTriggerThrow,
   kTriggerTeleport,
+  kTriggerGroundAttachment,
   kTriggerDisposition,
   kTriggerNoProgress,
   kWorldEventOverflow,
@@ -341,6 +343,9 @@ simulation::ContactResponse fault_response(const simulation::GameWorld& world, c
   case Fault::kPairMass:
     changed.body = changed.body.with_mass(2);
     break;
+  case Fault::kPairGroundAttachment:
+    changed.body = changed.body.with_ground_attachment(simulation::GroundAttachment::kGroundBound);
+    break;
   case Fault::kPairDisposition:
     changed.disposition = static_cast<simulation::MotionDisposition>(99);
     break;
@@ -383,6 +388,10 @@ public:
           "test.motion_trigger", "injected callback failure");
     case Fault::kTriggerTeleport:
       response.body.body = subject.body.with_position(subject.body.position() + point(1, 0));
+      break;
+    case Fault::kTriggerGroundAttachment:
+      response.body.body =
+          subject.body.with_ground_attachment(simulation::GroundAttachment::kGroundBound);
       break;
     case Fault::kTriggerDisposition:
       response.body.disposition = static_cast<simulation::MotionDisposition>(99);
@@ -641,11 +650,12 @@ TEST_CASE(
     "live callback projection and late failures roll back full state and retry like a fresh tick",
     "[unit][simulation][game_simulation][continuous_motion][rollback]") {
   for (const auto fault :
-       {Fault::kPairThrow, Fault::kPairTeleport, Fault::kPairMass, Fault::kPairDisposition,
-        Fault::kTriggerThrow, Fault::kTriggerTeleport, Fault::kTriggerDisposition,
-        Fault::kTriggerNoProgress, Fault::kWorldEventOverflow, Fault::kLateThrow,
-        Fault::kBodylessPolicy, Fault::kDefaultPolicy, Fault::kUnknownPolicy,
-        Fault::kLateBodylessPolicy, Fault::kLateDefaultPolicy, Fault::kLateUnknownPolicy}) {
+       {Fault::kPairThrow, Fault::kPairTeleport, Fault::kPairMass, Fault::kPairGroundAttachment,
+        Fault::kPairDisposition, Fault::kTriggerThrow, Fault::kTriggerTeleport,
+        Fault::kTriggerGroundAttachment, Fault::kTriggerDisposition, Fault::kTriggerNoProgress,
+        Fault::kWorldEventOverflow, Fault::kLateThrow, Fault::kBodylessPolicy,
+        Fault::kDefaultPolicy, Fault::kUnknownPolicy, Fault::kLateBodylessPolicy,
+        Fault::kLateDefaultPolicy, Fault::kLateUnknownPolicy}) {
     CAPTURE(fault);
     prove_retry(fault);
   }

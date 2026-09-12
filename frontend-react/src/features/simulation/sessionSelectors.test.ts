@@ -720,6 +720,8 @@ describe('sessionSelectors for the race', () => {
         entityId: 7,
         isOwn: true,
         placement: 1,
+        finishedTick: 12504,
+        finishedTickOffset: 0.25,
       },
       {
         controllerId: 4,
@@ -727,6 +729,8 @@ describe('sessionSelectors for the race', () => {
         entityId: 8,
         isOwn: false,
         placement: 1,
+        finishedTick: 12504,
+        finishedTickOffset: 0.25,
       },
     ]);
   });
@@ -795,7 +799,7 @@ describe('sessionSelectors for the race', () => {
     expect(raceOverlay('tied_finish')).toEqual({
       title: 'Draw',
       detail:
-        'The first finishers crossed on the same tick. The next lobby opens shortly.',
+        'The first finishers crossed at the same instant. The next lobby opens shortly.',
     });
     expect(raceOverlay('clock_draw')).toEqual({
       title: 'Draw',

@@ -27,6 +27,7 @@ static_assert(std::is_nothrow_move_constructible_v<simulation::RaceModeState>);
 static_assert(std::is_nothrow_move_assignable_v<simulation::RaceModeState>);
 static_assert(!HasMirroredTrack<simulation::RaceModeState>);
 static_assert(!HasMirroredTrackHalfWidth<simulation::RaceModeState>);
+static_assert(!std::is_default_constructible_v<simulation::RaceStanding>);
 
 } // namespace
 

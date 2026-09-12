@@ -57,11 +57,13 @@ const simulation::Vector2 kRest = simulation::Vector2::create(0.0, 0.0);
   std::vector<simulation::GameWorld::EntitySeed> seeds{
       simulation::GameWorld::EntitySeed::create(
           entity(kGridRacer),
-          simulation::PhysicsBody::create(simulation::Vector2::create(100.0, 450.0), kRest, kRest),
+          simulation::PhysicsBody::create(simulation::Vector2::create(100.0, 450.0), kRest, kRest)
+              .with_ground_attachment(simulation::GroundAttachment::kGroundBound),
           simulation::ControllerId::create(1)),
       simulation::GameWorld::EntitySeed::create(
           entity(kCheckpointRacer),
-          simulation::PhysicsBody::create(simulation::Vector2::create(300.0, 450.0), kRest, kRest),
+          simulation::PhysicsBody::create(simulation::Vector2::create(300.0, 450.0), kRest, kRest)
+              .with_ground_attachment(simulation::GroundAttachment::kGroundBound),
           simulation::ControllerId::create(2))};
   if (occupied_gate) {
     seeds.push_back(simulation::GameWorld::EntitySeed{
@@ -99,6 +101,7 @@ void check_returned_body(const simulation::WorldSnapshot& snapshot, const std::u
   CHECK(body->velocity() == kRest);
   CHECK(body->acceleration() == kRest);
   CHECK(body->radius() == testing::gameplay_configuration().player_radius());
+  CHECK(body->ground_attachment() == simulation::GroundAttachment::kGroundBound);
 }
 
 } // namespace

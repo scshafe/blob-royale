@@ -61,6 +61,7 @@ Step 6 strict-schema migration replaces the unused `[race] track_half_width_worl
 `road=road`; the 2026-09-11 Step 10 migration moves acceleration 400 to `[movement]` and authors
 the fixture ceiling 10000. Fresh benchmark worlds seed that pair as current/default movement.
 Step 16 adds explicit `contact_effect_policy=closing_impact` to its existing hazard sections.
+Step 17 adds required `[sandbox] respawn_delay_seconds=2.0`; royale does not consume that section.
 It is no longer a byte-for-byte historical configuration. Historical workload values remain,
 and the provenance comment and JSON identify these migrations. This migration is not a new
 timing baseline or a claim of native performance certification.
@@ -118,8 +119,11 @@ not measured. Result allocation and solver/callback work are inside timing. The 
 facts are not new registered events.
 
 Independent reference runs and the retained final output of every timed sample must match a
-complete deterministic hash: every body field and disposition, actual path segments, ordered event
-keys, typed consequences, trigger cursors, and work counters. Hashing and correctness checks occur
+historical deterministic hash: pre-Step-17 body fields and disposition, actual path segments, ordered
+event keys, typed consequences, trigger cursors, and work counters. Step 17's ground attachment is
+checked separately against each input body in the independent references and each retained timed
+final output, published as `ground_attachment_preserved`; these unchanged workloads use floating
+bodies, not both attachment modes. Hashing and correctness checks occur
 after the clock stops. JSON reports exact layout/density inputs, terrain feature counts, charged
 root queries, events, pair examinations, candidate-pair high-water count, rebuilds, paths, and
 effects. Root counts are canonical public-query budget charges, including charges before bounded
@@ -147,7 +151,8 @@ accepted regression thresholds; the complete transient suite output remains unde
 - Each simulation sample constructs a fresh identical `GameSimulation` before timing. Snapshot
   creation, final tick/player-count checks, and an exact FNV-1a hash of the ordered final snapshot's
   player-motion projection occur after timing. This existing hash is unchanged; the separate
-  prototype hash covers its complete typed result. Every timed sample must match an independent
+prototype hash covers its historical typed-result fields, with ground attachment independently
+checked as described above. Every timed sample must match an independent
   untimed reference.
 - Candidate-pair generation is not exposed separately by `SpatialGrid`. The
   `grid_rebuild_and_candidate_pair_generation` measurement therefore times the public atomic

@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_APPLICATION_MATCH_STARTUP_VALIDATION_HPP
 #define BLOB_ROYALE_APPLICATION_MATCH_STARTUP_VALIDATION_HPP
 
+#include "game_mode_configuration.hpp"
 #include "match_configuration.hpp"
 
 #include "shared/hazard_archetype.hpp"
@@ -65,6 +66,14 @@ void require_match_fits_snapshot_bound(
 // Throws ApplicationInputError with `APPLICATION.MATCH.MAP_BOUNDS_MISMATCH`.
 void require_map_matches_published_world(const simulation::SimulationConfig& simulation_config,
                                          const simulation::MapDefinition& map);
+
+// Rejects a race checkpoint whose configured player disc overlaps void. Occupancy remains a live
+// seating concern; unsupported geometry cannot recover by waiting. Other modes do not bind race
+// configuration. Throws APPLICATION.MATCH.RACE_CHECKPOINT_UNSUPPORTED with gate index/map/radius.
+void require_race_checkpoint_returns_supported(const MatchConfiguration& match,
+                                               const gameplay::GameModeConfiguration& modes,
+                                               const simulation::SimulationConfig& configuration,
+                                               const simulation::MapDefinition& map);
 
 // Rejects a lobby the map could not seat in full: a mode with a lobby -- one that accepts
 // `start_match` -- needs a `spawn` marker per seat, or a match that satisfied `can_start` would

@@ -233,6 +233,43 @@ TEST_CASE("BlobRoyaleApplication seats nothing and logs nothing for an empty ros
   CHECK_FALSE(log_capture.contains_event("controllers.roster_seated"));
 }
 
+TEST_CASE("BlobRoyaleApplication rejects unsupported race returns before constructing rooms",
+          "[unit][application][startup][race]") {
+  auto modes = gameplay::GameModeConfiguration::defaults();
+  auto race_section = gameplay::RaceConfiguration::default_section();
+  race_section.checkpoint_radius_world_units = 10.0;
+  modes.race = gameplay::RaceConfiguration::create(race_section);
+  const auto terrain = simulation::TerrainDefinition::create(
+      simulation::ArenaBounds::create(kWorldWidth, kWorldHeight),
+      simulation::TerrainGround::kCorridors,
+      {simulation::TerrainCorridor::create(
+          "road", 20.0,
+          {simulation::Vector2::create(30.0, 40.0), simulation::Vector2::create(70.0, 40.0)})},
+      {});
+  const auto map = simulation::MapDefinition::create(
+      std::string{kMapName}, terrain, {},
+      {simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(30.0, 40.0)),
+       simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(70.0, 40.0)),
+       simulation::MapDefinition::Marker::create("checkpoint",
+                                                 simulation::Vector2::create(50.0, 60.0),
+                                                 std::nullopt, simulation::MapMetadata::none())},
+      simulation::MapMetadata::none());
+  const auto config = ApplicationConfig::create(
+      server_config_fixture(kUnboundConstructionPort), simulation_config_fixture(),
+      MatchConfiguration::create("race", std::string{kMapName}, "maps", kMatchSeed, 2, {}), modes,
+      LobbiesConfiguration::create(2));
+  LogCapture log_capture;
+  try {
+    static_cast<void>(BlobRoyaleApplication::create(
+        config, map, simulation::GameWorld::create(simulation_config_fixture(), map, kMatchSeed),
+        log_capture.logger));
+    FAIL("unsafe checkpoint must fail before room construction");
+  } catch (const ApplicationInputError& error) {
+    CHECK(error.error_code() == ApplicationInputErrorCode::kMatchRaceCheckpointUnsupported);
+  }
+  CHECK(log_capture.events().empty());
+}
+
 TEST_CASE("BlobRoyaleApplication rejects a map whose arena disagrees with the published world",
           "[unit][application][lifecycle][match][validation]") {
   LogCapture log_capture;

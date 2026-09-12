@@ -536,7 +536,7 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("restart_delay_seconds=8\n");
   // Two rooms for the session workload, so the directory lists more than the room every other
   // route serves and a room target can name one that `/api/v3/lobbies/1/session` does not.
-  configuration.append("\n[lobbies]\n");
+  configuration.append("\n[sandbox]\nrespawn_delay_seconds=2.0\n\n[lobbies]\n");
   configuration.append(session_workload ? "count=2\n" : "count=1\n");
   write_fixture_text_file_atomically(fixture_directory / kConfigurationFileName, configuration,
                                      "server_fixture.write_configuration");

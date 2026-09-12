@@ -45,6 +45,7 @@ describe('SimulationDebugPanel', () => {
       collision_layer: 1,
       collision_mask: 3,
       is_static: false,
+      ground_attachment: 'floating',
       mass: 1,
       position: { x: 240, y: 300 },
       radius: 10,

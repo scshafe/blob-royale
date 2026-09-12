@@ -14,7 +14,8 @@
     "mass",
     "collision_layer",
     "collision_mask",
-    "is_static"
+    "is_static",
+    "ground_attachment"
   ],
   "properties": {
     "position": {
@@ -40,6 +41,11 @@
     },
     "is_static": {
       "type": "boolean"
+    },
+    "ground_attachment": {
+      "type": "string",
+      "enum": ["floating", "ground_bound"],
+      "description": "Ground-bound dynamic bodies terminate at first center support loss; floating and static bodies do not fall. Safe seating separately requires full-disc clearance."
     }
   }
 }

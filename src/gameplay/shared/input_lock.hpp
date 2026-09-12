@@ -10,8 +10,9 @@ class GameWorld;
 
 namespace blob_royale::gameplay {
 
-// canonical: input_lock -- active status admission, independent of phase and body presence.
-// Returns true exactly when the entity's stun window contains tick. Never throws.
+// canonical: input_lock -- active status or completed-race activation admission.
+// Returns true during stun or while retained RaceProgress completes the published race course.
+// Neither condition depends on phase or body presence; match reset clears progress. Never throws.
 [[nodiscard]] bool input_is_locked(const simulation::GameWorld& world, simulation::EntityId entity,
                                    simulation::TickSequence tick) noexcept;
 

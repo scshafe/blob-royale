@@ -27,7 +27,7 @@ namespace blob_royale::gameplay {
 // @extension-point game_mode
 //
 // The second of the two games in `blob_gameplay`, and **a mode is still a declaration, not
-// machinery**: everything below is seven answers. The rules are declared systems, a contact row and
+// machinery**: everything below is eight answers. The rules are declared systems, a contact row and
 // two components; none of them is a phase inside `GameSimulation` and none of them is a field on
 // the world (`docs/architecture/0005-royale-mode.md` § "The mode declaration").
 //
@@ -35,6 +35,7 @@ namespace blob_royale::gameplay {
 //                           kPostKernel; placement_recorder, match_reset, lifetime_expiry,
 //                           hazard_spawn then elimination_grace_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
+//   motion_triggers()       ground-bound support loss while running
 //   accepted_command_kinds  spawn, despawn, join, leave, thrust, movement tuning, four lobby kinds
 //   spawn_policy()          RotatingRingSpawnPolicy
 //   objective()             RoyaleObjective
@@ -114,6 +115,7 @@ public:
   [[nodiscard]] std::string_view name() const noexcept override { return kModeName; }
 
   [[nodiscard]] simulation::SystemPipeline systems() const override;
+  [[nodiscard]] simulation::MotionTriggerTable motion_triggers() const override;
 
   [[nodiscard]] simulation::ContactRuleTable contact_rules() const override {
     // One royale row, above everything the engine ships. See the note on precedence above.

@@ -13,8 +13,9 @@ namespace blob_royale::gameplay {
 // @extension-point simulation_system
 //
 // At kPostKernel, only while running, attach RaceProgress{0} to every alive entity that lacks
-// it, then test only its next gate with shared/disc_geometry.hpp. At most one gate advances per
-// tick. Finished racers keep their bodies and progress, so their contacts remain part of the race.
+// it, then apply ordered RaceCheckpointEvent facts without re-detecting geometry or filtering
+// later-fallen bodies. Several gates may advance within a tick. Finish clears movement intents;
+// the trigger already stopped this quantum, and shared input_lock prevents later activation.
 // Throws GAMEPLAY.RACE_PROGRESS_BEYOND_COURSE for an internally inconsistent gate count.
 // related: docs/architecture/0007-king-of-the-hill-and-race-modes.md section "Progress and
 // finishing".

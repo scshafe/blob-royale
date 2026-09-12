@@ -42,8 +42,9 @@ void CheckpointRespawnSystem::apply(simulation::GameWorld& world,
     }
     const simulation::Vector2& target =
         course_.checkpoints()[static_cast<std::size_t>(progress->next_checkpoint - 1)];
-    if (!simulation::point_is_occupied(target, world.store<simulation::PhysicsBody>().entries(),
-                                       player_radius)) {
+    if (simulation::seat_is_supported_and_unoccupied(
+            target, world.store<simulation::PhysicsBody>().entries(), player_radius,
+            context.map().terrain())) {
       simulation::seat_body_at_rest(world, entry.entity, target, player_radius);
     }
   }

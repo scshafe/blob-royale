@@ -60,7 +60,7 @@ src/gameplay/
     course_publisher_system.*   immutable course and durations on every frame
     race_mode_state.hpp         the one answer to "what if the world holds another arm"
   sandbox/                      free play: thrust, bump, and nothing ever ends
-    sandbox_mode.*              the eight declarations (motion triggers currently default empty)
+    sandbox_mode.*              eight declarations, shared support loss and respawn
     free_play_objective.hpp     always startable, never decided, zero durations
   royale/                       thrust and drag inside a shrinking zone, last blob standing
     royale_mode.*               the eight declarations (motion triggers currently default empty)
@@ -156,12 +156,11 @@ configuration for each server workload. A new required section must reach that b
 
 ## `sandbox`
 
-Free play. It accepts `spawn`, `despawn`, and `thrust`; seats every joiner at the next free spawn
-point in every phase; uses the engine's three built-in contact rows; declares one
-`kPreKernel` system, `thrust_steering`; and never leaves `running` because its objective can always
-start and is never decided. It contributes no component kind, no contact rule, no world event, no
-mode-state block, or `kLifecycle` system. The shared `status` system is its sole PostKernel
-declaration; with no Stun or StunRequest it changes nothing.
+Free play automatically enters countdown on tick one and running on tick two, never ends, accepts
+spawn/despawn/leave/thrust, and seats joiners at supported free markers. It uses built-in contacts,
+shared PreKernel steering and PostKernel status, an always-active
+support-loss trigger, and shared lifecycle respawn with explicit `[sandbox] respawn_delay_seconds`.
+The initial delay is two seconds. No Sandbox-only component, event, or mode-state block is added.
 
 The historical pre-status `SandboxMode` measurement was **89 lines** — a 52-line class block plus 37 lines of definitions — of which **58
 are code** once blank and `//` lines are removed. The measurement is the `class SandboxMode final`
@@ -345,11 +344,12 @@ mode-owned production implementation, not the total cross-domain cost.
 ## `race`
 
 The course binds `[race] road` to a named terrain corridor and uses ordered `checkpoint` markers
-as gates, with the last gate as the finish. `checkpoint_progress` takes at most one gate per tick and
-`track_bounds` then emits an elimination for an off-road centre, followed by shared `status` as
-the last PostKernel system. The lifecycle systems run in this
+as gates, with the last gate as the finish. Owned motion policies reuse canonical support-loss and
+ordered-gate queries; they terminate falling/finished racers within the tick. Course publication
+runs first PreKernel, before shared steering. PostKernel progress consumes certified facts, followed
+by shared status. The lifecycle systems run in this
 order: `standings_recorder`, `checkpoint_respawn`, `respawn`, `match_reset`, `lifetime_expiry`,
-`hazard_spawn`, `course_publisher`; the engine evaluates the objective afterwards. The mode uses
+`hazard_spawn`; the engine evaluates the objective afterwards. The mode uses
 shared steering and lethal-hazard contact, and accepts the same ten command kinds as royale.
 
 `RaceMode::validate_map` builds and validates one `RaceCourse` before `systems()` reads it. The
@@ -359,10 +359,9 @@ selected corridor identity; temporary map destruction leaves those views valid. 
 raises `GAMEPLAY.RACE_COURSE_UNBOUND` instead of constructing incomplete systems. Terrain owns
 node/shape validation; race requires the named road, a checkpoint, a spawn marker, and checkpoint/
 spawn centres satisfying the old exact distance <= width convention. It does not require every
-point of a gate disc to be on the road or apply the full terrain support/holes predicate;
-progress can advance and an off-road elimination can occur on the same tick. These are the
-current pre-Step-17 production registrations, not the new unary trigger mechanism; Step 17 owns
-their replacement with support/fall and chronological gate/finish behavior.
+point of the gate's detection disc to be on the road. Application startup separately requires the
+configured player's return disc at each checkpoint to be supported by full terrain, including
+holes. Earlier gates remain earned after later falling, but support loss at a tied time wins.
 
 The configuration factory validates the road name and bounds checkpoint radius to `(0, 10^12]`.
 Binding checks that radius is no greater than the selected terrain half-width, whose terrain
@@ -373,12 +372,13 @@ default balance values are unchanged.
 
 A fallen racer keeps its entity, controller, and `RaceProgress`. With zero gates taken it returns
 through `GridSpawnPolicy`; after a gate it returns to that checkpoint through the public
-`simulation::point_is_occupied` and `simulation::seat_body_at_rest` operations. A blocked point is
+`simulation::seat_is_supported_and_unoccupied` and `simulation::seat_body_at_rest` operations. A blocked point is
 retried one tick at a time. Both routes first offer the body on tick `N + D + 1` after elimination
 at `N` with delay `D`. Mid-race joiners have no progress and wait for the next lobby.
 
 The race block publishes the course and finish standings once per frame. Finishers on one tick
-share a placement, and their controller ids preserve identity after an entity disappears. Once
+are ordered by certified normalized finish offset; exactly equal times share a placement. Their
+controller ids preserve identity after an entity disappears. Once
 someone finishes, the finish window replaces the time limit; when everyone finishes or the window
 ends, the recorded first place wins, with a shared first place producing a draw. With no finisher,
 the time limit ranks by gates taken only. No participants is a draw before either branch. The

@@ -5,7 +5,9 @@
 # Gate 0 first contains the centre at n=20, tick 22: x=105.25 (previous x=104.75).
 # During braking, x=120.5+0.025*(40*m-m*(m+1)/2). Gate 1 is first reached at m=20,
 # tick 62: x=135.25 (previous x=134.75). Upward thrust starts on tick 83; n=45 gives
-# y=294.125 on tick 127 (previous y=295.25), so the solo racer finishes and wins then.
+# an unhandled y=294.125 on tick 127 (previous y=295.25). Certified gate entry instead stops
+# at y=295+tolerance after (.25-tolerance)/1.125 of tick 127, with zero velocity/acceleration.
+# The solo racer finishes and wins on that same tick.
 # Zero restart delay commits lobby on 128; shared reset wipes the racer on 129.
 tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
 1,,spawn,1,,,,,

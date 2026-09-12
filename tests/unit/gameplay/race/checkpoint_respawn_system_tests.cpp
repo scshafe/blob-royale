@@ -86,6 +86,7 @@ TEST_CASE("checkpoint return seats each racer at its last gate at rest and prese
     CHECK(body(world, id)->acceleration() == kRest);
     CHECK(body(world, id)->radius() == testing::gameplay_configuration().player_radius());
     CHECK_FALSE(body(world, id)->is_static());
+    CHECK(body(world, id)->ground_attachment() == simulation::GroundAttachment::kGroundBound);
     REQUIRE(world.store<simulation::RaceProgress>().find(entity(id)) != nullptr);
     CHECK(world.store<simulation::RaceProgress>().find(entity(id))->next_checkpoint == id);
     CHECK(world.store<simulation::Controllable>().find(entity(id)) != nullptr);
@@ -149,6 +150,54 @@ TEST_CASE("checkpoint return competing racers seat in ascending entity order fro
   REQUIRE(body(world, 5) != nullptr);
   CHECK(body(world, 5)->position() == kFirstGate);
   CHECK(body(world, 20) == nullptr);
+}
+
+TEST_CASE("checkpoint return measures each occupant actual radius rather than two player radii",
+          "[unit][gameplay][race][checkpoint_respawn]") {
+  auto world = simulation::GameWorld::create({});
+  add_returning_racer(world, 1, 1);
+  const auto large = simulation::PhysicsBody::create_static(
+                         simulation::Vector2::create(kFirstGate.x() + 35.0, kFirstGate.y()))
+                         .with_radius(40.0);
+  world.mutable_store<simulation::PhysicsBody>().insert_or_assign(entity(2), large);
+  apply(system(), world);
+  CHECK(body(world, 1) == nullptr);
+  world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+      entity(2),
+      large.with_position(simulation::Vector2::create(kFirstGate.x() + 51.0, kFirstGate.y())));
+  apply(system(), world, 8);
+  REQUIRE(body(world, 1) != nullptr);
+  CHECK(body(world, 1)->position() == kFirstGate);
+}
+
+TEST_CASE("nearby distinct checkpoint returns refresh occupancy after the earlier seat",
+          "[unit][gameplay][race][checkpoint_respawn]") {
+  const auto map = testing::race_test_map("nearby_checkpoint_returns",
+                                          {kFirstGate, simulation::Vector2::create(315.0, 320.0)});
+  const testing::TickHarness harness{simulation::TickSequence::create(7), map};
+  const auto respawn = gameplay::CheckpointRespawnSystem::create(
+      gameplay::RaceCourse::create(map, gameplay::RaceConfiguration::defaults()));
+  auto world = simulation::GameWorld::create({});
+  add_returning_racer(world, 1, 1);
+  add_returning_racer(world, 2, 2);
+  respawn->apply(world, harness.context());
+  REQUIRE(body(world, 1) != nullptr);
+  CHECK(body(world, 1)->position() == kFirstGate);
+  CHECK(body(world, 2) == nullptr);
+}
+
+TEST_CASE("checkpoint seating never invents a relocation for an unsupported player disc",
+          "[unit][gameplay][race][checkpoint_respawn]") {
+  const auto map = testing::race_test_map("unsupported_checkpoint_return",
+                                          {simulation::Vector2::create(300.0, 385.0), kFinishGate});
+  const testing::TickHarness harness{simulation::TickSequence::create(7), map};
+  const auto respawn = gameplay::CheckpointRespawnSystem::create(
+      gameplay::RaceCourse::create(map, gameplay::RaceConfiguration::defaults()));
+  auto world = simulation::GameWorld::create({});
+  add_returning_racer(world, 1, 1);
+  respawn->apply(world, harness.context());
+  CHECK(body(world, 1) == nullptr);
+  CHECK(world.store<simulation::RaceProgress>().find(entity(1))->next_checkpoint == 1);
 }
 
 TEST_CASE("checkpoint return remains lifecycle bookkeeping outside running",

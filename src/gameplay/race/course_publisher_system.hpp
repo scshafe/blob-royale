@@ -13,7 +13,8 @@ namespace blob_royale::gameplay {
 // canonical: course_publisher -- stamps the race's declared course and clocks onto every frame.
 // @extension-point simulation_system
 //
-// Last among the mode's kLifecycle systems, in every phase. Owns the declared block members and
+// First at kPreKernel, in every phase, so finished-progress input admission sees the course even
+// on a directly seeded world's first quantum. Owns the declared block members and
 // preserves standings. Every committed race tick therefore publishes the exact road identity,
 // gates, and clocks, even after match_reset removes all participants. Terrain alone owns road
 // geometry; rules read their constructor values rather than this declared state.

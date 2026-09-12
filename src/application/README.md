@@ -114,3 +114,9 @@ initialization, worker, encoding, or server failure is retained and rethrown to 
 Future orchestration belongs here only when it coordinates existing domain capabilities. Domain
 rules stay in simulation, wire representation stays in protocol, and transport policy stays in
 server. In particular, never inject `GameSimulation&` or `SimulationRuntime&` into network code.
+
+Step 17 adds required `[sandbox] respawn_delay_seconds`, validated by the shared gameplay duration
+owner. Match startup binds race checkpoint return clearance against the configured player radius
+and complete terrain before building any room; unsupported discs fail with
+`APPLICATION.MATCH.RACE_CHECKPOINT_UNSUPPORTED`. This is a cross-value validation exception to
+mode-name isolation, not another game-mode factory. Runtime occupancy remains shared seating's job.

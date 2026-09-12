@@ -218,7 +218,7 @@ function RaceStandingsTable({ race }: { readonly race: RaceHudReport }) {
       <tbody>
         {race.standings.length === 0 ? (
           <tr>
-            <td colSpan={2}>No finishers yet</td>
+            <td colSpan={3}>No finishers yet</td>
           </tr>
         ) : (
           race.standings.map((row) => (
@@ -229,6 +229,9 @@ function RaceStandingsTable({ race }: { readonly race: RaceHudReport }) {
             >
               <th scope="row">{row.isOwn ? 'You' : row.displayName}</th>
               <td>#{row.placement}</td>
+              <td title="Certified finish time: tick and normalized fraction">
+                tick {row.finishedTick} + {row.finishedTickOffset}
+              </td>
             </tr>
           ))
         )}

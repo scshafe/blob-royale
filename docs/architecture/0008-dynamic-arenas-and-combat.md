@@ -1202,3 +1202,21 @@ and per-object-policy adoption; Step 17 owns production falling/race chronology;
 own shield, charge, visuals, and controls. Approval does not itself implement or verify those
 steps, change the 400 Hz clock or representation, certify native capacity/performance, or authorize
 push/deployment. Native evidence remains required for Step 24 performance/release claims.
+
+## Step 17 implementation refinement, 2026-09-11
+
+Ground attachment is explicitly selected by normal player construction; generic bodies and existing
+crossing hazards default floating. Competitive support triggers bind only while running; Sandbox's
+bind in every phase, preserving its automatic lobby/countdown/running progression. Sandbox declares
+the existing shared respawn lifecycle with required
+[sandbox] respawn_delay_seconds (initial two-second tuning matching hill/race, not a newly confirmed
+owner value). Static bodies never fall. The canonical full-disc seating query is separate from
+center-based falling and terrain-independent hill motion.
+
+Unsafe checkpoint return discs fail at application startup with a named cross-value error. Occupied
+supported points defer through the one existing lifecycle. Course publication moves before steering
+to establish first-tick finish locks; narrow checkpoint facts preserve certified offsets through the
+solver adapter. RaceStanding publishes normalized finished_tick_offset in [0,1], with no rounded
+tie bucketing or tick-plus-fraction summation. Very large coincident courses can exceed the unchanged
+motion-event work cap; that is explicit transactional refusal, never a partial finish or fallback.
+See the [Step 17 contract](../reviews/2026-09-11-falling-race-return-contract.md).

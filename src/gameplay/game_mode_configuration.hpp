@@ -5,6 +5,7 @@
 #include "movement_tuning.hpp"
 #include "race/race_configuration.hpp"
 #include "royale/royale_configuration.hpp"
+#include "sandbox/sandbox_configuration.hpp"
 #include "shared/hazard_archetype.hpp"
 
 #include <vector>
@@ -16,7 +17,7 @@ namespace blob_royale::gameplay {
 // **One member per configured mode, and one per configured mechanic in `shared/`.** `[royale]`
 // (`docs/architecture/0005-royale-mode.md` § "Mode configuration"), `[king_of_the_hill]`,
 // and `[race]` (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`) are the mode
-// sections; `sandbox` declares none and its factory reads nothing from this value. `hazards` is the
+// sections; `[sandbox]` declares free-play return timing. `hazards` is the
 // first member that belongs to no mode at all: hazards are a mode-agnostic mechanic, so any mode
 // may declare the systems that read the table and a mode that declares none simply never reads it,
 // which is the same relationship `sandbox` already has with `[royale]`. `movement` is the shared
@@ -56,16 +57,16 @@ struct GameModeConfiguration final {
   // Required shared `[movement]` pair. Startup seeds both current and reset defaults from this
   // value; live changes belong exclusively to MatchState::movement and survive round resets.
   simulation::MovementTuning movement;
+  SandboxConfiguration sandbox;
 
   // Every configured mode's own declared defaults and no hazards, which is what the no-argument
   // `GameModeRegistry::create(name)` builds. Hazards have no defaults to declare because there is
   // no default kind: a kind exists only because a section declared it.
   [[nodiscard]] static GameModeConfiguration defaults() {
-    return GameModeConfiguration{RoyaleConfiguration::defaults(),
-                                 KingOfTheHillConfiguration::defaults(),
-                                 RaceConfiguration::defaults(),
-                                 {},
-                                 simulation::MovementTuning::defaults()};
+    return GameModeConfiguration{
+        RoyaleConfiguration::defaults(),        KingOfTheHillConfiguration::defaults(),
+        RaceConfiguration::defaults(),          {},
+        simulation::MovementTuning::defaults(), SandboxConfiguration::defaults()};
   }
 
   friend bool operator==(const GameModeConfiguration&, const GameModeConfiguration&) = default;

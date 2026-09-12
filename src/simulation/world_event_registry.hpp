@@ -4,6 +4,7 @@
 #include "events/contact_event.hpp"
 #include "events/despawn_event.hpp"
 #include "events/elimination_event.hpp"
+#include "events/race_checkpoint_event.hpp"
 #include "events/stun_request_event.hpp"
 #include "kind_registry.hpp"
 
@@ -57,7 +58,8 @@ namespace blob_royale::simulation {
 // related: command_registry.hpp -- the same closed-variant shape for one tick's input.
 // Step 14 foundation exception: injected in-tick tests produce StunRequest until Step 18's
 // production contact response arrives. No production command or reserved ability kind is added.
-using WorldEvent = std::variant<ContactEvent, DespawnEvent, EliminationEvent, StunRequest>;
+using WorldEvent =
+    std::variant<ContactEvent, DespawnEvent, EliminationEvent, StunRequest, RaceCheckpointEvent>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -73,6 +75,7 @@ enum class WorldEventKind : std::uint32_t {
   kDespawn = 1,
   kElimination = 2,
   kStunRequest = 3,
+  kRaceCheckpoint = 4,
 };
 
 // canonical: world_event_kind_name -- the one diagnostic name of one event kind.
@@ -99,6 +102,10 @@ template <> struct WorldEventKindName<StunRequest> {
   static constexpr std::string_view value = "stun_request";
 };
 
+template <> struct WorldEventKindName<RaceCheckpointEvent> {
+  static constexpr std::string_view value = "race_checkpoint";
+};
+
 // The declared name of one event kind, for diagnostics and fixtures.
 template <typename EventType>
 inline constexpr std::string_view world_event_kind_name = WorldEventKindName<EventType>::value;
@@ -123,6 +130,10 @@ template <> struct WorldEventKindOf<EliminationEvent> {
 
 template <> struct WorldEventKindOf<StunRequest> {
   static constexpr WorldEventKind value = WorldEventKind::kStunRequest;
+};
+
+template <> struct WorldEventKindOf<RaceCheckpointEvent> {
+  static constexpr WorldEventKind value = WorldEventKind::kRaceCheckpoint;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through
@@ -159,6 +170,8 @@ world_event_kind_name_of(const WorldEventKind kind) noexcept {
     return world_event_kind_name<EliminationEvent>;
   case WorldEventKind::kStunRequest:
     return world_event_kind_name<StunRequest>;
+  case WorldEventKind::kRaceCheckpoint:
+    return world_event_kind_name<RaceCheckpointEvent>;
   }
   return "world_event_kind_invalid";
 }

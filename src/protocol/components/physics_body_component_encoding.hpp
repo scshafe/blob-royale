@@ -34,6 +34,10 @@ template <> struct ComponentWireEncoding<simulation::PhysicsBody> {
     sink.set_unsigned("collision_layer", body.collision_layer());
     sink.set_unsigned("collision_mask", body.collision_mask());
     sink.set_boolean("is_static", body.is_static());
+    sink.set_string("ground_attachment",
+                    body.ground_attachment() == simulation::GroundAttachment::kGroundBound
+                        ? "ground_bound"
+                        : "floating");
   }
 };
 

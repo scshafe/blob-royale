@@ -582,3 +582,12 @@ are explicit spatial-grid diagnostics, not motion workloads that bypass the 256-
 actual terrain member, preserving its lifetime without copying geometry every tick. Snapshot
 value equality compares authored terrain rather than allocation identity. Controllers see the
 same retained value through `Observation`; session v3 sends it once in welcome, not every frame.
+
+### Ground attachment and seating (Step 17)
+
+PhysicsBody owns validated floating/ground-bound capability independently of outer bounds. Generic
+bodies float; ordinary player seating explicitly binds them. Shared gameplay registers center
+support loss through the existing trigger table. The canonical `seat_is_supported_and_unoccupied`
+query separately requires full-disc terrain clearance and checks actual effective body radii.
+SpawnSystem recomputes marker availability after each seat. RaceCheckpointEvent carries certified
+MotionTime to gameplay consumers; RaceStanding retains the normalized finish offset for v3.

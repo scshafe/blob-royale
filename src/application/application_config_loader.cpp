@@ -79,6 +79,7 @@ enum class ConfigField : std::size_t {
   kRaceCountdownSeconds,
   kRaceRestartDelaySeconds,
   kLobbiesCount,
+  kSandboxRespawnDelaySeconds,
   kCount,
 };
 
@@ -93,11 +94,11 @@ struct ConfigFieldSpec final {
   ConfigValueSyntax value_syntax = ConfigValueSyntax::kSingleValue;
 };
 
-constexpr std::array<std::string_view, 11> kConfigSections = {
+constexpr std::array<std::string_view, 12> kConfigSections = {
     "server",   "presentation", "simulation",       "world", "spatial_grid", "match",
-    "movement", "royale",       "king_of_the_hill", "race",  "lobbies"};
+    "movement", "royale",       "king_of_the_hill", "race",  "lobbies",      "sandbox"};
 
-// **`[royale]`, `[king_of_the_hill]`, and `[race]` are required whatever `[match] mode` names.** A
+// **`[royale]`, `[king_of_the_hill]`, `[race]`, and `[sandbox]` are required for every mode.** A
 // mode's balance section is part of this deployment's accepted schema rather than of the game it
 // happens to be running today, so switching `mode=` is a one-line edit that cannot fail at startup
 // for a section that was never written. The values are read only by the mode that owns them
@@ -154,7 +155,8 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"race", "time_limit_seconds"},
          {"race", "countdown_seconds"},
          {"race", "restart_delay_seconds"},
-         {"lobbies", "count"}}};
+         {"lobbies", "count"},
+         {"sandbox", "respawn_delay_seconds"}}};
 
 // canonical: config_section_family -- the one open name in the configuration schema.
 //
@@ -891,7 +893,10 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
               parse_double_config_value(document, ConfigField::kRaceCountdownSeconds),
           .restart_delay_seconds =
               parse_double_config_value(document, ConfigField::kRaceRestartDelaySeconds)}),
-      parse_hazard_archetypes(document), movement};
+      parse_hazard_archetypes(document),
+      movement,
+      gameplay::SandboxConfiguration::create(
+          parse_double_config_value(document, ConfigField::kSandboxRespawnDelaySeconds))};
 
   const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(
       parse_unsigned_config_value(document, ConfigField::kLobbiesCount));

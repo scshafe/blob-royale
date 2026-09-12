@@ -993,7 +993,7 @@ private:
   reference_configuration.emplace(
       "schema_migration",
       "2026-09-10_race_width_to_named_road;2026-09-11_shared_movement_400_10000;"
-      "2026-09-11_contact_effect_policy_closing_impact");
+      "2026-09-11_contact_effect_policy_closing_impact;2026-09-11_required_sandbox_return_delay");
   reference_configuration.emplace("measured_royale_inputs_unchanged", true);
   reference_configuration.emplace("map_source", "current_repository_maps");
   reference_configuration.emplace("maps_directory", inputs.maps_directory.string());
@@ -1639,6 +1639,10 @@ validate_motion_prototype_result(const MotionPrototypeCase& inputs,
     const auto& resolved = result.motion.bodies[index];
     require(resolved.entity == inputs.bodies[index].entity, "BENCHMARK.MOTION_BODY_ORDER_MISMATCH",
             "result bodies must be in canonical entity order");
+    require(resolved.result.body.ground_attachment() ==
+                inputs.bodies[index].body.ground_attachment(),
+            "BENCHMARK.MOTION_GROUND_ATTACHMENT_CHANGED",
+            "pure motion must preserve each input body's ground attachment");
     counts.terminations +=
         resolved.result.disposition == simulation::MotionDisposition::kTerminate ? 1 : 0;
     if (inputs.kind == MotionPrototypeKind::kChargeSpeed) {
@@ -1795,7 +1799,9 @@ validate_motion_prototype_result(const MotionPrototypeCase& inputs,
   correctness.emplace("complete_result_hash", expected_hash);
   correctness.emplace(
       "hash_fields",
-      "all body fields/dispositions, paths, event keys, typed effects, cursors and work counters");
+      "historical body fields/dispositions, paths, event keys, typed effects, cursors and work "
+      "counters; ground attachment is checked separately");
+  correctness.emplace("ground_attachment_preserved", true);
   correctness.emplace("independent_repeat_equal", true);
   correctness.emplace("timed_final_outputs_equal_reference", true);
   correctness.emplace("contact_fact_count", consequences.contacts);

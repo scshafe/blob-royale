@@ -432,10 +432,12 @@ hill_mode_snapshot(const double hill_radius, const std::uint64_t points_to_win,
       2'000,
       {simulation::RaceStanding{simulation::EntityId::create(kPlayerEntityId),
                                 simulation::ControllerId::create(kPlayerControllerId), 1,
-                                simulation::TickSequence::create(1)},
+                                simulation::TickSequence::create(1),
+                                simulation::MotionTime::create(0.25)},
        simulation::RaceStanding{simulation::EntityId::create(kBotEntityId),
                                 simulation::ControllerId::create(kBotControllerId), 1,
-                                simulation::TickSequence::create(1)}}};
+                                simulation::TickSequence::create(1),
+                                simulation::MotionTime::create(0.25)}}};
 }
 
 // Actual authored terrain for the golden race block, not a geometry mirror in match state.

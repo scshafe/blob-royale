@@ -30,9 +30,9 @@ TEST_CASE(
   const auto system = gameplay::CoursePublisherSystem::create(course, configuration);
   const testing::TickHarness harness{simulation::TickSequence::create(10)};
   simulation::GameWorld world = testing::race_test_world({});
-  const simulation::RaceStanding recorded{simulation::EntityId::create(1),
-                                          simulation::ControllerId::create(7), 1,
-                                          simulation::TickSequence::create(5)};
+  const simulation::RaceStanding recorded{
+      simulation::EntityId::create(1), simulation::ControllerId::create(7), 1,
+      simulation::TickSequence::create(5), simulation::MotionTime::create(0.25)};
   gameplay::race_mode_state_in(world, course).standings = {recorded};
   for (const simulation::MatchPhase phase :
        {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown,
@@ -97,7 +97,7 @@ TEST_CASE("race publication preserves the configured identity across reordered t
   section.road = "race_route";
   const auto configuration = gameplay::RaceConfiguration::create(section);
   const std::vector<simulation::Vector2> points{simulation::Vector2::create(100.0, 320.0),
-                                               simulation::Vector2::create(800.0, 320.0)};
+                                                simulation::Vector2::create(800.0, 320.0)};
   for (const bool selected_first : {false, true}) {
     std::vector<simulation::TerrainCorridor> corridors{
         simulation::TerrainCorridor::create("unselected", 10.0, points),
@@ -108,8 +108,8 @@ TEST_CASE("race publication preserves the configured identity across reordered t
     const auto map = simulation::MapDefinition::create(
         "race_named_publication",
         simulation::TerrainDefinition::create(base.terrain().bounds(),
-                                               simulation::TerrainGround::kCorridors,
-                                               std::move(corridors), {}),
+                                              simulation::TerrainGround::kCorridors,
+                                              std::move(corridors), {}),
         {}, {base.markers().begin(), base.markers().end()}, simulation::MapMetadata::none());
     const auto course = gameplay::RaceCourse::create(map, configuration);
     simulation::GameWorld world = testing::race_test_world({}, simulation::MatchPhase::kLobby);

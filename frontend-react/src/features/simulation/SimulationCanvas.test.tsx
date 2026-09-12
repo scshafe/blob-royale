@@ -169,6 +169,7 @@ function bodyEntity(
         collision_layer: 1,
         collision_mask: 3,
         is_static: false,
+        ground_attachment: 'ground_bound',
         mass: 1,
         position,
         radius: 10,

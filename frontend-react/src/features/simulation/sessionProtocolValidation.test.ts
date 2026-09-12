@@ -769,6 +769,11 @@ describe('validateSessionSnapshotMessage', () => {
     ['placement', 1025],
     ['finished_tick', 0],
     ['finished_tick', 1.5],
+    ['finished_tick_offset', -Number.MIN_VALUE],
+    ['finished_tick_offset', 1.0000000000000002],
+    ['finished_tick_offset', Number.NaN],
+    ['finished_tick_offset', '0.25'],
+    ['finished_tick_offset', null],
     ['eliminated_tick', 1],
   ])('rejects malformed nested race standing %s', (member, value) => {
     const document = raceSnapshotDocument();
@@ -779,6 +784,42 @@ describe('validateSessionSnapshotMessage', () => {
       validateSessionSnapshotMessage(document, raceSequence),
     ).toThrow(SimulationApiError);
   });
+
+  it.each([0, 0.25, 1])('accepts certified finish offset %s', (offset) => {
+    const document = raceSnapshotDocument();
+    const standing = document.data.match.mode_state.value.standings[0];
+    if (standing === undefined) throw new Error('TEST.RACE_STANDING_MISSING');
+    Reflect.set(standing, 'finished_tick_offset', offset);
+    expect(() =>
+      validateSessionSnapshotMessage(document, raceSequence),
+    ).not.toThrow();
+  });
+
+  it.each(['ground_bound', 'floating'])(
+    'accepts ground attachment %s',
+    (attachment) => {
+      const document = snapshotDocument();
+      const body = playerEntity(document).components.physics_body;
+      if (body === undefined) throw new Error('TEST.PLAYER_BODY_MISSING');
+      Reflect.set(body, 'ground_attachment', attachment);
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).not.toThrow();
+    },
+  );
+
+  it.each(['bound', '', null, 0, undefined])(
+    'rejects invalid ground attachment %s',
+    (attachment) => {
+      const document = snapshotDocument();
+      const body = playerEntity(document).components.physics_body;
+      if (body === undefined) throw new Error('TEST.PLAYER_BODY_MISSING');
+      Reflect.set(body, 'ground_attachment', attachment);
+      expect(() =>
+        validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow(SimulationApiError);
+    },
+  );
 
   it('accepts an ordered race gate count including zero', () => {
     for (const nextCheckpoint of [0, 2]) {

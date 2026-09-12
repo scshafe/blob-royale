@@ -11,22 +11,23 @@ namespace blob_royale::simulation {
 
 // canonical: bounds_behavior -- whether the arena's walls exist for this body.
 //
-// `kFold` is the accepted behaviour of
-// `docs/architecture/0003-deterministic-simulation-contract.md` § "Wall policy": phase 4 folds the
-// body's complete proposed motion into the disc-centre interval, phase 10 rejects a committed
-// centre outside that interval, and the broad phase rejects one too. `kCross` is the smallest value
-// that expresses "this body travels *through* the arena rather than bouncing inside it", which is
-// what a hazard crossing the screen needs: phase 4 applies the proposed motion unfolded, phase 10
-// accepts wherever the centre lands, and the broad phase clamps the body's coverage to the edge
-// cells it is nearest instead of rejecting it.
-//
-// `kFold` is the default and every construction that existed before this value carries it, so
-// nothing that already ran changes. This is an addition to the contract's wall policy for a body
-// that opts out of it, not an amendment of the policy itself: a folding body still folds by exactly
-// the accepted equation.
+// `kFold` participates in continuous wall events using the body's effective radius. Its center
+// must lie in the closed arena and its diameter must fit, but an initial wall overlap is legal
+// and is not snapped to the inset. `kCross` omits outer wall events and permits dynamic centers
+// outside the arena; the spatial grid clamps their coverage to edge cells. Static centers remain
+// subject to the closed arena regardless of this value. Ground support is a separate capability.
+// related: motion_body_envelope.hpp -- the shared admission guard.
 enum class BoundsBehavior : std::uint8_t {
   kFold = 0,
   kCross = 1,
+};
+
+// canonical: ground_attachment -- whether unsupported terrain can remove a dynamic body.
+// Generic bodies float; ordinary player construction explicitly opts into ground support.
+// This capability is independent of outer-wall behavior and cannot change in a motion response.
+enum class GroundAttachment : std::uint8_t {
+  kFloating = 0,
+  kGroundBound = 1,
 };
 
 // canonical: physics_body_component -- the one physical body value in the game.
@@ -59,32 +60,19 @@ enum class BoundsBehavior : std::uint8_t {
 // **It is deliberately not part of `body_has_baseline_physics`.** That predicate gates which
 // *collision* equation a pair takes, and no collision equation reads drag; see the note there.
 //
-// **`radius_` is not read by any accepted phase.** Every phase takes the one common radius from
-// `SimulationConfig::player_radius()`: the pair contact predicate uses `2r`, the wall fold uses
-// `[r, extent - r]`, the spatial index sizes its cells from it, and the spawn occupancy test
-// measures against it. So the constant that fills the field is named `kUndeclaredRadius` rather
-// than `kDefaultRadius`: `0.0` is not a body one wu across, it is a body that declares no size and
-// defers to the configuration (engine review finding 10).
+// `radius_` is authoritative wherever a disc's geometry is needed: contacts, live walls, spatial
+// coverage, and seating clearance all call `effective_radius`. `kUndeclaredRadius` means no
+// authored size and defers to `SimulationConfig::player_radius()`; it is not a zero-sized disc.
+// Ordinary seating and scenario construction publish the configured positive radius explicitly.
+// Bare seed/test construction can retain the placeholder, which the same effective-radius query
+// handles. A later system may change a body's radius; motion callbacks may not change geometry.
 //
-// **A body that reaches a world nevertheless carries the configured radius, not the placeholder.**
-// `GameWorld::create(configuration, map, seed)`, `SpawnSystem`, and `ScenarioLoader` each fill it
-// in at seating time, because `physics-body-component.schema.json` requires a positive radius and a
-// published placeholder made every live match unencodable. The placeholder therefore survives only
-// between construction and seating -- in the motion-only `create` and `create_static` overloads a
-// map loader, a test, or a benchmark uses -- and what a snapshot publishes is always the radius the
-// kernel actually measured with.
-//
-// It stays a field rather than being deleted because making it authoritative is the growing-blob
-// change, and that is a **versioned physics change on ADR 0003's amendment path**, not a cleanup:
-// unequal radii replace the accepted equal-mass pair equation with the general impulse equation and
-// regenerate every accepted pair and wall fixture
-// (`docs/architecture/0003-deterministic-simulation-contract.md` § "Justified extension points and
-// what-if stress"; `docs/architecture/0005-royale-mode.md` § "Considered Options" B, rejected for
-// exactly that cost). What that change needs from this file is `with_radius`, which now exists, so
-// a growth system is a `kPostKernel` system writing `body.with_radius(...)` and the remaining cost
-// is entirely in the kernel and its fixtures rather than in this value.
-// related: with_radius -- the value operation a growing blob needs.
-// related: simulation_config.hpp -- where every accepted phase reads the radius it actually uses.
+// Ground attachment defaults to floating so generic construction, crossing hazards, and static
+// declarations retain their meaning. Ordinary players opt into ground-bound at seating/scenario
+// construction. It does not change collision arithmetic and is excluded from baseline-physics
+// dispatch; the mode-owned support-loss trigger alone interprets it.
+// related: effective_radius -- canonical geometric radius selection.
+// related: ../gameplay/shared/support_loss_trigger.hpp -- ground-bound falling policy.
 class PhysicsBody final {
 public:
   using CollisionLayer = std::uint32_t;
@@ -108,15 +96,14 @@ public:
   static constexpr CollisionLayer kDefaultCollisionLayer = 1;
   static constexpr CollisionLayer kDefaultCollisionMask = 1;
   static constexpr BoundsBehavior kDefaultBoundsBehavior = BoundsBehavior::kFold;
+  static constexpr GroundAttachment kDefaultGroundAttachment = GroundAttachment::kFloating;
 
   // The motion-only body: one baseline dynamic disc on the single default collision layer.
   [[nodiscard]] static PhysicsBody create(Vector2 position, Vector2 velocity, Vector2 acceleration);
 
-  // The complete body, including the fields no accepted phase reads yet. Restitution, drag scale,
-  // and bounds behaviour are deliberately absent from this signature: all three default here, so
-  // every call written before they existed keeps its exact meaning, and a body that wants one says
-  // so with the named wither rather than by threading three more positional arguments through
-  // every call site.
+  // Complete geometric/collision construction. Restitution, drag scale, bounds behavior, and
+  // ground attachment use declared defaults; named withers express opt-in capabilities without
+  // changing the meaning of existing positional construction.
   //
   // Throws SimulationValidationError for a mass that is not finite, not within the accepted
   // physical component limit, or not greater than zero on a dynamic body.
@@ -153,7 +140,8 @@ public:
   [[nodiscard]] CollisionLayer collision_mask() const noexcept { return collision_mask_; }
   [[nodiscard]] bool is_static() const noexcept { return is_static_; }
   [[nodiscard]] BoundsBehavior bounds_behavior() const noexcept { return bounds_behavior_; }
-  // The one question phase 4, the commit-time bounds validation, and the broad phase each ask.
+  [[nodiscard]] GroundAttachment ground_attachment() const noexcept { return ground_attachment_; }
+  // The outer-wall capability, independent of static admission and interior ground attachment.
   [[nodiscard]] bool crosses_bounds() const noexcept {
     return bounds_behavior_ == BoundsBehavior::kCross;
   }
@@ -161,9 +149,7 @@ public:
   [[nodiscard]] PhysicsBody with_position(Vector2 position) const;
   [[nodiscard]] PhysicsBody with_velocity(Vector2 velocity) const;
   [[nodiscard]] PhysicsBody with_acceleration(Vector2 acceleration) const;
-  // The wither a growing blob needs. No accepted phase reads `radius()`, so this changes only the
-  // value; it is here so the growth change is a system plus a kernel amendment rather than a system
-  // plus a missing operation on the one body type.
+  // Changes the geometric radius used by contacts, live walls, coverage, and safe seating.
   [[nodiscard]] PhysicsBody with_radius(double radius) const;
   // Throws SimulationValidationError for a mass that is not finite, not within the accepted
   // physical component limit, or not greater than zero on a dynamic body. A static body may carry
@@ -176,23 +162,26 @@ public:
   // deliberately no upper bound; see the note in the implementation.
   [[nodiscard]] PhysicsBody with_drag_scale(double drag_scale) const;
   [[nodiscard]] PhysicsBody with_bounds_behavior(BoundsBehavior bounds_behavior) const;
+  // Rejects undeclared enum values with PHYSICS_BODY_GROUND_ATTACHMENT_OUT_OF_RANGE.
+  [[nodiscard]] PhysicsBody with_ground_attachment(GroundAttachment ground_attachment) const;
 
   friend bool operator==(const PhysicsBody&, const PhysicsBody&) = default;
 
 private:
   // The one validating factory. Every public `create` and every wither routes through it, so a
-  // body that exists is a body whose mass, restitution, and drag scale are in range however it was
-  // built. The mass rule depends on `is_static`, which is why it lives here rather than in a scalar
-  // helper.
+  // body that exists is a body whose mass, restitution, drag scale, and ground attachment are valid
+  // however it was built. The mass rule depends on `is_static`, which is why it lives here rather
+  // than in a scalar helper.
   [[nodiscard]] static PhysicsBody
   validated(Vector2 position, Vector2 velocity, Vector2 acceleration, double radius, double mass,
             double restitution, double drag_scale, CollisionLayer collision_layer,
-            CollisionLayer collision_mask, bool is_static, BoundsBehavior bounds_behavior);
+            CollisionLayer collision_mask, bool is_static, BoundsBehavior bounds_behavior,
+            GroundAttachment ground_attachment);
 
   PhysicsBody(Vector2 position, Vector2 velocity, Vector2 acceleration, double radius, double mass,
               double restitution, double drag_scale, CollisionLayer collision_layer,
-              CollisionLayer collision_mask, bool is_static,
-              BoundsBehavior bounds_behavior) noexcept;
+              CollisionLayer collision_mask, bool is_static, BoundsBehavior bounds_behavior,
+              GroundAttachment ground_attachment) noexcept;
 
   Vector2 position_;
   Vector2 velocity_;
@@ -205,6 +194,7 @@ private:
   CollisionLayer collision_mask_;
   bool is_static_;
   BoundsBehavior bounds_behavior_;
+  GroundAttachment ground_attachment_;
 };
 
 // canonical: baseline_physics_predicate -- whether a body is the one the accepted **collision**

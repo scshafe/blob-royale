@@ -447,6 +447,10 @@ interface MutableBlobRoyaleProtocolV3PhysicsBodyComponent {
   collision_layer: number;
   collision_mask: number;
   is_static: boolean;
+  /**
+   * Ground-bound dynamic bodies terminate at first center support loss; floating and static bodies do not fall. Safe seating separately requires full-disc clearance.
+   */
+  ground_attachment: 'floating' | 'ground_bound';
 }
 /**
  * The zero-based index of the next gate a racer must reach in declared order. Zero means no gate taken; the course's checkpoint count means finished. Progress persists while the racer's body is absent so the last gate determines its return location.

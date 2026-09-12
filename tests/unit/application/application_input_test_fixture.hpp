@@ -93,6 +93,8 @@ inline constexpr std::string_view kValidConfiguration =
     "countdown_seconds=5\n"
     "restart_delay_seconds=8\n"
     "\n"
+    "[sandbox]\n"
+    "respawn_delay_seconds=2.0\n"
     "[lobbies]\n"
     "count=1\n";
 

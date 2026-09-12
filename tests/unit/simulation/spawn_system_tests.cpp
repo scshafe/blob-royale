@@ -170,6 +170,26 @@ TEST_CASE(
   const simulation::WorldSnapshot snapshot = game.snapshot();
   REQUIRE(body_of(snapshot, 100) != nullptr);
   CHECK(body_of(snapshot, 100)->radius() == Catch::Approx(configuration().player_radius()));
+  CHECK(body_of(snapshot, 100)->ground_attachment() == simulation::GroundAttachment::kGroundBound);
+}
+
+TEST_CASE("seating refreshes nearby marker occupancy after each simultaneous joiner",
+          "[unit][simulation][spawn_system]") {
+  auto map = simulation::MapDefinition::create(
+      "nearby_seats", simulation::ArenaBounds::create(500, 500), {},
+      {simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(50, 50)),
+       simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(65, 50)),
+       simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(100, 50))},
+      simulation::MapMetadata::none());
+  auto game = seating_game(std::move(map), testing::TestGameMode::Declaration{});
+  game.step(simulation::FixedDelta::canonical(),
+            reserved_batch({spawn_command(7), spawn_command(8), spawn_command(9)}, 100, 4));
+  const auto snapshot = game.snapshot();
+  REQUIRE(body_of(snapshot, 100) != nullptr);
+  REQUIRE(body_of(snapshot, 101) != nullptr);
+  CHECK(body_of(snapshot, 100)->position() == simulation::Vector2::create(50, 50));
+  CHECK(body_of(snapshot, 101)->position() == simulation::Vector2::create(100, 50));
+  CHECK(body_of(snapshot, 102) == nullptr);
 }
 
 TEST_CASE("the spawn rotation counter survives the tick that advanced it",

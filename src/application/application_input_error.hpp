@@ -44,6 +44,7 @@ enum class ApplicationInputErrorCode {
   kMatchBotKindUnknown,
   kMatchBotRosterTooLarge,
   kMatchMapBoundsMismatch,
+  kMatchRaceCheckpointUnsupported,
   kMatchEntityBudgetExceeded,
   kMatchBotsExceedSeats,
   kMatchLobbySeatCountOutOfRange,
@@ -141,6 +142,8 @@ application_input_error_code_name(const ApplicationInputErrorCode code) noexcept
     return "APPLICATION.MATCH.BOT_ROSTER_TOO_LARGE";
   case ApplicationInputErrorCode::kMatchMapBoundsMismatch:
     return "APPLICATION.MATCH.MAP_BOUNDS_MISMATCH";
+  case ApplicationInputErrorCode::kMatchRaceCheckpointUnsupported:
+    return "APPLICATION.MATCH.RACE_CHECKPOINT_UNSUPPORTED";
   case ApplicationInputErrorCode::kMatchEntityBudgetExceeded:
     return "APPLICATION.MATCH.ENTITY_BUDGET_EXCEEDED";
   case ApplicationInputErrorCode::kMatchBotsExceedSeats:

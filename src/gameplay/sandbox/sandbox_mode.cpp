@@ -2,7 +2,9 @@
 
 #include "game_mode_configuration.hpp"
 #include "gameplay_validation_error.hpp"
+#include "shared/respawn_system.hpp"
 #include "shared/status_system.hpp"
+#include "shared/support_loss_trigger.hpp"
 #include "shared/thrust_steering_system.hpp"
 
 #include <memory>
@@ -12,8 +14,9 @@
 
 namespace blob_royale::gameplay {
 
-std::unique_ptr<const simulation::GameMode> SandboxMode::create(const GameModeConfiguration&) {
-  return create();
+std::unique_ptr<const simulation::GameMode>
+SandboxMode::create(const GameModeConfiguration& configuration) {
+  return std::make_unique<const SandboxMode>(configuration.sandbox);
 }
 
 std::unique_ptr<const simulation::GameMode> SandboxMode::create() {
@@ -26,7 +29,16 @@ simulation::SystemPipeline SandboxMode::systems() const {
                                                               ThrustSteeringSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
                                                               StatusSystem::create()});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{
+      simulation::SystemStage::kLifecycle,
+      RespawnSystem::create(configuration_.respawn_delay_ticks())});
   return simulation::SystemPipeline::create(std::move(declared));
+}
+
+simulation::MotionTriggerTable SandboxMode::motion_triggers() const {
+  std::vector<simulation::MotionTriggerTable::Declaration> declared;
+  declared.push_back({0, 0, SupportLossTrigger::create(SupportLossPhasePolicy::kAlways)});
+  return simulation::MotionTriggerTable::create(std::move(declared));
 }
 
 void SandboxMode::validate_map(const simulation::MapDefinition& map) const {

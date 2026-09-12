@@ -15,8 +15,8 @@
 #include "mode_states/no_mode_state.hpp"
 #include "mode_states/race_mode_state.hpp"
 #include "mode_states/royale_placements_mode_state.hpp"
-#include "tick_sequence.hpp"
 #include "terrain_definition.hpp"
+#include "tick_sequence.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -101,8 +101,7 @@ template <> struct ModeStateWireEncoding<simulation::RoyalePlacementsModeState> 
   // Member order is the order `docs/protocol/v3.md` § "Object member order" declares for this
   // block, which is the order they are written here.
   static void encode_value(const simulation::RoyalePlacementsModeState& mode_state,
-                           const simulation::TerrainDefinition&,
-                           ComponentObjectSink& sink) {
+                           const simulation::TerrainDefinition&, ComponentObjectSink& sink) {
     sink.set_string("previous_phase", simulation::match_phase_name(mode_state.previous_phase));
     sink.set_unsigned("elimination_grace_ticks", mode_state.elimination_grace_ticks);
   }
@@ -128,8 +127,7 @@ template <> struct ModeStateWireEncoding<simulation::KingOfTheHillModeState> {
 
   // Member order is the order `docs/protocol/v3.md` § "Object member order" declares.
   static void encode_value(const simulation::KingOfTheHillModeState& mode_state,
-                           const simulation::TerrainDefinition&,
-                           ComponentObjectSink& sink) {
+                           const simulation::TerrainDefinition&, ComponentObjectSink& sink) {
     sink.set_unsigned("points_to_win", mode_state.points_to_win);
     sink.set_unsigned("point_interval_ticks", mode_state.point_interval_ticks);
     sink.set_unsigned("time_limit_ticks", mode_state.time_limit_ticks);
@@ -198,6 +196,7 @@ template <> struct ModeStateWireEncoding<simulation::RaceModeState> {
           entry.set_unsigned("controller_id", standing.controller.value());
           entry.set_unsigned("placement", standing.placement);
           entry.set_unsigned("finished_tick", standing.finished_tick.value());
+          entry.set_number("finished_tick_offset", standing.finished_tick_offset.value());
         });
   }
 

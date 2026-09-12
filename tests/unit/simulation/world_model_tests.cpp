@@ -148,6 +148,7 @@ TEST_CASE("PhysicsBody motion-only creation carries the baseline dynamic disc de
   CHECK(body.collision_mask() == simulation::PhysicsBody::kDefaultCollisionMask);
   CHECK_FALSE(body.is_static());
   CHECK(body.bounds_behavior() == simulation::PhysicsBody::kDefaultBoundsBehavior);
+  CHECK(body.ground_attachment() == simulation::GroundAttachment::kFloating);
   CHECK_FALSE(body.crosses_bounds());
 }
 
@@ -166,9 +167,11 @@ TEST_CASE("every PhysicsBody factory defaults to the baseline physics and to fol
   CHECK(complete.restitution() == simulation::PhysicsBody::kDefaultRestitution);
   CHECK(complete.drag_scale() == simulation::PhysicsBody::kDefaultDragScale);
   CHECK_FALSE(complete.crosses_bounds());
+  CHECK(complete.ground_attachment() == simulation::GroundAttachment::kFloating);
   CHECK(wall.restitution() == simulation::PhysicsBody::kDefaultRestitution);
   CHECK(wall.drag_scale() == simulation::PhysicsBody::kDefaultDragScale);
   CHECK_FALSE(wall.crosses_bounds());
+  CHECK(wall.ground_attachment() == simulation::GroundAttachment::kFloating);
   // The default is exactly one, which is the whole of the bit-identity argument: `d * 1.0 == d`
   // for every finite `d` in binary64, so phase 1 forms the identical factor it always did.
   CHECK(simulation::PhysicsBody::kDefaultDragScale == 1.0);
@@ -226,6 +229,32 @@ TEST_CASE("a declared drag scale is invisible to the collision predicate",
   // And the converse: a body that differs in something a contact rule *does* read is not baseline,
   // whatever it declares about drag.
   CHECK_FALSE(simulation::body_has_baseline_physics(coasting.with_mass(200.0)));
+}
+
+TEST_CASE("ground attachment is validated and preserved by every other body wither",
+          "[unit][simulation][physics_body][ground_attachment]") {
+  const auto original =
+      stationary_body(20, 30).with_ground_attachment(simulation::GroundAttachment::kGroundBound);
+  for (const auto& changed :
+       {original.with_position(simulation::Vector2::create(21, 31)),
+        original.with_velocity(simulation::Vector2::create(2, 3)),
+        original.with_acceleration(simulation::Vector2::create(4, 5)), original.with_radius(6),
+        original.with_mass(7), original.with_restitution(0.5), original.with_drag_scale(0),
+        original.with_bounds_behavior(simulation::BoundsBehavior::kCross)}) {
+    CHECK(changed.ground_attachment() == simulation::GroundAttachment::kGroundBound);
+  }
+  CHECK(original.with_ground_attachment(simulation::GroundAttachment::kFloating) ==
+        stationary_body(20, 30));
+  CHECK(simulation::body_has_baseline_physics(original));
+  try {
+    static_cast<void>(
+        original.with_ground_attachment(static_cast<simulation::GroundAttachment>(2)));
+    FAIL("undeclared ground attachment was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kPhysicsBodyGroundAttachmentOutOfRange);
+    CHECK(error.context() == "physics_body.ground_attachment");
+  }
 }
 
 TEST_CASE("PhysicsBody rejects a non-positive mass and an out-of-range restitution",

@@ -11,6 +11,7 @@
 #include "shared/match_reset_system.hpp"
 #include "shared/respawn_system.hpp"
 #include "shared/status_system.hpp"
+#include "shared/support_loss_trigger.hpp"
 #include "shared/thrust_steering_system.hpp"
 
 #include <memory>
@@ -38,6 +39,12 @@ std::unique_ptr<const simulation::GameMode>
 KingOfTheHillMode::create(KingOfTheHillConfiguration configuration,
                           std::vector<HazardArchetype> hazards) {
   return std::make_unique<const KingOfTheHillMode>(std::move(configuration), std::move(hazards));
+}
+
+simulation::MotionTriggerTable KingOfTheHillMode::motion_triggers() const {
+  std::vector<simulation::MotionTriggerTable::Declaration> declarations;
+  declarations.push_back({0, 0, SupportLossTrigger::create(SupportLossPhasePolicy::kRunningOnly)});
+  return simulation::MotionTriggerTable::create(std::move(declarations));
 }
 
 simulation::SystemPipeline KingOfTheHillMode::systems() const {

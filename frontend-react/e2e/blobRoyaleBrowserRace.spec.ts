@@ -108,14 +108,17 @@ function expectCourse(frame: RecordedFrame): void {
   }
 }
 
-function standingCell(page: Page, displayName: string): Locator {
+function standingRow(page: Page, displayName: string): Locator {
   return page
     .getByRole('table', { name: 'Standings' })
     .getByRole('row')
     .filter({
       has: page.getByRole('rowheader', { exact: true, name: displayName }),
-    })
-    .getByRole('cell');
+    });
+}
+
+function standingCell(page: Page, displayName: string): Locator {
+  return standingRow(page, displayName).getByRole('cell').first();
 }
 
 async function readOwnDisplayName(page: Page): Promise<string> {
@@ -275,6 +278,19 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
     await expect(standingCell(page, BOT_DISPLAY_NAME)).toHaveText('#1', {
       timeout: FINISH_TIMEOUT_MILLISECONDS,
     });
+    const finishTimeCell = standingRow(page, BOT_DISPLAY_NAME).getByTitle(
+      'Certified finish time: tick and normalized fraction',
+      { exact: true },
+    );
+    await expect(finishTimeCell).toHaveText(/^tick [1-9][0-9]* \+ .+$/);
+    const finishTime = (await finishTimeCell.textContent())?.match(
+      /^tick ([1-9][0-9]*) \+ (.+)$/,
+    );
+    expect(Number.isSafeInteger(Number(finishTime?.[1]))).toBe(true);
+    const finishOffset = Number(finishTime?.[2]);
+    expect(Number.isFinite(finishOffset)).toBe(true);
+    expect(finishOffset).toBeGreaterThanOrEqual(0);
+    expect(finishOffset).toBeLessThanOrEqual(1);
     await expect(matchHudCell(page, 'Phase')).toHaveText('running');
     await expect(matchHudCell(page, 'Finish window')).toHaveText(
       SECONDS_PATTERN,

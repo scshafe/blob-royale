@@ -1259,7 +1259,7 @@ describe('SimulationViewer', () => {
     expect(
       within(screen.getByRole('table', { name: 'Standings' })).getByRole(
         'row',
-        { name: 'You #1' },
+        { name: 'You #1 tick 12504 + 0.25' },
       ),
     ).toHaveAttribute('aria-current', 'true');
   });
@@ -1306,7 +1306,7 @@ describe('SimulationViewer', () => {
     expect(
       within(screen.getByRole('table', { name: 'Standings' })).getByRole(
         'row',
-        { name: 'You #1' },
+        { name: 'You #1 tick 12504 + 0.25' },
       ),
     ).toHaveAttribute('aria-current', 'true');
   });
@@ -1325,10 +1325,10 @@ describe('SimulationViewer', () => {
       within(standings)
         .getAllByRole('row')
         .map((row) => row.textContent),
-    ).toEqual(['You#1', 'wanderer-1#1']);
+    ).toEqual(['You#1tick 12504 + 0.25', 'wanderer-1#1tick 12504 + 0.25']);
     expect(
       screen.getByText(
-        'The first finishers crossed on the same tick. The next lobby opens shortly.',
+        'The first finishers crossed at the same instant. The next lobby opens shortly.',
       ),
     ).toBeVisible();
   });

@@ -212,7 +212,8 @@ void parse_player_row(const std::string_view row, const std::filesystem::path& s
       simulation::PhysicsBody::create(
           position, velocity, acceleration, simulation_config.player_radius(),
           simulation::PhysicsBody::kDefaultMass, simulation::PhysicsBody::kDefaultCollisionLayer,
-          simulation::PhysicsBody::kDefaultCollisionMask, false)));
+          simulation::PhysicsBody::kDefaultCollisionMask, false)
+          .with_ground_attachment(simulation::GroundAttachment::kGroundBound)));
 }
 
 } // namespace

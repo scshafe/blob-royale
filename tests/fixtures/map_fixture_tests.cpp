@@ -132,6 +132,9 @@ TEST_CASE(
       std::filesystem::path{BLOB_ROYALE_MAPS_DIRECTORY} / "circuit-960x640");
   const gameplay::RaceConfiguration configuration = gameplay::RaceConfiguration::defaults();
   const gameplay::RaceCourse course = gameplay::RaceCourse::create(map, configuration);
+  CHECK_NOTHROW(application::require_race_checkpoint_returns_supported(
+      application::MatchConfiguration::create("race", "circuit-960x640", "maps", 1, 4, {}),
+      gameplay::GameModeConfiguration::defaults(), shipped_configuration(), map));
   const auto* road = map.terrain().find_corridor(configuration.road());
   REQUIRE(road != nullptr);
   CHECK(course.track().data() == road->points().data());

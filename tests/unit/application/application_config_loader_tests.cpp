@@ -408,6 +408,7 @@ TEST_CASE("application config loader authors one shared movement pair for every 
     CHECK(loaded.royale == gameplay::RoyaleConfiguration::defaults());
     CHECK(loaded.king_of_the_hill == gameplay::KingOfTheHillConfiguration::defaults());
     CHECK(loaded.race == gameplay::RaceConfiguration::defaults());
+    CHECK(loaded.sandbox == gameplay::SandboxConfiguration::defaults());
   }
 }
 
@@ -434,6 +435,34 @@ TEST_CASE("application config loader rejects missing shared movement and every r
         test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, header,
                                    header + "thrust_max_world_units_per_second_squared=400\n"),
         ApplicationInputErrorCode::kConfigurationKeyUnknown);
+  }
+}
+
+TEST_CASE("sandbox return timing is required and uses shared duration validation",
+          "[unit][application][config][sandbox]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const std::string section = "[sandbox]\nrespawn_delay_seconds=2.0\n";
+  for (const auto seconds : {"0", "0.005", "2.0"}) {
+    const auto authored = test_fixture::replace_once(
+        std::string{test_fixture::kValidConfiguration}, section,
+        "[sandbox]\nrespawn_delay_seconds=" + std::string(seconds) + "\n");
+    const auto modes = load_game_mode_configuration(workspace, authored);
+    CHECK(modes.sandbox == gameplay::SandboxConfiguration::create(std::stod(seconds)));
+  }
+  require_configuration_load_error(
+      workspace,
+      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, section,
+                                 "[sandbox]\n"),
+      ApplicationInputErrorCode::kConfigurationKeyMissing);
+  const auto negative =
+      test_fixture::replace_once(std::string{test_fixture::kValidConfiguration}, section,
+                                 "[sandbox]\nrespawn_delay_seconds=-1\n");
+  try {
+    static_cast<void>(load_game_mode_configuration(workspace, negative));
+    FAIL("negative Sandbox delay must be rejected");
+  } catch (const gameplay::GameplayValidationError& error) {
+    CHECK(error.validation_code() == gameplay::GameplayValidationCode::kDurationNegative);
+    CHECK(error.context() == "sandbox.respawn_delay_seconds");
   }
 }
 
@@ -1099,9 +1128,10 @@ TEST_CASE("every fixed section still rejects an unknown key",
           "[unit][application][config][validation]") {
   // The regression that says opening instance names opened nothing else: each of the ten fixed
   // sections refuses a key it does not declare, exactly as it did before families existed.
-  constexpr std::array<std::string_view, 10> section_headers = {
-      "[server]\n", "[presentation]\n", "[simulation]\n",       "[world]\n", "[spatial_grid]\n",
-      "[match]\n",  "[royale]\n",       "[king_of_the_hill]\n", "[race]\n",  "[lobbies]\n"};
+  constexpr std::array<std::string_view, 12> section_headers = {
+      "[server]\n",       "[presentation]\n", "[simulation]\n", "[world]\n",
+      "[spatial_grid]\n", "[match]\n",        "[royale]\n",     "[king_of_the_hill]\n",
+      "[race]\n",         "[lobbies]\n",      "[movement]\n",   "[sandbox]\n"};
 
   TemporaryApplicationInputWorkspace workspace;
   for (const std::string_view section_header : section_headers) {

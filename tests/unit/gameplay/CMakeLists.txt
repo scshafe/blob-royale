@@ -14,6 +14,8 @@ add_executable(blob_gameplay_unit_tests
   race/checkpoint_progress_system_tests.cpp
   race/checkpoint_respawn_system_tests.cpp
   race/course_publisher_system_tests.cpp
+  race/ordered_checkpoint_trigger_tests.cpp
+  race/race_motion_chronology_tests.cpp
   race/grid_spawn_policy_tests.cpp
   race/race_configuration_tests.cpp
   race/race_course_tests.cpp
@@ -21,7 +23,6 @@ add_executable(blob_gameplay_unit_tests
   race/race_objective_tests.cpp
   race/race_return_timing_tests.cpp
   race/standings_recorder_system_tests.cpp
-  race/track_bounds_system_tests.cpp
   royale/elimination_grace_publisher_system_tests.cpp
   royale/placement_recorder_system_tests.cpp
   royale/rotating_ring_spawn_policy_tests.cpp
@@ -31,6 +32,7 @@ add_executable(blob_gameplay_unit_tests
   royale/zone_elimination_system_tests.cpp
   royale/zone_shrink_system_tests.cpp
   sandbox/sandbox_mode_tests.cpp
+  sandbox/sandbox_falling_tests.cpp
   shared/disc_geometry_tests.cpp
   shared/create_crossing_hazard_tests.cpp
   shared/duration_ticks_tests.cpp
@@ -48,6 +50,7 @@ add_executable(blob_gameplay_unit_tests
   shared/next_free_spawn_point_policy_tests.cpp
   shared/respawn_system_tests.cpp
   shared/status_system_tests.cpp
+  shared/support_loss_trigger_tests.cpp
   shared/roster_tests.cpp
   shared/spawn_point_probe_tests.cpp
   shared/thrust_steering_system_tests.cpp

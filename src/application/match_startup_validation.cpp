@@ -8,7 +8,10 @@
 
 #include "command_registry.hpp"
 #include "fixed_delta.hpp"
+#include "race/race_course.hpp"
+#include "race/race_mode.hpp"
 #include "seat_roster.hpp"
+#include "terrain_queries.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -127,6 +130,27 @@ void require_lobby_fits_map(const simulation::GameMode& mode, const std::uint64_
             std::to_string(map.spawn_points().size()) + " spawn markers, fewer than the " +
             std::to_string(lobby_seat_count) +
             " seats of [match] lobby_seat_count, so a full lobby could never all be seated"};
+  }
+}
+
+void require_race_checkpoint_returns_supported(const MatchConfiguration& match,
+                                               const gameplay::GameModeConfiguration& modes,
+                                               const simulation::SimulationConfig& configuration,
+                                               const simulation::MapDefinition& map) {
+  if (match.mode_name() != gameplay::RaceMode::kModeName) {
+    return;
+  }
+  const gameplay::RaceCourse course = gameplay::RaceCourse::create(map, modes.race);
+  for (std::size_t index = 0; index < course.checkpoints().size(); ++index) {
+    if (!simulation::terrain_supports_disc(map.terrain(), course.checkpoints()[index],
+                                           configuration.player_radius())) {
+      throw ApplicationInputError{ApplicationInputErrorCode::kMatchRaceCheckpointUnsupported,
+                                  "match.race.checkpoints[" + std::to_string(index) + "]",
+                                  "map " + std::string(map.name()) + " checkpoint " +
+                                      std::to_string(index) +
+                                      " cannot support a returning player disc of radius " +
+                                      std::to_string(configuration.player_radius())};
+    }
   }
 }
 

@@ -27,13 +27,14 @@ namespace blob_royale::gameplay {
 // @extension-point game_mode
 //
 // The third game in `blob_gameplay`, and **a mode is still a declaration, not machinery**:
-// everything below is seven answers (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`
+// everything below is eight answers (`docs/architecture/0007-king-of-the-hill-and-race-modes.md`
 // § "King of the hill").
 //
 //   systems()               thrust_steering at kPreKernel; hill_movement then hill_scoring at
 //                           kPostKernel; respawn, match_reset, lifetime_expiry, hazard_spawn then
 //                           hill_rules_publisher at kLifecycle
 //   contact_rules()         lethal_hazard, then the built-in rows
+//   motion_triggers()       ground-bound support loss while running
 //   accepted_command_kinds  royale's ten, including seated movement tuning
 //   spawn_policy()          NextFreeSpawnPointPolicy: the next free point, in every phase
 //   objective()             HillObjective
@@ -68,6 +69,7 @@ public:
   [[nodiscard]] std::string_view name() const noexcept override { return kModeName; }
 
   [[nodiscard]] simulation::SystemPipeline systems() const override;
+  [[nodiscard]] simulation::MotionTriggerTable motion_triggers() const override;
 
   [[nodiscard]] simulation::ContactRuleTable contact_rules() const override {
     return simulation::ContactRuleTable::with_rows_above_built_in({lethal_hazard_contact_rule()});

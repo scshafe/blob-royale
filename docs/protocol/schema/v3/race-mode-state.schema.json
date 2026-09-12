@@ -36,12 +36,16 @@
     "standing": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["entity_id", "controller_id", "placement", "finished_tick"],
+      "required": ["entity_id", "controller_id", "placement", "finished_tick", "finished_tick_offset"],
       "properties": {
         "entity_id": { "$ref": "common.schema.json#/$defs/entity_id" },
         "controller_id": { "$ref": "common.schema.json#/$defs/controller_id" },
         "placement": { "$ref": "common.schema.json#/$defs/placement_rank" },
-        "finished_tick": { "$ref": "common.schema.json#/$defs/tick_sequence" }
+        "finished_tick": { "$ref": "common.schema.json#/$defs/tick_sequence" },
+        "finished_tick_offset": {
+          "type": "number", "minimum": 0, "maximum": 1,
+          "description": "Certified normalized fraction within finished_tick. Compare tick then offset, never their floating-point sum. Exactly equal certified times share placement."
+        }
       }
     }
   },

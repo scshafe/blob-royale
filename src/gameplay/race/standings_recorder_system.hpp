@@ -9,12 +9,12 @@
 
 namespace blob_royale::gameplay {
 
-// canonical: standings_recorder -- records finishes once, sharing placements within a tick.
+// canonical: standings_recorder -- records certified finishes once, sharing exact finish times.
 // @extension-point simulation_system
 //
 // First at kLifecycle, only while running. Clears standings when previous_phase is countdown;
-// then appends alive finishers not already named, ascending EntityId. The whole batch receives
-// standings.size() + 1 computed before any append. Controller identity survives later destruction.
+// then reads final RaceCheckpointEvent facts, ordered by certified tick offset then EntityId.
+// Only equal tick/offset values share placement. Controller identity survives later destruction.
 // Throws GAMEPLAY.RACE_STANDING_LIMIT_EXCEEDED if the bounded match ranking would overflow.
 // related: docs/architecture/0007-king-of-the-hill-and-race-modes.md section "Progress and
 // finishing".

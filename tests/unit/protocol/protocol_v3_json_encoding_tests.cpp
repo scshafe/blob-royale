@@ -21,6 +21,7 @@
 #include "simulation_limits.hpp"
 
 #include <boost/json/serialize.hpp>
+#include <boost/json/value_to.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
@@ -188,7 +189,7 @@ TEST_CASE("Snapshot v3 encoder emits canonical bytes for the accepted golden wor
 
   CHECK(
       encoded ==
-      R"({"data":{"tick_sequence":12904,"random_draw_counts":{"hazards":0,"hill":0},"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"movement":{"current":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"defaults":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"limits":{"acceleration_world_units_per_second_squared":{"minimum":0,"maximum":10000},"normal_top_speed_world_units_per_second":{"minimum":1,"maximum":10000}},"revision":0,"effective_tick":0},"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}},"tuning_result":null},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
+      R"({"data":{"tick_sequence":12904,"random_draw_counts":{"hazards":0,"hill":0},"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true,"ground_attachment":"floating"}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false,"ground_attachment":"floating"},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false,"ground_attachment":"floating"},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"movement":{"current":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"defaults":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"limits":{"acceleration_world_units_per_second_squared":{"minimum":0,"maximum":10000},"normal_top_speed_world_units_per_second":{"minimum":1,"maximum":10000}},"revision":0,"effective_tick":0},"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}},"tuning_result":null},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
 }
 
 TEST_CASE("Error response v3 encoder matches the accepted golden example and canonical bytes",
@@ -277,6 +278,7 @@ TEST_CASE("Snapshot v3 encoder emits every normative object member in canonical 
                                      R"("collision_layer")",
                                      R"("collision_mask")",
                                      R"("is_static")",
+                                     R"("ground_attachment")",
                                      R"("zone_exposure")",
                                      R"("match")",
                                      R"("mode")",
@@ -309,6 +311,29 @@ TEST_CASE("Snapshot v3 encoder returns identical bytes across repeated encodings
       fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
 
   CHECK(first == second);
+}
+
+TEST_CASE("Snapshot v3 publishes explicit floating and ground-bound capabilities",
+          "[unit][protocol][v3][encoding][ground_attachment]") {
+  for (const auto attachment :
+       {simulation::GroundAttachment::kFloating, simulation::GroundAttachment::kGroundBound}) {
+    const auto zero = simulation::Vector2::create(0.0, 0.0);
+    auto game = simulation::GameSimulation::create(
+        simulation::SimulationConfig::create(960.0, 640.0, 10.0, 400, 16, 16),
+        simulation::GameWorld::create({simulation::GameWorld::EntitySeed::create(
+            simulation::EntityId::create(7),
+            simulation::PhysicsBody::create(simulation::Vector2::create(100.0, 100.0), zero, zero)
+                .with_radius(10.0)
+                .with_ground_attachment(attachment))}));
+    game.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
+    const auto encoded = protocol::encode_snapshot_message_v3(
+        game.snapshot(), fixture::golden_directory(), std::nullopt, fixture::session_request_id(),
+        fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp);
+    const auto expected = attachment == simulation::GroundAttachment::kGroundBound
+                              ? R"("ground_attachment":"ground_bound")"
+                              : R"("ground_attachment":"floating")";
+    CHECK(encoded.find(expected) != std::string::npos);
+  }
 }
 
 TEST_CASE("Every encoded v3 frame satisfies the invariants JSON Schema cannot express",
@@ -829,7 +854,7 @@ TEST_CASE("Race mode state publishes its road identity and shared standings in c
   CHECK(simulation::mode_match_state_schema_id_of(snapshot.match().mode_state()) == "race");
   CHECK(
       encoded.find(
-          R"("road":"road","checkpoint_radius":20,"checkpoints":[{"x":300,"y":100},{"x":700,"y":200},{"x":700,"y":500}],"time_limit_ticks":96000,"finish_window_ticks":2000,"standings":[{"entity_id":7,"controller_id":3,"placement":1,"finished_tick":1},{"entity_id":8,"controller_id":4,"placement":1,"finished_tick":1}])") !=
+          R"("road":"road","checkpoint_radius":20,"checkpoints":[{"x":300,"y":100},{"x":700,"y":200},{"x":700,"y":500}],"time_limit_ticks":96000,"finish_window_ticks":2000,"standings":[{"entity_id":7,"controller_id":3,"placement":1,"finished_tick":1,"finished_tick_offset":2.5E-1},{"entity_id":8,"controller_id":4,"placement":1,"finished_tick":1,"finished_tick_offset":2.5E-1}])") !=
       std::string::npos);
   CHECK_FALSE(block.at("value").as_object().contains("track"));
   CHECK_FALSE(block.at("value").as_object().contains("track_half_width"));
@@ -853,6 +878,32 @@ TEST_CASE("Race publishes an empty standings array and canonicalizes nested vect
   CHECK(encoded.find(R"("checkpoints":[{"x":0,"y":100})") != std::string::npos);
   CHECK(encoded.find(R"("standings":[])") != std::string::npos);
   CHECK(encoded.find(R"("placements":[])") != std::string::npos);
+}
+
+TEST_CASE("Race encoder retains zero fractional and endpoint certified finish offsets",
+          "[unit][protocol][v3][encoding][race]") {
+  for (const double offset : {0.0, 0.125, 1.0}) {
+    auto state = fixture::golden_race_mode_state();
+    state.standings[0].finished_tick_offset = simulation::MotionTime::create(offset);
+    const auto encoded = protocol::encode_snapshot_message_v3(
+        fixture::race_mode_snapshot(state, fixture::race_terrain()), fixture::golden_directory(),
+        std::nullopt, fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+        fixture::kSnapshotTimestamp);
+    const auto document = boost::json::parse(encoded);
+    const auto& standing = document.as_object()
+                               .at("data")
+                               .as_object()
+                               .at("match")
+                               .as_object()
+                               .at("mode_state")
+                               .as_object()
+                               .at("value")
+                               .as_object()
+                               .at("standings")
+                               .as_array()[0]
+                               .as_object();
+    CHECK(boost::json::value_to<double>(standing.at("finished_tick_offset")) == offset);
+  }
 }
 
 TEST_CASE("Race publication admits a gate at the canonical terrain-width ceiling",

@@ -36,7 +36,7 @@ sandbox_simulation(const std::size_t spawn_point_count = 4) {
 
 } // namespace
 
-TEST_CASE("SandboxMode declares free play as seven answers and two systems",
+TEST_CASE("SandboxMode declares free play with shared falling and configured return",
           "[unit][gameplay][sandbox]") {
   const gameplay::SandboxMode mode{};
 
@@ -48,13 +48,15 @@ TEST_CASE("SandboxMode declares free play as seven answers and two systems",
              simulation::CommandKind::kLeave, simulation::CommandKind::kThrust}));
 
   const simulation::SystemPipeline systems = mode.systems();
-  REQUIRE(systems.size() == 2);
+  REQUIRE(systems.size() == 3);
+  CHECK(mode.motion_triggers().size() == 1);
   REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
   REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() == "status");
-  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle).empty());
+  REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 1);
+  CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[0].system->name() == "respawn");
 }
 
 TEST_CASE("SandboxMode accepts thrust, so a thrust command reaches the world",

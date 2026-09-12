@@ -5,7 +5,7 @@
   "time_limit_ticks": 96000,
   "finish_window_ticks": 2000,
   "standings": [
-    { "entity_id": 7, "controller_id": 3, "placement": 1, "finished_tick": 1 },
-    { "entity_id": 8, "controller_id": 4, "placement": 1, "finished_tick": 1 }
+    { "entity_id": 7, "controller_id": 3, "placement": 1, "finished_tick": 1, "finished_tick_offset": 0.25 },
+    { "entity_id": 8, "controller_id": 4, "placement": 1, "finished_tick": 1, "finished_tick_offset": 0.25 }
   ]
 }

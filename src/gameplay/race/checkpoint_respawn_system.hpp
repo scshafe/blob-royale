@@ -15,7 +15,8 @@ namespace blob_royale::gameplay {
 //
 // At kLifecycle before shared respawn, walk Controllable + RaceProgress in ascending EntityId.
 // A timer or existing body defers the entity; progress zero belongs to the engine's grid policy.
-// Otherwise the live body store supplies the shared occupancy predicate, and a free gate receives
+// Otherwise the live body store and map terrain supply shared full-disc support/actual-radius
+// occupancy admission, and a free supported gate receives
 // the shared at-rest seating write. Reading the live store lets an earlier return block a later
 // one at the same gate. Never reads the stage's spatial index, which predates these seatings.
 //

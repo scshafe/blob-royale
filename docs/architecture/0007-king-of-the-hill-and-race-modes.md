@@ -923,3 +923,24 @@ No inward steering, radius inset, reflection, or early retarget is introduced. B
 permitted; the ordinary retarget schedule continues without guaranteeing a maximum escape time.
 The hill never supplies floor or alters player support/fall rules. ADR 0008 records the full
 sampling, numeric, publication, and round-reset contract.
+
+## Amendment: Falling, chronological gates, and safe return, 2026-09-11 (Step 17)
+
+This supersedes the historical endpoint checkpoint/track-bounds policies and same-tick finish ties.
+Race registers shared running-only support loss and owned ordered-gate motion policies. Certified
+support loss wins a tie with gate credit; earlier gates remain earned after later falling. Multiple
+ordered gates may be credited within one tick, bounded by authored count and the unchanged solver
+work budget. Finishing terminates the remaining quantum, zeros motion, and clears intents. The
+shared input lock recognizes completed race progress. The course publisher runs first PreKernel,
+then steering; PostKernel progress consumes facts, then status; lifecycle standings/return/reset
+ordering otherwise remains. The obsolete TrackBoundsSystem is removed, not retained as a second
+fall path.
+
+Standings order exact certified offsets within each tick and use ascending EntityId only for ties;
+only equal certified times share placement. The required v3 finished_tick_offset is normalized
+to [0,1], published unchanged next to finished_tick. Finish-window duration remains tick-based.
+The one shared supported-and-unoccupied seating query uses actual radii and refreshes occupancy
+after each seat. Application startup rejects checkpoint centers whose configured return discs
+overlap void; no nearest-point fallback. Progress zero is initialized before first-gate falling.
+Race and hill retain N + D + 1 return timing, persistent progress/score, and registry-owned body
+cleanup. Hill motion remains terrain-independent and never creates floor.

@@ -22,15 +22,17 @@ namespace blob_royale::gameplay {
 // canonical: race_mode -- a closed field on an ordered point-to-point course.
 // @extension-point game_mode
 //
-// The fourth mode supplies the same seven declarations. The map-bearing declaration,
+// The fourth mode supplies the same eight declarations. The map-bearing declaration,
 // validate_map, binds RaceCourse once during GameSimulation construction, before systems() is
 // called. Every system receives its own immutable value; destruction of the mode cannot affect
 // a tick. No course is built, cached, or looked up during simulation.
 //
-// kPreKernel: thrust_steering. kPostKernel: checkpoint_progress, track_bounds.
+// Motion: running-only support loss and ordered checkpoints. kPreKernel: course_publisher,
+// thrust_steering.
+// kPostKernel: checkpoint_progress, status.
 // kLifecycle: standings_recorder, checkpoint_respawn, respawn, match_reset, lifetime_expiry,
-// hazard_spawn, course_publisher. Record before returning; return before timer expiry; publish
-// after every other mode system. The engine appends its lifecycle transition last.
+// hazard_spawn. Record before returning; return before timer expiry. The engine appends its
+// lifecycle transition last.
 // related: docs/architecture/0007-king-of-the-hill-and-race-modes.md section "The mode
 // declaration".
 class RaceMode final : public simulation::GameMode {
@@ -50,6 +52,7 @@ public:
 
   // Requires successful validate_map first; otherwise throws GAMEPLAY.RACE_COURSE_UNBOUND.
   [[nodiscard]] simulation::SystemPipeline systems() const override;
+  [[nodiscard]] simulation::MotionTriggerTable motion_triggers() const override;
 
   [[nodiscard]] simulation::ContactRuleTable contact_rules() const override {
     return simulation::ContactRuleTable::with_rows_above_built_in({lethal_hazard_contact_rule()});

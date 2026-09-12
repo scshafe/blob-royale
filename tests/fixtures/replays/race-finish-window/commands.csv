@@ -3,7 +3,9 @@
 # The first finish at 47 opens an eight-tick (0.02-second) window, ending on 55.
 # The 0.12-second clock is 48 running ticks, nominally tick 2+48=50. A recorded finish
 # takes precedence, so tick 50 stays running and the finish window decides on 55.
-# The finished body stays in play until the match ends; zero restart then wipes it on 57.
+# Tick 46 ends at x=124.75. Tick 47 stops at x=125-tolerance after
+# (.25-tolerance)/1.125 of that quantum, clearing velocity/acceleration and held thrust intent.
+# It stays physical but cannot reactivate thrust during the finish window; zero restart wipes 57.
 tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
 1,,spawn,1,,,,,
 1,,spawn,2,,,,,

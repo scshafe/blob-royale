@@ -1,8 +1,10 @@
 # Both racers accelerate right from tick 3 at 4000 wu/s^2, with no drag.
 # Displacement 0.025*n*(n+1)/2 first passes 6,16,26 at n=22,36,46, respectively:
 # gates on ticks 24,38,48. Previous displacements are 5.775,15.75,25.875;
-# crossing displacements are 6.325,16.65,27.025. Their symmetric paths cannot collide.
-# Both finish on 48, share placement one, and all participants finished makes a draw.
+# unhandled crossing displacements are 6.325,16.65,27.025. Their symmetric paths cannot collide.
+# With closed gate tolerance, horizontal reach is sqrt((5+tolerance)^2-3^2). Both stop at
+# x=130-reach after (30-reach-25.875)/1.15 of tick 48, with zero velocity/acceleration.
+# Their certified fractions are equal, so both share placement one and the race draws.
 tick_sequence,entity_id,command_kind,controller_id,direction_x,direction_y,seat_index,seat_count,npc_kind
 1,,spawn,1,,,,,
 1,,spawn,2,,,,,

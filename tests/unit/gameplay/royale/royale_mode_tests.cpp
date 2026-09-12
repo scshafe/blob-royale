@@ -2,6 +2,7 @@
 
 #include "shared/lethal_hazard_contact_rule.hpp"
 
+#include "fixtures/falling_mode_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
 
 #include "command_kind_mask.hpp"
@@ -38,11 +39,12 @@ namespace {
 
 } // namespace
 
-TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
+TEST_CASE("RoyaleMode declares the shrinking-zone game as eight answers",
           "[unit][gameplay][royale]") {
   const gameplay::RoyaleMode mode = default_mode();
 
   CHECK(mode.name() == std::string_view{"royale"});
+  CHECK(mode.motion_triggers().size() == 1);
   // One royale row above the built-in ones, and the built-in ones unmodified below it. Royale still
   // changes no collision *equation* -- `lethal_hazard` computes no physics and returns both bodies
   // verbatim -- so every accepted pair and wall fixture stays valid without regeneration, which the
@@ -64,6 +66,37 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as seven answers",
              simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
              simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
              simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
+}
+
+TEST_CASE("royale falling records elimination without delivering the later pair impulse",
+          "[unit][gameplay][royale][falling]") {
+  namespace falling = testing::falling_mode_fixture;
+  auto game = falling::game(gameplay::RoyaleMode::create());
+  const auto fallen = falling::step(game);
+  CHECK(falling::component<simulation::PhysicsBody>(fallen, 1) == nullptr);
+  CHECK(falling::component<simulation::Controllable>(fallen, 1) == nullptr);
+  const auto* survivor = falling::component<simulation::PhysicsBody>(fallen, 2);
+  REQUIRE(survivor != nullptr);
+  CHECK(survivor->position() == falling::point(160, 320));
+  CHECK(survivor->velocity() == falling::point(0, 0));
+  const auto& placements =
+      std::get<simulation::RoyalePlacementsModeState>(fallen.match().mode_state()).placements;
+  REQUIRE(placements.size() == 1);
+  CHECK(placements.front().entity == falling::entity(1));
+  CHECK(placements.front().controller == simulation::ControllerId::create(1));
+  CHECK(placements.front().placement == 2);
+  CHECK(placements.front().elimination_tick.value() == 1);
+}
+
+TEST_CASE("royale support loss stays inactive before the running phase",
+          "[unit][gameplay][royale][falling]") {
+  namespace falling = testing::falling_mode_fixture;
+  for (const auto phase : {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown}) {
+    auto game = falling::game(gameplay::RoyaleMode::create(), phase);
+    const auto stepped = falling::step(game);
+    CHECK(falling::component<simulation::PhysicsBody>(stepped, 1) != nullptr);
+    CHECK(falling::component<simulation::Controllable>(stepped, 1) != nullptr);
+  }
 }
 
 TEST_CASE("RoyaleMode declares nine systems in the order its rules depend on",

@@ -156,6 +156,7 @@ describe('raceCourseRenderer', () => {
             collision_layer: 1,
             collision_mask: 3,
             is_static: false,
+            ground_attachment: 'ground_bound',
             mass: 1,
             position: { x: 700, y: 500 },
             radius: 20,

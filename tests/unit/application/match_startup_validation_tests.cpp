@@ -343,4 +343,72 @@ TEST_CASE("the bot roster is the declaration of a lobby's first seats, in its wr
         simulation::SeatRoster{});
 }
 
+namespace {
+
+// The return disc can touch a road rim, span overlapping roads, or overlap a hole independently
+// of whether its center satisfies RaceCourse's selected-road binding contract.
+[[nodiscard]] simulation::MapDefinition
+checkpoint_clearance_map(const double checkpoint_y, const bool hole = false,
+                         const bool overlapping_road = false) {
+  std::vector<simulation::TerrainCorridor> roads{simulation::TerrainCorridor::create(
+      "road", 20.0,
+      {simulation::Vector2::create(100.0, 100.0), simulation::Vector2::create(800.0, 100.0)})};
+  if (overlapping_road) {
+    roads.push_back(simulation::TerrainCorridor::create(
+        "adjacent", 20.0,
+        {simulation::Vector2::create(100.0, 120.0), simulation::Vector2::create(800.0, 120.0)}));
+  }
+  std::vector<simulation::TerrainHole> holes;
+  if (hole) {
+    holes.push_back(
+        simulation::TerrainHole::create("pit", simulation::Vector2::create(305.0, 100.0), 2.0));
+  }
+  const auto terrain = simulation::TerrainDefinition::create(
+      simulation::ArenaBounds::create(kArenaWidth, kArenaHeight),
+      simulation::TerrainGround::kCorridors, std::move(roads), std::move(holes));
+  return simulation::MapDefinition::create(
+      "checkpoint_clearance", terrain, {},
+      {simulation::MapDefinition::Marker::spawn(simulation::Vector2::create(100.0, 100.0)),
+       simulation::MapDefinition::Marker::create("checkpoint",
+                                                 simulation::Vector2::create(300.0, checkpoint_y),
+                                                 std::nullopt, simulation::MapMetadata::none())},
+      simulation::MapMetadata::none());
+}
+
+[[nodiscard]] MatchConfiguration clearance_match(const std::string& mode = "race") {
+  return MatchConfiguration::create(mode, "checkpoint_clearance", "maps", 1, 1, {});
+}
+
+} // namespace
+
+TEST_CASE("race checkpoint return admission uses full configured disc and complete terrain",
+          "[unit][application][startup][race][terrain]") {
+  auto modes = gameplay::GameModeConfiguration::defaults();
+  auto race_section = gameplay::RaceConfiguration::default_section();
+  race_section.checkpoint_radius_world_units = 10.0;
+  modes.race = gameplay::RaceConfiguration::create(race_section);
+  CHECK_NOTHROW(require_race_checkpoint_returns_supported(clearance_match(), modes, configuration(),
+                                                          checkpoint_clearance_map(110.0)));
+  require_application_input_error_code(
+      [&] {
+        require_race_checkpoint_returns_supported(clearance_match(), modes, configuration(),
+                                                  checkpoint_clearance_map(111.0));
+      },
+      ApplicationInputErrorCode::kMatchRaceCheckpointUnsupported);
+  const auto small_player =
+      simulation::SimulationConfig::create(kArenaWidth, kArenaHeight, 5.0, 400, 16, 16);
+  CHECK_NOTHROW(require_race_checkpoint_returns_supported(clearance_match(), modes, small_player,
+                                                          checkpoint_clearance_map(111.0)));
+  CHECK_NOTHROW(require_race_checkpoint_returns_supported(
+      clearance_match(), modes, configuration(), checkpoint_clearance_map(120.0, false, true)));
+  require_application_input_error_code(
+      [&] {
+        require_race_checkpoint_returns_supported(clearance_match(), modes, configuration(),
+                                                  checkpoint_clearance_map(100.0, true));
+      },
+      ApplicationInputErrorCode::kMatchRaceCheckpointUnsupported);
+  CHECK_NOTHROW(require_race_checkpoint_returns_supported(
+      clearance_match("sandbox"), modes, configuration(), checkpoint_clearance_map(100.0, true)));
+}
+
 } // namespace blob_royale::application

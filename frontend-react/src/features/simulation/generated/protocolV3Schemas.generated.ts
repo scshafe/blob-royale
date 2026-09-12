@@ -1446,6 +1446,7 @@ export const protocolV3Schemas = {
       'collision_layer',
       'collision_mask',
       'is_static',
+      'ground_attachment',
     ],
     properties: {
       position: {
@@ -1471,6 +1472,12 @@ export const protocolV3Schemas = {
       },
       is_static: {
         type: 'boolean',
+      },
+      ground_attachment: {
+        type: 'string',
+        enum: ['floating', 'ground_bound'],
+        description:
+          'Ground-bound dynamic bodies terminate at first center support loss; floating and static bodies do not fall. Safe seating separately requires full-disc clearance.',
       },
     },
   },
@@ -1532,7 +1539,13 @@ export const protocolV3Schemas = {
       standing: {
         type: 'object',
         additionalProperties: false,
-        required: ['entity_id', 'controller_id', 'placement', 'finished_tick'],
+        required: [
+          'entity_id',
+          'controller_id',
+          'placement',
+          'finished_tick',
+          'finished_tick_offset',
+        ],
         properties: {
           entity_id: {
             $ref: 'common.schema.json#/$defs/entity_id',
@@ -1545,6 +1558,13 @@ export const protocolV3Schemas = {
           },
           finished_tick: {
             $ref: 'common.schema.json#/$defs/tick_sequence',
+          },
+          finished_tick_offset: {
+            type: 'number',
+            minimum: 0,
+            maximum: 1,
+            description:
+              'Certified normalized fraction within finished_tick. Compare tick then offset, never their floating-point sum. Exactly equal certified times share placement.',
           },
         },
       },

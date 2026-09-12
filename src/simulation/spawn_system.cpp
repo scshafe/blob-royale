@@ -53,10 +53,14 @@ std::size_t SpawnSystem::seat_pending_entities(GameWorld& world, const TickConte
   // `std::span<const bool>` and the vector specialization has no such storage. It is allocated
   // only when something is actually awaiting a body, which is no tick of any accepted fixture.
   const std::unique_ptr<bool[]> point_is_free = std::make_unique<bool[]>(point_count);
-  for (std::size_t index = 0; index < point_count; ++index) {
-    point_is_free[index] = !point_is_occupied(spawn_points[index].position,
-                                              world.store<PhysicsBody>().entries(), player_radius);
-  }
+  const auto refresh_free_points = [&] {
+    for (std::size_t index = 0; index < point_count; ++index) {
+      point_is_free[index] = seat_is_supported_and_unoccupied(
+          spawn_points[index].position, world.store<PhysicsBody>().entries(), player_radius,
+          context.map().terrain());
+    }
+  };
+  refresh_free_points();
 
   std::size_t seated_count = 0;
   for (const EntityId entity : pending) {
@@ -86,7 +90,8 @@ std::size_t SpawnSystem::seat_pending_entities(GameWorld& world, const TickConte
     // the configured radius, which is the only radius a seated body can truthfully publish.
     // `ScenarioLoader` seeds the same way, so seating and seeding agree.
     seat_body_at_rest(world, entity, spawn_points[*chosen].position, player_radius);
-    point_is_free[*chosen] = false;
+    // A new disc can occupy nearby markers as well as its chosen marker.
+    refresh_free_points();
     // One past the index just used, so the next entity a forward-probing policy offers starts at
     // the following point rather than re-probing this one.
     world.mutable_match().spawn_rotation_counter =

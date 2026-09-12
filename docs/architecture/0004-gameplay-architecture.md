@@ -1522,3 +1522,17 @@ and does not change collision masks or create an impulse. Existing authored obje
 retain closing-impact behavior. The implementation contract and pre-cutover proofs are in
 [`2026-09-11-live-motion-integration-contract.md`](../reviews/2026-09-11-live-motion-integration-contract.md)
 and [`2026-09-11-live-motion-prerequisite-review.md`](../reviews/2026-09-11-live-motion-prerequisite-review.md).
+
+## Amended 2026-09-11: Production support and race facts (Step 17)
+
+The eighth declaration now carries shared support loss and race ordered checkpoints in production.
+Both use the same solver helpers and certified order. RaceCheckpointEvent is a narrow tick-local
+fact containing entity, resulting gate cursor, and certified MotionTime; it is not a public path
+bus. PostKernel progress and lifecycle standings consume it without endpoint re-detection. The
+existing course publisher moves to first PreKernel so bound course facts are available to shared
+input admission even on the first tick of a directly seeded completed racer. No declaration added.
+
+The application startup boundary has the independently validated map and configured player radius;
+it explicitly binds race checkpoint return-clearance validation there. This is a narrow exception
+to the historical absolute claim that no other file names a game, not another mode factory or
+kernel callback. Ordinary mode construction still belongs solely to the registry.

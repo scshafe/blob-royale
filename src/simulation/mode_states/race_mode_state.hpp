@@ -3,6 +3,7 @@
 
 #include "controller_id.hpp"
 #include "entity_id.hpp"
+#include "motion_event_order.hpp"
 #include "race_road_name.hpp"
 #include "tick_sequence.hpp"
 #include "vector2.hpp"
@@ -12,13 +13,14 @@
 
 namespace blob_royale::simulation {
 
-// One recorded finish. Racers finishing on the same tick share a placement, in ascending entity
-// order; the controller remains recognizable after the entity is reset or disconnected.
+// One recorded finish, ordered by tick, certified normalized tick offset, then EntityId.
+// Only equal (tick, offset) times share placement. Controller identity survives disconnection.
 struct RaceStanding final {
   EntityId entity;
   ControllerId controller;
   std::uint64_t placement{};
   TickSequence finished_tick;
+  MotionTime finished_tick_offset;
 
   friend bool operator==(const RaceStanding&, const RaceStanding&) = default;
 };
@@ -26,7 +28,7 @@ struct RaceStanding final {
 // canonical: race_mode_state -- the selected road, gates, durations, and observed finishes.
 //
 // The required road identity is bound explicitly when the race arm is created; its geometry lives
-// only in the map's terrain. `course_publisher` stamps declared members last at kLifecycle, while
+// only in the map's terrain. `course_publisher` stamps declared members first at kPreKernel, while
 // `standings_recorder` owns the observed standings. A racer's gate and return countdown are its
 // RaceProgress and RespawnTimer components; finishes stay here because they outlive a racer.
 // related: ../../gameplay/race/course_publisher_system.hpp -- declared-state writer.

@@ -59,7 +59,8 @@ race_test_world(const std::vector<simulation::Vector2>& positions,
     seeds.push_back(simulation::GameWorld::EntitySeed::create(
         simulation::EntityId::create(index + 1),
         simulation::PhysicsBody::create(positions[index], simulation::Vector2::create(0.0, 0.0),
-                                        simulation::Vector2::create(0.0, 0.0)),
+                                        simulation::Vector2::create(0.0, 0.0))
+            .with_ground_attachment(simulation::GroundAttachment::kGroundBound),
         simulation::ControllerId::create(index + 1)));
   }
   simulation::GameWorld world = simulation::GameWorld::create(std::move(seeds));

@@ -74,11 +74,20 @@ enum class GameplayValidationCode {
   kRaceStandingLimitExceeded,
   kLocomotionPrecisionLost,
   kStatusActivationTickZero,
+  kSupportLossPhasePolicyInvalid,
+  kRaceCheckpointEventInvalid,
+  kRaceFinishEventInvalid,
 };
 
 [[nodiscard]] constexpr std::string_view
 gameplay_validation_code_name(const GameplayValidationCode code) noexcept {
   switch (code) {
+  case GameplayValidationCode::kSupportLossPhasePolicyInvalid:
+    return "GAMEPLAY.SUPPORT_LOSS_PHASE_POLICY_INVALID";
+  case GameplayValidationCode::kRaceCheckpointEventInvalid:
+    return "GAMEPLAY.RACE_CHECKPOINT_EVENT_INVALID";
+  case GameplayValidationCode::kRaceFinishEventInvalid:
+    return "GAMEPLAY.RACE_FINISH_EVENT_INVALID";
   case GameplayValidationCode::kStatusActivationTickZero:
     return "GAMEPLAY.STATUS_ACTIVATION_TICK_ZERO";
   case GameplayValidationCode::kGameModeNameUnknown:

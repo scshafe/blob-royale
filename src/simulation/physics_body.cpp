@@ -10,7 +10,7 @@ namespace blob_royale::simulation {
 PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acceleration) {
   return validated(position, velocity, acceleration, kUndeclaredRadius, kDefaultMass,
                    kDefaultRestitution, kDefaultDragScale, kDefaultCollisionLayer,
-                   kDefaultCollisionMask, false, kDefaultBoundsBehavior);
+                   kDefaultCollisionMask, false, kDefaultBoundsBehavior, kDefaultGroundAttachment);
 }
 
 PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acceleration,
@@ -19,7 +19,7 @@ PhysicsBody PhysicsBody::create(Vector2 position, Vector2 velocity, Vector2 acce
                                 const CollisionLayer collision_mask, const bool is_static) {
   return validated(position, velocity, acceleration, radius, mass, kDefaultRestitution,
                    kDefaultDragScale, collision_layer, collision_mask, is_static,
-                   kDefaultBoundsBehavior);
+                   kDefaultBoundsBehavior, kDefaultGroundAttachment);
 }
 
 PhysicsBody PhysicsBody::create_static(Vector2 position) {
@@ -30,54 +30,70 @@ PhysicsBody PhysicsBody::create_static(Vector2 position, const CollisionLayer co
                                        const CollisionLayer collision_mask) {
   return validated(position, Vector2::create(0.0, 0.0), Vector2::create(0.0, 0.0),
                    kUndeclaredRadius, kDefaultMass, kDefaultRestitution, kDefaultDragScale,
-                   collision_layer, collision_mask, true, kDefaultBoundsBehavior);
+                   collision_layer, collision_mask, true, kDefaultBoundsBehavior,
+                   kDefaultGroundAttachment);
 }
 
 PhysicsBody PhysicsBody::with_position(Vector2 position) const {
   return validated(position, velocity_, acceleration_, radius_, mass_, restitution_, drag_scale_,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment_);
 }
 
 PhysicsBody PhysicsBody::with_velocity(Vector2 velocity) const {
   return validated(position_, velocity, acceleration_, radius_, mass_, restitution_, drag_scale_,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment_);
 }
 
 PhysicsBody PhysicsBody::with_acceleration(Vector2 acceleration) const {
   return validated(position_, velocity_, acceleration, radius_, mass_, restitution_, drag_scale_,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment_);
 }
 
 PhysicsBody PhysicsBody::with_radius(const double radius) const {
   return validated(position_, velocity_, acceleration_, radius, mass_, restitution_, drag_scale_,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment_);
 }
 
 PhysicsBody PhysicsBody::with_mass(const double mass) const {
   return validated(position_, velocity_, acceleration_, radius_, mass, restitution_, drag_scale_,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment_);
 }
 
 PhysicsBody PhysicsBody::with_restitution(const double restitution) const {
   return validated(position_, velocity_, acceleration_, radius_, mass_, restitution, drag_scale_,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment_);
 }
 
 PhysicsBody PhysicsBody::with_drag_scale(const double drag_scale) const {
   return validated(position_, velocity_, acceleration_, radius_, mass_, restitution_, drag_scale,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior_);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment_);
 }
 
 PhysicsBody PhysicsBody::with_bounds_behavior(const BoundsBehavior bounds_behavior) const {
   return validated(position_, velocity_, acceleration_, radius_, mass_, restitution_, drag_scale_,
-                   collision_layer_, collision_mask_, is_static_, bounds_behavior);
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior,
+                   ground_attachment_);
+}
+
+PhysicsBody PhysicsBody::with_ground_attachment(const GroundAttachment ground_attachment) const {
+  return validated(position_, velocity_, acceleration_, radius_, mass_, restitution_, drag_scale_,
+                   collision_layer_, collision_mask_, is_static_, bounds_behavior_,
+                   ground_attachment);
 }
 
 PhysicsBody PhysicsBody::validated(Vector2 position, Vector2 velocity, Vector2 acceleration,
                                    const double radius, const double mass, const double restitution,
                                    const double drag_scale, const CollisionLayer collision_layer,
                                    const CollisionLayer collision_mask, const bool is_static,
-                                   const BoundsBehavior bounds_behavior) {
+                                   const BoundsBehavior bounds_behavior,
+                                   const GroundAttachment ground_attachment) {
   // A **dynamic** body's mass is strictly positive because the general impulse equation divides by
   // it, and bounded by the same physical component limit every other scalar in this domain obeys.
   // Zero is not "a body that cannot be pushed" -- that is `is_static` -- it is a division by zero
@@ -139,18 +155,26 @@ PhysicsBody PhysicsBody::validated(Vector2 position, Vector2 velocity, Vector2 a
                                     "physics_body.drag_scale",
                                     "drag scale must be greater than or equal to zero");
   }
+  if (ground_attachment != GroundAttachment::kFloating &&
+      ground_attachment != GroundAttachment::kGroundBound) {
+    throw SimulationValidationError(
+        SimulationValidationCode::kPhysicsBodyGroundAttachmentOutOfRange,
+        "physics_body.ground_attachment", "ground attachment must be floating or ground-bound");
+  }
   return PhysicsBody(position, velocity, acceleration, radius, mass, restitution, drag_scale,
-                     collision_layer, collision_mask, is_static, bounds_behavior);
+                     collision_layer, collision_mask, is_static, bounds_behavior,
+                     ground_attachment);
 }
 
 PhysicsBody::PhysicsBody(Vector2 position, Vector2 velocity, Vector2 acceleration,
                          const double radius, const double mass, const double restitution,
                          const double drag_scale, const CollisionLayer collision_layer,
                          const CollisionLayer collision_mask, const bool is_static,
-                         const BoundsBehavior bounds_behavior) noexcept
+                         const BoundsBehavior bounds_behavior,
+                         const GroundAttachment ground_attachment) noexcept
     : position_(position), velocity_(velocity), acceleration_(acceleration), radius_(radius),
       mass_(mass), restitution_(restitution), drag_scale_(drag_scale),
       collision_layer_(collision_layer), collision_mask_(collision_mask), is_static_(is_static),
-      bounds_behavior_(bounds_behavior) {}
+      bounds_behavior_(bounds_behavior), ground_attachment_(ground_attachment) {}
 
 } // namespace blob_royale::simulation

@@ -532,6 +532,7 @@ export interface RaceStanding {
   readonly controller_id: number;
   readonly placement: number;
   readonly finished_tick: number;
+  readonly finished_tick_offset: number;
 }
 
 /** The schema-correlated race block shared by the course renderer, HUD, and results. */
@@ -569,7 +570,11 @@ function isRaceStanding(value: unknown): value is RaceStanding {
       value.controller_id,
       value.placement,
       value.finished_tick,
-    ].every((member) => (publishedCount(member) ?? 0) > 0)
+    ].every((member) => (publishedCount(member) ?? 0) > 0) &&
+    typeof value.finished_tick_offset === 'number' &&
+    Number.isFinite(value.finished_tick_offset) &&
+    value.finished_tick_offset >= 0 &&
+    value.finished_tick_offset <= 1
   );
 }
 
@@ -618,6 +623,8 @@ export interface RaceStandingsRow {
   readonly entityId: number;
   readonly isOwn: boolean;
   readonly placement: number;
+  readonly finishedTick: number;
+  readonly finishedTickOffset: number;
 }
 
 /** Everything the race HUD says, resolved from committed ticks and the recorded finish order. */
@@ -693,6 +700,8 @@ export function raceHudReport({
       entityId: standing.entity_id,
       isOwn: standing.controller_id === ownControllerId,
       placement: standing.placement,
+      finishedTick: standing.finished_tick,
+      finishedTickOffset: standing.finished_tick_offset,
     })),
     timeRemainingSeconds:
       firstFinish === undefined
@@ -777,7 +786,7 @@ function describeEndedMatch({
         )
           ? 'No racers remained. The next lobby opens shortly.'
           : race.standings.some((standing) => standing.placement === 1)
-            ? 'The first finishers crossed on the same tick. The next lobby opens shortly.'
+            ? 'The first finishers crossed at the same instant. The next lobby opens shortly.'
             : 'Time ran out with the lead tied on gates taken. The next lobby opens shortly.',
       };
     }

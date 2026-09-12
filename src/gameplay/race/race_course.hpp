@@ -18,8 +18,9 @@ namespace blob_royale::gameplay {
 // Built once by binding `[race] road` to a named terrain corridor, then handed by value to its
 // readers. Owning immutable terrain keeps the selected corridor alive after the map is destroyed.
 // Track nodes and width are views of that corridor; checkpoint markers retain authored order.
-// Race admission keeps the exact distance <= width convention, independent of full terrain
-// support/holes. Its last checkpoint is the finish.
+// Course authoring keeps the exact distance <= width convention. Live support loss instead uses
+// full terrain, including holes; application startup separately validates checkpoint seat discs.
+// Its last checkpoint is the finish.
 // related: terrain_queries.hpp -- the canonical corridor distance arithmetic.
 // related: race_configuration.hpp -- the independently validated road name and gate radius.
 // related: docs/architecture/0007-king-of-the-hill-and-race-modes.md -- the distance arithmetic.

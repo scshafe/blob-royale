@@ -1,6 +1,7 @@
 #ifndef BLOB_ROYALE_SIMULATION_WORLD_EVENT_REGISTRY_HPP
 #define BLOB_ROYALE_SIMULATION_WORLD_EVENT_REGISTRY_HPP
 
+#include "events/charge_contact_event.hpp"
 #include "events/contact_event.hpp"
 #include "events/despawn_event.hpp"
 #include "events/elimination_event.hpp"
@@ -56,10 +57,9 @@ namespace blob_royale::simulation {
 //
 // related: game_world.hpp -- the owner of the tick's event list.
 // related: command_registry.hpp -- the same closed-variant shape for one tick's input.
-// Step 14 foundation exception: injected in-tick tests produce StunRequest until Step 18's
-// production contact response arrives. No production command or reserved ability kind is added.
-using WorldEvent =
-    std::variant<ContactEvent, DespawnEvent, EliminationEvent, StunRequest, RaceCheckpointEvent>;
+// Charge contact candidates connect the frozen pair response to PostKernel charge commitment.
+using WorldEvent = std::variant<ContactEvent, DespawnEvent, EliminationEvent, StunRequest,
+                                RaceCheckpointEvent, ChargeContactCandidate>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -76,6 +76,7 @@ enum class WorldEventKind : std::uint32_t {
   kElimination = 2,
   kStunRequest = 3,
   kRaceCheckpoint = 4,
+  kChargeContact = 5,
 };
 
 // canonical: world_event_kind_name -- the one diagnostic name of one event kind.
@@ -106,6 +107,10 @@ template <> struct WorldEventKindName<RaceCheckpointEvent> {
   static constexpr std::string_view value = "race_checkpoint";
 };
 
+template <> struct WorldEventKindName<ChargeContactCandidate> {
+  static constexpr std::string_view value = "charge_contact";
+};
+
 // The declared name of one event kind, for diagnostics and fixtures.
 template <typename EventType>
 inline constexpr std::string_view world_event_kind_name = WorldEventKindName<EventType>::value;
@@ -134,6 +139,10 @@ template <> struct WorldEventKindOf<StunRequest> {
 
 template <> struct WorldEventKindOf<RaceCheckpointEvent> {
   static constexpr WorldEventKind value = WorldEventKind::kRaceCheckpoint;
+};
+
+template <> struct WorldEventKindOf<ChargeContactCandidate> {
+  static constexpr WorldEventKind value = WorldEventKind::kChargeContact;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through
@@ -172,6 +181,8 @@ world_event_kind_name_of(const WorldEventKind kind) noexcept {
     return world_event_kind_name<StunRequest>;
   case WorldEventKind::kRaceCheckpoint:
     return world_event_kind_name<RaceCheckpointEvent>;
+  case WorldEventKind::kChargeContact:
+    return world_event_kind_name<ChargeContactCandidate>;
   }
   return "world_event_kind_invalid";
 }

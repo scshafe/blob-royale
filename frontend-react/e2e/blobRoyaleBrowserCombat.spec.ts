@@ -50,6 +50,9 @@ const COMBAT = Object.freeze({
   perfectTicks: 1200,
   cooldownTicks: 4000,
   stunTicks: 800,
+  chargeActiveTicks: 480,
+  chargeHitStunTicks: 800,
+  chargeCooldownTicks: 480,
   observationTimeout: 25_000,
   viewport: Object.freeze({ width: 1920, height: 1200 }),
   aimOffset: 260,
@@ -58,7 +61,7 @@ const COMBAT = Object.freeze({
   lateLaunchAge: 2400,
   postStunIdleTicks: 160,
   hazardRadius: 30,
-  hazardSpawn: Object.freeze({ x: 640.065975168, y: 695.026526373 }),
+  hazardSpawn: Object.freeze({ x: 1289.199716891, y: 716.760606588 }),
 });
 
 interface CombatSession {
@@ -322,7 +325,281 @@ async function pairSessions(sessions: readonly CombatSession[]) {
   return { attacker, defender };
 }
 
-test('perfect shield stops a real charging player and held Space stays cancelled through stun', async ({
+test('an unshielded charge hit refunds immediately and its stunned target keeps moving', async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(75_000);
+  await withCombatSessions(browser, request, 'pair', 2, async (sessions) => {
+    const { attacker, defender } = await pairSessions(sessions);
+    await aimCharge(attacker, 1);
+    await attacker.page.keyboard.press('KeyD');
+    const launched = await waitSnapshot(
+      attacker,
+      (snapshot) =>
+        entityForController(snapshot, attacker.controllerId)?.components
+          .charge !== undefined,
+      'the actual charge key must publish the active hit attempt before contact',
+    );
+    const charge = requireEntity(launched, attacker.controllerId).components
+      .charge!;
+    expect(charge.active_expiry_tick - charge.activation_tick).toBe(
+      COMBAT.chargeActiveTicks,
+    );
+    expect(charge.hit_stun_duration_ticks).toBe(COMBAT.chargeHitStunTicks);
+    expect(charge.cooldown_expiry_tick - charge.activation_tick).toBe(
+      COMBAT.chargeCooldownTicks,
+    );
+    expect(
+      requireBody(requireEntity(launched, attacker.controllerId)).velocity,
+    ).toEqual({ x: COMBAT.burstSpeed, y: 0 });
+
+    const hit = await waitSnapshot(
+      attacker,
+      (snapshot) =>
+        entityForController(snapshot, defender.controllerId)?.components
+          .stun !== undefined,
+      'the unshielded player impact must commit a target stun',
+    );
+    const target = requireEntity(hit, defender.controllerId);
+    const stun = target.components.stun!;
+    expect(stun.activation_tick).toBeGreaterThan(charge.activation_tick);
+    expect(stun.activation_tick).toBeLessThan(charge.active_expiry_tick);
+    expect(stun.expiry_tick - stun.activation_tick).toBe(
+      COMBAT.chargeHitStunTicks,
+    );
+    expect(target.components.controllable?.input_generation).toBe(
+      stun.activation_tick,
+    );
+    expect(requireBody(target).velocity).toEqual({
+      x: COMBAT.burstSpeed,
+      y: 0,
+    });
+    expect(requireBody(target).acceleration).toEqual({ x: 0, y: 0 });
+    expect(
+      requireBody(requireEntity(hit, attacker.controllerId)).velocity,
+    ).toEqual({ x: 0, y: 0 });
+    expect(
+      requireEntity(hit, attacker.controllerId).components.charge,
+    ).toBeUndefined();
+    expect(hit.tick_sequence).toBeLessThan(charge.cooldown_expiry_tick);
+
+    // The consumed cooldown is absent in the same committed contact snapshot. A real second
+    // activation must also arrive before that original cooldown could expire naturally.
+    await aimCharge(attacker, -1);
+    await expect(
+      attacker.page.getByRole('button', { name: 'Charge', exact: true }),
+    ).toHaveAttribute('aria-disabled', 'false');
+    await attacker.page.keyboard.press('KeyD');
+    const recharged = await waitSnapshot(
+      attacker,
+      (snapshot) =>
+        (entityForController(snapshot, attacker.controllerId)?.components.charge
+          ?.activation_tick ?? 0) > stun.activation_tick,
+      'the refunded charge must accept another real key pulse immediately after the hit',
+    );
+    const secondCharge = requireEntity(recharged, attacker.controllerId)
+      .components.charge!;
+    expect(secondCharge.activation_tick).toBeLessThan(
+      charge.cooldown_expiry_tick,
+    );
+    expect(
+      requireBody(requireEntity(recharged, attacker.controllerId)).velocity,
+    ).toEqual({ x: -COMBAT.burstSpeed, y: 0 });
+    await expectParticipantRing(
+      attacker,
+      defender.displayName,
+      STUN_ARC_COLOR,
+      4,
+    );
+    const drifting = await waitSnapshot(
+      attacker,
+      (snapshot) =>
+        snapshot.tick_sequence >=
+          hit.tick_sequence + COMBAT.postStunIdleTicks &&
+        entityForController(snapshot, defender.controllerId)?.components
+          .stun !== undefined,
+      'multiple published ticks must show the stunned target continuing to drift',
+    );
+    const driftTarget = requireEntity(drifting, defender.controllerId);
+    expect(driftTarget.components.stun).toEqual(stun);
+    expect(requireBody(driftTarget).position.x).toBeGreaterThan(
+      requireBody(target).position.x,
+    );
+    expect(requireBody(driftTarget).velocity).toEqual({
+      x: COMBAT.burstSpeed,
+      y: 0,
+    });
+    expect(requireBody(driftTarget).acceleration).toEqual({ x: 0, y: 0 });
+    const recovered = await waitSnapshot(
+      attacker,
+      (snapshot) => snapshot.tick_sequence >= stun.expiry_tick,
+      'the target stun must end at its authoritative expiry while momentum remains',
+    );
+    expect(
+      requireEntity(recovered, defender.controllerId).components.stun,
+    ).toBeUndefined();
+    expect(
+      requireBody(requireEntity(recovered, defender.controllerId)).velocity,
+    ).toEqual({ x: COMBAT.burstSpeed, y: 0 });
+    expect(recordedCommands(defender.traffic)).toEqual([]);
+    expect(
+      recordedCommands(attacker.traffic).filter(
+        (command) => command.kind === 'charge',
+      ),
+    ).toEqual([
+      { kind: 'charge', payload: { x: 1, y: 0 } },
+      { kind: 'charge', payload: { x: -1, y: 0 } },
+    ]);
+  });
+});
+
+test('Q and E turn active charge velocity, both turn buttons work and held Space brakes to rest', async ({
+  browser,
+  request,
+}) => {
+  test.setTimeout(75_000);
+  await withCombatSessions(browser, request, 'pair', 2, async (sessions) => {
+    const { attacker } = await pairSessions(sessions);
+    // Charge away from the other player, so contact cannot supply the direction changes below.
+    await aimCharge(attacker, -1);
+    await attacker.page.keyboard.press('KeyD');
+    const launched = await waitSnapshot(
+      attacker,
+      (snapshot) =>
+        entityForController(snapshot, attacker.controllerId)?.components
+          .charge !== undefined,
+      'a real charge must first publish leftward velocity',
+    );
+    const charge = requireEntity(launched, attacker.controllerId).components
+      .charge!;
+    expect(
+      requireBody(requireEntity(launched, attacker.controllerId)).velocity,
+    ).toEqual({ x: -COMBAT.burstSpeed, y: 0 });
+    let previousTick = launched.tick_sequence;
+    for (const turn of [
+      {
+        key: 'KeyQ',
+        direction: 'left',
+        velocity: { x: 0, y: COMBAT.burstSpeed },
+      },
+      {
+        key: 'KeyE',
+        direction: 'right',
+        velocity: { x: -COMBAT.burstSpeed, y: 0 },
+      },
+    ] as const) {
+      await attacker.page.keyboard.press(turn.key);
+      const turned = await waitSnapshot(
+        attacker,
+        (snapshot) => {
+          const velocity = entityForController(snapshot, attacker.controllerId)
+            ?.components.physics_body?.velocity;
+          return (
+            snapshot.tick_sequence > previousTick &&
+            velocity?.x === turn.velocity.x &&
+            velocity.y === turn.velocity.y
+          );
+        },
+        `${turn.key} must commit an exact quarter turn during the active charge`,
+      );
+      expect(turned.tick_sequence).toBeLessThan(charge.active_expiry_tick);
+      expect(
+        requireEntity(turned, attacker.controllerId).components.charge,
+      ).toEqual(charge);
+      expect(
+        Math.hypot(
+          requireBody(requireEntity(turned, attacker.controllerId)).velocity.x,
+          requireBody(requireEntity(turned, attacker.controllerId)).velocity.y,
+        ),
+      ).toBe(COMBAT.burstSpeed);
+      previousTick = turned.tick_sequence;
+    }
+    for (const turn of [
+      { direction: 'left', velocity: { x: 0, y: COMBAT.burstSpeed } },
+      { direction: 'right', velocity: { x: -COMBAT.burstSpeed, y: 0 } },
+    ] as const) {
+      await attacker.page
+        .getByRole('button', { name: `Rotate ${turn.direction}`, exact: true })
+        .click();
+      const turned = await waitSnapshot(
+        attacker,
+        (snapshot) => {
+          const velocity = entityForController(snapshot, attacker.controllerId)
+            ?.components.physics_body?.velocity;
+          return (
+            snapshot.tick_sequence > previousTick &&
+            velocity?.x === turn.velocity.x &&
+            velocity.y === turn.velocity.y
+          );
+        },
+        `the Rotate ${turn.direction} button must commit the same exact quarter turn`,
+      );
+      previousTick = turned.tick_sequence;
+    }
+    expect(
+      recordedCommands(attacker.traffic).filter(
+        (command) => command.kind === 'rotate_velocity',
+      ),
+    ).toEqual([
+      { kind: 'rotate_velocity', payload: { direction: 'left' } },
+      { kind: 'rotate_velocity', payload: { direction: 'right' } },
+      { kind: 'rotate_velocity', payload: { direction: 'left' } },
+      { kind: 'rotate_velocity', payload: { direction: 'right' } },
+    ]);
+    await focusSimulationCanvas(attacker.page);
+    await attacker.page.keyboard.down('Space');
+    await expect
+      .poll(() => recordedCommands(attacker.traffic).at(-1))
+      .toEqual({
+        kind: 'set_thrust',
+        payload: { x: 0, y: 0, braking: true },
+      });
+    // Drag is zero in this fixture: coasting cannot reach rest. Braking 150 wu/s takes only
+    // 25 simulation ticks, so require the exact stopped result without assuming that the 20 Hz
+    // transport publishes an intermediate slowdown before it coalesces the latest world.
+    const stopped = await waitSnapshot(
+      attacker,
+      (snapshot) =>
+        snapshot.tick_sequence > previousTick &&
+        entityForController(snapshot, attacker.controllerId)?.components
+          .physics_body?.velocity.x === 0,
+      'held Space must stop existing charge momentum exactly without propulsion',
+    );
+    const heldAtRest = await waitSnapshot(
+      attacker,
+      (snapshot) =>
+        snapshot.tick_sequence >=
+        stopped.tick_sequence + COMBAT.postStunIdleTicks,
+      'continuing to hold brakes must preserve rest across later publications',
+    );
+    for (const snapshot of recordedSnapshots(attacker.traffic).filter(
+      (entry) =>
+        entry.tick_sequence > previousTick &&
+        entry.tick_sequence <= heldAtRest.tick_sequence,
+    )) {
+      const body = requireBody(requireEntity(snapshot, attacker.controllerId));
+      expect(body.velocity.x).toBeLessThanOrEqual(0);
+      expect(body.velocity.y).toBe(0);
+      expect(body.acceleration).toEqual({ x: 0, y: 0 });
+      if (snapshot.tick_sequence >= stopped.tick_sequence) {
+        expect(body.velocity).toEqual({ x: 0, y: 0 });
+        expect(body.position).toEqual(
+          requireBody(requireEntity(stopped, attacker.controllerId)).position,
+        );
+      }
+    }
+    await attacker.page.keyboard.up('Space');
+    await expect
+      .poll(() => recordedCommands(attacker.traffic).at(-1))
+      .toEqual({
+        kind: 'set_thrust',
+        payload: { x: 0, y: 0, braking: false },
+      });
+  });
+});
+
+test('perfect shield stops a real charging player and held left mouse stays cancelled through stun', async ({
   browser,
   request,
 }) => {
@@ -337,14 +614,14 @@ test('perfect shield stops a real charging player and held Space stays cancelled
       2,
     );
     await aimCharge(attacker, 1);
-    await attacker.page.keyboard.down('Space');
+    await attacker.page.mouse.down({ button: 'left' });
     const propelling = await waitSnapshot(
       attacker,
       (snapshot) =>
         snapshot.tick_sequence > shield.activation_tick &&
         (entityForController(snapshot, attacker.controllerId)?.components
           .physics_body?.acceleration.x ?? 0) > 0,
-      'held Space must commit positive propulsion before the incoming charge is parried',
+      'held left mouse must commit positive propulsion before the incoming charge is parried',
     );
     expect(
       requireBody(requireEntity(propelling, attacker.controllerId)).position.x,
@@ -390,7 +667,7 @@ test('perfect shield stops a real charging player and held Space stays cancelled
       attacker,
       (snapshot) =>
         snapshot.tick_sequence >= stun.expiry_tick + COMBAT.postStunIdleTicks,
-      'published ticks must pass stun expiry while the original Space remains physically held',
+      'published ticks must pass stun expiry while the original left mouse button remains physically held',
     );
     for (const snapshot of recordedSnapshots(attacker.traffic).filter(
       (value) =>
@@ -411,15 +688,15 @@ test('perfect shield stops a real charging player and held Space stays cancelled
       requireEntity(idleFrame, attacker.controllerId).components.stun,
     ).toBeUndefined();
     await expect(matchHudCell(attacker.page, 'Thrust')).toHaveText('idle');
-    // A repeated physical keydown is still held input. It must not become a fresh activation.
+    // Reentry with the same physical mouse hold must not become a fresh activation.
     const repeatTick = recordedSnapshots(attacker.traffic).at(
       -1,
     )!.tick_sequence;
-    await attacker.page.keyboard.down('Space');
+    await aimCharge(attacker, 1);
     await waitSnapshot(
       attacker,
       (snapshot) => snapshot.tick_sequence >= repeatTick + 40,
-      'key repeat must remain idle across another publication interval',
+      'the existing mouse hold must remain idle across another publication interval',
     );
     for (const command of recordedCommands(attacker.traffic).slice(
       commandsAtStun,
@@ -428,15 +705,15 @@ test('perfect shield stops a real charging player and held Space stays cancelled
         expect(command.payload).toMatchObject({ x: 0, y: 0 });
     }
     const beforeFresh = attacker.traffic.sentFrames.length;
-    await attacker.page.keyboard.up('Space');
-    await attacker.page.keyboard.down('Space');
+    await attacker.page.mouse.up({ button: 'left' });
+    await attacker.page.mouse.down({ button: 'left' });
     const resumed = await waitSnapshot(
       attacker,
       (snapshot) =>
         snapshot.tick_sequence > idleFrame.tick_sequence &&
         (entityForController(snapshot, attacker.controllerId)?.components
           .physics_body?.acceleration.x ?? 0) > 0,
-      'a fresh Space press must resume real propulsion with the new generation',
+      'a fresh left-button press must resume real propulsion with the new generation',
     );
     expect(
       requireEntity(resumed, attacker.controllerId).components.controllable
@@ -448,7 +725,7 @@ test('perfect shield stops a real charging player and held Space stays cancelled
       kind: 'set_thrust',
       payload: { x: 1, y: 0, input_generation: stun.activation_tick },
     });
-    await attacker.page.keyboard.up('Space');
+    await attacker.page.mouse.up({ button: 'left' });
   });
 });
 
@@ -769,26 +1046,63 @@ test('at deployed drag a tactical charge transfers momentum and knocks its untou
         'the hosted tactical controller must commit an actual Charge component',
       );
       const bot = requireEntity(charged, botId);
+      const firstCharge = bot.components.charge!;
       expect(requireBody(bot).velocity.x).toBeGreaterThan(300);
       expect(requireBody(bot).velocity.y).toBe(0);
       expect(requireBody(bot).acceleration).toEqual({ x: 0, y: 0 });
       const pushed = await waitSnapshot(
         human,
-        (snapshot) =>
-          (entityForController(snapshot, human.controllerId)?.components
-            .physics_body?.velocity.x ?? 0) > 0,
-        'the untouched human must receive the bot charge momentum',
+        (snapshot) => {
+          const target = entityForController(snapshot, human.controllerId)
+            ?.components.physics_body;
+          const attacker = entityForController(snapshot, botId)?.components
+            .physics_body;
+          return (
+            target !== undefined &&
+            attacker !== undefined &&
+            target.velocity.x > 0 &&
+            target.velocity.x > attacker.velocity.x
+          );
+        },
+        'the untouched human must receive charge momentum and separate ahead of the bot',
       );
-      expect(
-        requireBody(requireEntity(pushed, human.controllerId)).position.x,
-      ).toBeGreaterThan(900);
-      expect(
-        requireBody(requireEntity(pushed, human.controllerId)).position.x,
-      ).toBeLessThan(940);
-      expect(requireBody(requireEntity(pushed, botId)).velocity).toEqual({
-        x: 0,
-        y: 0,
-      });
+      const pushedTarget = requireEntity(pushed, human.controllerId);
+      const pushedBot = requireEntity(pushed, botId);
+      const targetBody = requireBody(pushedTarget);
+      const botBody = requireBody(pushedBot);
+      expect(targetBody.position.x).toBeGreaterThan(900);
+      expect(targetBody.position.x).toBeLessThan(940);
+      expect(targetBody.velocity.x).toBeGreaterThan(botBody.velocity.x);
+      expect(botBody.velocity.x).toBeGreaterThanOrEqual(0);
+      expect(targetBody.velocity.y).toBe(0);
+      expect(botBody.velocity.y).toBe(0);
+      expect(targetBody.acceleration).toEqual({ x: 0, y: 0 });
+      expect(botBody.acceleration).toEqual({ x: 0, y: 0 });
+      expect(pushedTarget.components.stun).toBeDefined();
+      const stun = pushedTarget.components.stun!;
+      expect(stun.activation_tick).toBeGreaterThan(firstCharge.activation_tick);
+      expect(stun.activation_tick).toBeLessThan(firstCharge.active_expiry_tick);
+      const latestHitTick =
+        pushedTarget.components.controllable!.input_generation!;
+      expect(latestHitTick).toBeGreaterThanOrEqual(stun.activation_tick);
+      expect(latestHitTick).toBeLessThanOrEqual(pushed.tick_sequence);
+      expect(stun.expiry_tick - latestHitTick).toBe(
+        firstCharge.hit_stun_duration_ticks,
+      );
+      expect(pushed.tick_sequence).toBeLessThan(
+        firstCharge.cooldown_expiry_tick,
+      );
+      // A successful hit immediately permits another tactical burst. Repeated equal-mass impacts
+      // can leave the bot moving with the target's earlier momentum; the target still separates
+      // ahead with zero propulsion. The original activation must already have been consumed.
+      if (pushedBot.components.charge !== undefined) {
+        expect(pushedBot.components.charge.activation_tick).toBeGreaterThan(
+          firstCharge.activation_tick,
+        );
+        expect(pushedBot.components.charge.activation_tick).toBeLessThan(
+          firstCharge.cooldown_expiry_tick,
+        );
+      }
       const fallen = await waitSnapshot(
         human,
         (snapshot) =>

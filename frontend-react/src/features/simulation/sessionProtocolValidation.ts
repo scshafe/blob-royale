@@ -17,6 +17,7 @@ import type {
   SessionSnapshotMessage,
   SessionTerrain,
   SessionSetMovementTuningCommand,
+  SessionMovementTuning,
   SessionTuningResult,
   SessionWelcomeMessage,
 } from './simulationProtocolTypes';
@@ -362,20 +363,15 @@ function assertSnapshotEntityInvariants(
       );
     }
 
-    // Charge publishes one interval, and JSON Schema can bound each endpoint but cannot compare the
-    // two. The comparison is strict where the shield block above is `<=`, and the asymmetry is the
-    // contract rather than a slip: `charge_cooldown_seconds` is validated strictly positive at load
-    // because a one-shot has no second admission gate. Shield survives a zero-length cooldown only
-    // because still-live protection refuses the next pulse on its own; charge has no protection
-    // window, so a cooldown collapsing onto its activation would admit a burst on every tick. A
-    // component whose cooldown expires on the tick it began is therefore a frame no server can
-    // build, and reading it would tell a player charge is ready in the same breath the frame says
-    // it just fired. There is no window to nest inside either -- the burst is instantaneous, and
-    // what outlives it is momentum `physics_body` already publishes, not a second charge endpoint.
+    // Charge's active attempt may be canceled independently of its strictly positive cooldown.
+    // Momentum remains a PhysicsBody value; the active window attributes eligible impacts.
     const charge = entity.components.charge;
     if (
       charge !== undefined &&
       (charge.activation_tick >= charge.cooldown_expiry_tick ||
+        charge.activation_tick > charge.active_expiry_tick ||
+        (charge.active_expiry_tick > charge.activation_tick &&
+          charge.hit_stun_duration_ticks < 1) ||
         charge.activation_tick > snapshot.data.tick_sequence)
     ) {
       throw new SimulationApiError(
@@ -622,6 +618,23 @@ function assertMovementSnapshotInvariants(
 ): void {
   const movement = snapshot.data.match.movement;
   const result = snapshot.data.tuning_result;
+  for (const field of Object.keys(
+    movement.current,
+  ) as (keyof SessionMovementTuning)[]) {
+    const limits = movement.limits[field];
+    if (
+      movement.current[field] < limits.minimum ||
+      movement.current[field] > limits.maximum ||
+      movement.defaults[field] < limits.minimum ||
+      movement.defaults[field] > limits.maximum
+    ) {
+      throw new SimulationApiError(
+        'SIMULATION.SESSION_INVARIANT_VIOLATION',
+        'Current and authored room tuning must fit the published room limits.',
+        { context: { tuning_field: field } },
+      );
+    }
+  }
   if (
     movement.effective_tick > snapshot.data.tick_sequence ||
     (result !== null &&
@@ -677,11 +690,17 @@ export function validateSessionTuningResult(
         movement.current.acceleration_world_units_per_second_squared !==
           pending.acceleration_world_units_per_second_squared ||
         movement.current.normal_top_speed_world_units_per_second !==
-          pending.normal_top_speed_world_units_per_second)
+          pending.normal_top_speed_world_units_per_second ||
+        movement.current.charge_speed_fraction !==
+          pending.charge_speed_fraction ||
+        movement.current.lethal_spawn_rate_per_second !==
+          pending.lethal_spawn_rate_per_second ||
+        movement.current.nonlethal_spawn_rate_per_second !==
+          pending.nonlethal_spawn_rate_per_second)
     ) {
       throw new SimulationApiError(
         'SIMULATION.SESSION_INVARIANT_VIOLATION',
-        'The latest applied tuning revision must publish the requested complete pair and effective tick.',
+        'The latest applied tuning revision must publish the requested complete room tuning and effective tick.',
       );
     }
   }

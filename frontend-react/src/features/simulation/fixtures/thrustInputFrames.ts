@@ -125,6 +125,7 @@ export function thrustInputOptions(
     inputLocked: false,
     inputGeneration: undefined,
     abilityUnavailable: ABILITIES_AVAILABLE,
+    rotationUnavailable: false,
     sendCommand,
     ...overrides,
   };

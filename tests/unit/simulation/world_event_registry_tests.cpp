@@ -29,23 +29,28 @@ namespace {
 }
 
 [[nodiscard]] std::vector<simulation::WorldEvent> one_of_each_kind() {
-  return {contact_event(), simulation::DespawnEvent{entity(5)},
-          simulation::EliminationEvent{entity(6)}, simulation::StunRequest{entity(7), 3},
-          simulation::RaceCheckpointEvent{entity(8), 1, simulation::MotionTime::create(0.25)}};
+  return {contact_event(),
+          simulation::DespawnEvent{entity(5)},
+          simulation::EliminationEvent{entity(6)},
+          simulation::StunRequest{entity(7), 3},
+          simulation::RaceCheckpointEvent{entity(8), 1, simulation::MotionTime::create(0.25)},
+          simulation::ChargeContactCandidate{entity(2), entity(7),
+                                             simulation::TickSequence::create(3),
+                                             simulation::ChargeContactOutcome::kSuccessfulHit}};
 }
 
 } // namespace
 
 TEST_CASE("the WorldEvent variant carries exactly the declared event kinds",
           "[unit][simulation][world_event_registry]") {
-  // StunRequest is the Step 14 foundation exception, with an injected in-tick test producer.
   STATIC_REQUIRE(std::variant_size_v<simulation::WorldEvent> == simulation::kWorldEventKindCount);
-  STATIC_REQUIRE(simulation::kWorldEventKindCount == 5);
+  STATIC_REQUIRE(simulation::kWorldEventKindCount == 6);
   CHECK(simulation::kWorldEventKinds[0] == simulation::WorldEventKind::kContact);
   CHECK(simulation::kWorldEventKinds[1] == simulation::WorldEventKind::kDespawn);
   CHECK(simulation::kWorldEventKinds[2] == simulation::WorldEventKind::kElimination);
   CHECK(simulation::kWorldEventKinds[3] == simulation::WorldEventKind::kStunRequest);
   CHECK(simulation::kWorldEventKinds[4] == simulation::WorldEventKind::kRaceCheckpoint);
+  CHECK(simulation::kWorldEventKinds[5] == simulation::WorldEventKind::kChargeContact);
 }
 
 TEST_CASE("every WorldEvent alternative answers with its own kind and name",
@@ -65,6 +70,8 @@ TEST_CASE("every WorldEvent alternative answers with its own kind and name",
         "stun_request");
   CHECK(simulation::world_event_kind_name_of(simulation::WorldEventKind::kRaceCheckpoint) ==
         "race_checkpoint");
+  CHECK(simulation::world_event_kind_name_of(simulation::WorldEventKind::kChargeContact) ==
+        "charge_contact");
 }
 
 TEST_CASE("race checkpoint events retain the certified normalized time as part of value equality",

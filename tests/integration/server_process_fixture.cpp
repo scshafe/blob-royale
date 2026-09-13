@@ -515,7 +515,8 @@ void write_fixture_inputs(const std::filesystem::path& fixture_directory, const 
   configuration.append("parry_stun_duration_seconds=0.6\n");
   configuration.append("charge_cooldown_seconds=1.2\n");
   configuration.append("charge_speed_fraction=0.75\n");
-  configuration.append("charge_safety_envelope_speed=20000\n\n");
+  configuration.append("charge_safety_envelope_speed=20000\ncharge_active_duration_seconds=0."
+                       "5\ncharge_hit_stun_duration_seconds=0.6\n\n");
   configuration.append("[royale]\n");
   configuration.append("zone_minimum_radius_world_units=10\n");
   configuration.append("zone_shrink_seconds=90\n");

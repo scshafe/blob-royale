@@ -69,7 +69,8 @@ TEST_CASE("tuning command decoder rejects missing members and forged routing ide
           "[unit][protocol][v3][movement_tuning][rejection]") {
   for (const std::string_view field :
        {"tuning_request_id", "expected_revision", "acceleration_world_units_per_second_squared",
-        "normal_top_speed_world_units_per_second"}) {
+        "normal_top_speed_world_units_per_second", "charge_speed_fraction",
+        "lethal_spawn_rate_per_second", "nonlethal_spawn_rate_per_second"}) {
     auto envelope = tuning_envelope();
     envelope.at("payload").as_object().erase(field);
     require_invalid_payload(envelope);
@@ -95,6 +96,50 @@ TEST_CASE("tuning command decoder rejects illegal scalar types and intrinsic lim
   auto envelope = tuning_envelope();
   envelope.at("payload").as_object().at("normal_top_speed_world_units_per_second") = 0;
   require_invalid_payload(envelope);
+}
+
+TEST_CASE("tuning command decoder preserves all five settings including zero and fractional rates",
+          "[unit][protocol][v3][movement_tuning][decoding]") {
+  // Room capabilities are enforced after admission. The wire accepts the full intrinsic domains.
+  for (const double charge : {0.0, 0.75, 100'000'000.0}) {
+    for (const double lethal : {0.0, 0.25, 5.0}) {
+      for (const double nonlethal : {0.0, 0.125, 5.0}) {
+        CAPTURE(charge, lethal, nonlethal);
+        auto envelope = tuning_envelope();
+        auto& payload = envelope.at("payload").as_object();
+        payload.at("acceleration_world_units_per_second_squared") = 350.5;
+        payload.at("normal_top_speed_world_units_per_second") = 625.25;
+        payload.at("charge_speed_fraction") = charge;
+        payload.at("lethal_spawn_rate_per_second") = lethal;
+        payload.at("nonlethal_spawn_rate_per_second") = nonlethal;
+        const auto decoded = decode_tuning(envelope);
+        REQUIRE(decoded.is_accepted());
+        const auto& command = std::get<simulation::SetMovementTuningCommand>(*decoded.command());
+        CHECK(command.tuning ==
+              simulation::MovementTuning::create(350.5, 625.25, charge, lethal, nonlethal));
+      }
+    }
+  }
+}
+
+TEST_CASE("tuning command decoder rejects malformed new settings without clipping them",
+          "[unit][protocol][v3][movement_tuning][rejection]") {
+  for (const std::string_view field : {"charge_speed_fraction", "lethal_spawn_rate_per_second",
+                                       "nonlethal_spawn_rate_per_second"}) {
+    for (const std::string_view invalid :
+         {"null", "false", "\"0.75\"", "[]", "{}", "-0.001", "100000001", "1e300"}) {
+      CAPTURE(field, invalid);
+      auto envelope = tuning_envelope();
+      envelope.at("payload").as_object().at(field) = boost::json::parse(invalid);
+      require_invalid_payload(envelope);
+    }
+  }
+  for (const std::string_view field :
+       {"lethal_spawn_rate_per_second", "nonlethal_spawn_rate_per_second"}) {
+    auto envelope = tuning_envelope();
+    envelope.at("payload").as_object().at(field) = 5.000001;
+    require_invalid_payload(envelope);
+  }
 }
 
 TEST_CASE("tuning command decoder rejects unsafe fractional and wrongly typed correlation numbers",

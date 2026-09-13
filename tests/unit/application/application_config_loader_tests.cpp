@@ -64,35 +64,38 @@ void require_server_config_error(TemporaryApplicationInputWorkspace& workspace,
 // There is no `[hazards]` section and no `kinds=` line, and that is the whole declaration: the set
 // of hazard kinds is exactly the set of `[hazard.*]` sections, so there is no second list to keep
 // in step (`gameplay/shared/hazard_archetype.hpp`).
-constexpr std::string_view kHazardSections = "\n"
-                                             "[hazard.plaid_meteorite]\n"
-                                             "radius_world_units=10\n"
-                                             "mass=1\n"
-                                             "restitution=1\n"
-                                             "speed_world_units_per_second=260\n"
-                                             "spawn_interval_seconds=6\n"
-                                             "lethal_on_contact=true\n"
-                                             "contact_effect_policy=closing_impact\n"
-                                             "\n"
-                                             "[hazard.velvet_boulder]\n"
-                                             "radius_world_units=26\n"
-                                             "mass=40\n"
-                                             "restitution=0.35\n"
-                                             "speed_world_units_per_second=90\n"
-                                             "spawn_interval_seconds=20\n"
-                                             "lethal_on_contact=false\n"
-                                             "contact_effect_policy=closing_impact\n";
+constexpr std::string_view kHazardSections =
+    "\n"
+    "[hazard.plaid_meteorite]\n"
+    "radius_world_units=10\n"
+    "mass=1\n"
+    "restitution=1\n"
+    "speed_world_units_per_second=260\n"
+    "spawn_interval_seconds=6\n"
+    "lethal_on_contact=true\n"
+    "contact_effect_policy=closing_impact\nspeed_variation_fraction=0\n"
+    "\n"
+    "[hazard.velvet_boulder]\n"
+    "radius_world_units=26\n"
+    "mass=40\n"
+    "restitution=0.35\n"
+    "speed_world_units_per_second=90\n"
+    "spawn_interval_seconds=20\n"
+    "lethal_on_contact=false\n"
+    "contact_effect_policy=closing_impact\nspeed_variation_fraction=0\n";
 
 // The shipped `[abilities]` block exactly as `kValidConfiguration` authors it, so a test that
 // rewrites the whole section names it once instead of spelling seven keys in seven places.
-constexpr std::string_view kAbilitiesSection = "[abilities]\n"
-                                               "shield_duration_seconds=0.4\n"
-                                               "shield_perfect_window_seconds=0.08\n"
-                                               "shield_cooldown_seconds=0.9\n"
-                                               "parry_stun_duration_seconds=0.6\n"
-                                               "charge_cooldown_seconds=1.2\n"
-                                               "charge_speed_fraction=0.75\n"
-                                               "charge_safety_envelope_speed=20000\n";
+constexpr std::string_view kAbilitiesSection =
+    "[abilities]\n"
+    "shield_duration_seconds=0.4\n"
+    "shield_perfect_window_seconds=0.08\n"
+    "shield_cooldown_seconds=0.9\n"
+    "parry_stun_duration_seconds=0.6\n"
+    "charge_cooldown_seconds=1.2\n"
+    "charge_speed_fraction=0.75\n"
+    "charge_safety_envelope_speed=20000\ncharge_active_duration_seconds=0.5\ncharge_hit_stun_"
+    "duration_seconds=0.6\n";
 
 [[nodiscard]] std::string configuration_with_hazards() {
   std::string configuration{test_fixture::kValidConfiguration};
@@ -498,15 +501,17 @@ TEST_CASE("authored ability tuning reaches every mode as converted ticks and unc
     CAPTURE(mode);
     auto configuration = test_fixture::replace_once(std::string{test_fixture::kValidConfiguration},
                                                     "mode=royale", "mode=" + std::string(mode));
-    configuration = test_fixture::replace_once(std::move(configuration), kAbilitiesSection,
-                                               "[abilities]\n"
-                                               "shield_duration_seconds=0.5\n"
-                                               "shield_perfect_window_seconds=0.1\n"
-                                               "shield_cooldown_seconds=0\n"
-                                               "parry_stun_duration_seconds=0.25\n"
-                                               "charge_cooldown_seconds=0.75\n"
-                                               "charge_speed_fraction=0.5\n"
-                                               "charge_safety_envelope_speed=9000\n");
+    configuration =
+        test_fixture::replace_once(std::move(configuration), kAbilitiesSection,
+                                   "[abilities]\n"
+                                   "shield_duration_seconds=0.5\n"
+                                   "shield_perfect_window_seconds=0.1\n"
+                                   "shield_cooldown_seconds=0\n"
+                                   "parry_stun_duration_seconds=0.25\n"
+                                   "charge_cooldown_seconds=0.75\n"
+                                   "charge_speed_fraction=0.5\n"
+                                   "charge_safety_envelope_speed=9000\ncharge_active_duration_"
+                                   "seconds=0.5\ncharge_hit_stun_duration_seconds=0.6\n");
     const auto loaded = load_game_mode_configuration(workspace, configuration);
     // At `simulation::kSimulationTicksPerSecond` = 400 the conversion is visible in the numbers
     // themselves: seconds handed through unconverted could not read as 200/40/0/100/300.
@@ -515,6 +520,8 @@ TEST_CASE("authored ability tuning reaches every mode as converted ticks and unc
     CHECK(loaded.abilities.shield_cooldown_ticks() == 0);
     CHECK(loaded.abilities.parry_stun_duration_ticks() == 100);
     CHECK(loaded.abilities.charge_cooldown_ticks() == 300);
+    CHECK(loaded.abilities.charge_active_duration_ticks() == 200);
+    CHECK(loaded.abilities.charge_hit_stun_duration_ticks() == 240);
     // The two keys that are not durations survive as the doubles they were authored as, and the
     // comparison is exact because both authored values are binary-exact. This is the assertion that
     // catches the tempting mistake: run either of them through the seconds path and they would read
@@ -525,16 +532,16 @@ TEST_CASE("authored ability tuning reaches every mode as converted ticks and unc
     CHECK(loaded.abilities ==
           gameplay::AbilityConfiguration::create(0.5, 0.1, 0.0, 0.25, 0.75, 0.5, 9000.0));
     // The authored abilities must not disturb the sections either side of them in the file.
-    CHECK(loaded.movement == simulation::MovementTuning::create(400.0, 10000.0));
+    CHECK(loaded.movement == simulation::MovementTuning::create(400.0, 10000.0, 0.5));
     CHECK(loaded.sandbox == gameplay::SandboxConfiguration::defaults());
   }
 }
 
-TEST_CASE("a configuration without the [abilities] section is refused naming all seven keys",
+TEST_CASE("a configuration without the [abilities] section is refused naming all nine keys",
           "[unit][application][config][abilities][validation]") {
   // A missing required section is never reported as a missing section: `require_all_fields` runs
   // inside `StrictIniDocument::parse`, before the first value is parsed, so absence arrives as the
-  // section's missing keys. All seven are asserted rather than one, because `ConfigField` and
+  // section's missing keys. All nine are asserted rather than one, because `ConfigField` and
   // `kConfigFieldSpecs` are index-parallel by construction and an enumerator inserted at a
   // different index than its spec row would still name *a* key while mislabelling the rest. That
   // is exactly the drift Step 19 could have introduced: three enumerators and three spec rows added
@@ -558,7 +565,8 @@ TEST_CASE("a configuration without the [abilities] section is refused naming all
          {"abilities.shield_duration_seconds", "abilities.shield_perfect_window_seconds",
           "abilities.shield_cooldown_seconds", "abilities.parry_stun_duration_seconds",
           "abilities.charge_cooldown_seconds", "abilities.charge_speed_fraction",
-          "abilities.charge_safety_envelope_speed"}) {
+          "abilities.charge_safety_envelope_speed", "abilities.charge_active_duration_seconds",
+          "abilities.charge_hit_stun_duration_seconds"}) {
       CAPTURE(key);
       CHECK(reported.find(key) != std::string_view::npos);
     }
@@ -1234,6 +1242,9 @@ TEST_CASE("a hazard kind the source has never named loads from configuration alo
   CHECK(meteorite.lethal_on_contact());
   // Authored as 6 s and stored as ticks, converted once at load like every other duration.
   CHECK(meteorite.spawn_interval_ticks() == 2'400);
+  CHECK(configuration.movement.lethal_spawn_rate_per_second() == 1.0 / 6.0);
+  CHECK(configuration.movement.nonlethal_spawn_rate_per_second() == 1.0 / 20.0);
+  CHECK(meteorite.speed_variation_fraction() == 0.0);
 
   const gameplay::HazardArchetype& boulder = configuration.hazards[1];
   CHECK(boulder.kind_name() == "velvet_boulder");
@@ -1259,6 +1270,8 @@ TEST_CASE("a configuration that declares no hazard section has no hazards",
       load_game_mode_configuration(workspace, test_fixture::kValidConfiguration);
 
   CHECK(configuration.hazards.empty());
+  CHECK(configuration.movement.lethal_spawn_rate_per_second() == 0.0);
+  CHECK(configuration.movement.nonlethal_spawn_rate_per_second() == 0.0);
   CHECK(configuration.royale == gameplay::RoyaleConfiguration::defaults());
 }
 
@@ -1342,14 +1355,15 @@ TEST_CASE("a hazard section that omits any one of its keys is rejected",
   // No key has a silent default, which is the same rule every fixed section already answers to. The
   // fragments carry their surrounding newlines so removing `radius_world_units` cannot accidentally
   // strike `[world] player_radius_world_units`.
-  constexpr std::array<std::string_view, 7> required_lines = {
+  constexpr std::array<std::string_view, 8> required_lines = {
       "\nradius_world_units=10\n",
       "\nmass=1\n",
       "\nrestitution=1\n",
       "\nspeed_world_units_per_second=260\n",
       "\nspawn_interval_seconds=6\n",
       "\nlethal_on_contact=true\n",
-      "\ncontact_effect_policy=closing_impact\n"};
+      "\ncontact_effect_policy=closing_impact\n",
+      "\nspeed_variation_fraction=0\n"};
 
   TemporaryApplicationInputWorkspace workspace;
   for (const std::string_view required_line : required_lines) {
@@ -1563,6 +1577,21 @@ TEST_CASE("a hazard kind name outside the published grammar is rejected",
   test_fixture::require_domain_validation_error_code<gameplay::GameplayValidationError>(
       [&] { static_cast<void>(test_fixture::load_application_config(config_path)); },
       gameplay::GameplayValidationCode::kHazardKindNameInvalid);
+}
+
+TEST_CASE(
+    "configured random spawn rates sum authored class means and reject excessive aggregate rates",
+    "[unit][application][config][hazard][validation]") {
+  TemporaryApplicationInputWorkspace workspace;
+  const auto same_class = test_fixture::replace_once(
+      configuration_with_hazards(), "lethal_on_contact=false", "lethal_on_contact=true");
+  const auto loaded = load_game_mode_configuration(workspace, same_class);
+  CHECK(loaded.movement.lethal_spawn_rate_per_second() == (1.0 / 6.0) + (1.0 / 20.0));
+  CHECK(loaded.movement.nonlethal_spawn_rate_per_second() == 0.0);
+  const auto too_dense = test_fixture::replace_once(same_class, "spawn_interval_seconds=6",
+                                                    "spawn_interval_seconds=0.2");
+  CHECK_THROWS_AS(load_game_mode_configuration(workspace, too_dense),
+                  simulation::SimulationValidationError);
 }
 
 } // namespace

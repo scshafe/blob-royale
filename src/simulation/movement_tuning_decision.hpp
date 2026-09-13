@@ -14,6 +14,7 @@ enum class MovementTuningDecisionStatus : std::uint8_t {
   kStaleRevision = 2,
   kNotSeated = 3,
   kRevisionExhausted = 4,
+  kUnsupportedTuning = 5,
 };
 
 // canonical: movement_tuning_decision -- one successful tick's decision for a canonical request.

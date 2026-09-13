@@ -6,32 +6,153 @@
   "x-status": "Accepted",
   "type": "object",
   "additionalProperties": false,
-  "required": ["current", "defaults", "limits", "revision", "effective_tick"],
+  "required": [
+    "current",
+    "defaults",
+    "limits",
+    "revision",
+    "effective_tick"
+  ],
   "properties": {
-    "current": { "$ref": "movement-tuning.schema.json" },
-    "defaults": { "$ref": "movement-tuning.schema.json" },
+    "current": {
+      "$ref": "movement-tuning.schema.json"
+    },
+    "defaults": {
+      "$ref": "movement-tuning.schema.json"
+    },
     "limits": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["acceleration_world_units_per_second_squared", "normal_top_speed_world_units_per_second"],
+      "required": [
+        "acceleration_world_units_per_second_squared",
+        "normal_top_speed_world_units_per_second",
+        "charge_speed_fraction",
+        "lethal_spawn_rate_per_second",
+        "nonlethal_spawn_rate_per_second"
+      ],
       "properties": {
         "acceleration_world_units_per_second_squared": {
-          "type": "object", "additionalProperties": false, "required": ["minimum", "maximum"],
-          "properties": { "minimum": { "const": 0 }, "maximum": { "const": 10000 } }
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum",
+            "maximum"
+          ],
+          "properties": {
+            "minimum": {
+              "const": 0
+            },
+            "maximum": {
+              "const": 10000
+            }
+          }
         },
         "normal_top_speed_world_units_per_second": {
-          "type": "object", "additionalProperties": false, "required": ["minimum", "maximum"],
-          "properties": { "minimum": { "const": 1 }, "maximum": { "const": 10000 } }
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum",
+            "maximum"
+          ],
+          "properties": {
+            "minimum": {
+              "const": 1
+            },
+            "maximum": {
+              "const": 10000
+            }
+          }
+        },
+        "charge_speed_fraction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum",
+            "maximum"
+          ],
+          "properties": {
+            "minimum": {
+              "const": 0
+            },
+            "maximum": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100000000
+            }
+          }
+        },
+        "lethal_spawn_rate_per_second": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum",
+            "maximum"
+          ],
+          "properties": {
+            "minimum": {
+              "const": 0
+            },
+            "maximum": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5
+            }
+          }
+        },
+        "nonlethal_spawn_rate_per_second": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum",
+            "maximum"
+          ],
+          "properties": {
+            "minimum": {
+              "const": 0
+            },
+            "maximum": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 5
+            }
+          }
         }
       }
     },
-    "revision": { "$ref": "common.schema.json#/$defs/safe_integer" },
-    "effective_tick": { "$ref": "common.schema.json#/$defs/phase_start_tick" }
+    "revision": {
+      "$ref": "common.schema.json#/$defs/safe_integer"
+    },
+    "effective_tick": {
+      "$ref": "common.schema.json#/$defs/phase_start_tick"
+    }
   },
-  "allOf": [{
-    "if": { "properties": { "revision": { "const": 0 } }, "required": ["revision"] },
-    "then": { "properties": { "effective_tick": { "const": 0 } } },
-    "else": { "properties": { "effective_tick": { "$ref": "common.schema.json#/$defs/tick_sequence" } } }
-  }],
-  "$comment": "effective_tick must not exceed the containing snapshot tick. A revision change alone does not acknowledge any particular client request."
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "revision": {
+            "const": 0
+          }
+        },
+        "required": [
+          "revision"
+        ]
+      },
+      "then": {
+        "properties": {
+          "effective_tick": {
+            "const": 0
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "effective_tick": {
+            "$ref": "common.schema.json#/$defs/tick_sequence"
+          }
+        }
+      }
+    }
+  ],
+  "$comment": "Current/default fields must fit the published room-specific limits. Zero class maximum means no authored objects of that class. Existing effective-tick and correlation rules remain."
 }

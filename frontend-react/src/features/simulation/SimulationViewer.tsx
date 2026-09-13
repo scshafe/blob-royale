@@ -11,6 +11,7 @@ import { SimulationDebugPanel } from './SimulationDebugPanel';
 import { SimulationHud } from './SimulationHud';
 import {
   abilityStatusReport,
+  selectThrustInputOptions,
   countAlivePlayers,
   describeMatchOverlay,
   eliminationGraceTicks,
@@ -36,6 +37,9 @@ export interface SimulationViewerProps {
   /** The room this view is in, which is the shell's decision and not the socket's. */
   readonly lobbyId: number;
   readonly thrust: ThrustDirection;
+  readonly braking: boolean;
+  readonly commandBudgetUnavailable: boolean;
+  readonly onRotateVelocity: (direction: 'left' | 'right') => void;
   readonly movementTuning: MovementTuningControls;
   /** The input owner's one activation path; the buttons are not a second sender. */
   readonly onActivateAbility: (ability: SimulationAbility) => void;
@@ -60,6 +64,9 @@ export function SimulationViewer({
   connection,
   lobbyId,
   thrust,
+  braking,
+  commandBudgetUnavailable,
+  onRotateVelocity,
   movementTuning,
   onActivateAbility,
   onAimObservation,
@@ -93,7 +100,10 @@ export function SimulationViewer({
       : null;
 
   return (
-    <section aria-labelledby="simulation-viewer-heading">
+    <section
+      aria-labelledby="simulation-viewer-heading"
+      className="SimulationViewer"
+    >
       <h2 id="simulation-viewer-heading">Room {lobbyId}</h2>
       <p
         aria-live={connection.status === 'failed' ? 'assertive' : 'polite'}
@@ -128,7 +138,12 @@ export function SimulationViewer({
               })}
             />
           </div>
-          <div className="SimulationSidebar">
+          <div
+            aria-label="Room information and controls"
+            className="SimulationSidebar"
+            role="region"
+            tabIndex={0}
+          >
             <SimulationCameraControls
               mode={camera.mode}
               setMode={setMode}
@@ -153,6 +168,13 @@ export function SimulationViewer({
                   connection.configuration.simulation.ticks_per_second,
               })}
               abilityControls={abilityControls}
+              braking={braking}
+              commandBudgetUnavailable={commandBudgetUnavailable}
+              onRotateVelocity={onRotateVelocity}
+              rotationUnavailable={
+                selectThrustInputOptions(connection, lobbyId)
+                  .rotationUnavailable
+              }
               aliveCount={countAlivePlayers(connection.entities)}
               displayName={connection.session?.displayName ?? null}
               hill={hillHudReport({
@@ -194,10 +216,9 @@ export function SimulationViewer({
               )}
             />
             <p className="SteeringHint">
-              Aim with the cursor, click or tab into the arena, and hold Space
-              to move. Release Space to coast. Left-drag pans in Manual view.
-              Nothing steers but the cursor: the arrow keys are unused, and an
-              ability key fires once rather than holding a direction.
+              Hold left-click in the arena to move toward the cursor. Release to
+              coast; hold Space to brake. Q and E turn your velocity left and
+              right, including during a charge. Right-drag pans in Manual view.
             </p>
             <MovementTuningPanel controls={movementTuning} />
             <button

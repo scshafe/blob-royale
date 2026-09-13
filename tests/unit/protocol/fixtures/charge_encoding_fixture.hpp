@@ -15,20 +15,22 @@ namespace blob_royale::protocol::charge_fixture {
 // second cooldown at 400 Hz, and a build whose conversion disagreed would be caught by the
 // gameplay-side tests that do link it.
 inline constexpr std::uint64_t kCooldownDurationTicks = 480;
+inline constexpr std::uint64_t kActiveDurationTicks = 200;
+inline constexpr std::uint64_t kHitStunDurationTicks = 240;
 
 inline constexpr std::uint64_t kEntity = v3_test_fixture::kPlayerEntityId;
 inline constexpr std::uint64_t kActivation = 100;
 
-// One charge exactly as `AbilitySystem` would commit it. The cooldown is overridable so a case can
-// reach the top of the tick domain without a second construction path that could disagree with
-// `activate`'s validation -- and, unlike the shield fixture's five knobs, that is the only value
-// there is to vary: a one-shot activation owns no protection window and captures no effect
-// parameter (`docs/reviews/2026-09-12-charge-contract.md` § "The component and the command").
+// Production activations capture independent active/cooldown windows and the hit stun duration.
+// Explicit overrides cover window boundaries without bypassing component validation.
 [[nodiscard]] inline simulation::Charge
 activated(const std::uint64_t activation_tick = kActivation,
-          const std::uint64_t cooldown_duration_ticks = kCooldownDurationTicks) {
+          const std::uint64_t cooldown_duration_ticks = kCooldownDurationTicks,
+          const std::uint64_t active_duration_ticks = kActiveDurationTicks,
+          const std::uint64_t hit_stun_duration_ticks = kHitStunDurationTicks) {
   return simulation::Charge::activate(simulation::TickSequence::create(activation_tick),
-                                      cooldown_duration_ticks);
+                                      cooldown_duration_ticks, active_duration_ticks,
+                                      hit_stun_duration_ticks);
 }
 
 // One committed tick carrying a body and its charge, driven by the idle engine: no gameplay system

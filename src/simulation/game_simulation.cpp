@@ -335,6 +335,8 @@ void apply_input_batch(GameWorld& world, const InputBatch& input_batch,
         status = MovementTuningDecisionStatus::kStaleRevision;
       } else if (entry_revision >= kMaximumProtocolSafeInteger) {
         status = MovementTuningDecisionStatus::kRevisionExhausted;
+      } else if (!world.match().movement.admits(tuning->tuning)) {
+        status = MovementTuningDecisionStatus::kUnsupportedTuning;
       } else {
         winner = tuning;
         winner_index = tuning_decisions.size();

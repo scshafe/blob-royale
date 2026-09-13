@@ -35,6 +35,7 @@ add_executable(blob_gameplay_unit_tests
   sandbox/sandbox_falling_tests.cpp
   shared/ability_configuration_tests.cpp
   shared/ability_system_tests.cpp
+  shared/charge_contact_system_tests.cpp
   shared/disc_geometry_tests.cpp
   shared/create_crossing_hazard_tests.cpp
   shared/duration_ticks_tests.cpp
@@ -57,6 +58,7 @@ add_executable(blob_gameplay_unit_tests
   shared/roster_tests.cpp
   shared/spawn_point_probe_tests.cpp
   shared/thrust_steering_system_tests.cpp
+  shared/velocity_rotation_system_tests.cpp
 )
 
 blob_royale_configure_first_party_target(blob_gameplay_unit_tests)

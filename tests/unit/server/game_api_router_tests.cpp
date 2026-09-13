@@ -165,7 +165,7 @@ void check_v3_error(const server::GameApiHttpResponse& response, const http::sta
   const boost::json::object& envelope = document.as_object();
   CHECK(envelope.at("data").is_null());
   const boost::json::object& meta = envelope.at("meta").as_object();
-  CHECK(meta.at("protocol_version").as_string() == "3.0");
+  CHECK(meta.at("protocol_version").as_string() == "3.1");
   CHECK(meta.at("schema_id").as_string() == "blob-royale://protocol/v3/error-response");
   const boost::json::string& encoded_code = envelope.at("error").as_object().at("code").as_string();
   CHECK(std::string_view{encoded_code.data(), encoded_code.size()} == code);
@@ -183,7 +183,7 @@ void check_retired_response(const server::GameApiHttpResponse& response,
   CHECK_FALSE(error.at("retryable").as_bool());
   const boost::json::object& details = error.at("details").as_object();
   REQUIRE(details.size() == 1);
-  CHECK(details.at("required_protocol_version").as_string() == "3.0");
+  CHECK(details.at("required_protocol_version").as_string() == "3.1");
   const boost::json::string& message = error.at("message").as_string();
   const std::string_view guidance{message.data(), message.size()};
   CHECK(guidance.find("/api/v3/lobbies/<lobby_id>/session") != std::string_view::npos);
@@ -459,7 +459,7 @@ TEST_CASE("GameApiRouter returns 426 in the v3 envelope for an ordinary session 
   CHECK(fixture::response_contains(response, "PROTOCOL.UPGRADE_REQUIRED"));
   // A `/api/v3/` target's failure must name v3, so the envelope is selected by the target's
   // version prefix and not by the route that answered it.
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"3.0\""));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"3.1\""));
   CHECK(fixture::response_contains(response, "blob-royale://protocol/v3/error-response"));
 }
 
@@ -469,7 +469,7 @@ TEST_CASE("GameApiRouter answers an unrouted v3 target in the v3 envelope",
   const server::GameApiHttpResponse response =
       route_response(state, fixture::request(http::verb::get, "/api/v3/nonsense"));
   CHECK(response.result() == http::status::not_found);
-  CHECK(fixture::response_contains(response, "\"protocol_version\":\"3.0\""));
+  CHECK(fixture::response_contains(response, "\"protocol_version\":\"3.1\""));
 }
 
 TEST_CASE("GameApiRouter keeps non-session-prefix unknown targets in the v1 envelope",
@@ -947,7 +947,7 @@ TEST_CASE("GameApiRouter lists every room in the directory with its census and h
   CHECK(fixture::response_contains(response, R"("error":null)"));
   CHECK(fixture::response_contains(
       response,
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/lobby-directory","request_id":"server-test-request-1"})"));
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/lobby-directory","request_id":"server-test-request-1"})"));
   // Room 1 is serving, past tick zero, with the one session counted in. Room 2 never started, so it
   // lists its initial world -- the two seats it was configured with, nobody in them -- at tick zero
   // and unhealthy, which is exactly what a join to it would be told with `503`.

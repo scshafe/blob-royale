@@ -400,7 +400,7 @@ describe('SimulationCanvas', () => {
     expect(onAimObservation).toHaveBeenLastCalledWith(null);
   });
 
-  it('marks manual dragging before reporting its aim and preserves right-click browser behavior', () => {
+  it('marks right-dragging before aim and prevents the context menu only on the canvas', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
     const onAimObservation = vi.fn(
       (observation: ThrustAimObservation | null) => {
@@ -422,22 +422,35 @@ describe('SimulationCanvas', () => {
     const canvas = screen.getByRole<HTMLCanvasElement>('img');
     const surface = installCanvasAimSurface(canvas);
     fireEvent.pointerMove(canvas, aimPointer());
+    fireEvent.pointerDown(
+      canvas,
+      aimPointer(680, 370, { button: 0, buttons: 1 }),
+    );
+    expect(surface.captured.size).toBe(0);
     onAimObservation.mockClear();
-    fireEvent.pointerDown(canvas, aimPointer(680, 370, { buttons: 1 }));
+    // A chorded right press arrives as a pointermove while left remains down.
+    fireEvent.pointerMove(
+      canvas,
+      aimPointer(680, 370, { button: 2, buttons: 3 }),
+    );
     expect(
       onAimObservation.mock.calls.every(
         ([value]) => value?.cameraGestureActive === true,
       ),
     ).toBe(true);
-    fireEvent.pointerMove(canvas, aimPointer(660, 380, { buttons: 1 }));
+    fireEvent.pointerMove(
+      canvas,
+      aimPointer(660, 380, { button: 2, buttons: 2 }),
+    );
     expect(onPan).toHaveBeenLastCalledWith({ x: 20, y: -10 });
     fireEvent.lostPointerCapture(canvas, aimPointer());
     expect(surface.captured.size).toBe(0);
     expect(onAimObservation).toHaveBeenLastCalledWith(null);
-    expect(fireEvent.contextMenu(canvas)).toBe(true);
+    expect(fireEvent.contextMenu(canvas)).toBe(false);
+    expect(fireEvent.contextMenu(document.body)).toBe(true);
     fireEvent.pointerDown(
       canvas,
-      aimPointer(680, 370, { button: 2, buttons: 2 }),
+      aimPointer(680, 370, { button: 0, buttons: 1 }),
     );
     expect(surface.captured.size).toBe(0);
     expect(onPan).toHaveBeenCalledTimes(1);
@@ -798,6 +811,40 @@ describe('SimulationCanvas', () => {
     expect(strokeRect).toHaveBeenLastCalledWith(60, -100, 960, 640);
   });
 
+  it('fits a short arena column without changing world radii or camera centre', () => {
+    const { arc, context, strokeRect } = createCanvasContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+      context,
+    );
+    render(
+      <SimulationCanvas
+        configuration={configuration}
+        ownEntityId={21}
+        camera={{ mode: 'follow', center: { x: 240, y: 300 } }}
+        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+      />,
+    );
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(960, 240);
+    });
+    expect(screen.getByRole('img')).toHaveStyle({
+      width: '360px',
+      height: '240px',
+    });
+    expect(arc).toHaveBeenLastCalledWith(180, 120, 10, 0, 2 * Math.PI);
+    expect(strokeRect).toHaveBeenLastCalledWith(-60, -180, 960, 640);
+    act(() => {
+      for (const observer of CanvasViewportObserver.active)
+        observer.resize(960, 400);
+    });
+    expect(screen.getByRole('img')).toHaveStyle({
+      width: '600px',
+      height: '400px',
+    });
+    expect(arc).toHaveBeenLastCalledWith(300, 200, 10, 0, 2 * Math.PI);
+  });
+
   it('changes only the bounded backing buffer when display density changes', () => {
     const { arc, context, setTransform } = createCanvasContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
@@ -877,33 +924,40 @@ describe('SimulationCanvas', () => {
     expect(CanvasViewportObserver.active.size).toBe(0);
   });
 
-  it('does not invent a drawable area for a hidden viewport and resumes on layout delivery', () => {
-    const { arc, context } = createCanvasContext();
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-      context,
-    );
-    render(
-      <SimulationCanvas
-        configuration={configuration}
-        ownEntityId={21}
-        snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
-      />,
-    );
-    arc.mockClear();
-    act(() => {
-      for (const observer of CanvasViewportObserver.active) observer.resize(0);
-    });
-    expect(arc).not.toHaveBeenCalled();
-    expect(screen.getByRole('img')).toHaveStyle({
-      width: '0px',
-      height: '0px',
-    });
-    act(() => {
-      for (const observer of CanvasViewportObserver.active)
-        observer.resize(960);
-    });
-    expect(arc).toHaveBeenCalledTimes(1);
-  });
+  it.each([
+    { width: 0, height: 640 },
+    { width: 960, height: 0 },
+  ])(
+    'does not invent a drawable area for a $width×$height viewport and resumes on layout delivery',
+    ({ width, height }) => {
+      const { arc, context } = createCanvasContext();
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        context,
+      );
+      render(
+        <SimulationCanvas
+          configuration={configuration}
+          ownEntityId={21}
+          snapshot={{ ...goldenSnapshot, entities: [bodyEntity(21)] }}
+        />,
+      );
+      arc.mockClear();
+      act(() => {
+        for (const observer of CanvasViewportObserver.active)
+          observer.resize(width, height);
+      });
+      expect(arc).not.toHaveBeenCalled();
+      expect(screen.getByRole('img')).toHaveStyle({
+        width: '0px',
+        height: '0px',
+      });
+      act(() => {
+        for (const observer of CanvasViewportObserver.active)
+          observer.resize(960);
+      });
+      expect(arc).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('pans only a captured primary drag and cancels it on blur, mode change, or pointer cancellation', () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
@@ -932,8 +986,8 @@ describe('SimulationCanvas', () => {
     const pointer = {
       pointerId: 1,
       isPrimary: true,
-      button: 0,
-      buttons: 1,
+      button: 2,
+      buttons: 2,
       clientX: 200,
       clientY: 100,
     };

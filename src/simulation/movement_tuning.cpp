@@ -25,12 +25,25 @@ void require_tuning_scalar(const double value, const double minimum, const doubl
 
 } // namespace
 
-MovementTuning MovementTuning::create(const double acceleration, const double normal_top_speed) {
+MovementTuning MovementTuning::create(const double acceleration, const double normal_top_speed,
+                                      const double charge_speed_fraction,
+                                      const double lethal_spawn_rate_per_second,
+                                      const double nonlethal_spawn_rate_per_second) {
   require_tuning_scalar(acceleration, kMinimumMovementAcceleration, kMaximumMovementAcceleration,
                         "movement.acceleration_world_units_per_second_squared");
   require_tuning_scalar(normal_top_speed, kMinimumNormalTopSpeed, kMaximumNormalTopSpeed,
                         "movement.normal_top_speed_world_units_per_second");
-  return MovementTuning(acceleration == 0.0 ? 0.0 : acceleration, normal_top_speed);
+  require_tuning_scalar(charge_speed_fraction, 0.0, kMaximumChargeSpeedFraction,
+                        "movement.charge_speed_fraction");
+  require_tuning_scalar(lethal_spawn_rate_per_second, 0.0, kMaximumCrossingSpawnRatePerSecond,
+                        "movement.lethal_spawn_rate_per_second");
+  require_tuning_scalar(nonlethal_spawn_rate_per_second, 0.0, kMaximumCrossingSpawnRatePerSecond,
+                        "movement.nonlethal_spawn_rate_per_second");
+  return MovementTuning(acceleration == 0.0 ? 0.0 : acceleration, normal_top_speed,
+                        charge_speed_fraction == 0.0 ? 0.0 : charge_speed_fraction,
+                        lethal_spawn_rate_per_second == 0.0 ? 0.0 : lethal_spawn_rate_per_second,
+                        nonlethal_spawn_rate_per_second == 0.0 ? 0.0
+                                                               : nonlethal_spawn_rate_per_second);
 }
 
 } // namespace blob_royale::simulation

@@ -176,7 +176,7 @@ std::string SessionWebSocketClient::read_welcome_message() {
   }
   const json::value* const version = meta->as_object().if_contains("protocol_version");
   const json::value* const schema_id = meta->as_object().if_contains("schema_id");
-  if (version == nullptr || !version->is_string() || version->as_string() != "3.0" ||
+  if (version == nullptr || !version->is_string() || version->as_string() != "3.1" ||
       schema_id == nullptr || !schema_id->is_string() ||
       schema_id->as_string() != "blob-royale://protocol/v3/welcome-message") {
     throw_contract_violation("session.welcome",

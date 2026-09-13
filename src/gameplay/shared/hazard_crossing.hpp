@@ -6,6 +6,7 @@
 #include "map_definition.hpp"
 #include "vector2.hpp"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace blob_royale::simulation {
@@ -14,28 +15,17 @@ class DeterministicRandom;
 
 namespace blob_royale::gameplay {
 
-// canonical: hazard_crossing -- one hazard's trip across the arena, and the **only** implementation
-// of how far one can be and how long one lives.
-//
-// **It exists because two callers need the same arithmetic from opposite ends.**
-// `hazard_spawn_system` draws a crossing and asks how long *this* one lives;
-// `application/match_startup_validation.cpp` asks how long the *longest* one could live, so it can
-// refuse at startup a hazard table whose standing population would exceed the protocol snapshot
-// bound. A second copy of the formula in the validator would be a bound that agrees with the
-// spawner only until someone edits one of them, and a bound that silently stops bounding is worse
-// than no bound at all: the failure it exists to prevent is a match that degrades under load rather
-// than a configuration that fails closed. This tree has already paid for duplicated logic twice --
-// the published kind-name grammar and the system-created entity headroom each existed in three or
-// four places before being unified -- so the arithmetic is written once, here, and both callers
-// route through it.
-//
-// **The clearance and the edge count live here rather than on the spawn system**, because they are
-// terms of the distance formula, not scheduling parameters: `travel_distance` reads the clearance
-// and the worst-case length reads the edge geometry, and a constant that two functions in this file
-// need has no business hanging off a class in another one.
-// related: shared/hazard_spawn_system.hpp -- the caller that draws one crossing per hazard.
-// related: shared/hazard_archetype.hpp -- the configured kind a crossing is drawn for.
-// related: ../../application/match_startup_validation.hpp -- the caller that bounds the population.
+// canonical: hazard_crossing -- shared crossing geometry, sampled speed, and lifetime arithmetic.
+// Startup admission and runtime spawning share the explicit active-population cap: random bursts
+// cannot be bounded by a mean interarrival interval or an expected standing population.
+// related: hazard_spawn_system.hpp -- pre-draw runtime capacity admission.
+// related: ../../application/match_startup_validation.hpp -- worst-case startup body admission.
+inline constexpr std::size_t kMaximumActiveCrossingHazardCount = 64;
+
+// Draws one uniform speed within the archetype's positive validated range. Always consumes exactly
+// one hazards-stream draw, including zero variation, so draw order does not depend on tuning.
+[[nodiscard]] double draw_hazard_speed(simulation::DeterministicRandom& random,
+                                       const HazardArchetype& archetype);
 
 // The four arena edges a hazard may enter through, in the order the entry draw indexes them.
 // Closed and ordered, because the draw is `next_below(kHazardEntryEdgeCount)` and the mapping from
@@ -104,20 +94,9 @@ struct HazardCrossing final {
 [[nodiscard]] std::uint64_t hazard_lifetime_ticks(double travel_distance, double speed,
                                                   double seconds_per_tick);
 
-// The most bodies of one kind that can stand in the world at the same time.
-//
-// A hazard of this kind is seated every `spawn_interval_ticks` and lives at most
-// `hazard_lifetime_ticks(longest_hazard_travel_distance(...), ...)` ticks, so at most
-// `ceil(lifetime / interval)` earlier hazards are still standing when the next one is seated, plus
-// that one itself. It is an upper bound rather than the exact count -- the drawn crossing is
-// usually shorter than the diagonal and the spawner skips a kind that loses the one-id race -- and
-// an upper bound is what a startup rejection needs, because a bound that is sometimes optimistic
-// is a bound that sometimes fails to reject.
-//
-// **It lives beside the lifetime it is computed from** rather than in the validator that sums it,
-// so that "how long does a hazard live" and "how many of them are there" cannot drift apart across
-// a library boundary. The validator's job is the summation and the diagnostic, which is the part
-// that belongs to the application.
+// Historical interval-scheduling diagnostic only: maximum standing count if births occurred at
+// the authored interval and every crossing used the authored base speed. This is NOT a capacity
+// bound for the random spawner; startup and runtime must use kMaximumActiveCrossingHazardCount.
 [[nodiscard]] std::uint64_t maximum_standing_hazard_count(const HazardArchetype& archetype,
                                                           const simulation::ArenaBounds& bounds,
                                                           double seconds_per_tick);

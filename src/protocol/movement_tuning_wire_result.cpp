@@ -40,6 +40,8 @@ struct StatusDefinition final {
     return {"mailbox_full", false};
   case MovementTuningWireResultStatus::kMailboxEvicted:
     return {"mailbox_evicted", false};
+  case MovementTuningWireResultStatus::kUnsupportedTuning:
+    return {"unsupported_tuning", true};
   }
   reject_result("status", "status must name a registered movement tuning result");
 }

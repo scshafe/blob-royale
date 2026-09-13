@@ -40,6 +40,7 @@ TEST_CASE("tuning adapter translates every committed status without exposing its
                                      {Status::kSuperseded, "superseded"},
                                      {Status::kStaleRevision, "stale_revision"},
                                      {Status::kNotSeated, "not_seated"},
+                                     {Status::kUnsupportedTuning, "unsupported_tuning"},
                                      {Status::kRevisionExhausted, "revision_exhausted"}}) {
     auto committed = decision(
         1, 2, status == Status::kRevisionExhausted ? simulation::kMaximumProtocolSafeInteger : 1);

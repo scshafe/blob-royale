@@ -345,7 +345,7 @@ export async function focusSimulationCanvas(page: Page): Promise<void> {
     name: 'Blob Royale simulation world',
   });
   await canvas.scrollIntoViewIfNeeded();
-  await canvas.click();
+  await canvas.focus();
   await expect(canvas).toBeFocused();
 }
 

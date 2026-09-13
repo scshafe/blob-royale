@@ -2,9 +2,11 @@
 
 #include "gameplay_test_fixture.hpp"
 
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/shield_component.hpp"
+#include "components/stun_component.hpp"
 #include "components/zone_component.hpp"
 #include "components/zone_exposure_component.hpp"
 #include "contact_rule.hpp"
@@ -205,6 +207,39 @@ template <class Event>
     }
   }
   return count;
+}
+
+constexpr std::uint64_t kChargeCooldownTicks = 480;
+constexpr std::uint64_t kChargeActiveTicks = 200;
+constexpr std::uint64_t kChargeStunTicks = 240;
+
+struct ChargingPlayersFixture final : GuardedRowFixture {
+  ChargingPlayersFixture(const double first_speed = 30.0, const double second_speed = 0.0)
+      : GuardedRowFixture(baseline_body(100.0, first_speed), baseline_body(120.0, second_speed),
+                          20.0) {
+    make_driven(first.entity);
+    make_driven(second.entity);
+    give_charge(first.entity);
+  }
+
+  void give_charge(const simulation::EntityId id, const std::uint64_t activation = kContactTick,
+                   const std::uint64_t active_duration = kChargeActiveTicks) {
+    world.mutable_store<simulation::Charge>().insert_or_assign(
+        id, simulation::Charge::activate(tick(activation), kChargeCooldownTicks, active_duration,
+                                         kChargeStunTicks));
+  }
+};
+
+[[nodiscard]] std::vector<simulation::ChargeContactCandidate>
+charge_candidates(const simulation::ContactResponse& response) {
+  std::vector<simulation::ChargeContactCandidate> candidates;
+  for (const auto& event : response.events()) {
+    if (const auto* candidate = std::get_if<simulation::ChargeContactCandidate>(&event);
+        candidate != nullptr) {
+      candidates.push_back(*candidate);
+    }
+  }
+  return candidates;
 }
 
 } // namespace
@@ -648,4 +683,125 @@ TEST_CASE("a lethal hazard kills during running and only shoves in every other p
     CHECK(testing::published_body(after, 10).has_value());
     CHECK(placement_count(after) == 0);
   }
+}
+
+TEST_CASE("an incoming active charge nominates its player hit without changing baseline response",
+          "[unit][gameplay][guarded_pair_rule][charge]") {
+  ChargingPlayersFixture fixture;
+  const auto frozen = fixture.world;
+  const auto response = fixture.respond_to_impact();
+  CHECK(charge_candidates(response) ==
+        std::vector<simulation::ChargeContactCandidate>{
+            {fixture.first.entity, fixture.second.entity, tick(kContactTick),
+             simulation::ChargeContactOutcome::kSuccessfulHit}});
+  CHECK(response.first_body().velocity() == point(0.0, 0.0));
+  CHECK(response.second_body().velocity() == point(30.0, 0.0));
+  CHECK(fixture.world == frozen);
+  CHECK(event_count<simulation::StunRequest>(events_of(response)) == 0);
+}
+
+TEST_CASE("charge contact requires its own eligible source and a certified closing impact",
+          "[unit][gameplay][guarded_pair_rule][charge]") {
+  ChargingPlayersFixture fixture;
+  auto observation = fixture.impact_observation();
+  observation.first_effect_eligible = false;
+  CHECK(charge_candidates(fixture.respond(observation)).empty());
+  observation.first_effect_eligible = true;
+  observation.second_effect_eligible = false;
+  CHECK(charge_candidates(fixture.respond(observation)).size() == 1);
+  observation.impact.reset();
+  CHECK(charge_candidates(fixture.respond(observation)).empty());
+
+  const ChargingPlayersFixture separating{-30.0, 0.0};
+  CHECK(charge_candidates(separating.respond_to_impact()).empty());
+  const ChargingPlayersFixture stationary_charger{0.0, -30.0};
+  CHECK(charge_candidates(stationary_charger.respond_to_impact()).empty());
+  const ChargingPlayersFixture receding_charger{-10.0, -30.0};
+  CHECK(charge_candidates(receding_charger.respond_to_impact()).empty());
+}
+
+TEST_CASE("charge hit direction uses working motion rather than frozen earlier velocity",
+          "[unit][gameplay][guarded_pair_rule][charge]") {
+  ChargingPlayersFixture fixture;
+  fixture.world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+      fixture.first.entity, fixture.first.body.with_velocity(point(-30.0, 0.0)));
+  CHECK(charge_candidates(fixture.respond_to_impact()).size() == 1);
+  // A previous same-tick impact can redirect the working body while committed velocity is
+  // unchanged.
+  fixture.first.body = fixture.first.body.with_velocity(point(-30.0, 0.0));
+  fixture.second.body = fixture.second.body.with_velocity(point(-60.0, 0.0));
+  CHECK(charge_candidates(fixture.respond_to_impact()).empty());
+}
+
+TEST_CASE("charge hits require a running live player target and unlocked active attacker",
+          "[unit][gameplay][guarded_pair_rule][charge]") {
+  for (const auto phase : {simulation::MatchPhase::kLobby, simulation::MatchPhase::kCountdown,
+                           simulation::MatchPhase::kEnded}) {
+    ChargingPlayersFixture fixture;
+    fixture.world.mutable_match().phase = phase;
+    CHECK(charge_candidates(fixture.respond_to_impact()).empty());
+  }
+  ChargingPlayersFixture uncontrolled;
+  uncontrolled.world.mutable_store<simulation::Controllable>().erase(uncontrolled.second.entity);
+  CHECK(charge_candidates(uncontrolled.respond_to_impact()).empty());
+  ChargingPlayersFixture stunned;
+  stunned.world.mutable_store<simulation::Stun>().insert_or_assign(
+      stunned.first.entity,
+      simulation::Stun{simulation::TickWindow::create(tick(kContactTick), kChargeStunTicks)});
+  CHECK(charge_candidates(stunned.respond_to_impact()).empty());
+  ChargingPlayersFixture expired;
+  expired.give_charge(expired.first.entity, kEarlierActivationTick,
+                      kContactTick - kEarlierActivationTick);
+  CHECK(charge_candidates(expired.respond_to_impact()).empty());
+  ChargingPlayersFixture last_active;
+  last_active.give_charge(last_active.first.entity, kEarlierActivationTick,
+                          kContactTick - kEarlierActivationTick + 1);
+  CHECK(charge_candidates(last_active.respond_to_impact()).size() == 1);
+}
+
+TEST_CASE("ordinary and perfect shields nominate blocked charge while preserving their physics",
+          "[unit][gameplay][guarded_pair_rule][charge][shield]") {
+  for (const bool perfect : {false, true}) {
+    ChargingPlayersFixture fixture;
+    fixture.give_shield(fixture.second.entity, perfect ? perfect_shield(kChargeStunTicks)
+                                                       : ordinary_shield(kChargeStunTicks));
+    const auto frozen = fixture.world;
+    const auto response = fixture.respond_to_impact();
+    CHECK(charge_candidates(response) ==
+          std::vector<simulation::ChargeContactCandidate>{
+              {fixture.first.entity, fixture.second.entity, tick(kContactTick),
+               simulation::ChargeContactOutcome::kBlockedByShield}});
+    CHECK(response.first_body().velocity() == point(0.0, 0.0));
+    CHECK(response.second_body().velocity() == point(7.5, 0.0));
+    CHECK(event_count<simulation::StunRequest>(events_of(response)) == (perfect ? 1 : 0));
+    CHECK(fixture.world == frozen);
+  }
+}
+
+TEST_CASE("mutual incoming charges produce canonical symmetric frozen candidates",
+          "[unit][gameplay][guarded_pair_rule][charge][symmetry]") {
+  ChargingPlayersFixture fixture{30.0, -30.0};
+  fixture.give_charge(fixture.second.entity);
+  const auto expected = std::vector<simulation::ChargeContactCandidate>{
+      {fixture.first.entity, fixture.second.entity, tick(kContactTick),
+       simulation::ChargeContactOutcome::kSuccessfulHit},
+      {fixture.second.entity, fixture.first.entity, tick(kContactTick),
+       simulation::ChargeContactOutcome::kSuccessfulHit}};
+  CHECK(charge_candidates(fixture.respond_to_impact()) == expected);
+  const auto swapped_touch =
+      simulation::detect_pair_contact(fixture.second.body, fixture.first.body, fixture.distance);
+  CHECK(charge_candidates(gameplay::guarded_pair_response(
+            fixture.world, fixture.second, fixture.first,
+            {swapped_touch, std::optional{swapped_touch}, true, true},
+            fixture.harness.context())) == expected);
+
+  fixture.give_shield(fixture.first.entity, perfect_shield(kChargeStunTicks));
+  fixture.give_shield(fixture.second.entity, perfect_shield(kChargeStunTicks));
+  const auto guarded = fixture.respond_to_impact();
+  CHECK(guarded.events().size() == 5);
+  CHECK(event_count<simulation::StunRequest>(events_of(guarded)) == 2);
+  const auto blocked = charge_candidates(guarded);
+  REQUIRE(blocked.size() == 2);
+  CHECK(blocked[0].outcome == simulation::ChargeContactOutcome::kBlockedByShield);
+  CHECK(blocked[1].outcome == simulation::ChargeContactOutcome::kBlockedByShield);
 }

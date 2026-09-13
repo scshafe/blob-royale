@@ -6,7 +6,10 @@
   "x-status": "Accepted",
   "type": "object",
   "additionalProperties": false,
-  "required": ["kind", "payload"],
+  "required": [
+    "kind",
+    "payload"
+  ],
   "properties": {
     "kind": {
       "$ref": "common.schema.json#/$defs/command_kind"
@@ -17,8 +20,23 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "kind": { "const": "set_movement_tuning" } }, "required": ["kind"] },
-      "then": { "properties": { "payload": { "$ref": "set-movement-tuning-command.schema.json" } } }
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "set_movement_tuning"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "set-movement-tuning-command.schema.json"
+          }
+        }
+      }
     },
     {
       "if": {
@@ -27,7 +45,9 @@
             "const": "set_thrust"
           }
         },
-        "required": ["kind"]
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
@@ -44,7 +64,9 @@
             "const": "shield"
           }
         },
-        "required": ["kind"]
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
@@ -61,7 +83,9 @@
             "const": "charge"
           }
         },
-        "required": ["kind"]
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
@@ -78,7 +102,9 @@
             "const": "set_seat_count"
           }
         },
-        "required": ["kind"]
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
@@ -95,7 +121,9 @@
             "const": "clear_seat"
           }
         },
-        "required": ["kind"]
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
@@ -112,7 +140,9 @@
             "const": "seat_npc"
           }
         },
-        "required": ["kind"]
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
@@ -129,12 +159,33 @@
             "const": "start_match"
           }
         },
-        "required": ["kind"]
+        "required": [
+          "kind"
+        ]
       },
       "then": {
         "properties": {
           "payload": {
             "$ref": "start-match-command.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "rotate_velocity"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "rotate-velocity-command.schema.json"
           }
         }
       }

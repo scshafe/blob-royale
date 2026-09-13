@@ -16,6 +16,7 @@ enum class MovementTuningWireResultStatus : std::uint8_t {
   kRateLimited = 5,
   kMailboxFull = 6,
   kMailboxEvicted = 7,
+  kUnsupportedTuning = 8,
 };
 
 // canonical: movement_tuning_wire_result -- a validated session-specific tuning result.

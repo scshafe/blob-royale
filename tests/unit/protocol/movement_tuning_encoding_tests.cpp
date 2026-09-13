@@ -38,7 +38,7 @@ TEST_CASE("movement encoder publishes current defaults limits and zero initial r
   const std::string encoded = encode(fixture::tuning_snapshot(movement));
   CHECK(
       encoded.find(
-          R"("start_requested":false,"movement":{"current":{"acceleration_world_units_per_second_squared":0,"normal_top_speed_world_units_per_second":1},"defaults":{"acceleration_world_units_per_second_squared":10000,"normal_top_speed_world_units_per_second":10000},"limits":{"acceleration_world_units_per_second_squared":{"minimum":0,"maximum":10000},"normal_top_speed_world_units_per_second":{"minimum":1,"maximum":10000}},"revision":0,"effective_tick":0},"outcome":)") !=
+          R"("start_requested":false,"movement":{"current":{"acceleration_world_units_per_second_squared":0,"normal_top_speed_world_units_per_second":1,"charge_speed_fraction":7.5E-1,"lethal_spawn_rate_per_second":0,"nonlethal_spawn_rate_per_second":0},"defaults":{"acceleration_world_units_per_second_squared":10000,"normal_top_speed_world_units_per_second":10000,"charge_speed_fraction":7.5E-1,"lethal_spawn_rate_per_second":0,"nonlethal_spawn_rate_per_second":0},"limits":{"acceleration_world_units_per_second_squared":{"minimum":0,"maximum":10000},"normal_top_speed_world_units_per_second":{"minimum":1,"maximum":10000},"charge_speed_fraction":{"minimum":0,"maximum":100000000},"lethal_spawn_rate_per_second":{"minimum":0,"maximum":5},"nonlethal_spawn_rate_per_second":{"minimum":0,"maximum":5}},"revision":0,"effective_tick":0},"outcome":)") !=
       std::string::npos);
   const auto document = boost::json::parse(encoded);
   CHECK(document.as_object().at("data").as_object().at("tuning_result").is_null());
@@ -84,6 +84,70 @@ TEST_CASE(
               fixture::kSnapshotMessageSequence, fixture::kSnapshotTimestamp, encoded.size() - 1);
         },
         protocol::ProtocolEncodingErrorCode::kEncodedPayloadTooLarge);
+  }
+}
+
+TEST_CASE("movement encoder publishes authored room caps and distinct five-setting values",
+          "[unit][protocol][v3][movement_tuning][encoding]") {
+  simulation::MovementTuningState movement;
+  movement.current = simulation::MovementTuning::create(500, 750, 1.25, 0.25, 0);
+  movement.defaults = simulation::MovementTuning::create(400, 600, 0.75, 0.125, 0);
+  movement.charge_speed_fraction_maximum = 2;
+  movement.lethal_spawn_rate_per_second_maximum = 0.5;
+  movement.nonlethal_spawn_rate_per_second_maximum = 0;
+  const auto document = boost::json::parse(encode(fixture::tuning_snapshot(movement)));
+  const auto& published = document.as_object()
+                              .at("data")
+                              .as_object()
+                              .at("match")
+                              .as_object()
+                              .at("movement")
+                              .as_object();
+  CHECK(
+      published.at("current") ==
+      boost::json::parse(
+          R"({"acceleration_world_units_per_second_squared":500,"normal_top_speed_world_units_per_second":750,"charge_speed_fraction":1.25,"lethal_spawn_rate_per_second":0.25,"nonlethal_spawn_rate_per_second":0})"));
+  CHECK(
+      published.at("defaults") ==
+      boost::json::parse(
+          R"({"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600,"charge_speed_fraction":0.75,"lethal_spawn_rate_per_second":0.125,"nonlethal_spawn_rate_per_second":0})"));
+  const auto& limits = published.at("limits").as_object();
+  CHECK(limits.size() == 5);
+  CHECK(limits.at("charge_speed_fraction") == boost::json::parse(R"({"minimum":0,"maximum":2})"));
+  CHECK(limits.at("lethal_spawn_rate_per_second") ==
+        boost::json::parse(R"({"minimum":0,"maximum":0.5})"));
+  CHECK(limits.at("nonlethal_spawn_rate_per_second") ==
+        boost::json::parse(R"({"minimum":0,"maximum":0})"));
+}
+
+TEST_CASE("movement encoder refuses invalid room maxima and settings outside those capabilities",
+          "[unit][protocol][v3][movement_tuning][encoding][rejection]") {
+  using State = simulation::MovementTuningState;
+  for (auto member :
+       {&State::charge_speed_fraction_maximum, &State::lethal_spawn_rate_per_second_maximum,
+        &State::nonlethal_spawn_rate_per_second_maximum}) {
+    for (const double invalid : {-1.0, 100'000'001.0, std::numeric_limits<double>::infinity(),
+                                 std::numeric_limits<double>::quiet_NaN()}) {
+      State movement;
+      movement.*member = invalid;
+      fixture::require_protocol_error_code(
+          [&] { return encode(fixture::tuning_snapshot(movement)); },
+          protocol::ProtocolEncodingErrorCode::kMovementTuningStateInvalid);
+    }
+  }
+  for (auto member : {&State::current, &State::defaults}) {
+    for (const auto tuning : {simulation::MovementTuning::create(400, 600, 2.01, 0, 0),
+                              simulation::MovementTuning::create(400, 600, 0.75, 0.51, 0),
+                              simulation::MovementTuning::create(400, 600, 0.75, 0, 0.01)}) {
+      State movement;
+      movement.charge_speed_fraction_maximum = 2;
+      movement.lethal_spawn_rate_per_second_maximum = 0.5;
+      movement.nonlethal_spawn_rate_per_second_maximum = 0;
+      movement.*member = tuning;
+      fixture::require_protocol_error_code(
+          [&] { return encode(fixture::tuning_snapshot(movement)); },
+          protocol::ProtocolEncodingErrorCode::kMovementTuningStateInvalid);
+    }
   }
 }
 

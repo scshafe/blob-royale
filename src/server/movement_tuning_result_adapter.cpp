@@ -36,6 +36,8 @@ static_assert(protocol::MovementTuningWireResult::kMinimumRequestIntervalMillise
     return WireStatus::kNotSeated;
   case simulation::MovementTuningDecisionStatus::kRevisionExhausted:
     return WireStatus::kRevisionExhausted;
+  case simulation::MovementTuningDecisionStatus::kUnsupportedTuning:
+    return WireStatus::kUnsupportedTuning;
   }
   reject_status();
 }

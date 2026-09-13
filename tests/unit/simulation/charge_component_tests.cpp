@@ -9,6 +9,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 
 namespace simulation = blob_royale::simulation;
@@ -36,8 +37,7 @@ constexpr std::uint64_t kNoCooldown = 0;
   return simulation::Charge::activate(tick(kActivation), kCooldownDuration);
 }
 
-// "Can this ability be cancelled?", asked of the type rather than of a comment. Charge must answer
-// no: a cooldown is a debt already incurred and nothing in the tree may shorten one.
+// Both abilities expose cancellation of their effects while preserving incurred cooldowns.
 template <typename Ability>
 concept CancelableAbility = requires(const Ability& ability, const simulation::TickSequence when) {
   { ability.canceled_at(when) } -> std::same_as<Ability>;
@@ -141,14 +141,90 @@ TEST_CASE("A charge activation refuses an endpoint past the exact tick domain, n
   CHECK_FALSE(refuses(simulation::TickSequence::kMaximumValue - kOneTick, kOneTick));
 }
 
-TEST_CASE("Nothing cancels a charge cooldown, so the value declares no cancellation",
+TEST_CASE("charge cancellation shortens active time while preserving cooldown and captured stun",
           "[unit][simulation][charge]") {
-  // A stun cancels shield *protection* because protection is a defence still in effect, and shield
-  // cancellation pointedly leaves the shield's cooldown alone -- that is what makes a cut-short
-  // shield still cost something. A charge is all cooldown, so there is nothing to shorten, and the
-  // absence of the method is what stops a future caller from reaching for one.
-  STATIC_REQUIRE(CancelableAbility<simulation::Shield>);
-  STATIC_REQUIRE_FALSE(CancelableAbility<simulation::Charge>);
+  STATIC_REQUIRE(CancelableAbility<simulation::Charge>);
+  const auto charge = simulation::Charge::activate(tick(kActivation), kCooldownDuration,
+                                                   kShieldDuration, kParryStunDuration);
+  const auto canceled = charge.canceled_at(tick(kActivation + kOneTick));
+  CHECK(canceled.active_window().expiry_tick() == tick(kActivation + kOneTick));
+  CHECK(canceled.cooldown_window() == charge.cooldown_window());
+  CHECK(canceled.activation_tick() == charge.activation_tick());
+  CHECK(canceled.hit_stun_duration_ticks() == kParryStunDuration);
+  CHECK(canceled.canceled_at(tick(kActivation + kOneTick)) == canceled);
+  CHECK(canceled.canceled_at(tick(kCooldownExpiry)) == canceled);
+  CHECK(charge.canceled_at(tick(kActivation)).active_window().expired(tick(kActivation)));
+  CHECK(activated().canceled_at(tick(kActivation)) == activated());
+}
+
+TEST_CASE("charge contact time is half open and can outlive cooldown",
+          "[unit][simulation][charge]") {
+  const auto charge = simulation::Charge::activate(tick(kActivation), kOneTick, kShieldDuration,
+                                                   kParryStunDuration);
+  CHECK(charge.active_window().contains(tick(kActivation)));
+  CHECK(charge.active_window().contains(tick(kActivation + kShieldDuration - kOneTick)));
+  CHECK_FALSE(charge.active_window().contains(tick(kActivation + kShieldDuration)));
+  CHECK(charge.cooldown_window().expired(tick(kActivation + kOneTick)));
+  CHECK(charge.active_window().contains(tick(kActivation + kOneTick)));
+  CHECK(activated().active_window().expired(tick(kActivation)));
+  CHECK(activated().hit_stun_duration_ticks() == 0);
+}
+
+TEST_CASE("charge active and hit stun durations cannot be empty",
+          "[unit][simulation][charge][validation]") {
+  for (const bool empty_active : {false, true}) {
+    try {
+      static_cast<void>(simulation::Charge::activate(tick(kActivation), kCooldownDuration,
+                                                     empty_active ? 0 : kShieldDuration,
+                                                     empty_active ? kParryStunDuration : 0));
+      FAIL("an empty charge effect was accepted");
+    } catch (const simulation::SimulationValidationError& error) {
+      CHECK(error.validation_code() ==
+            simulation::SimulationValidationCode::kChargeActivationInvalid);
+      CHECK(error.context() ==
+            (empty_active ? "charge.active_duration_ticks" : "charge.hit_stun_duration_ticks"));
+    }
+  }
+  CHECK_THROWS_AS(
+      simulation::Charge::activate(tick(simulation::TickSequence::kMaximumValue - kOneTick),
+                                   kOneTick, kShieldDuration, kParryStunDuration),
+      simulation::SimulationValidationError);
+}
+
+TEST_CASE("charge captured hit stun remains inside the exact published tick domain",
+          "[unit][simulation][charge][validation]") {
+  for (const auto duration : {kOneTick, simulation::TickSequence::kMaximumValue}) {
+    CHECK(simulation::Charge::activate(tick(kActivation), kCooldownDuration, kShieldDuration,
+                                       duration)
+              .hit_stun_duration_ticks() == duration);
+  }
+  for (const auto duration : {simulation::TickSequence::kMaximumValue + kOneTick,
+                              std::numeric_limits<std::uint64_t>::max()}) {
+    CAPTURE(duration);
+    try {
+      static_cast<void>(simulation::Charge::activate(tick(kActivation), kCooldownDuration,
+                                                     kShieldDuration, duration));
+      FAIL("an unsafe captured charge duration was accepted");
+    } catch (const simulation::SimulationValidationError& error) {
+      CHECK(error.validation_code() ==
+            simulation::SimulationValidationCode::kChargeActivationInvalid);
+      CHECK(error.code() == "SIMULATION.CHARGE_ACTIVATION_INVALID");
+      CHECK(error.context() == "charge.hit_stun_duration_ticks");
+    }
+  }
+}
+
+TEST_CASE("charge cancellation before activation reports the chronology error",
+          "[unit][simulation][charge][validation]") {
+  try {
+    static_cast<void>(activated().canceled_at(tick(kActivation - kOneTick)));
+    FAIL("charge cancellation before activation was accepted");
+  } catch (const simulation::SimulationValidationError& error) {
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kChargeCancellationBeforeActivation);
+    CHECK(error.code() == "SIMULATION.CHARGE_CANCELLATION_BEFORE_ACTIVATION");
+    CHECK(error.context() == "charge.cancellation_tick");
+  }
 }
 
 TEST_CASE("Two charges compare equal only when every stored value agrees",
@@ -163,4 +239,15 @@ TEST_CASE("Two charges compare equal only when every stored value agrees",
   // reader that could not tell them apart would draw the wrong arc.
   CHECK(charge !=
         simulation::Charge::activate(tick(kActivation - kOneTick), kCooldownDuration + kOneTick));
+}
+
+TEST_CASE("charge equality includes the active window and captured stun duration",
+          "[unit][simulation][charge]") {
+  const auto charge = simulation::Charge::activate(tick(kActivation), kCooldownDuration,
+                                                   kShieldDuration, kParryStunDuration);
+  CHECK(charge != activated());
+  CHECK(charge != simulation::Charge::activate(tick(kActivation), kCooldownDuration,
+                                               kShieldDuration + kOneTick, kParryStunDuration));
+  CHECK(charge != simulation::Charge::activate(tick(kActivation), kCooldownDuration,
+                                               kShieldDuration, kParryStunDuration + kOneTick));
 }

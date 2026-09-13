@@ -151,7 +151,7 @@ function matchWith(
   return { ...snapshot.match, ...overrides };
 }
 
-/** The built hill frame, accepted by the 3.0 schemas before any selector reads it. */
+/** The built hill frame, accepted by the 3.1 schemas before any selector reads it. */
 const hill = validateSessionSnapshotMessage(hillSnapshotDocument(), {
   messageSequence: 1,
   requestId: hillSnapshotDocument().meta.request_id,
@@ -911,6 +911,8 @@ const ABILITY_STUN_WINDOW = Object.freeze({
 const ABILITY_CHARGE_COOLDOWN = Object.freeze({
   activation_tick: 12800,
   cooldown_expiry_tick: 13200,
+  active_expiry_tick: 12800,
+  hit_stun_duration_ticks: 0,
 });
 
 /** Every member null: no tick to read against, no cadence, or no own entity on the frame. */
@@ -1444,6 +1446,8 @@ describe('sessionSelectors for ability availability', () => {
         charge: {
           activation_tick: CHARGE_ACTIVATION_TICK,
           cooldown_expiry_tick: 12900,
+          active_expiry_tick: CHARGE_ACTIVATION_TICK,
+          hit_stun_duration_ticks: 0,
         },
         shield: SHIELD_WINDOWS,
         tickSequence: 13000,

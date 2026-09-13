@@ -15,10 +15,7 @@ namespace simulation = blob_royale::simulation;
 
 namespace {
 
-// The seven authored `[abilities]` keys in declared order. `AbilityConfiguration::create` takes
-// seven positional doubles rather than a section struct, so this is the test's own carrier: it
-// exists so a table-driven case can name one key, vary only that key, and leave the other six at
-// the authored defaults.
+// Named authored values let validation vary one key while preserving the remaining defaults.
 struct Authored final {
   double shield_duration_seconds = gameplay::AbilityConfiguration::kDefaultShieldDurationSeconds;
   double shield_perfect_window_seconds =
@@ -30,6 +27,10 @@ struct Authored final {
   double charge_speed_fraction = gameplay::AbilityConfiguration::kDefaultChargeSpeedFraction;
   double charge_safety_envelope_speed =
       gameplay::AbilityConfiguration::kDefaultChargeSafetyEnvelopeSpeed;
+  double charge_active_duration_seconds =
+      gameplay::AbilityConfiguration::kDefaultChargeActiveDurationSeconds;
+  double charge_hit_stun_duration_seconds =
+      gameplay::AbilityConfiguration::kDefaultChargeHitStunDurationSeconds;
 };
 
 [[nodiscard]] gameplay::AbilityConfiguration created(const Authored& authored) {
@@ -37,7 +38,8 @@ struct Authored final {
       authored.shield_duration_seconds, authored.shield_perfect_window_seconds,
       authored.shield_cooldown_seconds, authored.parry_stun_duration_seconds,
       authored.charge_cooldown_seconds, authored.charge_speed_fraction,
-      authored.charge_safety_envelope_speed);
+      authored.charge_safety_envelope_speed, authored.charge_active_duration_seconds,
+      authored.charge_hit_stun_duration_seconds);
 }
 
 struct Rejection final {
@@ -61,23 +63,27 @@ struct Field final {
   std::string_view key;
 };
 
-constexpr std::array<Field, 5> kEveryDuration = {{
+constexpr std::array<Field, 7> kEveryDuration = {{
     {&Authored::shield_duration_seconds, "shield_duration_seconds"},
     {&Authored::shield_perfect_window_seconds, "shield_perfect_window_seconds"},
     {&Authored::shield_cooldown_seconds, "shield_cooldown_seconds"},
     {&Authored::parry_stun_duration_seconds, "parry_stun_duration_seconds"},
     {&Authored::charge_cooldown_seconds, "charge_cooldown_seconds"},
+    {&Authored::charge_active_duration_seconds, "charge_active_duration_seconds"},
+    {&Authored::charge_hit_stun_duration_seconds, "charge_hit_stun_duration_seconds"},
 }};
 
-// The four durations that must survive rounding. The three effect durations name an effect that a
+// The six durations that must survive rounding. The three effect durations name an effect that a
 // zero-length window could never deliver; the charge cooldown is here for the different reason the
 // case below states. The *shield* cooldown is deliberately absent: it is the one key whose rounded
 // value may legally be zero.
-constexpr std::array<Field, 4> kPositiveDurations = {{
+constexpr std::array<Field, 6> kPositiveDurations = {{
     {&Authored::shield_duration_seconds, "shield_duration_seconds"},
     {&Authored::shield_perfect_window_seconds, "shield_perfect_window_seconds"},
     {&Authored::parry_stun_duration_seconds, "parry_stun_duration_seconds"},
     {&Authored::charge_cooldown_seconds, "charge_cooldown_seconds"},
+    {&Authored::charge_active_duration_seconds, "charge_active_duration_seconds"},
+    {&Authored::charge_hit_stun_duration_seconds, "charge_hit_stun_duration_seconds"},
 }};
 
 // The two keys that are not durations at all, so no `duration_ticks` rule reaches them.
@@ -104,6 +110,8 @@ TEST_CASE("the proposed [abilities] section converts to the accepted tick counts
   CHECK(configuration.shield_cooldown_ticks() == 360);
   CHECK(configuration.parry_stun_duration_ticks() == 240);
   CHECK(configuration.charge_cooldown_ticks() == 480);
+  CHECK(configuration.charge_active_duration_ticks() == 200);
+  CHECK(configuration.charge_hit_stun_duration_ticks() == 240);
   // The two scalars are stored exactly as authored rather than rounded to ticks: neither is a
   // duration, so a tick count for either would be a unit error. The fraction is a dimensionless
   // multiple of the current ceiling and the envelope is a speed in world units per second.
@@ -140,7 +148,7 @@ TEST_CASE("every [abilities] duration uses the shared rejection and names its ow
   }
 }
 
-TEST_CASE("a shield, perfect, parry-stun or charge cooldown rounding to zero ticks is refused",
+TEST_CASE("every required ability duration rounding to zero ticks is refused",
           "[unit][gameplay][abilities][configuration][validation]") {
   // 0.001 s is 0.4 ticks, which rounds to none at all. A zero-length half-open window contains no
   // tick, so storing one would publish a guard that could never guard, a parry that could never
@@ -199,7 +207,7 @@ TEST_CASE("the shield's zero-cooldown exemption does not transfer to the charge 
           "[unit][gameplay][abilities][configuration][validation][charge]") {
   // The exemption above is justified entirely by the shield's *second* gate: its own protection
   // window is still standing when the cooldown is short or zero, so something is always left to
-  // refuse the next pulse. Charge is one-shot -- no protection window, no active window -- so its
+  // refuse the next pulse. Charge active time does not gate natural readiness, so its
   // cooldown is the only gate it has, and one that rounds to zero would admit an additive burst on
   // every tick, four hundred a second at the canonical rate.
   Authored authored;
@@ -355,4 +363,16 @@ TEST_CASE("[abilities] validation reports the first invalid key in the declared 
   mixed.charge_safety_envelope_speed = -1.0;
   CHECK(rejection_of(mixed).code == gameplay::GameplayValidationCode::kAbilityScalarOutOfRange);
   CHECK(rejection_of(mixed).context == context_of("charge_safety_envelope_speed"));
+}
+
+TEST_CASE("charge active time may exceed cooldown and both effects round independently",
+          "[unit][gameplay][abilities][configuration][charge]") {
+  Authored authored;
+  authored.charge_cooldown_seconds = 0.0025;
+  authored.charge_active_duration_seconds = 0.0075;
+  authored.charge_hit_stun_duration_seconds = 0.03;
+  const auto configuration = created(authored);
+  CHECK(configuration.charge_cooldown_ticks() == 1);
+  CHECK(configuration.charge_active_duration_ticks() == 3);
+  CHECK(configuration.charge_hit_stun_duration_ticks() == 12);
 }

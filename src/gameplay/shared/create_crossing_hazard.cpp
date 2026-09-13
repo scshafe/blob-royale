@@ -1,6 +1,7 @@
 #include "shared/create_crossing_hazard.hpp"
 
 #include "component_store.hpp"
+#include "components/crossing_hazard_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "contact_effect_admission.hpp"
@@ -20,9 +21,9 @@ create_crossing_hazard(simulation::GameWorld& world, const simulation::ArenaBoun
   if (instance_override) {
     simulation::validate_contact_effect_policy(*instance_override);
   }
-  const HazardCrossing crossing =
-      draw_hazard_crossing(world.random(simulation::RandomStreamKind::kHazards), bounds,
-                           archetype.radius(), archetype.speed());
+  auto& random = world.random(simulation::RandomStreamKind::kHazards);
+  const double speed = draw_hazard_speed(random, archetype);
+  const HazardCrossing crossing = draw_hazard_crossing(random, bounds, archetype.radius(), speed);
   const simulation::PhysicsBody body =
       simulation::PhysicsBody::create(
           crossing.position, crossing.velocity, simulation::Vector2::create(0.0, 0.0),
@@ -34,9 +35,11 @@ create_crossing_hazard(simulation::GameWorld& world, const simulation::ArenaBoun
 
   const simulation::EntityId entity = world.create_entity();
   world.mutable_store<simulation::PhysicsBody>().insert_or_assign(entity, body);
+  world.mutable_store<simulation::CrossingHazard>().insert_or_assign(entity,
+                                                                     simulation::CrossingHazard{});
   world.mutable_store<simulation::Lifetime>().insert_or_assign(
-      entity, simulation::Lifetime{hazard_lifetime_ticks(crossing.travel_distance,
-                                                         archetype.speed(), seconds_per_tick)});
+      entity, simulation::Lifetime{
+                  hazard_lifetime_ticks(crossing.travel_distance, speed, seconds_per_tick)});
   if (archetype.lethal_on_contact()) {
     world.mutable_store<simulation::LethalOnContact>().insert_or_assign(
         entity, simulation::LethalOnContact{});

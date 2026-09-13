@@ -3,6 +3,7 @@
 #include "command_registry.hpp"
 #include "component_join.hpp"
 #include "component_store.hpp"
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
 #include "entity_id.hpp"
 #include "game_world.hpp"
@@ -11,6 +12,7 @@
 #include "shared/locomotion.hpp"
 #include "tick_context.hpp"
 
+#include <cmath>
 #include <memory>
 #include <variant>
 
@@ -58,14 +60,41 @@ void ThrustSteeringSystem::apply(simulation::GameWorld& world,
           world.mutable_store<simulation::Controllable>()
               .mutable_find(entity)
               ->normalized_thrust_intent = zero;
+          world.mutable_store<simulation::Controllable>().mutable_find(entity)->braking_intent =
+              false;
           world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
               entity, body.with_acceleration(zero));
           return;
         }
         const simulation::ThrustCommand* thrust = recorded_thrust_of(controllable);
         auto intent = controllable.normalized_thrust_intent;
+        bool braking = controllable.braking_intent;
         if (thrust != nullptr && thrust->input_generation == controllable.input_generation) {
           intent = normalized_thrust_intent(thrust->direction);
+          braking = thrust->braking;
+        }
+        auto* held = world.mutable_store<simulation::Controllable>().mutable_find(entity);
+        held->normalized_thrust_intent = intent;
+        held->braking_intent = braking;
+        if (braking && !body.is_static()) {
+          const auto velocity = body.velocity();
+          const double speed = std::hypot(velocity.x(), velocity.y());
+          const double impulse = simulation::kBrakeDecelerationWorldUnitsPerSecondSquared *
+                                 context.fixed_delta().seconds();
+          // Set the stopped value exactly. Multiplying a positive remaining fraction preserves
+          // each component's sign; delayed held braking therefore cannot cause a reversal.
+          const double fraction = speed <= impulse ? 0.0 : 1.0 - impulse / speed;
+          const auto slowed =
+              simulation::Vector2::create(velocity.x() * fraction, velocity.y() * fraction);
+          world.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+              entity,
+              body.with_velocity(slowed).with_acceleration(simulation::Vector2::create(0, 0)));
+          if (const auto* charge = world.store<simulation::Charge>().find(entity);
+              charge != nullptr) {
+            world.mutable_store<simulation::Charge>().insert_or_assign(
+                entity, charge->canceled_at(context.tick_sequence()));
+          }
+          return;
         }
         if (!intent.has_value()) {
           // An authored body may accelerate before its first command. Absence is not coasting.

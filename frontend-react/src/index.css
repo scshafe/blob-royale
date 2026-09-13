@@ -4,6 +4,13 @@
   background: #f9fafb;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
 }

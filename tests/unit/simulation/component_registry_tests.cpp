@@ -6,6 +6,7 @@
 #include "component_store.hpp"
 #include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
+#include "components/crossing_hazard_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
 #include "components/hill_presence_component.hpp"
@@ -50,7 +51,7 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
   // a moment belongs to no single mode, and it cost the same one header plus one registry line.
   // `Charge` is the seventeenth and the second ability value, and the count moves only because it
   // was registered: it cost exactly what `Shield` cost, which is the claim the seam makes.
-  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 17);
+  STATIC_REQUIRE(simulation::ComponentRegistry::kKindCount == 18);
   STATIC_REQUIRE(
       std::is_same_v<simulation::ComponentStores<simulation::ComponentRegistry>,
                      std::tuple<simulation::ComponentStore<simulation::PhysicsBody>,
@@ -69,7 +70,8 @@ TEST_CASE("ComponentRegistry declares every component kind in one closed ordered
                                 simulation::ComponentStore<simulation::Stun>,
                                 simulation::ComponentStore<simulation::ContactEffectAdmission>,
                                 simulation::ComponentStore<simulation::Shield>,
-                                simulation::ComponentStore<simulation::Charge>>>);
+                                simulation::ComponentStore<simulation::Charge>,
+                                simulation::ComponentStore<simulation::CrossingHazard>>>);
 }
 
 TEST_CASE("Every registered component kind declares its own wire name",
@@ -80,11 +82,11 @@ TEST_CASE("Every registered component kind declares its own wire name",
   });
 
   // One more name because one more kind is registered; every existing name keeps its position.
-  CHECK(names == std::vector<std::string_view>{"physics_body", "controllable", "lifetime", "score",
-                                               "team", "zone", "zone_exposure", "lethal_on_contact",
-                                               "respawn_timer", "hill", "hill_presence",
-                                               "race_progress", "hill_motion", "stun",
-                                               "contact_effect_admission", "shield", "charge"});
+  CHECK(names == std::vector<std::string_view>{
+                     "physics_body", "controllable", "lifetime", "score", "team", "zone",
+                     "zone_exposure", "lethal_on_contact", "respawn_timer", "hill", "hill_presence",
+                     "race_progress", "hill_motion", "stun", "contact_effect_admission", "shield",
+                     "charge", "crossing_hazard"});
 }
 
 TEST_CASE("Registry visitation reaches every kind exactly once in declared order",

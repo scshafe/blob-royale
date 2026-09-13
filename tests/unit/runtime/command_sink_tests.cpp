@@ -8,6 +8,7 @@
 #include "commands/charge_command.hpp"
 #include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
+#include "commands/rotate_velocity_command.hpp"
 #include "commands/shield_command.hpp"
 #include "controller_directory.hpp"
 #include "controller_id.hpp"
@@ -26,6 +27,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace runtime = blob_royale::runtime;
@@ -77,6 +79,14 @@ charge_fixture(const std::uint64_t entity_id, const double x = 1.0, const double
   return simulation::ChargeCommand{.entity = simulation::EntityId::create(entity_id),
                                    .direction = simulation::Vector2::create(x, y),
                                    .input_generation = generation};
+}
+
+[[nodiscard]] simulation::Command
+rotation_fixture(const std::uint64_t entity_id, const bool clockwise,
+                 const std::optional<simulation::TickSequence> generation = {}) {
+  return simulation::RotateVelocityCommand{.entity = simulation::EntityId::create(entity_id),
+                                           .clockwise = clockwise,
+                                           .input_generation = generation};
 }
 
 } // namespace
@@ -206,20 +216,75 @@ TEST_CASE("CommandSink preserves literal indexed joins and rejects malformed gua
 }
 
 TEST_CASE(
-    "CommandSink preserves omitted and maximum safe thrust input generations for every source",
-    "[unit][runtime][command_sink][input_generation]") {
+    "CommandSink preserves thrust brakes releases and exact input generations for every source",
+    "[unit][runtime][command_sink][input_generation][braking]") {
   for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
     CAPTURE(kind);
     CommandSinkFixture fixture;
     const auto controller = fixture.sink.open_session(kind, "generation fixture");
-    const auto absent = runtime::thrust_input_fixture::command(kIssuedEntityId, std::nullopt);
-    REQUIRE(fixture.sink.submit(controller, absent) == runtime::CommandSubmissionResult::kAccepted);
-    CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{absent});
-    for (const auto value : runtime::thrust_input_fixture::kAcceptedGenerations) {
+    for (const bool braking : {false, true}) {
       for (const bool release : {false, true}) {
-        CAPTURE(value, release);
-        const auto command = runtime::thrust_input_fixture::command(
-            kIssuedEntityId, simulation::TickSequence::create(value), release);
+        CAPTURE(braking, release);
+        auto absent =
+            runtime::thrust_input_fixture::command(kIssuedEntityId, std::nullopt, release);
+        std::get<simulation::ThrustCommand>(absent).braking = braking;
+        REQUIRE(fixture.sink.submit(controller, absent) ==
+                runtime::CommandSubmissionResult::kAccepted);
+        CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{absent});
+        for (const auto value : runtime::thrust_input_fixture::kAcceptedGenerations) {
+          CAPTURE(value);
+          auto command = runtime::thrust_input_fixture::command(
+              kIssuedEntityId, simulation::TickSequence::create(value), release);
+          std::get<simulation::ThrustCommand>(command).braking = braking;
+          REQUIRE(fixture.sink.submit(controller, command) ==
+                  runtime::CommandSubmissionResult::kAccepted);
+          CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{command});
+        }
+      }
+    }
+  }
+}
+
+TEST_CASE("CommandSink rejects zero thrust generation before mailbox admission including brakes "
+          "and releases",
+          "[unit][runtime][command_sink][input_generation][braking]") {
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "generation fixture");
+    for (const bool braking : {false, true}) {
+      for (const bool release : {false, true}) {
+        CAPTURE(kind, braking, release);
+        auto command = runtime::thrust_input_fixture::command(
+            kIssuedEntityId, simulation::TickSequence::zero(), release);
+        std::get<simulation::ThrustCommand>(command).braking = braking;
+        const auto result = fixture.sink.submit(controller, command);
+        CHECK(result == runtime::CommandSubmissionResult::kRejectedThrustInputGenerationOutOfRange);
+        CHECK(runtime::command_submission_result_name(result) ==
+              "rejected_thrust_input_generation_out_of_range");
+        CHECK_FALSE(runtime::command_submission_accepted(result));
+      }
+    }
+    CHECK(fixture.mailbox.statistics().submitted_command_count == 0);
+    CHECK(fixture.mailbox.drain().empty());
+  }
+}
+
+TEST_CASE(
+    "CommandSink preserves both rotations with omitted and exact generations for every source",
+    "[unit][runtime][command_sink][rotate_velocity][input_generation]") {
+  for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
+    CommandSinkFixture fixture;
+    const auto controller = fixture.sink.open_session(kind, "rotation fixture");
+    for (const bool clockwise : {false, true}) {
+      CAPTURE(kind, clockwise);
+      const auto absent = rotation_fixture(kIssuedEntityId, clockwise);
+      REQUIRE(fixture.sink.submit(controller, absent) ==
+              runtime::CommandSubmissionResult::kAccepted);
+      CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{absent});
+      for (const auto value : runtime::thrust_input_fixture::kAcceptedGenerations) {
+        CAPTURE(value);
+        const auto command =
+            rotation_fixture(kIssuedEntityId, clockwise, simulation::TickSequence::create(value));
         REQUIRE(fixture.sink.submit(controller, command) ==
                 runtime::CommandSubmissionResult::kAccepted);
         CHECK(fixture.mailbox.drain() == std::vector<simulation::Command>{command});
@@ -228,19 +293,19 @@ TEST_CASE(
   }
 }
 
-TEST_CASE("CommandSink rejects zero thrust generation before mailbox admission including releases",
-          "[unit][runtime][command_sink][input_generation]") {
+TEST_CASE("CommandSink names and rejects zero rotation generations before mailbox admission",
+          "[unit][runtime][command_sink][rotate_velocity][input_generation]") {
   for (const auto kind : runtime::thrust_input_fixture::kControllerKinds) {
     CommandSinkFixture fixture;
-    const auto controller = fixture.sink.open_session(kind, "generation fixture");
-    for (const bool release : {false, true}) {
-      CAPTURE(kind, release);
-      const auto result = fixture.sink.submit(
-          controller, runtime::thrust_input_fixture::command(
-                          kIssuedEntityId, simulation::TickSequence::zero(), release));
-      CHECK(result == runtime::CommandSubmissionResult::kRejectedThrustInputGenerationOutOfRange);
+    const auto controller = fixture.sink.open_session(kind, "rotation fixture");
+    for (const bool clockwise : {false, true}) {
+      CAPTURE(kind, clockwise);
+      const auto result =
+          fixture.sink.submit(controller, rotation_fixture(kIssuedEntityId, clockwise,
+                                                           simulation::TickSequence::zero()));
+      CHECK(result == runtime::CommandSubmissionResult::kRejectedRotationInputGenerationOutOfRange);
       CHECK(runtime::command_submission_result_name(result) ==
-            "rejected_thrust_input_generation_out_of_range");
+            "rejected_rotation_input_generation_out_of_range");
       CHECK_FALSE(runtime::command_submission_accepted(result));
     }
     CHECK(fixture.mailbox.statistics().submitted_command_count == 0);

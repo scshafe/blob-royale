@@ -38,7 +38,7 @@ export function SimulationCameraControls({
       <p>
         {mode === 'follow'
           ? 'Following your blob. The view waits in place while you have no body.'
-          : 'Left-drag the map or use the pan buttons. Focus the arena, point, and hold Space to move.'}
+          : 'Right-drag the map or use the pan buttons. Hold left-click to move; Space brakes.'}
       </p>
       <div aria-label="Pan camera" className="CameraPanButtons" role="group">
         <button

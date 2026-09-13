@@ -52,11 +52,13 @@ public:
 
 inline simulation::GameSimulation
 game(const simulation::MatchPhase phase = simulation::MatchPhase::kLobby,
-     const std::uint64_t revision = 0, const bool reject_selected = false) {
+     const std::uint64_t revision = 0, const bool reject_selected = false,
+     simulation::MovementTuningState tuning = {}) {
   auto world = simulation::GameWorld::create({});
   auto& match = world.mutable_match();
   match.phase = phase;
   match.previous_phase = phase;
+  match.movement = tuning;
   match.movement.revision = revision;
   match.seats = simulation::SeatRoster::of_size(4);
   match.seats.assign_seat(0, simulation::ControllerSeat{controller(kFirstController)});

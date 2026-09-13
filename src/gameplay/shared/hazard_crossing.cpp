@@ -60,6 +60,13 @@ namespace simulation = blob_royale::simulation;
 
 } // namespace
 
+double draw_hazard_speed(simulation::DeterministicRandom& random,
+                         const HazardArchetype& archetype) {
+  const double sample = random.next_unit_interval();
+  return archetype.speed() *
+         (1.0 + (archetype.speed_variation_fraction() * ((2.0 * sample) - 1.0)));
+}
+
 HazardCrossing draw_hazard_crossing(simulation::DeterministicRandom& random,
                                     const simulation::ArenaBounds& bounds, const double radius,
                                     const double speed) {

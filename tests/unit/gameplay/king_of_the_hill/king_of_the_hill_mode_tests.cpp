@@ -93,10 +93,11 @@ TEST_CASE("KingOfTheHillMode declares the hill game as eight answers",
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-             simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
-             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
-             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
-             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kCharge, simulation::CommandKind::kRotateVelocity,
+             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
+             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
+             simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
 }
@@ -142,25 +143,27 @@ TEST_CASE("hill support loss stays inactive before the running phase",
   }
 }
 
-TEST_CASE("KingOfTheHillMode declares ten systems in the order its rules depend on",
+TEST_CASE("KingOfTheHillMode declares twelve systems in the order its rules depend on",
           "[unit][gameplay][king_of_the_hill]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 10);
-  // `ability` is last at this stage in every mode that declares it, mirroring `status` at
-  // kPostKernel: pulse admission reads the canonical input lock, so every kPreKernel system that
-  // can change what that lock answers has already run.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 2);
+  REQUIRE(systems.size() == 12);
+  // Rotation observes the same input lock and runs after ability so it can turn a fresh burst.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 3);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[1].system->name() ==
         std::string_view{"ability"});
+  CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[2].system->name() ==
+        std::string_view{"velocity_rotation"});
   // Scoring reads the circle this tick's movement wrote.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 3);
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 4);
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() ==
         std::string_view{"hill_movement"});
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() ==
         std::string_view{"hill_scoring"});
-  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[2].system->name() == "status");
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[2].system->name() ==
+        "charge_contact");
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[3].system->name() == "status");
   // Remove, reset, expire, add, publish.
   REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 5);
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[0].system->name() ==

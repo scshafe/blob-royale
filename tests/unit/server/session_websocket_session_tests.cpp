@@ -250,7 +250,7 @@ TEST_CASE("SessionWebSocketSession policy closes reused and overlapping tuning r
               [&] { return harness.controller_directory().size() == 1; });
     REQUIRE(harness.controller_directory().size() == 1);
     const std::string first =
-        R"({"kind":"set_movement_tuning","payload":{"tuning_request_id":1,"expected_revision":0,"acceleration_world_units_per_second_squared":500,"normal_top_speed_world_units_per_second":700}})";
+        R"({"kind":"set_movement_tuning","payload":{"tuning_request_id":1,"expected_revision":0,"acceleration_world_units_per_second_squared":500,"normal_top_speed_world_units_per_second":700,"charge_speed_fraction":0.75,"lethal_spawn_rate_per_second":0,"nonlethal_spawn_rate_per_second":0}})";
     std::string next = first;
     if (!reused)
       next.replace(next.find("\"tuning_request_id\":1"),

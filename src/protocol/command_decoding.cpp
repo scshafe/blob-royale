@@ -92,7 +92,10 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
 [[nodiscard]] CommandDecodeResult decode_set_thrust(const json::object& payload,
                                                     const simulation::EntityId stamped_entity) {
   const json::value* const encoded_generation = payload.if_contains("input_generation");
-  if (payload.size() != (encoded_generation == nullptr ? 2U : 3U)) {
+  const auto* encoded_braking = payload.if_contains("braking");
+  if (payload.size() !=
+          2U + (encoded_generation != nullptr ? 1U : 0U) + (encoded_braking != nullptr ? 1U : 0U) ||
+      (encoded_braking != nullptr && !encoded_braking->is_bool())) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
   const json::value* const encoded_x = payload.if_contains("x");
@@ -120,7 +123,8 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
     generation = simulation::TickSequence::create(*value);
   }
   return CommandDecodeResult::accepted(
-      simulation::ThrustCommand{stamped_entity, simulation::Vector2::create(*x, *y), generation});
+      simulation::ThrustCommand{stamped_entity, simulation::Vector2::create(*x, *y), generation,
+                                encoded_braking != nullptr && encoded_braking->get_bool()});
 }
 
 // One closed `shield` payload: `{input_generation}`, whose single member is **required** and is
@@ -332,32 +336,62 @@ bounded_unsigned_of(const json::value& value, const std::uint64_t minimum,
 
 [[nodiscard]] CommandDecodeResult
 decode_set_movement_tuning(const json::object& payload, const simulation::ControllerId controller) {
-  if (payload.size() != 4) {
+  if (payload.size() != 7) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
-  const json::value* const encoded_id = payload.if_contains("tuning_request_id");
-  const json::value* const encoded_revision = payload.if_contains("expected_revision");
-  const json::value* const encoded_acceleration =
-      payload.if_contains("acceleration_world_units_per_second_squared");
-  const json::value* const encoded_speed =
-      payload.if_contains("normal_top_speed_world_units_per_second");
-  if (encoded_id == nullptr || encoded_revision == nullptr || encoded_acceleration == nullptr ||
-      encoded_speed == nullptr) {
+  const auto* encoded_id = payload.if_contains("tuning_request_id");
+  const auto* encoded_revision = payload.if_contains("expected_revision");
+  if (encoded_id == nullptr || encoded_revision == nullptr) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
   const auto request_id = bounded_unsigned_of(*encoded_id, 1, kMaximumSafeInteger);
   const auto revision = bounded_unsigned_of(*encoded_revision, 0, kMaximumSafeInteger);
-  const auto acceleration = finite_number_of(*encoded_acceleration);
-  const auto speed = finite_number_of(*encoded_speed);
-  if (!request_id.has_value() || !revision.has_value() || !acceleration.has_value() ||
-      !speed.has_value() || *acceleration < kMovementAccelerationMinimum ||
-      *acceleration > kMovementAccelerationMaximum || *speed < kMovementNormalTopSpeedMinimum ||
-      *speed > kMovementNormalTopSpeedMaximum) {
+  const auto scalar = [&payload](const std::string_view key, const double minimum,
+                                 const double maximum) -> std::optional<double> {
+    const auto* encoded = payload.if_contains(key);
+    if (encoded == nullptr)
+      return std::nullopt;
+    const auto value = finite_number_of(*encoded);
+    return value.has_value() && *value >= minimum && *value <= maximum ? value : std::nullopt;
+  };
+  const auto acceleration = scalar("acceleration_world_units_per_second_squared",
+                                   kMovementAccelerationMinimum, kMovementAccelerationMaximum);
+  const auto speed = scalar("normal_top_speed_world_units_per_second",
+                            kMovementNormalTopSpeedMinimum, kMovementNormalTopSpeedMaximum);
+  const auto charge = scalar("charge_speed_fraction", 0.0, kMovementChargeSpeedFractionMaximum);
+  const auto lethal =
+      scalar("lethal_spawn_rate_per_second", 0.0, kMovementCrossingSpawnRateMaximum);
+  const auto nonlethal =
+      scalar("nonlethal_spawn_rate_per_second", 0.0, kMovementCrossingSpawnRateMaximum);
+  if (!request_id || !revision || !acceleration || !speed || !charge || !lethal || !nonlethal) {
     return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
   }
   return CommandDecodeResult::accepted(simulation::SetMovementTuningCommand{
       controller, *request_id, *revision,
-      simulation::MovementTuning::create(*acceleration, *speed)});
+      simulation::MovementTuning::create(*acceleration, *speed, *charge, *lethal, *nonlethal)});
+}
+
+[[nodiscard]] CommandDecodeResult decode_rotate_velocity(const json::object& payload,
+                                                         const simulation::EntityId entity) {
+  const auto* encoded_direction = payload.if_contains("direction");
+  const auto* encoded_generation = payload.if_contains("input_generation");
+  if (payload.size() != (encoded_generation == nullptr ? 1U : 2U) || encoded_direction == nullptr ||
+      !encoded_direction->is_string()) {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  const auto& direction = encoded_direction->get_string();
+  if (direction != "left" && direction != "right") {
+    return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+  }
+  std::optional<simulation::TickSequence> generation;
+  if (encoded_generation != nullptr) {
+    const auto value = bounded_unsigned_of(*encoded_generation, 1, kMaximumSafeInteger);
+    if (!value)
+      return CommandDecodeResult::rejected(CommandDecodeRejection::kPayloadInvalid);
+    generation = simulation::TickSequence::create(*value);
+  }
+  return CommandDecodeResult::accepted(
+      simulation::RotateVelocityCommand{entity, direction == "right", generation});
 }
 
 // Admission-order step 7, dispatched on the kind step 6 accepted. Total over the closed command
@@ -376,6 +410,8 @@ decode_set_movement_tuning(const json::object& payload, const simulation::Contro
     return decode_shield(payload, stamped_entity);
   case simulation::CommandKind::kCharge:
     return decode_charge(payload, stamped_entity);
+  case simulation::CommandKind::kRotateVelocity:
+    return decode_rotate_velocity(payload, stamped_entity);
   case simulation::CommandKind::kSetSeatCount:
     return decode_set_seat_count(payload, stamped_controller);
   case simulation::CommandKind::kClearSeat:

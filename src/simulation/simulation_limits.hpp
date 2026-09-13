@@ -28,6 +28,12 @@ inline constexpr double kMinimumNormalTopSpeed = 1.0;
 inline constexpr double kMaximumNormalTopSpeed = 10'000.0;
 inline constexpr double kDefaultMovementAcceleration = 400.0;
 inline constexpr double kDefaultNormalTopSpeed = 600.0;
+// Shared room controls retain intrinsic bounds independently of a room's narrower capabilities.
+inline constexpr double kDefaultChargeSpeedFraction = 0.75;
+inline constexpr double kMaximumChargeSpeedFraction =
+    kMaximumPhysicalComponentMagnitude / kMaximumNormalTopSpeed;
+inline constexpr double kMaximumCrossingSpawnRatePerSecond = 5.0;
+inline constexpr double kBrakeDecelerationWorldUnitsPerSecondSquared = 2'400.0;
 // One entity is one **entity slot** in the world. This bounds the entity roster and every per-kind
 // component store, and an entity is not a player: a wall, a projectile, a pickup, and royale's zone
 // each take a slot and none of them is a player, so the bound says entities (engine review finding

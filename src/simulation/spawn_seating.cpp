@@ -45,6 +45,7 @@ void seat_body_at_rest(GameWorld& world, const EntityId entity, const Vector2& p
     // This is a new body even for a zero-delay return. Keep a freshly recorded command so the
     // pre-kernel steering system can apply it, but never inherit the previous body's held intent.
     controllable->normalized_thrust_intent.reset();
+    controllable->braking_intent = false;
   }
 }
 

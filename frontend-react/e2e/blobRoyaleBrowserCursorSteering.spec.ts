@@ -21,6 +21,7 @@ import {
   installCanvasRecorder,
   matchHudCell,
   readCanvasFrame,
+  recordedCommands,
   recordSessionTraffic,
   requireCanvasFrame,
   requireLabel,
@@ -41,6 +42,8 @@ const CURSOR_FIXTURE = Object.freeze({
   bodyRadius: 20,
   wideViewport: Object.freeze({ width: 1920, height: 1200 }),
   fractionalViewport: Object.freeze({ width: 1200, height: 900 }),
+  shortViewport: Object.freeze({ width: 1280, height: 600 }),
+  narrowViewport: Object.freeze({ width: 640, height: 720 }),
   near: Object.freeze({ x: 40, y: 0 }),
   far: Object.freeze({ x: 160, y: 0 }),
   diagonal: Object.freeze({ x: 60, y: 80 }),
@@ -166,7 +169,7 @@ function ownPublishedBodies(session: CursorSession, afterFrame: number) {
 }
 async function releaseAndObserveCoast(session: CursorSession) {
   const beforeRelease = session.traffic.receivedFrames.length;
-  await session.page.keyboard.up('Space');
+  await session.page.mouse.up({ button: 'left' });
   await expectThrust(session, { x: 0, y: 0 });
   await expect(matchHudCell(session.page, 'Thrust')).toHaveText('idle');
   await expect
@@ -181,7 +184,7 @@ async function releaseAndObserveCoast(session: CursorSession) {
     .toBe(true);
 }
 
-test('cursor distance never becomes strength and held Space moves only its room', async ({
+test('cursor distance never becomes strength and held left mouse moves only its room', async ({
   blobRoyaleServer,
   browser,
   request,
@@ -223,7 +226,7 @@ test('cursor distance never becomes strength and held Space moves only its room'
       await requireWorldCanvasFrame(first.page),
       first.displayName,
     );
-    await first.page.keyboard.down('Space');
+    await first.page.mouse.down({ button: 'left' });
     await expectThrust(first, { x: 1, y: 0 });
     await expect
       .poll(
@@ -289,7 +292,7 @@ test('a stationary cursor follows manual-view body geometry and fractional-DPR r
     expect(initial.width).toBe(Math.round(initial.cssWidth * 1.25));
     expect(initial.height).toBe(Math.round(initial.cssHeight * 1.25));
     await aim(session, CURSOR_FIXTURE.diagonal);
-    await session.page.keyboard.down('Space');
+    await session.page.mouse.down({ button: 'left' });
     await expect.poll(() => lastThrust(session)?.x).toBeCloseTo(0.6, 8);
     await expect.poll(() => lastThrust(session)?.y).toBeCloseTo(0.8, 8);
     await releaseAndObserveCoast(session);
@@ -301,7 +304,7 @@ test('a stationary cursor follows manual-view body geometry and fractional-DPR r
     const centerY = await canvas.getAttribute('data-camera-center-y');
     const pointer = await aim(session, CURSOR_FIXTURE.crossingTarget);
     const firstCommand = thrustCommands(session).length;
-    await session.page.keyboard.down('Space');
+    await session.page.mouse.down({ button: 'left' });
     // One fixed cursor eight CSS pixels away: crossing it must reverse aim without another
     // pointer event from this test. A hook that only recomputes on mousemove drives past forever.
     await expect
@@ -370,26 +373,25 @@ test('editing, pointer departure and manual drag cancel go until fresh activatio
     await session.page.bringToFront();
     await focusSimulationCanvas(session.page);
     await aim(session, CURSOR_FIXTURE.near);
-    await session.page.keyboard.down('Space');
+    await session.page.mouse.down({ button: 'left' });
     await expectThrust(session, { x: 1, y: 0 });
 
-    // Departing the arena clears go without changing keyboard focus. Reentry and a repeated
-    // keydown cannot restore it; the next up/down pair is the new activation.
+    // Departing the arena clears go without changing focus. Reentry while left mouse remains
+    // held cannot restore it; the next up/down pair is the new activation.
     await session.page.mouse.move(0, 0);
     await expectThrust(session, { x: 0, y: 0 });
     await aim(session, CURSOR_FIXTURE.near);
-    await session.page.keyboard.down('Space');
     await laterPaints(session.page);
     expect(lastThrust(session)).toEqual({ x: 0, y: 0 });
-    await session.page.keyboard.up('Space');
-    await session.page.keyboard.down('Space');
+    await session.page.mouse.up({ button: 'left' });
+    await session.page.mouse.down({ button: 'left' });
     await expectThrust(session, { x: 1, y: 0 });
 
-    const panel = session.page.getByRole('region', { name: 'Movement tuning' });
+    const panel = session.page.getByRole('region', { name: 'Room tuning' });
     const acceleration = panel.getByRole('spinbutton', {
       name: 'Acceleration (wu/s²)',
     });
-    await acceleration.click();
+    await acceleration.focus();
     await expectThrust(session, { x: 0, y: 0 });
     await acceleration.fill('650');
     await acceleration.press('ArrowUp');
@@ -405,7 +407,7 @@ test('editing, pointer departure and manual drag cancel go until fresh activatio
       ),
     ).toBe(true);
 
-    // The tuning sidebar is taller than the arena. Grid-row stretching must not move the lobby
+    // The taller tuning content scrolls inside its sidebar. Its grid row must not move the lobby
     // overlay below the actual canvas; inspect the card rather than its caption-spanning wrapper.
     const canvasBox = await session.page
       .getByRole('img', { name: 'Blob Royale simulation world' })
@@ -422,7 +424,7 @@ test('editing, pointer departure and manual drag cancel go until fresh activatio
         'The room must render its canvas, lobby overlay card, and tuning sidebar.',
       );
     }
-    expect(sidebarBox.height).toBeGreaterThan(canvasBox.height);
+    expect(sidebarBox.height).toBeGreaterThan(0);
     expect(overlayBox.x).toBeGreaterThanOrEqual(canvasBox.x);
     expect(overlayBox.y).toBeGreaterThanOrEqual(canvasBox.y);
     expect(overlayBox.x + overlayBox.width).toBeLessThanOrEqual(
@@ -447,13 +449,12 @@ test('editing, pointer departure and manual drag cancel go until fresh activatio
 
     await focusSimulationCanvas(session.page);
     await aim(session, CURSOR_FIXTURE.near);
-    await session.page.keyboard.down('Space');
     await laterPaints(session.page);
     expect(lastThrust(session)).toEqual({ x: 0, y: 0 });
-    await session.page.keyboard.up('Space');
-    await session.page.keyboard.down('Space');
+    await session.page.mouse.up({ button: 'left' });
+    await session.page.mouse.down({ button: 'left' });
     await expectThrust(session, { x: 1, y: 0 });
-    await session.page.keyboard.up('Space');
+    await session.page.mouse.up({ button: 'left' });
     await expectThrust(session, { x: 0, y: 0 });
 
     await session.page
@@ -461,21 +462,122 @@ test('editing, pointer departure and manual drag cancel go until fresh activatio
       .click();
     await focusSimulationCanvas(session.page);
     const pointer = await aim(session, CURSOR_FIXTURE.near);
-    await session.page.keyboard.down('Space');
-    await expect.poll(() => lastThrust(session)?.x ?? 0).toBeGreaterThan(0.9);
     await session.page.mouse.down({ button: 'left' });
+    await expect.poll(() => lastThrust(session)?.x ?? 0).toBeGreaterThan(0.9);
+    await session.page.mouse.down({ button: 'right' });
     await session.page.mouse.move(pointer.x + 40, pointer.y + 24, { steps: 3 });
-    await session.page.mouse.up({ button: 'left' });
+    await session.page.mouse.up({ button: 'right' });
     await expectThrust(session, { x: 0, y: 0 });
     await aim(session, CURSOR_FIXTURE.near);
-    await session.page.keyboard.down('Space');
     await laterPaints(session.page);
     expect(lastThrust(session)).toEqual({ x: 0, y: 0 });
-    await session.page.keyboard.up('Space');
-    await session.page.keyboard.down('Space');
+    await session.page.mouse.up({ button: 'left' });
+    await session.page.mouse.down({ button: 'left' });
     await expect.poll(() => lastThrust(session)?.x ?? 0).toBeGreaterThan(0.9);
-    await session.page.keyboard.up('Space');
+    await session.page.mouse.up({ button: 'left' });
     await expectThrust(session, { x: 0, y: 0 });
+    await blobRoyaleServer.terminateWithSigterm();
+  } finally {
+    await context.close();
+  }
+  expect(errors).toEqual([]);
+});
+
+test('wide, short and narrow rooms keep document scrolling inside the information sidebar', async ({
+  blobRoyaleServer,
+  browser,
+  request,
+}) => {
+  test.setTimeout(60_000);
+  const errors: string[] = [];
+  const context = await browser.newContext({
+    baseURL: PRODUCTION_ORIGIN,
+    viewport: CURSOR_FIXTURE.wideViewport,
+  });
+  try {
+    await blobRoyaleServer.start();
+    await waitForReadyServer(request, blobRoyaleServer);
+    const session = await openCursorSession(context, 1, errors);
+    const sidebar = session.page.getByRole('region', {
+      name: 'Room information and controls',
+      exact: true,
+    });
+    const canvas = session.page.getByRole('img', {
+      name: 'Blob Royale simulation world',
+    });
+    for (const viewport of [
+      CURSOR_FIXTURE.wideViewport,
+      CURSOR_FIXTURE.shortViewport,
+      CURSOR_FIXTURE.narrowViewport,
+    ]) {
+      await session.page.setViewportSize(viewport);
+      await laterPaints(session.page);
+      const metrics = await sidebar.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        overflowY: getComputedStyle(element).overflowY,
+      }));
+      expect(metrics.clientHeight).toBeGreaterThan(0);
+      expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+      expect(metrics.overflowY).toBe('auto');
+      await sidebar.focus();
+      await sidebar.press('Home');
+      await expect
+        .poll(() => sidebar.evaluate((element) => element.scrollTop))
+        .toBe(0);
+      await sidebar.hover();
+      await session.page.mouse.wheel(0, 500);
+      await expect
+        .poll(() => sidebar.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(0);
+      await sidebar.press('End');
+      await expect
+        .poll(() =>
+          sidebar.evaluate(
+            (element) =>
+              element.scrollHeight - element.clientHeight - element.scrollTop,
+          ),
+        )
+        .toBeLessThanOrEqual(1);
+      await session.page.mouse.wheel(0, 1000);
+      await laterPaints(session.page);
+      const sidebarAtEnd = await sidebar.evaluate(
+        (element) => element.scrollTop,
+      );
+      await canvas.hover();
+      await session.page.mouse.wheel(0, 1000);
+      await laterPaints(session.page);
+      expect(await sidebar.evaluate((element) => element.scrollTop)).toBe(
+        sidebarAtEnd,
+      );
+      expect(
+        await session.page.evaluate(() => ({
+          x: window.scrollX,
+          y: window.scrollY,
+          documentHeight: document.documentElement.scrollHeight,
+          viewportHeight: window.innerHeight,
+        })),
+      ).toEqual({
+        x: 0,
+        y: 0,
+        documentHeight: viewport.height,
+        viewportHeight: viewport.height,
+      });
+      const sidebarBox = await sidebar.boundingBox();
+      const canvasBox = await canvas.boundingBox();
+      expect(sidebarBox).not.toBeNull();
+      expect(canvasBox).not.toBeNull();
+      expect(sidebarBox!.x).toBeGreaterThanOrEqual(
+        canvasBox!.x + canvasBox!.width,
+      );
+      expect(sidebarBox!.y + sidebarBox!.height).toBeLessThanOrEqual(
+        viewport.height,
+      );
+      expect(canvasBox!.y + canvasBox!.height).toBeLessThanOrEqual(
+        viewport.height,
+      );
+    }
+    expect(recordedCommands(session.traffic)).toEqual([]);
     await blobRoyaleServer.terminateWithSigterm();
   } finally {
     await context.close();

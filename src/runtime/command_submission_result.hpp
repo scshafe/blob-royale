@@ -46,6 +46,7 @@ enum class CommandSubmissionResult : std::uint8_t {
   kRejectedShieldInputGenerationOutOfRange = 18,
   kRejectedChargeDirectionOutOfRange = 19,
   kRejectedChargeInputGenerationOutOfRange = 20,
+  kRejectedRotationInputGenerationOutOfRange = 21,
 };
 
 // Whether the command is now pending for a tick. The two acceptances are the only values for which
@@ -109,6 +110,8 @@ command_submission_result_name(const CommandSubmissionResult result) noexcept {
     return "rejected_charge_direction_out_of_range";
   case CommandSubmissionResult::kRejectedChargeInputGenerationOutOfRange:
     return "rejected_charge_input_generation_out_of_range";
+  case CommandSubmissionResult::kRejectedRotationInputGenerationOutOfRange:
+    return "rejected_rotation_input_generation_out_of_range";
   }
   return "command_submission_result_invalid";
 }

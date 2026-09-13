@@ -79,11 +79,13 @@ inline constexpr std::string_view kGuardedPairContactRuleName = "guarded_pair";
 [[nodiscard]] bool body_has_contact_presence(const simulation::GameWorld& world,
                                              simulation::EntityId entity);
 
-// Projects each subject's committed guard, calls `compose_guarded_pair` once, and translates its
+// Projects each subject's committed guard and eligible charge activation, calls the pure
+// `compose_guarded_pair` once, and translates its
 // typed consequences into WorldEvents in the core's own order. A stun request carries the
 // **defending** body's captured `parry_stun_duration_ticks`, which is the opposite subject: the
 // duration belongs to the shield that parried, never to the body being stunned and never to a
-// configuration this noncapturing function structurally could not hold.
+// configuration this noncapturing function structurally could not hold. Charge candidates carry
+// the frozen activation and shield outcome for charge_contact to consume after the kernel.
 [[nodiscard]] simulation::ContactResponse guarded_pair_response(
     const simulation::GameWorld& world, const simulation::ContactRule::Subject& first,
     const simulation::ContactRule::Subject& second,

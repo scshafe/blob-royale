@@ -93,7 +93,7 @@ TEST_CASE("movement tuning wire result rejects zero and unsafe request ids with 
 
 TEST_CASE("movement tuning wire result rejects every unregistered underlying status value",
           "[unit][protocol][movement_tuning][candidate][rejection]") {
-  for (std::uint16_t underlying = 8; underlying <= std::numeric_limits<std::uint8_t>::max();
+  for (std::uint16_t underlying = 9; underlying <= std::numeric_limits<std::uint8_t>::max();
        ++underlying) {
     Inputs inputs;
     inputs.status = static_cast<Status>(underlying);

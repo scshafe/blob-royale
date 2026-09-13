@@ -21,19 +21,10 @@ namespace blob_royale::gameplay {
 // (`src/application/application_config_loader.cpp`), which is the only thing in the configuration
 // schema that is open at all.
 //
-// **There is no `[hazards]` section and no `kinds=` key, and the two omissions are one decision.**
-// The family-wide section this feature was sketched with carried a spawn interval and a list naming
-// the kinds in play. The list is redundant with the set of declared `[hazard.*]` sections -- two
-// sources of truth for one list, which is exactly the ambiguity this tree's conventions forbid,
-// and the failure mode is silent: a kind declared and not listed simply never spawns. Removing the
-// list empties the section down to the interval, and an interval is better per kind anyway,
-// because "a comet every six seconds and a boulder every twenty" is the first thing a designer
-// asks for and a single cadence cannot express it. Removing the section also removes the question
-// of whether it is required: an existing configuration that declares no hazard sections at all is
-// still a complete configuration, which is what keeps `deploy/ubuntu-pc/blob-royale.cfg` and every
-// fixture loading unchanged, and this tree does not have optional sections or silently defaulted
-// keys (`royale/royale_configuration.hpp`). A family-wide density multiplier can be added later as
-// its own section without invalidating anything authored today.
+// Authored spawn intervals define each kind's mean frequency and relative weight within its
+// lethal/nonlethal class. The composition root seeds the live class rate from those frequencies;
+// changing that room rate scales the class as a whole without changing its authored mixture.
+// There is no redundant list of kinds: the set of [hazard.*] declarations is the whole family.
 //
 // **The archetype names no entry edge.** A hazard needs a reproducible entry point *and* direction,
 // and both must come from the world's seeded generator so a replay reproduces the crossing
@@ -81,8 +72,8 @@ public:
     // is no unit to spell out.
     double restitution;
     double speed_world_units_per_second;
-    // How often one hazard of this kind enters the arena. Authored in seconds like every other
-    // duration in the configuration and converted to ticks exactly once, here.
+    // Authored mean interval and relative class weight, not a deterministic spawn cadence.
+    // Converted to ticks exactly once; the spawner weights this kind by its reciprocal.
     double spawn_interval_seconds;
     // Whether touching this hazard eliminates a player. The key names the contact rule it will
     // select rather than carrying a bare adjective, so a reader of the configuration knows which
@@ -92,6 +83,9 @@ public:
     // the historical impact-only default; one created instance may override it.
     simulation::ContactEffectPolicy contact_effect_policy =
         simulation::ContactEffectPolicy::kClosingImpact;
+    // Uniform per-instance speed variation around the authored speed; [0, 0.9]. Required in
+    // configuration; zero preserves the speed of existing programmatic fixtures.
+    double speed_variation_fraction = 0.0;
 
     friend bool operator==(const Section&, const Section&) = default;
   };
@@ -124,9 +118,12 @@ public:
   [[nodiscard]] double mass() const noexcept { return mass_; }
   // The pair's coefficient of restitution contribution, in `[0, 1]`.
   [[nodiscard]] double restitution() const noexcept { return restitution_; }
-  // wu/s. The magnitude of the velocity the spawner gives the body; the direction is drawn.
+  // wu/s. The centre of the uniform per-instance speed distribution.
   [[nodiscard]] double speed() const noexcept { return speed_; }
-  // Ticks between two hazards of this kind entering the arena. At least one.
+  [[nodiscard]] double speed_variation_fraction() const noexcept {
+    return speed_variation_fraction_;
+  }
+  // Authored mean interval in ticks, used as a relative-frequency weight. At least one.
   [[nodiscard]] std::uint64_t spawn_interval_ticks() const noexcept {
     return spawn_interval_ticks_;
   }
@@ -141,7 +138,8 @@ public:
 private:
   HazardArchetype(std::string kind_name, double radius, double mass, double restitution,
                   double speed, std::uint64_t spawn_interval_ticks, bool lethal_on_contact,
-                  simulation::ContactEffectPolicy contact_effect_policy);
+                  simulation::ContactEffectPolicy contact_effect_policy,
+                  double speed_variation_fraction);
 
   std::string kind_name_;
   double radius_;
@@ -151,6 +149,7 @@ private:
   std::uint64_t spawn_interval_ticks_;
   bool lethal_on_contact_;
   simulation::ContactEffectPolicy contact_effect_policy_;
+  double speed_variation_fraction_;
 };
 
 } // namespace blob_royale::gameplay

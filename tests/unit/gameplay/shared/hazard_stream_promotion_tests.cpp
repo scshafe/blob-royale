@@ -3,6 +3,7 @@
 #include "fixtures/hazard_stream_frozen_reference.hpp"
 #include "gameplay_test_fixture.hpp"
 
+#include "components/crossing_hazard_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "entity_id_reservation.hpp"
@@ -33,6 +34,13 @@ namespace frozen_random = blob_royale::testing::deterministic_random_reference;
 namespace {
 
 constexpr std::uint64_t kHillNoiseDrawsPerTick = 7;
+constexpr double kLethalRatePerSecond = 5.0;
+constexpr double kNonlethalRatePerSecond = 5.0;
+const std::vector<std::uint64_t> kExpectedBirthTicks{118, 125, 158, 195, 217, 240};
+const std::vector<std::uint64_t> kExpectedBirthTicksWithReservationGap{118, 125, 159,
+                                                                       196, 218, 241};
+const std::vector<std::uint64_t> kExpectedLethalBirthTicks{125, 158, 240};
+const std::vector<std::uint64_t> kExpectedLethalBirthTicksWithReservationGap{125, 159, 241};
 
 // Test-only consumption through the real tick pipeline, before the lifecycle hazard reader. It
 // changes only world-owned hill randomness, not any feature or the frozen hazard inputs.
@@ -59,6 +67,10 @@ private:
   auto map = testing::gameplay_map(4);
   auto world = simulation::GameWorld::create(configuration, map, frozen::kSeed);
   world.mutable_match().phase = simulation::MatchPhase::kRunning;
+  const auto defaults = simulation::MovementTuning::defaults();
+  world.mutable_match().movement.current = simulation::MovementTuning::create(
+      defaults.acceleration(), defaults.normal_top_speed(), defaults.charge_speed_fraction(),
+      kLethalRatePerSecond, kNonlethalRatePerSecond);
   std::vector<gameplay::HazardArchetype> table{
       gameplay::HazardArchetype::create({"plaid_meteorite", frozen::kRadius, frozen::kMass,
                                          frozen::kRestitution, frozen::kSpeed,
@@ -84,8 +96,8 @@ void check_bits(const double actual, const double expected) {
   CHECK(std::bit_cast<std::uint64_t>(actual) == std::bit_cast<std::uint64_t>(expected));
 }
 
-// The two-lane pre-delegation proof used the old scalar accessor. Its hazard observation now reads
-// the named count; the independent old generator/schedule/crossing stay frozen.
+// The named stream still uses the independent frozen generator and crossing geometry. The
+// deliberate random-scheduling cutover adds one trial draw per eligible tick, then kind and speed.
 [[nodiscard]] std::uint64_t hazard_draw_count(const simulation::WorldSnapshot& snapshot) {
   return snapshot.random_draw_counts()[simulation::random_stream_index(
       simulation::RandomStreamKind::kHazards)];
@@ -130,9 +142,20 @@ void check_production_births(const bool omit_reservation,
   // Existing bodies still run through real physics; their later paths are not reimplemented here.
   for (std::uint64_t tick = 1; tick <= frozen::kTickCount; ++tick) {
     CAPTURE(tick, omit_reservation, hill_draws_per_tick);
-    const auto expected_birth = frozen::scheduled_birth(tick, omit_reservation);
+    auto expected_birth = frozen::Birth::kNone;
+    if (!(omit_reservation && tick == frozen::kSkippedReservationTick)) {
+      const double sample = random.next_unit_interval();
+      if (sample < kLethalRatePerSecond * frozen::kSecondsPerTick) {
+        expected_birth = frozen::Birth::kLethal;
+      } else if (sample <
+                 (kLethalRatePerSecond + kNonlethalRatePerSecond) * frozen::kSecondsPerTick) {
+        expected_birth = frozen::Birth::kHarmless;
+      }
+    }
     std::optional<frozen::Crossing> expected_crossing;
     if (expected_birth != frozen::Birth::kNone) {
+      static_cast<void>(random.next_unit_interval()); // Explicit kind draw with one kind per class.
+      static_cast<void>(random.next_unit_interval()); // Explicit speed draw at zero variation.
       expected_crossing = frozen::draw_crossing(random);
       expected_entities.push_back(tick);
       if (expected_birth == frozen::Birth::kLethal) {
@@ -151,9 +174,11 @@ void check_production_births(const bool omit_reservation,
     const auto snapshot = game.snapshot();
     REQUIRE(snapshot.tick_sequence().value() == tick);
     REQUIRE(snapshot.match().phase() == simulation::MatchPhase::kRunning);
-    // next_below(4) rejects no words: its threshold is 2^64 mod4 ==0. A birth is exactly three
-    // raw draws, and the independently expected schedule, never observed births, drives the oracle.
-    CHECK(random.draw_count() == expected_entities.size() * 3);
+    // next_below(4) rejects no words: every eligible trial costs one raw draw, and a birth costs
+    // five further draws. Expected decisions come from the independent frozen RNG, not production.
+    CHECK(random.draw_count() ==
+          tick - (omit_reservation && tick >= frozen::kSkippedReservationTick ? 1 : 0) +
+              expected_entities.size() * 5);
     CHECK(hazard_draw_count(snapshot) == random.draw_count());
     CHECK(snapshot.random_draw_counts()[simulation::random_stream_index(
               simulation::RandomStreamKind::kHill)] == tick * hill_draws_per_tick);
@@ -164,6 +189,7 @@ void check_production_births(const bool omit_reservation,
     REQUIRE(snapshot.entities().size() == expected_entities.size());
     REQUIRE(bodies.size() == expected_entities.size());
     REQUIRE(lifetimes.size() == expected_entities.size());
+    REQUIRE(snapshot.components<simulation::CrossingHazard>().size() == expected_entities.size());
     REQUIRE(lethal.size() == expected_lethal_entities.size());
     for (std::size_t index = 0; index < expected_entities.size(); ++index) {
       CHECK(bodies[index].entity.value() == expected_entities[index]);
@@ -177,24 +203,31 @@ void check_production_births(const bool omit_reservation,
       check_newborn(bodies.back().value, *expected_crossing, lifetimes.back().value);
     }
   }
-  CHECK(expected_entities.size() == (omit_reservation ? std::size_t{21} : std::size_t{22}));
-  CHECK(random.draw_count() == (omit_reservation ? std::uint64_t{63} : std::uint64_t{66}));
+  CHECK(expected_entities ==
+        (omit_reservation ? kExpectedBirthTicksWithReservationGap : kExpectedBirthTicks));
+  CHECK(expected_lethal_entities == (omit_reservation ? kExpectedLethalBirthTicksWithReservationGap
+                                                      : kExpectedLethalBirthTicks));
+  CHECK(random.draw_count() == (omit_reservation ? std::uint64_t{309} : std::uint64_t{310}));
+  REQUIRE(expected_entities.size() >= 3);
+  CHECK(expected_entities[1] - expected_entities[0] != expected_entities[2] - expected_entities[1]);
 }
 
 } // namespace
 
-TEST_CASE("hazard stream promotion pins production births to the frozen old seed2026 sequence",
+TEST_CASE("random hazard births retain a pinned independent seed2026 sequence and unequal spacing",
           "[unit][gameplay][hazard_spawn][random_streams][promotion]") {
   check_production_births(false);
 }
 
-TEST_CASE("hazard stream promotion skips tick140 without consuming or deferring old draws",
-          "[unit][gameplay][hazard_spawn][random_streams][promotion]") {
+TEST_CASE(
+    "random hazard births skip tick140 without consuming a trial or recycling its reserved id",
+    "[unit][gameplay][hazard_spawn][random_streams][promotion]") {
   check_production_births(true);
 }
 
-TEST_CASE("hill draws each tick preserve every production hazard and its frozen old draw count",
-          "[unit][gameplay][hazard_spawn][random_streams][promotion]") {
+TEST_CASE(
+    "hill draws each tick preserve every random hazard and its independently expected draw count",
+    "[unit][gameplay][hazard_spawn][random_streams][promotion]") {
   SECTION("all independently scheduled births remain unchanged") {
     check_production_births(false, kHillNoiseDrawsPerTick);
   }

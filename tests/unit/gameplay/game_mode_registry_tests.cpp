@@ -2,16 +2,19 @@
 #include "game_mode_registry.hpp"
 
 #include "gameplay_test_fixture.hpp"
+#include "race/race_test_fixture.hpp"
 
 #include "game_mode.hpp"
 #include "gameplay_validation_error.hpp"
 #include "match_phase.hpp"
+#include "race/race_mode.hpp"
 #include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
 #include "world_snapshot.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -114,4 +117,48 @@ TEST_CASE("Only modes with seats advertise the shared movement tuning command",
     CHECK(mode->accepted_command_kinds().contains(simulation::CommandKind::kSetMovementTuning) ==
           (registration.name != gameplay::SandboxMode::kModeName));
   }
+}
+
+TEST_CASE("registered crossing capability matches the installed pipeline and room tuning",
+          "[unit][gameplay][game_mode_registry][movement][hazard]") {
+  auto configuration = gameplay::GameModeConfiguration::defaults();
+  configuration.hazards = {
+      gameplay::HazardArchetype::create({"comet", 10.0, 1.0, 1.0, 260.0, 6.0, true}),
+      gameplay::HazardArchetype::create({"boulder", 26.0, 40.0, 0.35, 90.0, 20.0, false})};
+  configuration.movement = simulation::MovementTuning::create(400.0, 600.0, 0.75, 0.75, 0.35);
+  for (const auto& registration : gameplay::GameModeRegistry::registrations()) {
+    CAPTURE(registration.name);
+    const auto mode = registration.factory(configuration);
+    // Race declares its pipeline only after the authored course is successfully bound.
+    if (registration.name == gameplay::RaceMode::kModeName)
+      mode->validate_map(testing::race_test_map());
+    const auto pipeline = mode->systems();
+    const auto systems = pipeline.systems_at(simulation::SystemStage::kLifecycle);
+    const bool installed = std::ranges::any_of(
+        systems, [](const auto& system) { return system.system->name() == "hazard_spawn"; });
+    CHECK(installed == registration.crossing_hazards);
+    const auto tuning =
+        gameplay::GameModeRegistry::initial_room_tuning(registration.name, configuration);
+    CHECK(tuning.current == tuning.defaults);
+    CHECK(tuning.current.lethal_spawn_rate_per_second() == (installed ? 0.75 : 0.0));
+    CHECK(tuning.current.nonlethal_spawn_rate_per_second() == (installed ? 0.35 : 0.0));
+    CHECK(tuning.lethal_spawn_rate_per_second_maximum == (installed ? 5.0 : 0.0));
+    CHECK(tuning.nonlethal_spawn_rate_per_second_maximum == (installed ? 5.0 : 0.0));
+    CHECK(tuning.charge_speed_fraction_maximum == 2.0);
+    CHECK(gameplay::GameModeRegistry::active_hazards(registration.name, configuration).empty() ==
+          !installed);
+  }
+}
+
+TEST_CASE("a configured crossing class remains tunable when its initial rate is zero",
+          "[unit][gameplay][game_mode_registry][movement][hazard]") {
+  auto configuration = gameplay::GameModeConfiguration::defaults();
+  configuration.hazards = {
+      gameplay::HazardArchetype::create({"comet", 10.0, 1.0, 1.0, 260.0, 6.0, true})};
+  const auto tuning = gameplay::GameModeRegistry::initial_room_tuning("royale", configuration);
+  CHECK(tuning.current.lethal_spawn_rate_per_second() == 0.0);
+  CHECK(tuning.lethal_spawn_rate_per_second_maximum == 5.0);
+  CHECK(tuning.nonlethal_spawn_rate_per_second_maximum == 0.0);
+  CHECK_THROWS_AS(gameplay::GameModeRegistry::initial_room_tuning("unregistered", configuration),
+                  gameplay::GameplayValidationError);
 }

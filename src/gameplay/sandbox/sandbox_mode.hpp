@@ -88,7 +88,8 @@ public:
     return simulation::CommandKindMask::create(
         {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
          simulation::CommandKind::kLeave, simulation::CommandKind::kThrust,
-         simulation::CommandKind::kShield, simulation::CommandKind::kCharge});
+         simulation::CommandKind::kShield, simulation::CommandKind::kCharge,
+         simulation::CommandKind::kRotateVelocity});
   }
 
   [[nodiscard]] std::unique_ptr<const simulation::SpawnPolicy> spawn_policy() const override {

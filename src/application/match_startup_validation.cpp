@@ -23,10 +23,7 @@
 namespace blob_royale::application {
 namespace {
 
-// The hazard table's contribution to the worst case, and the operator-facing account of where it
-// came from. The two are built in one pass because a rejection that says "hazards add 900" without
-// saying which kind is responsible names no knob to turn, and a second pass over the table to
-// build the text could disagree with the first about the arithmetic.
+// Startup admission reserves the same explicit population cap enforced by the random spawner.
 struct HazardBudget final {
   std::uint64_t standing_count{};
   std::string description;
@@ -35,22 +32,13 @@ struct HazardBudget final {
 [[nodiscard]] HazardBudget
 hazard_budget(const std::span<const gameplay::HazardArchetype> hazard_archetypes,
               const simulation::MapDefinition& map) {
+  static_cast<void>(map);
   HazardBudget budget;
-  for (const gameplay::HazardArchetype& archetype : hazard_archetypes) {
-    // The **only** implementation of how long a hazard lives and how far one can travel is
-    // `gameplay/shared/hazard_crossing.hpp`, and `hazard_spawn_system` calls the same two functions
-    // at the distance it actually drew. A copy of that arithmetic here would be a bound that agreed
-    // with the spawner until one of the two was edited, which is the failure this check exists to
-    // prevent rather than to reproduce.
-    //
-    // The tick rate is a compile-time constant of the deterministic core and `TickContext` hands
-    // the spawner exactly this value, so a startup bound and a running tick cannot disagree about
-    // how long a second is.
-    const std::uint64_t standing = gameplay::maximum_standing_hazard_count(
-        archetype, map.bounds(), simulation::FixedDelta::canonical().seconds());
-    budget.standing_count += standing;
-    budget.description += (budget.description.empty() ? "" : ", ") + archetype.kind_name() + " " +
-                          std::to_string(standing);
+  if (!hazard_archetypes.empty()) {
+    // Random arrivals have no finite population bound derived from their mean. The spawner's
+    // explicit shared cap is the worst case even when live rates are increased after startup.
+    budget.standing_count = gameplay::kMaximumActiveCrossingHazardCount;
+    budget.description = "shared active crossing-object cap";
   }
   return budget;
 }
@@ -70,16 +58,16 @@ void require_match_fits_snapshot_bound(
   // The entities a mode's own systems create, which is one per tick by construction
   // (`simulation/simulation_limits.hpp`) and for royale is the zone entity.
   const std::uint64_t mode_created_count = simulation::kSystemCreatedEntityHeadroom;
-  // Every hazard that can be standing at the same moment. A hazard occupies a seat between the tick
-  // it is seated and the tick its `Lifetime` runs out, so a configured `[hazard.*]` table raises
-  // the worst case by `ceil(longest_lifetime_ticks / spawn_interval_ticks) + 1` per kind -- both
-  // terms known before the first tick, which is what makes an authored table a startup rejection
-  // rather than a match that quietly stops publishing once enough comets are in the air at once.
+  // Random arrivals reserve the shared active population cap, independent of their mean rate.
   const HazardBudget hazards = hazard_budget(hazard_archetypes, map);
   const std::uint64_t worst_case_entity_count = static_body_count + session_seat_count + bot_count +
                                                 mode_created_count + hazards.standing_count;
 
-  if (worst_case_entity_count <= protocol::kSnapshotEntityLimit) {
+  const std::uint64_t admitted_limit =
+      hazard_archetypes.empty() ? protocol::kSnapshotEntityLimit
+                                : std::min<std::uint64_t>(protocol::kSnapshotEntityLimit,
+                                                          simulation::kMaximumMotionBodyCount);
+  if (worst_case_entity_count <= admitted_limit) {
     return;
   }
   // The hazard clause is omitted entirely when no kind is declared, rather than reported as zero:
@@ -99,8 +87,8 @@ void require_match_fits_snapshot_bound(
           std::to_string(session_seat_count) + " session seats are admissible," + hazard_clause +
           " a mode may create " + std::to_string(mode_created_count) +
           " entity of its own, for a worst case of " + std::to_string(worst_case_entity_count) +
-          " published entities past the protocol v2 snapshot bound of " +
-          std::to_string(protocol::kSnapshotEntityLimit)};
+          " entities past the applicable snapshot/motion bound of " +
+          std::to_string(admitted_limit)};
 }
 
 void require_map_matches_published_world(const simulation::SimulationConfig& simulation_config,

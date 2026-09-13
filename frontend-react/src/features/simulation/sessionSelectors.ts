@@ -204,6 +204,12 @@ export function selectThrustInputOptions(
     ownEntityId: connection.ownEntityId,
     inputLocked: frame.inputLocked,
     inputGeneration: frame.inputGeneration,
+    rotationUnavailable:
+      !frame.bodyPresent ||
+      frame.inputLocked ||
+      connection.match?.phase !== 'running' ||
+      connection.session?.acceptedCommandKinds.includes('rotate_velocity') !==
+        true,
     abilityUnavailable: abilityUnavailability(
       publishedBlockingReason('charge', connection, frame) !== null,
       publishedBlockingReason('shield', connection, frame) !== null,
@@ -398,7 +404,8 @@ export type AbilityUnavailableReason =
   | 'stunned'
   | 'protection_active'
   | 'cooling_down'
-  | 'no_aim';
+  | 'no_aim'
+  | 'zero_strength';
 
 /**
  * Nothing the client can see refuses this activation. That is emphatically not a claim the server
@@ -573,6 +580,12 @@ function publishedBlockingReason(
   if (coolingDown) {
     return 'cooling_down';
   }
+  if (
+    kind === 'charge' &&
+    connection.match?.movement.current.charge_speed_fraction === 0
+  ) {
+    return 'zero_strength';
+  }
   return null;
 }
 
@@ -599,6 +612,8 @@ function explainReason(
         : 'Charge is cooling down.';
     case 'no_aim':
       return 'Move the pointer over the arena to aim first.';
+    case 'zero_strength':
+      return 'Charge strength is set to zero.';
   }
 }
 

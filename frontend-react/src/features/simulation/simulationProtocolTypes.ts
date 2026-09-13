@@ -108,6 +108,7 @@ export interface SessionSetThrustCommand {
     readonly x: number;
     readonly y: number;
     readonly input_generation?: number;
+    readonly braking?: boolean;
   };
 }
 
@@ -154,6 +155,15 @@ export interface SessionChargeCommand {
   };
 }
 
+/** A fresh quarter turn of current velocity, including velocity from an active charge. */
+export interface SessionRotateVelocityCommand {
+  readonly kind: 'rotate_velocity';
+  readonly payload: {
+    readonly direction: 'left' | 'right';
+    readonly input_generation?: number;
+  };
+}
+
 /** A count, not a delta: two clients who both choose four agree rather than compounding. */
 export interface SessionSetSeatCountCommand {
   readonly kind: 'set_seat_count';
@@ -187,6 +197,7 @@ export type SessionCommand =
   | SessionSetThrustCommand
   | SessionShieldCommand
   | SessionChargeCommand
+  | SessionRotateVelocityCommand
   | SessionSetMovementTuningCommand
   | SessionSetSeatCountCommand
   | SessionSeatNpcCommand

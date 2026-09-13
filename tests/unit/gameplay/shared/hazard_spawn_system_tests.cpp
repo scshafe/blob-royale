@@ -3,6 +3,7 @@
 #include "gameplay_test_fixture.hpp"
 
 #include "components/controllable_component.hpp"
+#include "components/crossing_hazard_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
 #include "entity_id.hpp"
@@ -41,12 +42,14 @@ constexpr double kHazardSpeed = 200.0;
 // 400 ticks per second, so this is exactly 20 ticks and the arithmetic below stays readable.
 constexpr double kSpawnIntervalSeconds = 0.05;
 constexpr std::uint64_t kSpawnIntervalTicks = 20;
+constexpr std::size_t kBirthObservationTicks = 1000;
 
 [[nodiscard]] gameplay::HazardArchetype
 archetype(const std::string_view kind, const bool lethal,
-          const double interval_seconds = kSpawnIntervalSeconds) {
+          const double interval_seconds = kSpawnIntervalSeconds,
+          const double speed = kHazardSpeed) {
   return gameplay::HazardArchetype::create(gameplay::HazardArchetype::Section{
-      std::string{kind}, kHazardRadius, 40.0, 0.2, kHazardSpeed, interval_seconds, lethal});
+      std::string{kind}, kHazardRadius, 40.0, 0.2, speed, interval_seconds, lethal});
 }
 
 // A royale whose match reaches `running` almost immediately and then stays there, so a test spends
@@ -72,7 +75,8 @@ constexpr std::size_t kPromptLobbySeatCount = 2;
                                                  const std::uint64_t seed = 0) {
   return testing::SteppedGame{testing::gameplay_simulation(
       gameplay::RoyaleMode::create(prompt_royale(), std::move(hazards)), testing::gameplay_map(4),
-      seed, testing::started_lobby(kPromptLobbySeatCount))};
+      seed, testing::started_lobby(kPromptLobbySeatCount),
+      simulation::MovementTuning::create(400.0, 10'000.0, 0.75, 5.0, 5.0))};
 }
 
 // The hazards one snapshot published: every entity carrying a body and no controller. A player has
@@ -113,6 +117,18 @@ void start_match(testing::SteppedGame& driver) {
   FAIL("the fixture royale never reached the running phase");
 }
 
+// Random births have no due tick. A fixed seed and bounded horizon exercise the first actual
+// creation, so physics/geometry tests measure a newborn rather than a later collision trajectory.
+[[nodiscard]] simulation::WorldSnapshot first_hazard(testing::SteppedGame& driver) {
+  for (std::size_t tick = 0; tick < kBirthObservationTicks; ++tick) {
+    const auto snapshot = driver.step();
+    if (!snapshot.components<simulation::CrossingHazard>().empty())
+      return snapshot;
+  }
+  FAIL("the deterministic fixture produced no crossing during its observation horizon");
+  return driver.game().snapshot();
+}
+
 } // namespace
 
 TEST_CASE("hazard_spawn seats nothing before the match is running",
@@ -133,7 +149,7 @@ TEST_CASE("hazard_spawn seats a crossing body carrying the archetype's own physi
           "[unit][gameplay][shared][hazard_spawn]") {
   testing::SteppedGame driver = royale_driver({archetype("plaid_meteorite", true)});
   start_match(driver);
-  const simulation::WorldSnapshot snapshot = driver.advance(kSpawnIntervalTicks * 2);
+  const simulation::WorldSnapshot snapshot = first_hazard(driver);
 
   const std::vector<simulation::PhysicsBody> hazards = published_hazards(snapshot);
   REQUIRE_FALSE(hazards.empty());
@@ -165,7 +181,7 @@ TEST_CASE("hazard_spawn seats the body outside the arena so it enters under its 
   // The tick a hazard first appears on is the tick to measure: after that the kernel has moved it
   // inward and "outside" stops being the claim.
   bool observed = false;
-  for (std::size_t tick = 0; tick < kSpawnIntervalTicks + 1 && !observed; ++tick) {
+  for (std::size_t tick = 0; tick < kBirthObservationTicks && !observed; ++tick) {
     const simulation::WorldSnapshot snapshot = driver.step();
     for (const simulation::PhysicsBody& hazard : published_hazards(snapshot)) {
       const double x = hazard.position().x();
@@ -183,7 +199,7 @@ TEST_CASE("a hazard carries the lethal marker only when its archetype declares i
   SECTION("a lethal kind attaches the marker") {
     testing::SteppedGame driver = royale_driver({archetype("plaid_meteorite", true)});
     start_match(driver);
-    const simulation::WorldSnapshot snapshot = driver.advance(kSpawnIntervalTicks * 2);
+    const simulation::WorldSnapshot snapshot = first_hazard(driver);
     REQUIRE_FALSE(published_hazards(snapshot).empty());
     CHECK(lethal_count(snapshot) == published_hazards(snapshot).size());
   }
@@ -192,7 +208,7 @@ TEST_CASE("a hazard carries the lethal marker only when its archetype declares i
     // The difference between a comet and a boulder is one configuration key and one component.
     testing::SteppedGame driver = royale_driver({archetype("velvet_boulder", false)});
     start_match(driver);
-    const simulation::WorldSnapshot snapshot = driver.advance(kSpawnIntervalTicks * 2);
+    const simulation::WorldSnapshot snapshot = first_hazard(driver);
     REQUIRE_FALSE(published_hazards(snapshot).empty());
     CHECK(lethal_count(snapshot) == 0);
   }
@@ -202,7 +218,7 @@ TEST_CASE("a hazard's Lifetime is derived from its own speed and the arena it mu
           "[unit][gameplay][shared][hazard_spawn]") {
   testing::SteppedGame driver = royale_driver({archetype("plaid_meteorite", true)});
   start_match(driver);
-  const simulation::WorldSnapshot snapshot = driver.advance(kSpawnIntervalTicks + 1);
+  const simulation::WorldSnapshot snapshot = first_hazard(driver);
 
   REQUIRE_FALSE(snapshot.components<simulation::Lifetime>().empty());
 
@@ -227,29 +243,22 @@ TEST_CASE("a hazard's Lifetime is derived from its own speed and the arena it mu
   }
 }
 
-TEST_CASE("a hazard despawns after crossing rather than accumulating",
+TEST_CASE("a hazard despawns with its crossing marker after its own lifetime",
           "[unit][gameplay][shared][hazard_spawn]") {
-  // A fast hazard against a long interval: each one is gone well before the next is due, so the
-  // standing population must return to zero rather than climb. This is the property that keeps a
-  // spawner from filling the world's seats, and it needs `lifetime_expiry` to be declared -- the
-  // component alone despawns nothing.
-  // Deliberately not lethal: a kill would leave one blob standing, end the match, and stop the
-  // spawner for a reason that has nothing to do with lifetimes.
-  testing::SteppedGame driver = royale_driver({archetype("velvet_boulder", false, 2.0)});
+  testing::SteppedGame driver = royale_driver({archetype("velvet_boulder", false, 2.0, 2000.0)});
   start_match(driver);
-
-  std::size_t peak = 0;
-  std::size_t seen_spawns = 0;
-  for (std::size_t tick = 0; tick < 1'200; ++tick) {
-    const simulation::WorldSnapshot snapshot = driver.step();
-    REQUIRE(snapshot.match().phase() == simulation::MatchPhase::kRunning);
-    const std::size_t standing = published_hazards(snapshot).size();
-    peak = standing > peak ? standing : peak;
-    seen_spawns += standing > 0 ? 1 : 0;
+  const auto newborn = first_hazard(driver);
+  REQUIRE(newborn.components<simulation::CrossingHazard>().size() == 1);
+  const auto entity = newborn.components<simulation::CrossingHazard>().front().entity;
+  const auto lifetime = newborn.components<simulation::Lifetime>().front().value.ticks_remaining;
+  REQUIRE(lifetime > 1);
+  const auto alive = driver.advance(static_cast<std::size_t>(lifetime - 1));
+  REQUIRE(testing::published_body(alive, entity.value()).has_value());
+  const auto expired = driver.step();
+  CHECK_FALSE(testing::published_body(expired, entity.value()).has_value());
+  for (const auto& marker : expired.components<simulation::CrossingHazard>()) {
+    CHECK(marker.entity != entity);
   }
-  REQUIRE(seen_spawns > 0);
-  // One at a time, never a growing crowd.
-  CHECK(peak == 1);
 }
 
 TEST_CASE("the same seed and the same commands reproduce every crossing exactly",
@@ -288,8 +297,8 @@ TEST_CASE("a different seed produces different crossings",
   start_match(first);
   start_match(second);
 
-  const simulation::WorldSnapshot left = first.advance(kSpawnIntervalTicks * 3);
-  const simulation::WorldSnapshot right = second.advance(kSpawnIntervalTicks * 3);
+  const simulation::WorldSnapshot left = first_hazard(first);
+  const simulation::WorldSnapshot right = first_hazard(second);
 
   REQUIRE_FALSE(published_hazards(left).empty());
   REQUIRE_FALSE(published_hazards(right).empty());
@@ -300,12 +309,8 @@ TEST_CASE("a different seed produces different crossings",
 
 TEST_CASE("the startup bound is never violated by the crossings the spawner actually draws",
           "[unit][gameplay][shared][hazard_spawn][hazard_crossing]") {
-  // The agreement test between the two callers of `shared/hazard_crossing.hpp`.
-  // `application/match_startup_validation.cpp` refuses a configuration whose *worst case* standing
-  // population would exceed the published snapshot bound, and it computes that worst case from the
-  // longest crossing this arena admits. That is only a bound if no crossing the spawner draws is
-  // longer and no population it produces is larger, which is what this observes over many drawn
-  // crossings rather than asserting once from the same expression the implementation uses.
+  // Random births have an explicit active-population bound shared with startup validation.
+  // Lifetime remains bounded by longest geometry; authored mean intervals are not capacity bounds.
   //
   // Deliberately not lethal: a kill would leave one blob standing, end the match, and stop the
   // spawner for a reason that has nothing to do with the bound.
@@ -316,8 +321,7 @@ TEST_CASE("the startup bound is never violated by the crossings the spawner actu
   const std::uint64_t longest_lifetime = gameplay::hazard_lifetime_ticks(
       gameplay::longest_hazard_travel_distance(bounds, kHazardRadius), kHazardSpeed,
       seconds_per_tick);
-  const std::uint64_t standing_bound =
-      gameplay::maximum_standing_hazard_count(archetype_under_test, bounds, seconds_per_tick);
+  const std::size_t standing_bound = gameplay::kMaximumActiveCrossingHazardCount;
 
   std::size_t observed_spawns = 0;
   std::size_t peak_standing = 0;

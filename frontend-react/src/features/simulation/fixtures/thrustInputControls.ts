@@ -41,6 +41,7 @@ export function createThrustInputControls(): ThrustInputControls {
   link.href = '#input-fixture';
   link.textContent = 'Room link';
   const surface = document.createElement('canvas');
+  surface.dataset.gameplaySurface = 'arena';
   surface.tabIndex = 0;
   container.append(
     tuningRegion,

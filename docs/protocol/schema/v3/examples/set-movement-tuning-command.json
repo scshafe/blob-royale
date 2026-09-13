@@ -2,5 +2,8 @@
   "tuning_request_id": 1,
   "expected_revision": 0,
   "acceleration_world_units_per_second_squared": 500,
-  "normal_top_speed_world_units_per_second": 700
+  "normal_top_speed_world_units_per_second": 700,
+  "charge_speed_fraction": 0.75,
+  "lethal_spawn_rate_per_second": 0,
+  "nonlethal_spawn_rate_per_second": 0
 }

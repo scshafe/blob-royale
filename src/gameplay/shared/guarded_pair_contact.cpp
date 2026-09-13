@@ -21,7 +21,8 @@ namespace blob_royale::gameplay {
 namespace {
 
 // The exact ceiling this composition can emit, stated by the header: at most two recipient facts
-// in ascending EntityId order, then exactly one canonical contact fact. Reserving it once is not a
+// in ascending EntityId order, two charge candidates, then one canonical contact fact.
+// Reserving it once is not a
 // micro-optimization -- every branch below appends into the same vector, so a single allocation of
 // the known bound is the honest shape -- and it is also what keeps this translation unit buildable
 // at -O3 under GCC 13. Since plan Step 18 moved the lethal predicates into this file, the optimizer
@@ -31,7 +32,7 @@ namespace {
 // Giving the vector its capacity up front is the fix rather than a suppression: no warning is
 // disabled, the emitted facts and their order are unchanged, and the bound is the one the header
 // already promises.
-constexpr std::size_t kMaximumConsequenceCount = 3;
+constexpr std::size_t kMaximumConsequenceCount = 5;
 
 [[nodiscard]] bool is_guarded(const GuardState guard) noexcept {
   return guard != GuardState::kNone;
@@ -178,7 +179,8 @@ GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
                                         const simulation::ContactRule::Subject& second,
                                         const simulation::PairContactObservation& observation,
                                         const simulation::TickContext&,
-                                        const PairGuardFacts& guards) {
+                                        const PairGuardFacts& guards,
+                                        const PairChargeFacts& charges) {
   require_guard_facts(first, guards.first);
   require_guard_facts(second, guards.second);
   if (first.entity == second.entity) {
@@ -275,6 +277,43 @@ GuardedPairOutcome compose_guarded_pair(const simulation::GameWorld& committed,
   }
   append_recipients<GuardedPairStunFact>(outcome.effects, first.entity, first_stunned,
                                          second.entity, second_stunned);
+  // The candidate uses PRE-response working velocity, never the frozen body's earlier velocity
+  // or the collision result. Relative closure alone cannot turn a stationary target into a charger.
+  if (closing && committed.match().phase == simulation::MatchPhase::kRunning &&
+      !first.body.is_static() && !second.body.is_static() &&
+      body_is_player_driven(committed, first.entity) &&
+      body_is_player_driven(committed, second.entity)) {
+    const bool first_hits =
+        charges.first_activation.has_value() && observation.first_effect_eligible &&
+        normal_speed(first.body.velocity(), contact.normal()) > simulation::kVelocityTolerance;
+    const bool second_hits =
+        charges.second_activation.has_value() && observation.second_effect_eligible &&
+        normal_speed(second.body.velocity(), contact.normal()) < -simulation::kVelocityTolerance;
+    const auto append_hit = [&](const bool first_attacks) {
+      const auto& activation = first_attacks ? charges.first_activation : charges.second_activation;
+      const auto target_guard = first_attacks ? guards.second : guards.first;
+      outcome.effects.emplace_back(simulation::ChargeContactCandidate{
+          first_attacks ? first.entity : second.entity,
+          first_attacks ? second.entity : first.entity, *activation,
+          is_guarded(target_guard) ? simulation::ChargeContactOutcome::kBlockedByShield
+                                   : simulation::ChargeContactOutcome::kSuccessfulHit});
+    };
+    if (first.entity < second.entity) {
+      if (first_hits) {
+        append_hit(true);
+      }
+      if (second_hits) {
+        append_hit(false);
+      }
+    } else {
+      if (second_hits) {
+        append_hit(false);
+      }
+      if (first_hits) {
+        append_hit(true);
+      }
+    }
+  }
   outcome.effects.emplace_back(GuardedPairContactFact{simulation::contact_event_of(
       first, second, observation.touch, simulation::ContactRuleName::create("guarded_pair"))});
   return outcome;

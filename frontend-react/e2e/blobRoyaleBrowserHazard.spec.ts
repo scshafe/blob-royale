@@ -81,19 +81,19 @@ function labelCanvasPosition(
  * rest, with no jitter and no offset.
  *
  * **The first sits on the path of the first hazard this seed draws and the second does not**, by
- * 503 wu against a 50 wu contact distance. The map file states how both numbers were derived. This
+ * 556.339 wu against a 50 wu contact distance. The map file states how both numbers were derived. This
  * asymmetry is what the two flows below are: `hazard_spawn` is the only reader of the world's
  * seeded generator, so the first hazard of a match is a pure function of `[match] seed` and nothing
  * else — not of the tick the match started running on, and not of how long the browsers took to
  * connect. There is no waiting for a random hazard to eventually arrive anywhere in this file.
  */
-const STRUCK_SPAWN_LABEL = labelCanvasPosition(640.065975168, 695.026526373);
+const STRUCK_SPAWN_LABEL = labelCanvasPosition(1289.199716891, 716.760606588);
 const CLEAR_SPAWN_LABEL = labelCanvasPosition(925, 225);
 
 /**
  * How close a drawn label must be to a projected marker to be the blob seated there.
  *
- * Half a CSS pixel is half a world unit, against 549.6 wu between the two markers. It is loose
+ * Half a CSS pixel is half a world unit, against 612 wu between the two markers. It is loose
  * enough that a JSON round trip of a nine-decimal coordinate cannot fail it and tight enough that
  * mistaking one marker for the other is impossible.
  */
@@ -119,11 +119,9 @@ const UNDISTURBED_TOLERANCE_CANVAS_PIXELS = 0.5;
  * The deflected blob keeps its 1194 wu/s and folds off the walls rather than settling, because
  * phase 1 drag has to be zero for a hazard to cross the arena at all
  * (`fixtures/blob-royale-browser-e2e-hazard-heavy.cfg` § `[simulation]`). It therefore wanders, and
- * it eventually finds the second blob: replaying this exact world offline, the second blob is bit
- * for bit where it was seated until 12.8 s after the contact and is knocked about from then on.
- * Eight seconds is that window with a third of it left over, and this flow refuses to make the claim
- * past it and says which invariant it lost rather than reporting a mystery — the same discipline
- * `blobRoyaleBrowserRoyaleMatch.spec.ts` applies to its wandering bot.
+ * it eventually finds the second blob. The new seeded ray and elastic wall-fold calculation
+ * place the first possible contact about16.375s later. The retained8s budget stays below that
+ * boundary; the browser still observes the clear peer throughout this bounded witness.
  */
 const DEFLECTION_ISOLATION_BUDGET_MILLISECONDS = 8_000;
 
@@ -155,11 +153,9 @@ const ELIMINATED_PLACEMENT = '#2';
 
 const MATCH_START_TIMEOUT_MILLISECONDS = 20_000;
 /**
- * The first hazard is seated on the first tick whose number is a multiple of the 8 s spawn
- * interval, so up to 8 s can pass before one exists, and it then travels 706 wu at 600 wu/s — 1.18 s
- * — before its centre reaches the struck blob's. Twenty-five seconds covers both with room for the
- * 20 Hz snapshot cadence and a slow emulated toolchain, and is a bounded wait for an event whose
- * arrival is arithmetic rather than a hope.
+ * Seed2026 first succeeds on eligible trial550 (1.375s of running ticks), then reaches contact
+ * after(706−50)/600=1.093333s. The unchanged25s timeout covers observation and emulation overhead;
+ * it is not inferred from the8s mean interval, which cannot bound an arbitrary random wait.
  */
 const HAZARD_ARRIVAL_TIMEOUT_MILLISECONDS = 25_000;
 
@@ -446,7 +442,7 @@ test('a lethal hazard eliminates the browser blob standing on its path', async (
         .toBe(false);
 
       // ------------------------------------------------------------ and only that one
-      // The other blob is 503 wu clear of the same crossing, so it is still playing and still
+      // The other blob is 556.339 wu clear of the same crossing, so it is still playing and still
       // exactly where it was seated. Without this the flow would also pass if the hazard had
       // eliminated everything, or if the zone had.
       await expect(matchHudCell(seating.clearPage, 'Alive')).toHaveText('1');

@@ -1,1 +1,1 @@
-{"kind":"set_movement_tuning","payload":{"tuning_request_id":9007199254740991,"expected_revision":9007199254740991,"acceleration_world_units_per_second_squared":0,"normal_top_speed_world_units_per_second":10000}}
+{"kind":"set_movement_tuning","payload":{"tuning_request_id":9007199254740991,"expected_revision":9007199254740991,"acceleration_world_units_per_second_squared":0,"normal_top_speed_world_units_per_second":10000,"charge_speed_fraction":0.75,"lethal_spawn_rate_per_second":0.75,"nonlethal_spawn_rate_per_second":0.35}}

@@ -49,13 +49,12 @@ void require_positive_finite_scalar(const double value, const std::string_view k
 
 } // namespace
 
-AbilityConfiguration AbilityConfiguration::create(const double shield_duration_seconds,
-                                                  const double shield_perfect_window_seconds,
-                                                  const double shield_cooldown_seconds,
-                                                  const double parry_stun_duration_seconds,
-                                                  const double charge_cooldown_seconds,
-                                                  const double charge_speed_fraction,
-                                                  const double charge_safety_envelope_speed) {
+AbilityConfiguration AbilityConfiguration::create(
+    const double shield_duration_seconds, const double shield_perfect_window_seconds,
+    const double shield_cooldown_seconds, const double parry_stun_duration_seconds,
+    const double charge_cooldown_seconds, const double charge_speed_fraction,
+    const double charge_safety_envelope_speed, const double charge_active_duration_seconds,
+    const double charge_hit_stun_duration_seconds) {
   // Named locals preserve validation order across compilers; argument evaluation order would not.
   // A configuration whose shield duration and cooldown are both malformed must always report the
   // shield duration -- the first key `[abilities]` declares -- rather than whichever one the
@@ -70,6 +69,10 @@ AbilityConfiguration AbilityConfiguration::create(const double shield_duration_s
       duration_ticks(parry_stun_duration_seconds, context_of("parry_stun_duration_seconds"));
   const std::uint64_t charge_cooldown_ticks =
       duration_ticks(charge_cooldown_seconds, context_of("charge_cooldown_seconds"));
+  const std::uint64_t charge_active_duration_ticks =
+      duration_ticks(charge_active_duration_seconds, context_of("charge_active_duration_seconds"));
+  const std::uint64_t charge_hit_stun_duration_ticks = duration_ticks(
+      charge_hit_stun_duration_seconds, context_of("charge_hit_stun_duration_seconds"));
   // The post-conversion rules, in declared key order. The **shield** cooldown is absent from this
   // list on purpose: zero is a legal shield cooldown and so is one shorter than the shield, because
   // admission requires both the prior protection and the cooldown to have ended
@@ -79,12 +82,12 @@ AbilityConfiguration AbilityConfiguration::create(const double shield_duration_s
                          "shield_perfect_window_seconds");
   require_positive_ticks(parry_stun_duration_seconds, parry_stun_duration_ticks,
                          "parry_stun_duration_seconds");
-  // The **charge** cooldown is in the list, and the difference is the second gate. A shield with a
-  // zero cooldown is still refused by its own live protection window; charge is one-shot and has no
-  // protection window, so its cooldown is the only gate it has and a zero one admits an additive
-  // burst on every tick -- four hundred a second at the canonical rate
-  // (`docs/reviews/2026-09-12-charge-contract.md` § "Authored tuning and value ownership").
+  // Natural charge readiness is cooldown-gated even when its contact attempt remains active.
   require_positive_ticks(charge_cooldown_seconds, charge_cooldown_ticks, "charge_cooldown_seconds");
+  require_positive_ticks(charge_active_duration_seconds, charge_active_duration_ticks,
+                         "charge_active_duration_seconds");
+  require_positive_ticks(charge_hit_stun_duration_seconds, charge_hit_stun_duration_ticks,
+                         "charge_hit_stun_duration_seconds");
   // The two scalars, still in declared key order. The fraction has no upper bound of its own: what
   // bounds it is the cross-key rule below, which is a bound with a stated meaning rather than an
   // invented ceiling.
@@ -133,31 +136,33 @@ AbilityConfiguration AbilityConfiguration::create(const double shield_duration_s
             std::to_string(charge_safety_envelope_speed) +
             " wu/s safety envelope, so a charge from rest would be refused at that tuning");
   }
-  return AbilityConfiguration(shield_duration_ticks, shield_perfect_window_ticks,
-                              shield_cooldown_ticks, parry_stun_duration_ticks,
-                              charge_cooldown_ticks, charge_speed_fraction,
-                              charge_safety_envelope_speed);
+  return AbilityConfiguration(
+      shield_duration_ticks, shield_perfect_window_ticks, shield_cooldown_ticks,
+      parry_stun_duration_ticks, charge_cooldown_ticks, charge_speed_fraction,
+      charge_safety_envelope_speed, charge_active_duration_ticks, charge_hit_stun_duration_ticks);
 }
 
 AbilityConfiguration AbilityConfiguration::defaults() {
   return create(kDefaultShieldDurationSeconds, kDefaultShieldPerfectWindowSeconds,
                 kDefaultShieldCooldownSeconds, kDefaultParryStunDurationSeconds,
                 kDefaultChargeCooldownSeconds, kDefaultChargeSpeedFraction,
-                kDefaultChargeSafetyEnvelopeSpeed);
+                kDefaultChargeSafetyEnvelopeSpeed, kDefaultChargeActiveDurationSeconds,
+                kDefaultChargeHitStunDurationSeconds);
 }
 
-AbilityConfiguration::AbilityConfiguration(const std::uint64_t shield_duration_ticks,
-                                           const std::uint64_t shield_perfect_window_ticks,
-                                           const std::uint64_t shield_cooldown_ticks,
-                                           const std::uint64_t parry_stun_duration_ticks,
-                                           const std::uint64_t charge_cooldown_ticks,
-                                           const double charge_speed_fraction,
-                                           const double charge_safety_envelope_speed) noexcept
+AbilityConfiguration::AbilityConfiguration(
+    const std::uint64_t shield_duration_ticks, const std::uint64_t shield_perfect_window_ticks,
+    const std::uint64_t shield_cooldown_ticks, const std::uint64_t parry_stun_duration_ticks,
+    const std::uint64_t charge_cooldown_ticks, const double charge_speed_fraction,
+    const double charge_safety_envelope_speed, const std::uint64_t charge_active_duration_ticks,
+    const std::uint64_t charge_hit_stun_duration_ticks) noexcept
     : shield_duration_ticks_(shield_duration_ticks),
       shield_perfect_window_ticks_(shield_perfect_window_ticks),
       shield_cooldown_ticks_(shield_cooldown_ticks),
       parry_stun_duration_ticks_(parry_stun_duration_ticks),
       charge_cooldown_ticks_(charge_cooldown_ticks), charge_speed_fraction_(charge_speed_fraction),
-      charge_safety_envelope_speed_(charge_safety_envelope_speed) {}
+      charge_safety_envelope_speed_(charge_safety_envelope_speed),
+      charge_active_duration_ticks_(charge_active_duration_ticks),
+      charge_hit_stun_duration_ticks_(charge_hit_stun_duration_ticks) {}
 
 } // namespace blob_royale::gameplay

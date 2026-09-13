@@ -11,7 +11,12 @@ import type {
   ShieldStatusReport,
   ZoneExposureReport,
 } from './sessionSelectors';
-import { CHARGE_KEY_CODE, SHIELD_KEY_CODE } from './simulationConstants';
+import {
+  CHARGE_KEY_CODE,
+  SHIELD_KEY_CODE,
+  ROTATE_LEFT_KEY_CODE,
+  ROTATE_RIGHT_KEY_CODE,
+} from './simulationConstants';
 import type {
   SessionMatchSection,
   SessionPlacement,
@@ -43,6 +48,10 @@ export interface SimulationHudProps {
   /** The race section, present exactly when the frame carries the race schema id. */
   readonly race: RaceHudReport | null;
   readonly thrust: ThrustDirection;
+  readonly braking: boolean;
+  readonly commandBudgetUnavailable: boolean;
+  readonly rotationUnavailable: boolean;
+  readonly onRotateVelocity: (direction: 'left' | 'right') => void;
   readonly zoneExposure: ZoneExposureReport | null;
 }
 
@@ -210,14 +219,14 @@ function AbilityControl({
   onActivate,
   state,
 }: {
-  readonly control: AbilityControlDescriptor;
-  readonly onActivate: (ability: SimulationAbility) => void;
-  readonly state: AbilityAvailability;
+  readonly control: Pick<AbilityControlDescriptor, 'label' | 'keyLabel'>;
+  readonly onActivate: () => void;
+  readonly state: Pick<AbilityAvailability, 'canAttempt' | 'explanation'>;
 }) {
   const reasonId = useId();
   const activate = (): void => {
     if (state.canAttempt) {
-      onActivate(control.ability);
+      onActivate();
     }
   };
   return (
@@ -277,9 +286,17 @@ function AbilityControl({
 function AbilityControls({
   abilities,
   onActivate,
+  onRotateVelocity,
+  rotationUnavailable,
+  commandBudgetUnavailable,
+  braking,
 }: {
   readonly abilities: AbilityAvailabilityReport;
   readonly onActivate: (ability: SimulationAbility) => void;
+  readonly onRotateVelocity: (direction: 'left' | 'right') => void;
+  readonly rotationUnavailable: boolean;
+  readonly commandBudgetUnavailable: boolean;
+  readonly braking: boolean;
 }) {
   return (
     <section aria-label="Ability controls" className="AbilityControls">
@@ -287,10 +304,47 @@ function AbilityControls({
         <AbilityControl
           control={control}
           key={control.ability}
-          onActivate={onActivate}
-          state={abilities[control.ability]}
+          onActivate={() => onActivate(control.ability)}
+          state={
+            commandBudgetUnavailable
+              ? {
+                  canAttempt: false,
+                  explanation: 'Input limit—try again shortly.',
+                }
+              : control.ability === 'charge' && braking
+                ? {
+                    canAttempt: false,
+                    explanation: 'Release Space before charging.',
+                  }
+                : abilities[control.ability]
+          }
         />
       ))}
+      {(['left', 'right'] as const).map((direction) => (
+        <AbilityControl
+          key={direction}
+          control={{
+            label: `Rotate ${direction}`,
+            keyLabel: keyLabelForCode(
+              direction === 'left'
+                ? ROTATE_LEFT_KEY_CODE
+                : ROTATE_RIGHT_KEY_CODE,
+            ),
+          }}
+          onActivate={() => onRotateVelocity(direction)}
+          state={{
+            canAttempt: !rotationUnavailable && !commandBudgetUnavailable,
+            explanation: commandBudgetUnavailable
+              ? 'Input limit—try again shortly.'
+              : rotationUnavailable
+                ? 'Velocity turns require an active, unstunned player in a running match.'
+                : null,
+          }}
+        />
+      ))}
+      {commandBudgetUnavailable ? (
+        <p role="status">Input limit—try again shortly.</p>
+      ) : null}
       <p className="AbilityHint">
         Press {SHIELD_KEY_LABEL} to shield and {CHARGE_KEY_LABEL} to charge, or
         press these buttons. Aiming a charge needs the cursor over the arena.
@@ -539,6 +593,10 @@ export function SimulationHud({
   phaseElapsedSeconds,
   race,
   thrust,
+  braking,
+  commandBudgetUnavailable,
+  rotationUnavailable,
+  onRotateVelocity,
   zoneExposure,
 }: SimulationHudProps) {
   return (
@@ -593,13 +651,17 @@ export function SimulationHud({
           ) : null}
           <tr>
             <th scope="row">Thrust</th>
-            <td>{formatThrust(thrust)}</td>
+            <td>{braking ? 'braking' : formatThrust(thrust)}</td>
           </tr>
         </tbody>
       </table>
       <AbilityControls
         abilities={abilityControls}
         onActivate={onActivateAbility}
+        onRotateVelocity={onRotateVelocity}
+        commandBudgetUnavailable={commandBudgetUnavailable}
+        rotationUnavailable={rotationUnavailable}
+        braking={braking}
       />
       {hill === null ? null : (
         <ScoreboardTable ownEntityId={ownEntityId} rows={hill.scoreboard} />

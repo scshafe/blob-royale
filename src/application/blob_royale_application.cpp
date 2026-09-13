@@ -415,7 +415,9 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
   // The hazard table travels with the other two, because the standing hazard population is part of
   // the worst case and no one of the three values can see the other two on its own.
   require_match_fits_snapshot_bound(application_config.match_configuration(), map,
-                                    application_config.game_mode_configuration().hazards);
+                                    gameplay::GameModeRegistry::active_hazards(
+                                        application_config.match_configuration().mode_name(),
+                                        application_config.game_mode_configuration()));
 
   const MatchConfiguration& match = application_config.match_configuration();
   const std::uint64_t room_count = application_config.lobbies_configuration().count();
@@ -441,10 +443,9 @@ BlobRoyaleApplication BlobRoyaleApplication::create(ApplicationConfig applicatio
                       : simulation::GameWorld::create(application_config.simulation_config(), map,
                                                       match.seed() + (lobby_id - 1));
 
-    // The composition root seeds both immutable reset defaults and the active pair for every
-    // room/mode. Live commands change only current values; neither rounds nor Apply rewrite INI.
-    const auto movement = application_config.game_mode_configuration().movement;
-    world.mutable_match().movement = {.current = movement, .defaults = movement};
+    // Seed immutable reset defaults, live values, and the registered mode's room capabilities.
+    world.mutable_match().movement = gameplay::GameModeRegistry::initial_room_tuning(
+        match.mode_name(), application_config.game_mode_configuration());
 
     // **The lobby is seeded here, into the world, before the engine ever sees it, and only for a
     // mode that has one.** `MatchState::seats` is engine state -- it is the input to the machine's

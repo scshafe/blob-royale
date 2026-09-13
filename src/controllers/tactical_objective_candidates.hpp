@@ -418,18 +418,18 @@ collect_tactical_objective_candidates(const Observation& observation,
                                       const simulation::PhysicsBody& body,
                                       const TacticalObjectivePolicy& policy);
 
-// canonical: tactical_hill_intercept -- the one prediction in this domain that needs nothing
-// unpublished.
+// canonical: tactical_hill_intercept -- hill prediction from published committed motion alone.
 //
 // The future centre of a roaming hill is its published committed velocity times the compile-time
 // fixed delta times the horizon, and nothing else: `hill_motion_component.hpp` publishes the
 // committed velocity, `hill_movement` integrates it with no drag term, and the hill owns no
 // `PhysicsBody`, so it is never dragged, never accelerated by contact and never bounded by a
-// speed cap. **Say this out loud, because every other prediction this domain wants does need
-// something unpublished** and the next reader will assume this one does too: an opponent's
-// position needs `drag_per_second`, which lives on `SimulationConfig` and reaches no snapshot; a
-// charge needs `charge_speed_fraction`; a parry needs `shield_perfect_window_seconds`. The shield
-// closing test below extrapolates an opponent anyway, and states its own bias for doing so.
+// speed cap. Player trajectories additionally depend on `drag_per_second`, which lives on
+// `SimulationConfig` and reaches no snapshot. Live room tuning now publishes the charge fraction
+// and normal ceiling, so a controller can compute the immediate additive resultant, but its future
+// travel still depends on unpublished drag. A prospective parry also needs the authored perfect
+// window before activation. The shield closing test below extrapolates an opponent anyway and
+// states its own bias for doing so.
 //
 // Intercept and hold are the same computation. A bot already inside a moving hill measures itself
 // against the future centre, so it keeps station instead of arriving at where the hill used to be;
@@ -489,18 +489,16 @@ tactical_shove_opponent_body(const simulation::WorldSnapshot& snapshot,
                                                  const TacticalObjectiveCandidate& candidate,
                                                  const TacticalObjectivePolicy& policy);
 
-// canonical: tactical_charge_alignment -- the gate that compares against the resultant rather than
-// against the intent.
+// canonical: tactical_charge_alignment -- the conservative gate on lateral committed velocity.
 //
-// **The burst is additive**, so a body already moving at 600 wu/s along +y that charges +x leaves
-// at (450, 600): 750 wu/s, 53.1 degrees off the commanded ray. A ray cast due +x screens ground the
-// body never crosses, and certifying the commanded angle certifies the wrong one. A bot cannot
-// compute the resultant -- `charge_speed_fraction` is not published -- so this is the conservative
-// published-state form of the same question: **refuse when the component of the committed velocity
-// perpendicular to the commanded direction exceeds `kTacticalChargeAlignmentPerpendicularFraction`
-// of the published normal ceiling.** At a perpendicular component equal to the whole ceiling the
-// resultant is at least 45 degrees off for any burst up to the ceiling, which is why the fraction
-// is a fraction of that ceiling and is below one.
+// At the default 0.75 charge fraction, a body already moving at 600 wu/s along +y that charges +x
+// leaves at (450, 600): 750 wu/s, 53.1 degrees off the commanded ray. The charge fraction and
+// normal ceiling are published, so the immediate resultant is computable. This retained authored
+// screen instead applies its conservative lateral-motion threshold: **refuse when committed
+// velocity perpendicular to the commanded direction exceeds
+// `kTacticalChargeAlignmentPerpendicularFraction` of the published normal ceiling.** It does not
+// retune the corridor to each live charge fraction or certify a stopping distance; future travel
+// still depends on unpublished drag.
 //
 // It is a shared unconditional gate and deliberately not a profile key: a per-profile alignment
 // tolerance would be a combat knob whose only effect is to let a profile disable a safety screen.

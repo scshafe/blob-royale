@@ -55,7 +55,7 @@ export function firstEntity(document: MutableSnapshotDocument) {
  * hill, entity 7 the session's own blob holding it (120 of the 400 ticks toward a point), entity 8 a
  * bot leading the board, and entity 10 a bot knocked out and waiting 300 ticks for a seat. The
  * running phase started 2,000 ticks ago against a 96,000-tick limit. It is validated by every test
- * that reads it, so the 3.0 schemas accept it or the tests do not start.
+ * that reads it, so the 3.1 schemas accept it or the tests do not start.
  */
 export function hillSnapshotDocument(messageSequence = 2) {
   const golden = snapshotDocument(messageSequence);

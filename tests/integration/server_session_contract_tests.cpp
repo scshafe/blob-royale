@@ -40,6 +40,11 @@ constexpr auto kTransportOperationTimeout = std::chrono::seconds{5};
 // which is exact on the wire and two orders of magnitude below the 35 world units between adjacent
 // spawn markers -- so the commanding blob provably moved and provably did not reach anyone else.
 constexpr std::uint64_t kTicksAwaitedAfterCommand = 40;
+// The session fixture authors charge fraction 0.75 with a 20,000 wu/s safety envelope and no
+// crossing archetypes. Its absolute tuning requests retain those three capability values.
+constexpr double kFixtureChargeSpeedFraction = 0.75;
+constexpr double kFixtureChargeSpeedFractionMaximum = 2.0;
+constexpr double kFixtureCrossingSpawnRate = 0.0;
 constexpr std::uint16_t kPolicyErrorCloseCode = 1'008;
 constexpr std::string_view kRoomTwoTarget = "/api/v3/lobbies/2/session";
 constexpr std::string_view kDirectoryTarget = "/api/v3/lobbies";
@@ -283,11 +288,20 @@ void require_movement(const std::string& frame, const double acceleration,
   const json::object& defaults = required_object(movement, "defaults", kOperation);
   constexpr std::string_view kAcceleration = "acceleration_world_units_per_second_squared";
   constexpr std::string_view kSpeed = "normal_top_speed_world_units_per_second";
+  constexpr std::string_view kCharge = "charge_speed_fraction";
+  constexpr std::string_view kLethalRate = "lethal_spawn_rate_per_second";
+  constexpr std::string_view kNonlethalRate = "nonlethal_spawn_rate_per_second";
   const auto effective_tick = required_unsigned_member(movement, "effective_tick", kOperation);
   if (required_number(current, kAcceleration, kOperation) != acceleration ||
       required_number(current, kSpeed, kOperation) != normal_top_speed ||
       required_number(defaults, kAcceleration, kOperation) != 400 ||
       required_number(defaults, kSpeed, kOperation) != 10'000 ||
+      required_number(current, kCharge, kOperation) != kFixtureChargeSpeedFraction ||
+      required_number(defaults, kCharge, kOperation) != kFixtureChargeSpeedFraction ||
+      required_number(current, kLethalRate, kOperation) != kFixtureCrossingSpawnRate ||
+      required_number(defaults, kLethalRate, kOperation) != kFixtureCrossingSpawnRate ||
+      required_number(current, kNonlethalRate, kOperation) != kFixtureCrossingSpawnRate ||
+      required_number(defaults, kNonlethalRate, kOperation) != kFixtureCrossingSpawnRate ||
       required_unsigned_member(movement, "revision", kOperation) != revision ||
       (revision == 0) != (effective_tick == 0) ||
       effective_tick > required_unsigned_member(data, "tick_sequence", kOperation)) {
@@ -297,23 +311,42 @@ void require_movement(const std::string& frame, const double acceleration,
   const json::object& limits = required_object(movement, "limits", kOperation);
   const json::object& acceleration_limits = required_object(limits, kAcceleration, kOperation);
   const json::object& speed_limits = required_object(limits, kSpeed, kOperation);
+  const json::object& charge_limits = required_object(limits, kCharge, kOperation);
+  const json::object& lethal_rate_limits = required_object(limits, kLethalRate, kOperation);
+  const json::object& nonlethal_rate_limits = required_object(limits, kNonlethalRate, kOperation);
   if (required_number(acceleration_limits, "minimum", kOperation) != 0 ||
       required_number(acceleration_limits, "maximum", kOperation) != 10'000 ||
       required_number(speed_limits, "minimum", kOperation) != 1 ||
-      required_number(speed_limits, "maximum", kOperation) != 10'000) {
+      required_number(speed_limits, "maximum", kOperation) != 10'000 ||
+      required_number(charge_limits, "minimum", kOperation) != 0 ||
+      required_number(charge_limits, "maximum", kOperation) != kFixtureChargeSpeedFractionMaximum ||
+      required_number(lethal_rate_limits, "minimum", kOperation) != 0 ||
+      required_number(lethal_rate_limits, "maximum", kOperation) != kFixtureCrossingSpawnRate ||
+      required_number(nonlethal_rate_limits, "minimum", kOperation) != 0 ||
+      required_number(nonlethal_rate_limits, "maximum", kOperation) != kFixtureCrossingSpawnRate) {
     throw_contract_violation(kOperation, "published movement limits differ from the tuning domain");
   }
+}
+
+[[nodiscard]] std::string tuning_command_frame(const std::uint64_t request_id,
+                                               const std::uint64_t expected_revision,
+                                               const double acceleration,
+                                               const double normal_top_speed) {
+  const json::object payload{{"tuning_request_id", request_id},
+                             {"expected_revision", expected_revision},
+                             {"acceleration_world_units_per_second_squared", acceleration},
+                             {"normal_top_speed_world_units_per_second", normal_top_speed},
+                             {"charge_speed_fraction", kFixtureChargeSpeedFraction},
+                             {"lethal_spawn_rate_per_second", kFixtureCrossingSpawnRate},
+                             {"nonlethal_spawn_rate_per_second", kFixtureCrossingSpawnRate}};
+  return json::serialize(json::object{{"kind", "set_movement_tuning"}, {"payload", payload}});
 }
 
 void send_tuning(SessionWebSocketClient& client, const std::uint64_t request_id,
                  const std::uint64_t expected_revision, const double acceleration,
                  const double normal_top_speed) {
-  const json::object payload{{"tuning_request_id", request_id},
-                             {"expected_revision", expected_revision},
-                             {"acceleration_world_units_per_second_squared", acceleration},
-                             {"normal_top_speed_world_units_per_second", normal_top_speed}};
   client.send_command(
-      json::serialize(json::object{{"kind", "set_movement_tuning"}, {"payload", payload}}));
+      tuning_command_frame(request_id, expected_revision, acceleration, normal_top_speed));
 }
 
 [[nodiscard]] std::string await_tuning_result(SessionWebSocketClient& client,
@@ -373,7 +406,7 @@ void send_tuning(SessionWebSocketClient& client, const std::uint64_t request_id,
   const json::object& envelope = document.as_object();
   const json::object& meta = required_object(envelope, "meta", kOperation);
   if (required_string(meta, "schema_id", kOperation) != kLobbyDirectorySchemaId ||
-      required_string(meta, "protocol_version", kOperation) != "3.0") {
+      required_string(meta, "protocol_version", kOperation) != "3.1") {
     throw_contract_violation(kOperation, "the directory named the wrong schema or version");
   }
   const json::value* const error = envelope.if_contains("error");
@@ -428,7 +461,7 @@ parse_refusal(const boost::beast::http::response<boost::beast::http::string_body
   const json::object& envelope = document.as_object();
   const json::object& meta = required_object(envelope, "meta", operation);
   if (required_string(meta, "schema_id", operation) != kV3ErrorSchemaId ||
-      required_string(meta, "protocol_version", operation) != "3.0") {
+      required_string(meta, "protocol_version", operation) != "3.1") {
     throw_contract_violation(operation, "the refusal did not carry the v3 error envelope");
   }
   const json::object& error = required_object(envelope, "error", operation);
@@ -465,7 +498,7 @@ void require_retired_response(const IntegrationHttpResponse& response,
   const json::object& details = required_object(error, "details", kOperation);
   const std::string guidance = required_string(error, "message", kOperation);
   if (details.size() != 1 ||
-      required_string(details, "required_protocol_version", kOperation) != "3.0" ||
+      required_string(details, "required_protocol_version", kOperation) != "3.1" ||
       guidance.find("/api/v3/lobbies/<lobby_id>/session") == std::string::npos ||
       guidance.find("blob-royale.session.v3") == std::string::npos ||
       response.body().find(target) != std::string::npos || response.body().size() >= 1'024) {
@@ -852,7 +885,7 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
   }
   require_running_server_process(fixture.server_process_id());
 
-  // Correlation is session-specific, while the committed pair belongs only to its room. Each
+  // Correlation is session-specific, while the committed tuning belongs only to its room. Each
   // controller's first request uses id 1; a peer's stale revision cannot replace the winner.
   send_tuning(first, 1, 0, 450, 9'000);
   require_movement(await_tuning_result(first, 1, "applied", 1), 450, 9'000, 1);
@@ -892,8 +925,7 @@ int run_contracts(const int argument_count, const char* const arguments[]) {
 
   std::string reused_close_reason;
   const auto reused_close = room_two_second.send_command_and_await_close(
-      R"({"kind":"set_movement_tuning","payload":{"tuning_request_id":1,"expected_revision":1,"acceleration_world_units_per_second_squared":650,"normal_top_speed_world_units_per_second":7000}})",
-      reused_close_reason);
+      tuning_command_frame(1, 1, 650, 7'000), reused_close_reason);
   if (reused_close != kPolicyErrorCloseCode || reused_close_reason != "tuning_request_id_reused") {
     throw_contract_violation("session_contracts.tuning_result",
                              "a reused tuning id did not policy-close its session");

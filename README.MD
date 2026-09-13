@@ -142,17 +142,20 @@ external origin the same way. The production bundle is produced with `npm run bu
 `./scripts/verify-web` is the canonical Linux client gate.
 
 The client starts in **Follow player**, keeping your current blob centred on a movable view of
-the map. Choose **Manual view** to drag the map or use its pan buttons independently, then
-**Follow player** to resume tracking. Click the arena, point toward where you want to accelerate,
-and hold **Space** to go; release Space to coast. Pointer distance does not change thrust strength,
-and WASD/arrows are no longer movement bindings. Larger worlds
-extend beyond the viewport instead of being shrunk to fit it. These camera controls are part of
-the local follow-up implementation; the recorded `b1e80d4` tailnet deployment predates them.
+the map. Choose **Manual view** to right-drag the map or use its pan buttons independently, then
+**Follow player** to resume tracking. Hold **left-click** in the arena to accelerate toward the
+cursor; release to coast. Hold **Space** to brake. **Q/E** and the left/right turn buttons rotate
+velocity exactly 90 degrees, including during a charge. Pointer distance does not change thrust
+strength. The arena fits the available viewport; the information panel on its right scrolls
+independently. Larger worlds extend beyond the view instead of being shrunk to fit it.
 
-The room's movement panel adjusts acceleration and normal top speed for everyone through explicit
-Apply/Reset actions. If someone changes the room while you are editing, your draft is retained and
-requires review before Apply. Only a server-confirmed result says applied; interruption remains
-unknown even after current values are reviewed.
+The **Room tuning** panel adjusts shared acceleration, normal top speed, charge boost, and average
+dangerous/non-dangerous object spawn rates through one Apply/Reset exchange. Charge boost displays
+the added speed; a successful hit immediately recharges and temporarily stuns the victim while
+they keep moving. Rate changes affect future random births, subject to the shared crossing cap.
+If someone changes the room while you are editing, your draft is retained and requires review
+before Apply. Only a server-confirmed result says applied; interruption remains unknown even after
+current values are reviewed.
 
 ## Repository map
 

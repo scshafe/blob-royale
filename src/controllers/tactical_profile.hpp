@@ -190,10 +190,10 @@ tactical_objective_weight_of(const TacticalObjectiveWeights& weights,
 //   `kMaximumWorldDimension` bounds nothing a profile author could reason about. **Its zero is the
 //   permissive end, which is the opposite of the zero above, and the two read alike:** a screen of
 //   zero length can find no exit, so that profile charges wherever the rest of the gate admits it.
-//   What the screen answers is "is there ground under the corridor I am about to cross"; it is
-//   never a claim the body can stop before leaving that corridor, and it cannot become one, because
-//   `charge_speed_fraction` is the one ability number that reaches no snapshot -- a bot cannot
-//   compute its own post-burst speed even in principle.
+//   The authored screen asks whether the chosen corridor has ground. Live room tuning publishes
+//   charge fraction and normal ceiling, so the immediate post-burst velocity is computable, but
+//   this conservative corridor length remains an authored heuristic. It makes no claim the body
+//   can stop before leaving the corridor; future travel depends on unpublished drag.
 // * `shield_anticipation_ticks` -- committed ticks of lead on a predicted close, bounded by
 //   `kMaximumTacticalShieldAnticipationTicks`. Zero is an authored answer exactly as it is for the
 //   horizon above: that profile never anticipates and raises no speculative shield. It is a

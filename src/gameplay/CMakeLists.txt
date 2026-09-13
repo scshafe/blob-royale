@@ -26,6 +26,8 @@ add_library(blob_gameplay STATIC
   sandbox/sandbox_mode.cpp
   shared/ability_configuration.cpp
   shared/ability_system.cpp
+  shared/velocity_rotation_system.cpp
+  shared/charge_contact_system.cpp
   shared/duration_ticks.cpp
   shared/guarded_pair_contact.cpp
   shared/guarded_pair_contact_rule.cpp

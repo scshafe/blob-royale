@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/rotate-velocity-command.schema.json",
+  "title": "Blob Royale quarter-turn command",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "direction"
+  ],
+  "properties": {
+    "direction": {
+      "enum": [
+        "left",
+        "right"
+      ]
+    },
+    "input_generation": {
+      "$ref": "common.schema.json#/$defs/tick_sequence"
+    }
+  },
+  "$comment": "The server rotates current velocity by exact sign/swap after charge admission. No client velocity/speed; absent input_generation is the initial generation."
+}

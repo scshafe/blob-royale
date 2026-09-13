@@ -809,8 +809,8 @@ public:
 private:
   [[nodiscard]] static GameSimulation create_simulation(const RoyaleMatch& match) {
     GameWorld world = GameWorld::create(match.configuration, match.map, match.seed);
-    const simulation::MovementTuning movement = match.mode_configuration.movement;
-    world.mutable_match().movement = {.current = movement, .defaults = movement};
+    world.mutable_match().movement =
+        gameplay::GameModeRegistry::initial_room_tuning(match.mode_name, match.mode_configuration);
     world.mutable_match().seats =
         simulation::SeatRoster::of_size(static_cast<std::size_t>(kRoyaleSeatCount));
     std::unique_ptr<const simulation::GameMode> mode =
@@ -979,6 +979,7 @@ private:
     hazard.emplace("radius", archetype.radius());
     hazard.emplace("mass", archetype.mass());
     hazard.emplace("speed", archetype.speed());
+    hazard.emplace("speed_variation_fraction", archetype.speed_variation_fraction());
     hazard.emplace("spawn_interval_ticks", archetype.spawn_interval_ticks());
     hazard.emplace("lethal_on_contact", archetype.lethal_on_contact());
     hazards.emplace_back(std::move(hazard));
@@ -994,8 +995,10 @@ private:
       "schema_migration",
       "2026-09-10_race_width_to_named_road;2026-09-11_shared_movement_400_10000;"
       "2026-09-11_contact_effect_policy_closing_impact;2026-09-11_required_sandbox_return_delay;"
-      "2026-09-12_required_abilities_shield_defaults;2026-09-12_required_abilities_charge_tuning");
-  reference_configuration.emplace("measured_royale_inputs_unchanged", true);
+      "2026-09-12_required_abilities_shield_defaults;2026-09-12_required_abilities_charge_tuning;"
+      "2026-09-13_charge_active_hit_stun;2026-09-13_random_crossing_rates_and_speed_variation");
+  reference_configuration.emplace("measured_royale_inputs_unchanged", false);
+  reference_configuration.emplace("hazard_schedule", "capped_random_class_trials_v1");
   reference_configuration.emplace("map_source", "current_repository_maps");
   reference_configuration.emplace("maps_directory", inputs.maps_directory.string());
   reference_configuration.emplace("represents_current_deployment", false);
@@ -1595,7 +1598,14 @@ void hash_motion_event(std::uint64_t& hash, const simulation::MotionEventKey& ev
             for (const char character : name) {
               hash_byte(hash, static_cast<std::uint8_t>(static_cast<unsigned char>(character)));
             }
+          } else if constexpr (std::is_same_v<Fact, simulation::ChargeContactCandidate>) {
+            hash_uint64(hash, fact.attacker.value());
+            hash_uint64(hash, fact.target.value());
+            hash_uint64(hash, fact.activation_tick.value());
+            hash_uint64(hash, static_cast<std::uint64_t>(fact.outcome));
           } else {
+            static_assert(std::is_same_v<Fact, gameplay::GuardedPairEliminationFact> ||
+                          std::is_same_v<Fact, gameplay::GuardedPairStunFact>);
             hash_uint64(hash, fact.entity.value());
           }
         },

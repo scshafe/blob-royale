@@ -5,6 +5,7 @@
 #include "components/charge_component_encoding.hpp"
 #include "components/contact_effect_admission_component_encoding.hpp"
 #include "components/controllable_component_encoding.hpp"
+#include "components/crossing_hazard_component_encoding.hpp"
 #include "components/hill_component_encoding.hpp"
 #include "components/hill_motion_component_encoding.hpp"
 #include "components/hill_presence_component_encoding.hpp"

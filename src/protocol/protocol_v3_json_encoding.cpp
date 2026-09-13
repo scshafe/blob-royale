@@ -31,6 +31,7 @@
 #include <boost/json/value.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -456,6 +457,11 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
                  encode_json_number(tuning.acceleration()));
   result.emplace("normal_top_speed_world_units_per_second",
                  encode_json_number(tuning.normal_top_speed()));
+  result.emplace("charge_speed_fraction", encode_json_number(tuning.charge_speed_fraction()));
+  result.emplace("lethal_spawn_rate_per_second",
+                 encode_json_number(tuning.lethal_spawn_rate_per_second()));
+  result.emplace("nonlethal_spawn_rate_per_second",
+                 encode_json_number(tuning.nonlethal_spawn_rate_per_second()));
   return result;
 }
 
@@ -481,6 +487,27 @@ seat_wire_kind_name(const simulation::Seat& seat) noexcept {
   limits.emplace("normal_top_speed_world_units_per_second",
                  json::object{{"minimum", encode_json_number(kMovementNormalTopSpeedMinimum)},
                               {"maximum", encode_json_number(kMovementNormalTopSpeedMaximum)}});
+  const auto append_limit = [&limits](const std::string_view field, const double maximum,
+                                      const double intrinsic_maximum) {
+    if (!std::isfinite(maximum) || maximum < 0.0 || maximum > intrinsic_maximum) {
+      throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMovementTuningStateInvalid,
+                                  "snapshot_message.data.match.movement.limits." +
+                                      std::string(field),
+                                  "room maximum must be finite and within intrinsic tuning bounds"};
+    }
+    limits.emplace(field, json::object{{"minimum", 0}, {"maximum", encode_json_number(maximum)}});
+  };
+  append_limit("charge_speed_fraction", movement.charge_speed_fraction_maximum,
+               kMovementChargeSpeedFractionMaximum);
+  append_limit("lethal_spawn_rate_per_second", movement.lethal_spawn_rate_per_second_maximum,
+               kMovementCrossingSpawnRateMaximum);
+  append_limit("nonlethal_spawn_rate_per_second", movement.nonlethal_spawn_rate_per_second_maximum,
+               kMovementCrossingSpawnRateMaximum);
+  if (!movement.admits(movement.current) || !movement.admits(movement.defaults)) {
+    throw ProtocolEncodingError{ProtocolEncodingErrorCode::kMovementTuningStateInvalid,
+                                "snapshot_message.data.match.movement",
+                                "current and authored tuning must fit the room capabilities"};
+  }
   json::object result;
   result.emplace("current", encode_movement_pair(movement.current));
   result.emplace("defaults", encode_movement_pair(movement.defaults));

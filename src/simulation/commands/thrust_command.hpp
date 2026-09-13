@@ -34,6 +34,8 @@ struct ThrustCommand final {
   Vector2 direction;
   // Exact activation token, including absence. Present zero is rejected by InputBatch.
   std::optional<TickSequence> input_generation{};
+  // Held braking supersedes propulsion; the server derives its impulse from current velocity.
+  bool braking{false};
 
   friend bool operator==(const ThrustCommand&, const ThrustCommand&) = default;
 };

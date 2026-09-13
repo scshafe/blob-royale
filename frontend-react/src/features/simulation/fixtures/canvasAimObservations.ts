@@ -1,3 +1,8 @@
+const observedPointers = new WeakMap<
+  HTMLCanvasElement,
+  { x: number; y: number }
+>();
+
 interface AimSurfaceOrigin {
   readonly left: number;
   readonly top: number;
@@ -25,12 +30,30 @@ export function aimPointer(
   };
 }
 
+/** A mouse press/release at the position already observed, without an artificial aim movement. */
+export function pointerAtObservedPosition(
+  canvas: HTMLCanvasElement,
+  overrides: PointerEventInit = {},
+): PointerEventInit {
+  const pointer = observedPointers.get(canvas);
+  if (pointer === undefined)
+    throw new Error('TEST.CANVAS_POINTER_NOT_OBSERVED');
+  return aimPointer(pointer.x, pointer.y, overrides);
+}
+
 /** jsdom has no layout or pointer capture. Supply explicit CSS bounds and the normal capture API. */
 export function installCanvasAimSurface(
   canvas: HTMLCanvasElement,
   initial = AIM_SURFACE_OFFSET,
 ) {
   let origin = initial;
+  const recordPointer = (event: PointerEvent): void => {
+    observedPointers.set(canvas, { x: event.clientX, y: event.clientY });
+  };
+  canvas.addEventListener('pointermove', recordPointer, true);
+  canvas.addEventListener('pointerenter', recordPointer, true);
+  canvas.addEventListener('pointerdown', recordPointer, true);
+  canvas.addEventListener('pointerup', recordPointer, true);
   const captured = new Set<number>();
   Object.assign(canvas, {
     getBoundingClientRect: () =>

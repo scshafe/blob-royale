@@ -11,73 +11,25 @@
 
 namespace blob_royale::gameplay {
 
-// canonical: hazard_spawn -- the one system that turns a configured archetype into a body.
+// canonical: hazard_spawn -- one random crossing birth trial per eligible running tick.
 // @extension-point simulation_system
 //
-// It reads `GameModeConfiguration::hazards`, which the application has already validated, and seats
-// a crossing body for each kind whose interval is due this tick. It adds no configuration and no
-// new rejection: every value it reads was checked at startup by `HazardArchetype::create`.
+// Current room tuning supplies aggregate lethal and nonlethal births/second while capacity is
+// available. An absent class has rate zero. A single unit draw selects lethal, nonlethal, or no
+// birth; within the selected class one further draw chooses an authored kind with weight
+// 1/spawn_interval_ticks. Declaration order is the deterministic cumulative-weight order.
+// create_crossing_hazard then draws speed, entry edge, entry point, and opposite exit point.
+// A failed birth trial consumes one draw; a birth consumes exactly six, including the explicit
+// kind and speed draws even when those choices have only one possible result.
 //
-// **Every geometric choice comes from `GameWorld::random(RandomStreamKind::kHazards)`, in one
-// fixed order.** Per spawned hazard the draws are exactly three, always in this order:
-// the entry edge, the point along that edge, and the point on the opposite edge it is aimed at --
-// all three taken by `draw_hazard_crossing` (`shared/hazard_crossing.hpp`), which is the only
-// function that reads this stream on the hazard mechanic's behalf. A
-// replay of `(map, mode configuration, seed, command log)` therefore reproduces every crossing
-// exactly, which is `docs/architecture/0004-gameplay-architecture.md` § "Determinism obligations
-// for framework code". The hazard count is committed in every snapshot's `random_draw_counts`, so
-// two runs that diverge in how many hazards they drew for diverge visibly at the first differing
-// tick.
-//
-// **It runs at `kLifecycle`, and that is a design decision rather than a scheduling convenience.**
-// Creating an entity is roster bookkeeping, which is what the stage is for and what
-// `placement_recorder` already does there. It also happens to be the stage that makes the entity
-// budget work, and the two reasons agree. Every tick's `EntityIdReservation` is exactly
-// `spawn_count + kSystemCreatedEntityHeadroom` ids wide and the headroom is **one**
-// (`src/runtime/runtime_limits.hpp`), because it was sized for the single entity royale's
-// `zone_shrink` creates on its first running tick. Widening it would advance the allocator's
-// monotonic cursor on every tick and renumber every simulation-created id in every recorded replay,
-// so the budget is fixed and this system lives inside it. Running at `kLifecycle` puts this system
-// after the `kPostKernel` zone systems, so royale's zone takes the id it needs first and the
-// spawner takes whatever is left -- which is the correct precedence anyway, since a match without
-// its zone is not a match and a match without a comet is merely calmer.
-//
-// **What happens when there is no id left.** The system reads
-// `GameWorld::entity_id_reservation()` before each draw and stops when it is empty, so exhaustion
-// is never reached and `create_entity`'s hard failure never fires. In practice one id is available
-// per tick, so at most one hazard is seated per tick. Two kinds due on the same tick therefore
-// resolve by declaration order: the earlier-declared one is seated and the later one is **skipped
-// for that tick**, not queued. Skipped rather than deferred is deliberate and is the honest word: a
-// true deferral needs per-kind state carried between ticks, a system may hold nothing but immutable
-// configuration (`simulation/simulation_system.hpp`), and the only durable homes are a component --
-// which would need an entity that does not exist yet -- or mode state, which is one mode's and this
-// mechanic is no mode's. Nothing drifts as a result, because due-ness is a pure function of the
-// tick: a kind that misses one appearance is back on schedule at its next multiple. With intervals
-// of hundreds of ticks and a handful of kinds, a collision is rare and costs one appearance.
-//
-// **What happens at the entity bound.** `kMaximumEntityCount` is 4,096 seats and a component store
-// throws when a write would exceed it. The system checks the `PhysicsBody` store's occupancy before
-// seating and stops when the world is full, so a full arena quietly stops producing hazards instead
-// of failing the tick. It cannot fill the world on its own: every hazard carries a `Lifetime` sized
-// to its own crossing, and `LifetimeExpirySystem` despawns it when that runs out, so the standing
-// population is bounded by `crossing_ticks / spawn_interval_ticks` per kind and is a small constant
-// for any interval a designer would author. The seat check is the backstop for the case that bound
-// does not cover -- a very fast spawn interval against a very slow hazard -- and it fails soft
-// because a missing comet is a lesser harm than a stopped match.
-//
-// **It owns no geometry and no arithmetic.** Where a crossing starts, which way it goes, and how
-// long the body lives all come from `shared/hazard_crossing.hpp`, because
-// `application/match_startup_validation.cpp` needs the same two formulas at their worst case to
-// refuse a hazard table whose standing population would exceed the published snapshot bound. A
-// spawner holding a private copy of "how long does this live" would be a bound that agrees with the
-// spawner only until one of the two is edited.
-//
-// It lives in `shared/` and royale declares it; sandbox does not, which is the test that the
-// mechanic is optional rather than ambient.
-// related: hazard_archetype.hpp -- the validated configuration this reads.
-// related: hazard_crossing.hpp -- the geometry and the lifetime this seats a body with.
-// related: lifetime_expiry_system.hpp -- what removes the bodies this creates.
-// related: guarded_pair_contact_rule.hpp -- the one row that reads the marker this attaches.
+// No draw occurs outside running, when eligible rates are zero, without an entity reservation,
+// or at the crossing/motion/entity population cap. Capacity suppresses new births without changing
+// existing objects. The CrossingHazard store is the population, never a mirrored mutable counter.
+// kLifecycle follows zone creation, preserving the existing one-system-entity reservation and
+// zone precedence. At most one hazard is created by one invocation, even with a wider reservation.
+// related: hazard_crossing.hpp -- the canonical active crossing cap and lifetime geometry.
+// related: create_crossing_hazard.hpp -- per-instance sampling, body, and marker creation.
+// related: lifetime_expiry_system.hpp -- removal of complete crossing entities.
 class HazardSpawnSystem final : public simulation::SimulationSystem {
 public:
   static constexpr std::string_view kSystemName = "hazard_spawn";

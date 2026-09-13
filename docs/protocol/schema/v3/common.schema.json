@@ -7,8 +7,8 @@
   "$defs": {
     "protocol_version": {
       "type": "string",
-      "const": "3.0",
-      "$comment": "One session major opens with required welcome terrain and explicit v2 retirement. Later planned authoritative behaviors land under 3.0 with their complete contracts; development commits are not independent deployable releases. See docs/protocol/v3.md."
+      "const": "3.1",
+      "$comment": "Released 3.1 adds room controls, charge-hit windows, and random crossing markers. Newer minors fail closed; v3 routes/subprotocol remain."
     },
     "request_id": {
       "type": "string",
@@ -111,7 +111,10 @@
     "vector2": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["x", "y"],
+      "required": [
+        "x",
+        "y"
+      ],
       "properties": {
         "x": {
           "$ref": "#/$defs/finite_world_scalar"
@@ -155,6 +158,7 @@
         "charge",
         "contact_effect_admission",
         "controllable",
+        "crossing_hazard",
         "hill",
         "hill_motion",
         "hill_presence",
@@ -176,6 +180,7 @@
       "enum": [
         "charge",
         "clear_seat",
+        "rotate_velocity",
         "seat_npc",
         "set_movement_tuning",
         "set_seat_count",
@@ -205,23 +210,37 @@
     },
     "seat_kind": {
       "type": "string",
-      "enum": ["controller", "empty", "npc"],
+      "enum": [
+        "controller",
+        "empty",
+        "npc"
+      ],
       "$comment": "Closed. A seat is empty, held by a live controller, or declared for an NPC of a named kind; the three are exclusive and every published seat names exactly one."
     },
     "match_phase": {
       "type": "string",
-      "enum": ["lobby", "countdown", "running", "ended"]
+      "enum": [
+        "lobby",
+        "countdown",
+        "running",
+        "ended"
+      ]
     },
     "outcome_kind": {
       "type": "string",
-      "enum": ["none", "won_by_entity", "won_by_team", "drawn"]
+      "enum": [
+        "none",
+        "won_by_entity",
+        "won_by_team",
+        "drawn"
+      ]
     },
     "error_details": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "required_protocol_version": {
-          "const": "3.0",
+          "const": "3.1",
           "$comment": "Present only for PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED."
         },
         "lobby_id": {
@@ -235,7 +254,9 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "enum": ["GET"]
+            "enum": [
+              "GET"
+            ]
           }
         },
         "expected_websocket_version": {
@@ -244,7 +265,11 @@
         },
         "forwarded_client_reason": {
           "type": "string",
-          "enum": ["absent", "multiple_values", "not_canonical"],
+          "enum": [
+            "absent",
+            "multiple_values",
+            "not_canonical"
+          ],
           "$comment": "A closed enum, not free text, so no byte of an attacker-supplied forwarding header can ever reach a response body or a log line."
         },
         "limit": {
@@ -267,24 +292,39 @@
     "error": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["code", "message", "retryable", "details"],
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "details"
+      ],
       "allOf": [
         {
           "if": {
             "properties": {
-              "code": { "const": "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED" }
+              "code": {
+                "const": "PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED"
+              }
             },
-            "required": ["code"]
+            "required": [
+              "code"
+            ]
           },
           "then": {
             "properties": {
-              "retryable": { "const": false },
+              "retryable": {
+                "const": false
+              },
               "details": {
                 "type": "object",
                 "properties": {
-                  "required_protocol_version": { "const": "3.0" }
+                  "required_protocol_version": {
+                    "const": "3.1"
+                  }
                 },
-                "required": ["required_protocol_version"],
+                "required": [
+                  "required_protocol_version"
+                ],
                 "maxProperties": 1
               }
             }
@@ -293,7 +333,9 @@
             "properties": {
               "details": {
                 "type": "object",
-                "properties": { "required_protocol_version": false }
+                "properties": {
+                  "required_protocol_version": false
+                }
               }
             }
           }

@@ -46,6 +46,7 @@ struct Controllable final {
   // Public cancellation token; absence means this entity has never had input invalidated.
   // It survives expiry and same-entity body replacement. Only destruction ends its lifetime.
   std::optional<TickSequence> input_generation{};
+  bool braking_intent{false};
 
   friend bool operator==(const Controllable&, const Controllable&) = default;
 };

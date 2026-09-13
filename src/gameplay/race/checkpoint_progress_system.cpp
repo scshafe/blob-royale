@@ -64,6 +64,7 @@ void CheckpointProgressSystem::apply(simulation::GameWorld& world,
         checkpoint->entity, simulation::RaceProgress{checkpoint->next_checkpoint});
     if (checkpoint->next_checkpoint == course_.checkpoints().size()) {
       controllable->normalized_thrust_intent = simulation::Vector2::create(0.0, 0.0);
+      controllable->braking_intent = false;
       controllable->commands_this_tick.clear();
     }
   }

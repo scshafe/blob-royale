@@ -8,12 +8,14 @@
 #include "royale/zone_elimination_system.hpp"
 #include "royale/zone_shrink_system.hpp"
 #include "shared/ability_system.hpp"
+#include "shared/charge_contact_system.hpp"
 #include "shared/hazard_spawn_system.hpp"
 #include "shared/lifetime_expiry_system.hpp"
 #include "shared/match_reset_system.hpp"
 #include "shared/status_system.hpp"
 #include "shared/support_loss_trigger.hpp"
 #include "shared/thrust_steering_system.hpp"
+#include "shared/velocity_rotation_system.hpp"
 
 #include <memory>
 #include <string>
@@ -57,17 +59,19 @@ simulation::SystemPipeline RoyaleMode::systems() const {
   std::vector<simulation::SystemPipeline::StagedSystem> declared;
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               ThrustSteeringSystem::create()});
-  // `ability` is last at kPreKernel in every mode that declares it, which mirrors "`status` runs
-  // last at kPostKernel": admission reads the canonical input lock, so every kPreKernel system that
-  // can change what that lock answers has already run. It runs after `thrust_steering` for the same
-  // reason -- a pulse and a steering intent recorded on one tick are two independent commands, and
-  // resolving the movement one first keeps the lock's answer the same for both.
+  // Ability reads the committed input lock after steering; rotation then turns the resulting
+  // velocity, including a burst admitted in this same tick. PostKernel charge commitment precedes
+  // status so mutual frozen hits are judged before either victim's input is invalidated.
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               AbilitySystem::create(abilities_)});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              VelocityRotationSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, ZoneShrinkSystem::create(configuration_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, ZoneEliminationSystem::create(configuration_)});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
+                                                              ChargeContactSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
                                                               StatusSystem::create()});
   // The five `kLifecycle` systems are ordered remove, reset, then add, then publish, and the order

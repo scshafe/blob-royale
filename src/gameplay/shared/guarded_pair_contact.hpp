@@ -3,9 +3,11 @@
 
 #include "contact_rule.hpp"
 #include "entity_id.hpp"
+#include "events/charge_contact_event.hpp"
 #include "motion_contact_observation.hpp"
 #include "motion_response.hpp"
 
+#include <optional>
 #include <string_view>
 #include <variant>
 
@@ -19,6 +21,14 @@ struct PairGuardFacts final {
   GuardState first = GuardState::kNone;
   GuardState second = GuardState::kNone;
   friend bool operator==(const PairGuardFacts&, const PairGuardFacts&) = default;
+};
+
+// Only an eligible active attempt has an activation. The adapter projects these from frozen
+// component and input-lock state; the pure response never mutates ability state.
+struct PairChargeFacts final {
+  std::optional<simulation::TickSequence> first_activation;
+  std::optional<simulation::TickSequence> second_activation;
+  friend bool operator==(const PairChargeFacts&, const PairChargeFacts&) = default;
 };
 
 struct GuardedPairContactFact final {
@@ -37,10 +47,11 @@ struct GuardedPairStunFact final {
   friend bool operator==(const GuardedPairStunFact&, const GuardedPairStunFact&) = default;
 };
 
-// Typed gameplay consequences, not newly registered WorldEvents. At most two recipient facts in
-// ascending EntityId order precede one canonical contact fact; Step 18 translates them once.
+// At most two parry/elimination recipients, two charge candidates in ascending attacker identity,
+// and one canonical contact fact. Charge candidates carry frozen outcomes, not committed status.
 using GuardedPairConsequence =
-    std::variant<GuardedPairContactFact, GuardedPairEliminationFact, GuardedPairStunFact>;
+    std::variant<GuardedPairContactFact, GuardedPairEliminationFact, GuardedPairStunFact,
+                 simulation::ChargeContactCandidate>;
 using GuardedPairOutcome = simulation::PairMotionResponse<GuardedPairConsequence>;
 
 // canonical: lethal_contact_predicates -- who may kill on touch, and who may be killed.
@@ -135,12 +146,11 @@ inline constexpr std::string_view kLethalHazardContactRuleName = "lethal_hazard"
 // correction or a closing residual. Non-contact inputs, and observations with neither eligible
 // source nor an impact, return unchanged bodies and no facts. An eligible touch without impact
 // preserves both bodies and emits a contact fact unless an unguarded lethal recipient terminates.
-[[nodiscard]] GuardedPairOutcome
-compose_guarded_pair(const simulation::GameWorld& committed,
-                     const simulation::ContactRule::Subject& first,
-                     const simulation::ContactRule::Subject& second,
-                     const simulation::PairContactObservation& observation,
-                     const simulation::TickContext& context, const PairGuardFacts& guards);
+[[nodiscard]] GuardedPairOutcome compose_guarded_pair(
+    const simulation::GameWorld& committed, const simulation::ContactRule::Subject& first,
+    const simulation::ContactRule::Subject& second,
+    const simulation::PairContactObservation& observation, const simulation::TickContext& context,
+    const PairGuardFacts& guards, const PairChargeFacts& charges = {});
 
 } // namespace blob_royale::gameplay
 

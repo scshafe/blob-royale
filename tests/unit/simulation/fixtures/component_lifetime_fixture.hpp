@@ -3,6 +3,7 @@
 
 #include "components/charge_component.hpp"
 #include "components/contact_effect_admission_component.hpp"
+#include "components/crossing_hazard_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
 #include "components/hill_presence_component.hpp"
@@ -52,6 +53,8 @@ inline constexpr std::uint64_t kChargeCooldownDuration = 120;
 
 inline void attach_bound_components(simulation::GameWorld& world,
                                     const simulation::EntityId target) {
+  world.mutable_store<simulation::CrossingHazard>().insert_or_assign(target,
+                                                                     simulation::CrossingHazard{});
   world.mutable_store<simulation::ContactEffectAdmission>().insert_or_assign(
       target, simulation::ContactEffectAdmission{});
   world.mutable_store<simulation::HillPresence>().insert_or_assign(

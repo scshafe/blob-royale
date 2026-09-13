@@ -159,7 +159,7 @@ test('production Chromium reconnects to a restarted exact server', async ({
     (await matchHudCell(page, 'Player').textContent())?.trim() ?? '';
   await focusSimulationCanvas(page);
   await aimFromPaintedBody(page, originalDisplayName, { x: 60, y: 0 }, 10);
-  await page.keyboard.down('Space');
+  await page.mouse.down({ button: 'left' });
   await expect(matchHudCell(page, 'Thrust')).not.toHaveText('idle');
 
   await Promise.all([
@@ -208,11 +208,11 @@ test('production Chromium reconnects to a restarted exact server', async ({
   expect(traffic.sentFrames).toHaveLength(disconnectedSendCount);
   await focusSimulationCanvas(page);
   await aimFromPaintedBody(page, resumedDisplayName, { x: 60, y: 0 }, 10);
-  await page.keyboard.down('Space'); // Repeat of the held key, not fresh activation.
+  // Refocusing and reentering cannot replay the still-held left mouse activation.
   await assertTwoIncreasingCompleteTicks(completeTickCaption);
   await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
   expect(traffic.sentFrames).toHaveLength(disconnectedSendCount);
-  await page.keyboard.up('Space');
+  await page.mouse.up({ button: 'left' });
 
   await blobRoyaleServer.terminateWithSigterm();
   expect(pageErrors).toEqual([]);

@@ -16,6 +16,9 @@ export function tuningCommand(
       expected_revision: expectedRevision,
       acceleration_world_units_per_second_squared: 500,
       normal_top_speed_world_units_per_second: 700,
+      charge_speed_fraction: 0.75,
+      lethal_spawn_rate_per_second: 0,
+      nonlethal_spawn_rate_per_second: 0,
     },
   };
 }
@@ -36,7 +39,9 @@ export function tuningSnapshotDocument(
     ? null
     : status === 'revision_exhausted'
       ? Number.MAX_SAFE_INTEGER
-      : status === 'not_seated' || status === 'stale_revision'
+      : status === 'not_seated' ||
+          status === 'stale_revision' ||
+          status === 'unsupported_tuning'
         ? 0
         : 1;
   document.data.match.movement.revision = revision ?? 0;
@@ -45,6 +50,9 @@ export function tuningSnapshotDocument(
     document.data.match.movement.current = {
       acceleration_world_units_per_second_squared: 500,
       normal_top_speed_world_units_per_second: 700,
+      charge_speed_fraction: 0.75,
+      lethal_spawn_rate_per_second: 0,
+      nonlethal_spawn_rate_per_second: 0,
     };
   }
   const result: SessionTuningResult = {
@@ -61,6 +69,7 @@ export const TUNING_RESULT_STATUSES = [
   'applied',
   'superseded',
   'stale_revision',
+  'unsupported_tuning',
   'not_seated',
   'revision_exhausted',
   'rate_limited',

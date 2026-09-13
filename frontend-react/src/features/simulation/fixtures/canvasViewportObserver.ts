@@ -21,8 +21,10 @@ export class CanvasViewportObserver implements ResizeObserver {
     this.targets.clear();
     CanvasViewportObserver.active.delete(this);
   }
-  resize(width: number): void {
-    const height = (width * CANVAS_MAX_HEIGHT_PIXELS) / CANVAS_MAX_WIDTH_PIXELS;
+  resize(
+    width: number,
+    height = (width * CANVAS_MAX_HEIGHT_PIXELS) / CANVAS_MAX_WIDTH_PIXELS,
+  ): void {
     this.callback(
       [...this.targets].map((target) => ({
         target,

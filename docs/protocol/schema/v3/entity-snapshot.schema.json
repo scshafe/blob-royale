@@ -6,7 +6,10 @@
   "x-status": "Accepted",
   "type": "object",
   "additionalProperties": false,
-  "required": ["entity_id", "components"],
+  "required": [
+    "entity_id",
+    "components"
+  ],
   "properties": {
     "entity_id": {
       "$ref": "common.schema.json#/$defs/entity_id"
@@ -16,7 +19,13 @@
       "additionalProperties": false,
       "minProperties": 1,
       "dependentRequired": {
-        "contact_effect_admission": ["physics_body"]
+        "contact_effect_admission": [
+          "physics_body"
+        ],
+        "crossing_hazard": [
+          "physics_body",
+          "lifetime"
+        ]
       },
       "properties": {
         "charge": {
@@ -69,6 +78,9 @@
         },
         "zone_exposure": {
           "$ref": "zone-exposure-component.schema.json"
+        },
+        "crossing_hazard": {
+          "$ref": "crossing-hazard-component.schema.json"
         }
       },
       "$comment": "@extension-point snapshot_component_kind -- a new component kind adds one property here, one <kind>-component.schema.json file, and one enum member in common.schema.json#/$defs/component_kind. The coordinated development steps remain under 3.0; additions after release require a minor version. additionalProperties is false so decoders fail closed on unknown kinds rather than rendering an incomplete world."

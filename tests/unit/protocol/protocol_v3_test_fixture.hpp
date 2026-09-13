@@ -507,7 +507,8 @@ inline constexpr std::array<std::string_view, 2> kGoldenNpcControllerKinds{"wand
           {simulation::CommandKind::kThrust, simulation::CommandKind::kSetSeatCount,
            simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
            simulation::CommandKind::kStartMatch, simulation::CommandKind::kSetMovementTuning,
-           simulation::CommandKind::kShield, simulation::CommandKind::kCharge}),
+           simulation::CommandKind::kShield, simulation::CommandKind::kCharge,
+           simulation::CommandKind::kRotateVelocity}),
       golden_npc_catalogue(), kGoldenLobbyId, kGoldenSeatCountMaximum, golden_terrain());
 }
 

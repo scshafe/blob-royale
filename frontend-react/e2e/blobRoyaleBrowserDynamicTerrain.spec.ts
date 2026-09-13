@@ -38,6 +38,7 @@ const DYNAMIC = Object.freeze({
   firstGate: Object.freeze({ x: 304, y: 640 }),
   finishEntryX: 315,
   freeDisplacement: 18.65625,
+  chargeHitStunTicks: 240,
   hillVoid: Object.freeze({ x: 310, y: 800, radius: 80 }),
   observationTimeoutMilliseconds: 20_000,
 });
@@ -170,7 +171,7 @@ async function startRaceAndObserveProgress(
 /** No steering acceleration exists in these fixtures: the body stays at its authored start. */
 async function aimCharge(
   session: DynamicSession,
-  holdSpace: boolean,
+  holdGo: boolean,
 ): Promise<void> {
   await focusSimulationCanvas(session.page);
   await aimFromPaintedBody(
@@ -179,8 +180,8 @@ async function aimCharge(
     { x: 100, y: 0 },
     DYNAMIC.bodyRadius,
   );
-  if (holdSpace) {
-    await session.page.keyboard.down('Space');
+  if (holdGo) {
+    await session.page.mouse.down({ button: 'left' });
     await expect(matchHudCell(session.page, 'Thrust')).toHaveText('1.00, 0.00');
   }
   await session.page.keyboard.press('KeyD');
@@ -406,17 +407,22 @@ test.describe('random roaming and hole support', () => {
         const repeatTick = recordedSnapshots(session.traffic).at(
           -1,
         )!.tick_sequence;
-        await page.keyboard.down('Space');
+        await aimFromPaintedBody(
+          page,
+          session.displayName,
+          { x: 100, y: 0 },
+          DYNAMIC.bodyRadius,
+        );
         await awaitSnapshot(
           session,
           (snapshot) => snapshot.tick_sequence >= repeatTick + 80,
-          'a held-key repeat must remain invalidated across later publications',
+          'reentry with the original left mouse hold must remain invalidated across later publications',
         );
         await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
         expect(recordedCommands(session.traffic)).toHaveLength(commandCount);
         expectSingleCharge(session);
       } finally {
-        await page.keyboard.up('Space');
+        await page.mouse.up({ button: 'left' });
       }
       await blobRoyaleServer.terminateWithSigterm();
       expect(errors).toEqual([]);
@@ -465,7 +471,22 @@ test.describe('swept body contact', () => {
       );
       const charger = requireOwnEntity(session, collided);
       const target = entityForController(collided, peer.controllerId);
-      expect(charger.components.charge).toBeDefined();
+      // The successful swept hit consumes and refunds the attack in this same committed frame.
+      expect(charger.components.charge).toBeUndefined();
+      expect(target?.components.stun).toBeDefined();
+      const stun = target?.components.stun;
+      expect(stun?.activation_tick).toBeGreaterThan(baseline.tick_sequence);
+      expect(stun?.expiry_tick).toBeGreaterThan(collided.tick_sequence);
+      expect(stun?.expiry_tick).toBe(
+        (stun?.activation_tick ?? 0) + DYNAMIC.chargeHitStunTicks,
+      );
+      expect(target?.components.controllable?.input_generation).toBe(
+        stun?.activation_tick,
+      );
+      expect(target?.components.physics_body?.acceleration).toEqual({
+        x: 0,
+        y: 0,
+      });
       expect(charger.components.physics_body).toBeDefined();
       expect(target?.components.physics_body?.position.x).toBeGreaterThan(
         DYNAMIC.target.x,

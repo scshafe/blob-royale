@@ -2,12 +2,14 @@
 
 #include "command_decoding.hpp"
 #include "command_wire_kind.hpp"
+#include "protocol_constants.hpp"
 #include "protocol_v3_constants.hpp"
 
 #include "command_kind_mask.hpp"
 #include "command_registry.hpp"
 #include "commands/charge_command.hpp"
 #include "commands/clear_seat_command.hpp"
+#include "commands/rotate_velocity_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
@@ -26,6 +28,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -41,6 +44,10 @@ namespace {
 
 inline constexpr std::uint64_t kStampedEntityId = 7;
 inline constexpr std::uint64_t kStampedControllerId = 3;
+inline constexpr std::array<std::string_view, 11> kInvalidGenerationTokens{
+    "null", "0", "-1", "1.5", "1.0", "1e0", R"("1")", "9007199254740992", "true", "[]", "{}"};
+inline constexpr std::array<std::string_view, 3> kBrakingMembers{"", R"(,"braking":false)",
+                                                                 R"(,"braking":true)"};
 
 [[nodiscard]] simulation::EntityId stamped_entity() {
   return simulation::EntityId::create(kStampedEntityId);
@@ -96,6 +103,16 @@ inline constexpr std::uint64_t kStampedControllerId = 3;
   return protocol::decode_command_envelope(
       std::string{R"({"kind":"charge","payload":)"} + std::string{payload} + "}", charge_only(),
       stamped_entity(), stamped_controller(), simulation::NpcCatalogue::create(npc_kinds));
+}
+
+[[nodiscard]] protocol::CommandDecodeResult
+decode_rotation(const std::string_view payload,
+                const simulation::EntityId entity = stamped_entity()) {
+  const std::vector<std::string> npc_kinds = published_npc_kinds();
+  return protocol::decode_command_envelope(
+      std::string{R"({"kind":"rotate_velocity","payload":)"} + std::string{payload} + "}",
+      simulation::CommandKindMask::create({simulation::CommandKind::kRotateVelocity}), entity,
+      stamped_controller(), simulation::NpcCatalogue::create(npc_kinds));
 }
 
 [[nodiscard]] protocol::CommandDecodeResult decode_shield(const std::string_view payload) {
@@ -238,30 +255,25 @@ TEST_CASE("Command decoder rejects the server-issued kinds the wire deliberately
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kStartMatch) == "start_match");
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kShield) == "shield");
   CHECK(protocol::client_command_wire_name(simulation::CommandKind::kCharge) == "charge");
+  CHECK(protocol::client_command_wire_name(simulation::CommandKind::kRotateVelocity) ==
+        "rotate_velocity");
 }
 
 TEST_CASE("The closed v3 client command vocabulary is ascending and selects one kind per name",
           "[unit][protocol][v3][decoding][vocabulary]") {
-  // Eight since Step 19's `charge`. The two static_asserts in `command_wire_kind.hpp` check only
-  // the count and that every published name selects *a* kind, and a consistently wrong permutation
-  // satisfies both -- so the mapping is written out here name by name, and **this is the only place
-  // it is checked**.
-  //
-  // Step 18 inserted `"shield"` between `set_thrust` and `start_match` and moved one index. Step 19
-  // inserted `"charge"` ahead of `"clear_seat"` -- `h` precedes `l` -- which moved all seven:
-  // clear_seat 0->1, seat_npc 1->2, set_movement_tuning 2->3, set_seat_count 3->4, set_thrust 4->5,
-  // shield 5->6, start_match 6->7. Each `client_command_kind_of_wire_name` line below is one of
-  // those indices read back through `CommandWireKind`, so an index left behind fails here by
-  // selecting a neighbour's kind rather than by failing to compile.
-  CHECK(protocol::kV3ClientCommandKindNames.size() == 8);
+  // Pin every mapping: count and name round trips alone admit a consistently wrong permutation.
+  CHECK(protocol::kV3ClientCommandKindNames.size() == 9);
   CHECK(std::ranges::is_sorted(protocol::kV3ClientCommandKindNames));
   CHECK(protocol::kV3ClientCommandKindNames ==
-        std::array<std::string_view, 8>{"charge", "clear_seat", "seat_npc", "set_movement_tuning",
-                                        "set_seat_count", "set_thrust", "shield", "start_match"});
+        std::array<std::string_view, 9>{"charge", "clear_seat", "rotate_velocity", "seat_npc",
+                                        "set_movement_tuning", "set_seat_count", "set_thrust",
+                                        "shield", "start_match"});
 
   CHECK(protocol::client_command_kind_of_wire_name("charge") == simulation::CommandKind::kCharge);
   CHECK(protocol::client_command_kind_of_wire_name("clear_seat") ==
         simulation::CommandKind::kClearSeat);
+  CHECK(protocol::client_command_kind_of_wire_name("rotate_velocity") ==
+        simulation::CommandKind::kRotateVelocity);
   CHECK(protocol::client_command_kind_of_wire_name("seat_npc") ==
         simulation::CommandKind::kSeatNpc);
   CHECK(protocol::client_command_kind_of_wire_name("set_movement_tuning") ==
@@ -275,10 +287,133 @@ TEST_CASE("The closed v3 client command vocabulary is ascending and selects one 
         simulation::CommandKind::kStartMatch);
 
   CHECK(protocol::is_v3_client_command_kind("charge"));
+  CHECK(protocol::is_v3_client_command_kind("rotate_velocity"));
+  CHECK_FALSE(protocol::client_command_kind_of_wire_name("rotate").has_value());
   CHECK(protocol::is_v3_client_command_kind("shield"));
   CHECK_FALSE(protocol::client_command_kind_of_wire_name("shielded").has_value());
   CHECK_FALSE(protocol::client_command_kind_of_wire_name("charging").has_value());
   CHECK_FALSE(protocol::client_command_kind_of_wire_name("").has_value());
+}
+
+TEST_CASE("Rotation decoder preserves both turns and exact generations on the stamped entity",
+          "[unit][protocol][v3][decoding][rotate_velocity][input_generation]") {
+  const std::array<std::optional<std::uint64_t>, 3> generations{std::nullopt, 1,
+                                                                protocol::kMaximumSafeInteger};
+  for (const std::string_view direction : {"left", "right"}) {
+    for (const auto generation : generations) {
+      for (const std::uint64_t entity_id : {kStampedEntityId, std::uint64_t{4'242}}) {
+        CAPTURE(direction, generation, entity_id);
+        const std::string payload =
+            std::string{R"({"direction":")"} + std::string{direction} + R"(")" +
+            (generation.has_value()
+                 ? std::string{R"(,"input_generation":)"} + std::to_string(*generation)
+                 : "") +
+            "}";
+        const auto result = decode_rotation(payload, simulation::EntityId::create(entity_id));
+        REQUIRE(result.is_accepted());
+        REQUIRE(result.command().has_value());
+        const auto* const rotation =
+            std::get_if<simulation::RotateVelocityCommand>(&*result.command());
+        REQUIRE(rotation != nullptr);
+        CHECK(rotation->entity == simulation::EntityId::create(entity_id));
+        CHECK(rotation->clockwise == (direction == "right"));
+        CHECK(rotation->input_generation ==
+              (generation.has_value() ? std::optional{simulation::TickSequence::create(*generation)}
+                                      : std::nullopt));
+      }
+    }
+  }
+}
+
+TEST_CASE("Rotation decoder refuses missing malformed directions and extra client authority",
+          "[unit][protocol][v3][decoding][rotate_velocity][rejection]") {
+  for (const std::string_view payload :
+       {"{}", R"({"direction":null})", R"({"direction":true})", R"({"direction":1})",
+        R"({"direction":[]})", R"({"direction":{}})", R"({"direction":""})",
+        R"({"direction":"up"})", R"({"direction":"Left"})", R"({"direction":"right "})",
+        R"({"direction":"left","entity_id":9})", R"({"direction":"right","controller_id":9})",
+        R"({"direction":"left","speed":9000})", R"({"direction":"right","angle":90})",
+        R"({"direction":"left","input_generation":1,"entity_id":9})"}) {
+    CAPTURE(payload);
+    const auto result = decode_rotation(payload);
+    CHECK_FALSE(result.is_accepted());
+    CHECK(result.rejection() == protocol::CommandDecodeRejection::kPayloadInvalid);
+    CHECK_FALSE(result.command().has_value());
+  }
+}
+
+TEST_CASE("Rotation decoder refuses malformed present input generations for both turns",
+          "[unit][protocol][v3][decoding][rotate_velocity][input_generation][rejection]") {
+  for (const std::string_view direction : {"left", "right"}) {
+    for (const auto token : kInvalidGenerationTokens) {
+      CAPTURE(direction, token);
+      const auto result =
+          decode_rotation(std::string{R"({"direction":")"} + std::string{direction} +
+                          R"(","input_generation":)" + std::string{token} + "}");
+      CHECK_FALSE(result.is_accepted());
+      CHECK(result.rejection() == protocol::CommandDecodeRejection::kPayloadInvalid);
+      CHECK_FALSE(result.command().has_value());
+    }
+  }
+}
+
+TEST_CASE("A mode whose accepted mask omits rotation refuses it before its payload",
+          "[unit][protocol][v3][decoding][rotate_velocity][rejection]") {
+  require_rejection(R"({"kind":"rotate_velocity","payload":{"direction":"left"}})",
+                    protocol::CommandDecodeRejection::kKindRejected);
+  require_rejection(
+      R"({"kind":"rotate_velocity","payload":{"direction":"right","input_generation":1}})",
+      protocol::CommandDecodeRejection::kKindRejected);
+  require_rejection(
+      R"({"kind":"rotate_velocity","payload":{"direction":"up","input_generation":0}})",
+      protocol::CommandDecodeRejection::kKindRejected);
+}
+
+TEST_CASE("Thrust decoder preserves optional braking and exact input generations",
+          "[unit][protocol][v3][decoding][braking][input_generation]") {
+  const std::array<std::optional<std::uint64_t>, 3> generations{std::nullopt, 1,
+                                                                protocol::kMaximumSafeInteger};
+  for (const auto braking_member : kBrakingMembers) {
+    for (const auto generation : generations) {
+      CAPTURE(braking_member, generation);
+      const std::string frame = std::string{R"({"kind":"set_thrust","payload":{"x":1,"y":-0.5)"} +
+                                std::string{braking_member} +
+                                (generation.has_value() ? std::string{R"(,"input_generation":)"} +
+                                                              std::to_string(*generation)
+                                                        : "") +
+                                "}}";
+      const auto result = decode(frame);
+      REQUIRE(result.is_accepted());
+      REQUIRE(result.command().has_value());
+      const auto* const thrust = std::get_if<simulation::ThrustCommand>(&*result.command());
+      REQUIRE(thrust != nullptr);
+      CHECK(thrust->entity == stamped_entity());
+      CHECK(thrust->direction == simulation::Vector2::create(1, -0.5));
+      CHECK(thrust->braking == (braking_member == R"(,"braking":true)"));
+      CHECK(thrust->input_generation ==
+            (generation.has_value() ? std::optional{simulation::TickSequence::create(*generation)}
+                                    : std::nullopt));
+    }
+  }
+}
+
+TEST_CASE("Thrust decoder refuses nonboolean brakes and malformed generations even while braking",
+          "[unit][protocol][v3][decoding][braking][input_generation][rejection]") {
+  for (const std::string_view token : {"null", "0", "1", "-1", "0.0", R"("true")", "[]", "{}"}) {
+    CAPTURE(token);
+    require_rejection(std::string{R"({"kind":"set_thrust","payload":{"x":0,"y":0,"braking":)"} +
+                          std::string{token} + "}}",
+                      protocol::CommandDecodeRejection::kPayloadInvalid);
+  }
+  for (const auto braking_member : kBrakingMembers) {
+    for (const auto token : kInvalidGenerationTokens) {
+      CAPTURE(braking_member, token);
+      require_rejection(std::string{R"({"kind":"set_thrust","payload":{"x":0,"y":0)"} +
+                            std::string{braking_member} + R"(,"input_generation":)" +
+                            std::string{token} + "}}",
+                        protocol::CommandDecodeRejection::kPayloadInvalid);
+    }
+  }
 }
 
 TEST_CASE("Shield decoder accepts a spelled generation and stamps the session's own entity",

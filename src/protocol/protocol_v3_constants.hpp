@@ -27,7 +27,7 @@ namespace blob_royale::protocol {
 
 // This major opens with immutable welcome terrain. Planned behaviors extend 3.0 with their
 // authoritative implementation and complete wire contract; development commits are not releases.
-inline constexpr std::string_view kProtocolV3Version = "3.0";
+inline constexpr std::string_view kProtocolV3Version = "3.1";
 
 inline constexpr std::string_view kWelcomeMessageSchemaId =
     "blob-royale://protocol/v3/welcome-message";
@@ -80,23 +80,16 @@ inline constexpr double kThrustComponentMaximumMagnitude = 1.0;
 // The closed component-kind vocabulary of `common.schema.json#/$defs/component_kind`, in the
 // schema's own ascending order, which is also the order `docs/protocol/v3.md`
 // § "Object member order" requires component keys to be encoded in.
-inline constexpr std::array<std::string_view, 17> kV3ComponentKindNames{"charge",
-                                                                        "contact_effect_admission",
-                                                                        "controllable",
-                                                                        "hill",
-                                                                        "hill_motion",
-                                                                        "hill_presence",
-                                                                        "lethal_on_contact",
-                                                                        "lifetime",
-                                                                        "physics_body",
-                                                                        "race_progress",
-                                                                        "respawn_timer",
-                                                                        "score",
-                                                                        "shield",
-                                                                        "stun",
-                                                                        "team",
-                                                                        "zone",
-                                                                        "zone_exposure"};
+inline constexpr std::array<std::string_view, 18> kV3ComponentKindNames{
+    "charge",        "contact_effect_admission",
+    "controllable",  "crossing_hazard",
+    "hill",          "hill_motion",
+    "hill_presence", "lethal_on_contact",
+    "lifetime",      "physics_body",
+    "race_progress", "respawn_timer",
+    "score",         "shield",
+    "stun",          "team",
+    "zone",          "zone_exposure"};
 
 // The client-sendable command vocabulary of `common.schema.json#/$defs/command_kind`, in the
 // schema's own ascending order. It names neither `spawn` nor `despawn`: both are server-issued on
@@ -115,14 +108,16 @@ inline constexpr std::array<std::string_view, 17> kV3ComponentKindNames{"charge"
 // one-character difference easy to read past -- and reading past it renumbers the whole file
 // silently, because the two static_asserts over there check the count and surjectivity, both of
 // which a consistently wrong permutation satisfies.
-inline constexpr std::array<std::string_view, 8> kV3ClientCommandKindNames{
-    "charge",         "clear_seat", "seat_npc", "set_movement_tuning",
-    "set_seat_count", "set_thrust", "shield",   "start_match"};
+inline constexpr std::array<std::string_view, 9> kV3ClientCommandKindNames{
+    "charge",         "clear_seat", "rotate_velocity", "seat_npc",   "set_movement_tuning",
+    "set_seat_count", "set_thrust", "shield",          "start_match"};
 
 inline constexpr double kMovementAccelerationMinimum = 0.0;
 inline constexpr double kMovementAccelerationMaximum = 10'000.0;
 inline constexpr double kMovementNormalTopSpeedMinimum = 1.0;
 inline constexpr double kMovementNormalTopSpeedMaximum = 10'000.0;
+inline constexpr double kMovementChargeSpeedFractionMaximum = 100'000'000.0;
+inline constexpr double kMovementCrossingSpawnRateMaximum = 5.0;
 inline constexpr std::uint64_t kMovementTuningMinimumIntervalMilliseconds = 500;
 
 // canonical: lobby_seat_wire_bounds -- the seat index and seat count a v3 frame may carry.

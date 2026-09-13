@@ -159,6 +159,14 @@ void validate_command(const Command& command, const CommandKindMask accepted_kin
                                           command_position(submission_index));
     }
   }
+  if (const auto* rotation = std::get_if<RotateVelocityCommand>(&command); rotation != nullptr) {
+    if (rotation->input_generation == TickSequence::zero()) {
+      throw SimulationValidationError(SimulationValidationCode::kInputBatchInputGenerationZero,
+                                      "input_batch.commands.rotate_velocity.input_generation",
+                                      "a present input generation must be positive" +
+                                          command_position(submission_index));
+    }
+  }
   if (const auto* despawn = std::get_if<DespawnCommand>(&command); despawn != nullptr) {
     validate_despawn_target(*despawn, entity_id_reservation, submission_index);
   }

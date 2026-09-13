@@ -16,22 +16,34 @@ import { validateSessionSnapshotMessage } from '../sessionProtocolValidation';
 export const TUNING_UI_CURRENT = Object.freeze({
   acceleration_world_units_per_second_squared: 240,
   normal_top_speed_world_units_per_second: 950,
+  charge_speed_fraction: 0.75,
+  lethal_spawn_rate_per_second: 0.75,
+  nonlethal_spawn_rate_per_second: 0.35,
 });
 export const TUNING_UI_DEFAULTS = Object.freeze({
   acceleration_world_units_per_second_squared: 120,
   normal_top_speed_world_units_per_second: 850,
+  charge_speed_fraction: 0.5,
+  lethal_spawn_rate_per_second: 0.5,
+  nonlethal_spawn_rate_per_second: 0.25,
 });
 export const TUNING_UI_DRAFT = Object.freeze({
   acceleration_world_units_per_second_squared: 480,
   normal_top_speed_world_units_per_second: 1250,
+  charge_speed_fraction: 1,
+  lethal_spawn_rate_per_second: 1.25,
+  nonlethal_spawn_rate_per_second: 0.75,
 });
 export const TUNING_UI_PEER = Object.freeze({
   acceleration_world_units_per_second_squared: 360,
   normal_top_speed_world_units_per_second: 1100,
+  charge_speed_fraction: 1.5,
+  lethal_spawn_rate_per_second: 2,
+  nonlethal_spawn_rate_per_second: 1,
 });
 export const TUNING_UI_REVISION = 4;
 
-/** Distinct authored/current/draft pairs prevent hardcoded defaults from passing controls tests. */
+/** Distinct authored/current/draft values prevent hardcoded defaults from passing controls tests. */
 export function movementTuningConnection(
   sendCommand: SimulationCommandSender,
   overrides: Partial<SimulationConnection> = {},
@@ -42,6 +54,12 @@ export function movementTuningConnection(
     ...document.data.match.movement,
     current: { ...TUNING_UI_CURRENT },
     defaults: { ...TUNING_UI_DEFAULTS },
+    limits: {
+      ...document.data.match.movement.limits,
+      charge_speed_fraction: { minimum: 0, maximum: 2 },
+      lethal_spawn_rate_per_second: { minimum: 0, maximum: 5 },
+      nonlethal_spawn_rate_per_second: { minimum: 0, maximum: 5 },
+    },
     revision: TUNING_UI_REVISION,
     effective_tick: document.data.tick_sequence,
   };
@@ -65,7 +83,7 @@ export function movementTuningConnection(
   };
 }
 
-/** A new coherent authoritative pair/revision without inventing an individual request outcome. */
+/** A new coherent authoritative values/revision without inventing an individual request outcome. */
 export function withMovement(
   connection: SimulationConnection,
   changes: Partial<SessionMovementState>,

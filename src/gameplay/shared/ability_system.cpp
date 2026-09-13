@@ -119,13 +119,11 @@ void AbilitySystem::apply(simulation::GameWorld& world,
     world.mutable_store<simulation::Shield>().erase(entity);
   }
 
-  // The charge expiry sweep, a second pass over a second store for the same reason and by the same
-  // collect-then-erase rule. A `Charge` carries one window and nothing else -- the burst was
-  // committed to the body's velocity on the activation tick and there is no active effect left to
-  // outlive -- so an expired cooldown makes the whole component dead weight.
+  // Retain the contact attempt independently of cooldown. A naturally ready pulse may replace it,
+  // but mere expiry cleanup removes the value only after both windows have ended.
   std::vector<simulation::EntityId> expired_charges;
   for (const auto& entry : world.store<simulation::Charge>().entries()) {
-    if (entry.value.cooldown_window().expired(tick)) {
+    if (entry.value.cooldown_window().expired(tick) && entry.value.active_window().expired(tick)) {
       expired_charges.push_back(entry.entity);
     }
   }
@@ -212,7 +210,8 @@ void AbilitySystem::apply(simulation::GameWorld& world,
         const bool charge_pulse_admitted =
             charge_pulse != nullptr &&
             charge_pulse->input_generation == controllable.input_generation && !protection_active &&
-            !charge_cooling;
+            !charge_cooling && !controllable.braking_intent &&
+            world.match().movement.current.charge_speed_fraction() > 0.0;
         // The last two terms of `charge_admissible` -- a unit direction obtainable, and the safety
         // envelope admitting the result -- are exactly "a velocity came back". `body.velocity()` is
         // read here, before any write: the join hands out a reference into the `PhysicsBody` store,
@@ -220,14 +219,12 @@ void AbilitySystem::apply(simulation::GameWorld& world,
         // which is what keeps the forward walk valid, exactly as the steering system records --
         // that assignment mutates the referent.
         //
-        // The gain is `charge_speed_fraction` times the **current** normal ceiling read from match
-        // state, not an authored speed: ADR 0008 says "0.75 times the current normal movement
-        // ceiling" and that ceiling is live-tunable, so a room that retunes its movement retunes
-        // its charge with it (`../../simulation/movement_tuning_state.hpp`).
+        // Both the gain fraction and normal ceiling are live room tuning. The separately authored
+        // envelope still refuses the entire burst if the resulting velocity would leave it.
         const std::optional<simulation::Vector2> committed_velocity =
             charge_pulse_admitted
                 ? charged_velocity(body.velocity(), charge_pulse->direction,
-                                   configuration_.charge_speed_fraction() *
+                                   world.match().movement.current.charge_speed_fraction() *
                                        world.match().movement.current.normal_top_speed(),
                                    configuration_.charge_safety_envelope_speed())
                 : std::optional<simulation::Vector2>{};
@@ -249,7 +246,10 @@ void AbilitySystem::apply(simulation::GameWorld& world,
         // branch ran.
         if (charge_admissible && !shield_eligible) {
           world.mutable_store<simulation::Charge>().insert_or_assign(
-              entity, simulation::Charge::activate(tick, configuration_.charge_cooldown_ticks()));
+              entity,
+              simulation::Charge::activate(tick, configuration_.charge_cooldown_ticks(),
+                                           configuration_.charge_active_duration_ticks(),
+                                           configuration_.charge_hit_stun_duration_ticks()));
           // `insert_or_assign` on an id the store already holds assigns in place: it neither
           // inserts nor moves an entry, so the join's forward walk over the same store stays valid
           // and the ascending order is untouched.

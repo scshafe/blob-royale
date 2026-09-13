@@ -140,7 +140,13 @@ TEST_CASE("a recorded charge transfers momentum before its free endpoint passes 
   REQUIRE(kDampedDisplacement > 10.0 + 2.0 * kPlayerRadius);
 
   const auto& contact = at_tick(snapshots, kChargeTick);
-  check_charge(contact, charger, kChargeTick);
+  CHECK_FALSE(component_of<simulation::Charge>(contact, charger).has_value());
+  const auto hit_stun = component_of<simulation::Stun>(contact, target);
+  REQUIRE(hit_stun.has_value());
+  CHECK(hit_stun->window.activation_tick() == simulation::TickSequence::create(kChargeTick));
+  CHECK(hit_stun->window.expiry_tick() ==
+        simulation::TickSequence::create(
+            kChargeTick + fixture.mode_configuration().abilities.charge_hit_stun_duration_ticks()));
   const auto stopped = body_of(contact, charger);
   const auto pushed = body_of(contact, target);
   check_position(stopped, kSpawnX + kContactTravel, kCenterY);
@@ -332,7 +338,14 @@ TEST_CASE("ordinary shields quarter charged impacts on both protected boundaries
     CHECK(body_of(before, attacker).velocity() == point(0.0, 0.0));
     CHECK(body_of(before, defender).velocity() == point(0.0, 0.0));
     const auto& contact = at_tick(snapshots, expected.contact_tick);
-    check_charge(contact, attacker, expected.contact_tick);
+    if (expected.impulse_fraction == 0.25) {
+      check_charge(contact, attacker, expected.contact_tick);
+      CHECK(component_of<simulation::Charge>(contact, attacker)
+                ->active_window()
+                .expired(contact_tick));
+    } else {
+      CHECK_FALSE(component_of<simulation::Charge>(contact, attacker).has_value());
+    }
     const auto stopped = body_of(contact, attacker);
     const auto pushed = body_of(contact, defender);
     check_position(stopped, kAttackerX + kContactTravel, expected.center_y);
@@ -342,7 +355,8 @@ TEST_CASE("ordinary shields quarter charged impacts on both protected boundaries
     CHECK(stopped.velocity() == point(0.0, 0.0));
     CHECK(pushed.velocity() == point(kBurstSpeed * expected.impulse_fraction, 0.0));
     CHECK_FALSE(component_of<simulation::Stun>(contact, attacker).has_value());
-    CHECK_FALSE(component_of<simulation::Stun>(contact, defender).has_value());
+    CHECK(component_of<simulation::Stun>(contact, defender).has_value() ==
+          (expected.impulse_fraction == 1.0));
     CHECK(component_of<simulation::Shield>(contact, defender) == shield);
     CHECK(contact.match().phase() == simulation::MatchPhase::kRunning);
   }

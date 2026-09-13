@@ -38,11 +38,16 @@ export const protocolV3Schemas = {
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/charge-component.schema.json',
     title: 'Blob Royale protocol v3 charge component',
     description:
-      "Body-bound one-shot charge: the tick a burst was committed on and the first tick a new one may be committed. Charge publishes no active window because it has none. The burst is an instantaneous additive change to the body's velocity applied on activation_tick and thereafter owned by ordinary motion, so this component's presence means a cooldown is running, never that a charge is in flight, and its absence means only that no cooldown is running. The velocity itself is not republished here: physics_body already carries it, and a second copy would be a second source of truth. activation_tick is published as well as the expiry because a cooldown arc needs its denominator and the authored cooldown length is deliberately server-side; both members are absolute ticks rather than a countdown, so a frame a client buffered or received late still reads true. cooldown_expiry_tick is STRICTLY greater than activation_tick -- never equal, unlike every shield endpoint -- and that ordering needs semantic validation after JSON Schema, which cannot compare members. No shield member exists here; shield is a separate ability that owns its own published windows, and one body may carry both components at once.",
+      'Independent active-hit and cooldown windows over an additive velocity burst. A successful first player impact consumes this component and refunds cooldown; blocked/stunned/braked attempts retain cooldown with a canceled active window. Active windows may outlive cooldown.',
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
-    required: ['activation_tick', 'cooldown_expiry_tick'],
+    required: [
+      'activation_tick',
+      'cooldown_expiry_tick',
+      'active_expiry_tick',
+      'hit_stun_duration_ticks',
+    ],
     properties: {
       activation_tick: {
         $ref: 'common.schema.json#/$defs/tick_sequence',
@@ -54,9 +59,15 @@ export const protocolV3Schemas = {
         description:
           'First tick at which a new charge may be admitted. Always strictly greater than activation_tick: the authored cooldown is validated strictly positive, so this window is never empty.',
       },
+      active_expiry_tick: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+      },
+      hit_stun_duration_ticks: {
+        $ref: 'common.schema.json#/$defs/safe_integer',
+      },
     },
     $comment:
-      'Both endpoints are tick_sequence rather than safe_integer or phase_start_tick, for the reason the shield component states: an expiry is never earlier than its own positive activation_tick, so zero is not a truthful value for either, and phase_start_tick admits zero only for a lobby with no committed transition, which has no charge analogue. Where shield exempts its cooldown from strict ordering, charge cannot: shield admission is gated a second time by the end of its own protection window, and charge has no protection window, so a cooldown rounding to zero ticks would admit a burst on every tick. The configuration therefore validates charge_cooldown_seconds strictly positive and this schema documents the strict inequality the encoder enforces. Only the shared ability system removes the component, once the cooldown has expired; body loss and round reset clear it through the Step 13 lifetime trait. Added with the Step 19 one-shot charge under protocol 3.0; no session major, no new close code, and no per-request activation receipt is introduced.',
+      'activation_tick <= active_expiry_tick and activation_tick < cooldown_expiry_tick. A nonempty active window requires positive hit_stun_duration_ticks. Empty active windows permit cooldown-only fixtures or cancellation. Remove only once both windows expire, on success, or body loss.',
   },
   clearSeatCommand: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -231,6 +242,23 @@ export const protocolV3Schemas = {
           },
         },
       },
+      {
+        if: {
+          properties: {
+            kind: {
+              const: 'rotate_velocity',
+            },
+          },
+          required: ['kind'],
+        },
+        then: {
+          properties: {
+            payload: {
+              $ref: 'rotate-velocity-command.schema.json',
+            },
+          },
+        },
+      },
     ],
     $comment:
       '@extension-point command_kind -- a new client command adds one enum member in common.schema.json#/$defs/command_kind, one <kind>-command.schema.json file, one if/then row here, and one maxItems bump in welcome-data.schema.json, and is a protocol minor version.',
@@ -245,9 +273,9 @@ export const protocolV3Schemas = {
     $defs: {
       protocol_version: {
         type: 'string',
-        const: '3.0',
+        const: '3.1',
         $comment:
-          'One session major opens with required welcome terrain and explicit v2 retirement. Later planned authoritative behaviors land under 3.0 with their complete contracts; development commits are not independent deployable releases. See docs/protocol/v3.md.',
+          'Released 3.1 adds room controls, charge-hit windows, and random crossing markers. Newer minors fail closed; v3 routes/subprotocol remain.',
       },
       request_id: {
         type: 'string',
@@ -398,6 +426,7 @@ export const protocolV3Schemas = {
           'charge',
           'contact_effect_admission',
           'controllable',
+          'crossing_hazard',
           'hill',
           'hill_motion',
           'hill_presence',
@@ -419,6 +448,7 @@ export const protocolV3Schemas = {
         enum: [
           'charge',
           'clear_seat',
+          'rotate_velocity',
           'seat_npc',
           'set_movement_tuning',
           'set_seat_count',
@@ -469,7 +499,7 @@ export const protocolV3Schemas = {
         additionalProperties: false,
         properties: {
           required_protocol_version: {
-            const: '3.0',
+            const: '3.1',
             $comment:
               'Present only for PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED.',
           },
@@ -538,7 +568,7 @@ export const protocolV3Schemas = {
                   type: 'object',
                   properties: {
                     required_protocol_version: {
-                      const: '3.0',
+                      const: '3.1',
                     },
                   },
                   required: ['required_protocol_version'],
@@ -646,6 +676,17 @@ export const protocolV3Schemas = {
     $comment:
       "Controllable::commands_this_tick (ADR 0004) is deliberately NOT published. Publishing this tick's commands would disclose every player's live input to every other peer, which is a same-frame reaction advantage and a class of leak no rate limit can undo.",
   },
+  crossingHazardComponent: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/crossing-hazard-component.schema.json',
+    title: 'Blob Royale spawned crossing marker',
+    description:
+      'Presence identifies a spawned crossing object counted against the shared active population cap. PhysicsBody and Lifetime own its motion and expiry.',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    properties: {},
+  },
   entitySnapshot: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/entity-snapshot.schema.json',
@@ -666,6 +707,7 @@ export const protocolV3Schemas = {
         minProperties: 1,
         dependentRequired: {
           contact_effect_admission: ['physics_body'],
+          crossing_hazard: ['physics_body', 'lifetime'],
         },
         properties: {
           charge: {
@@ -718,6 +760,9 @@ export const protocolV3Schemas = {
           },
           zone_exposure: {
             $ref: 'zone-exposure-component.schema.json',
+          },
+          crossing_hazard: {
+            $ref: 'crossing-hazard-component.schema.json',
           },
         },
         $comment:
@@ -1416,6 +1461,9 @@ export const protocolV3Schemas = {
         required: [
           'acceleration_world_units_per_second_squared',
           'normal_top_speed_world_units_per_second',
+          'charge_speed_fraction',
+          'lethal_spawn_rate_per_second',
+          'nonlethal_spawn_rate_per_second',
         ],
         properties: {
           acceleration_world_units_per_second_squared: {
@@ -1441,6 +1489,51 @@ export const protocolV3Schemas = {
               },
               maximum: {
                 const: 10000,
+              },
+            },
+          },
+          charge_speed_fraction: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['minimum', 'maximum'],
+            properties: {
+              minimum: {
+                const: 0,
+              },
+              maximum: {
+                type: 'number',
+                minimum: 0,
+                maximum: 100000000,
+              },
+            },
+          },
+          lethal_spawn_rate_per_second: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['minimum', 'maximum'],
+            properties: {
+              minimum: {
+                const: 0,
+              },
+              maximum: {
+                type: 'number',
+                minimum: 0,
+                maximum: 5,
+              },
+            },
+          },
+          nonlethal_spawn_rate_per_second: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['minimum', 'maximum'],
+            properties: {
+              minimum: {
+                const: 0,
+              },
+              maximum: {
+                type: 'number',
+                minimum: 0,
+                maximum: 5,
               },
             },
           },
@@ -1480,20 +1573,23 @@ export const protocolV3Schemas = {
       },
     ],
     $comment:
-      'effective_tick must not exceed the containing snapshot tick. A revision change alone does not acknowledge any particular client request.',
+      'Current/default fields must fit the published room-specific limits. Zero class maximum means no authored objects of that class. Existing effective-tick and correlation rules remain.',
   },
   movementTuning: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/movement-tuning.schema.json',
     title: 'Blob Royale protocol v3 movement tuning',
     description:
-      'One absolute room-wide normal-propulsion pair. These parameter bounds do not cap external momentum or certify solver capacity.',
+      'One atomic room-tuning value. Charge adds fraction times normal top speed; class rates are expected births per second while crossing capacity is available.',
     'x-status': 'Accepted',
     type: 'object',
     additionalProperties: false,
     required: [
       'acceleration_world_units_per_second_squared',
       'normal_top_speed_world_units_per_second',
+      'charge_speed_fraction',
+      'lethal_spawn_rate_per_second',
+      'nonlethal_spawn_rate_per_second',
     ],
     properties: {
       acceleration_world_units_per_second_squared: {
@@ -1505,6 +1601,21 @@ export const protocolV3Schemas = {
         type: 'number',
         minimum: 1,
         maximum: 10000,
+      },
+      charge_speed_fraction: {
+        type: 'number',
+        minimum: 0,
+        maximum: 100000000,
+      },
+      lethal_spawn_rate_per_second: {
+        type: 'number',
+        minimum: 0,
+        maximum: 5,
+      },
+      nonlethal_spawn_rate_per_second: {
+        type: 'number',
+        minimum: 0,
+        maximum: 5,
       },
     },
   },
@@ -1707,6 +1818,25 @@ export const protocolV3Schemas = {
       },
     },
   },
+  rotateVelocityCommand: {
+    $schema: 'https://json-schema.org/draft/2020-12/schema',
+    $id: 'https://schemas.blob-royale.invalid/protocol/v3/rotate-velocity-command.schema.json',
+    title: 'Blob Royale quarter-turn command',
+    'x-status': 'Accepted',
+    type: 'object',
+    additionalProperties: false,
+    required: ['direction'],
+    properties: {
+      direction: {
+        enum: ['left', 'right'],
+      },
+      input_generation: {
+        $ref: 'common.schema.json#/$defs/tick_sequence',
+      },
+    },
+    $comment:
+      'The server rotates current velocity by exact sign/swap after charge admission. No client velocity/speed; absent input_generation is the initial generation.',
+  },
   royaleModeState: {
     $schema: 'https://json-schema.org/draft/2020-12/schema',
     $id: 'https://schemas.blob-royale.invalid/protocol/v3/royale-mode-state.schema.json',
@@ -1786,6 +1916,9 @@ export const protocolV3Schemas = {
       'expected_revision',
       'acceleration_world_units_per_second_squared',
       'normal_top_speed_world_units_per_second',
+      'charge_speed_fraction',
+      'lethal_spawn_rate_per_second',
+      'nonlethal_spawn_rate_per_second',
     ],
     properties: {
       tuning_request_id: {
@@ -1801,6 +1934,15 @@ export const protocolV3Schemas = {
       },
       normal_top_speed_world_units_per_second: {
         $ref: 'movement-tuning.schema.json#/properties/normal_top_speed_world_units_per_second',
+      },
+      charge_speed_fraction: {
+        $ref: 'movement-tuning.schema.json#/properties/charge_speed_fraction',
+      },
+      lethal_spawn_rate_per_second: {
+        $ref: 'movement-tuning.schema.json#/properties/lethal_spawn_rate_per_second',
+      },
+      nonlethal_spawn_rate_per_second: {
+        $ref: 'movement-tuning.schema.json#/properties/nonlethal_spawn_rate_per_second',
       },
     },
     $comment:
@@ -1845,6 +1987,11 @@ export const protocolV3Schemas = {
         $ref: 'common.schema.json#/$defs/tick_sequence',
         description:
           'The exact optional generation observed and captured for this activation, retained for its aim updates and zero release. Omit only for a never-invalidated entity. Server admission requires exact optional equality and no active stun; never retag queued input with a newer token.',
+      },
+      braking: {
+        type: 'boolean',
+        description:
+          'Held authoritative brake. Absence means false. Braking overrides propulsion and cancels an active charge attempt.',
       },
     },
     $comment:
@@ -2250,6 +2397,7 @@ export const protocolV3Schemas = {
           'rate_limited',
           'mailbox_full',
           'mailbox_evicted',
+          'unsupported_tuning',
         ],
       },
       decision_tick: {
@@ -2296,6 +2444,7 @@ export const protocolV3Schemas = {
                 'stale_revision',
                 'not_seated',
                 'revision_exhausted',
+                'unsupported_tuning',
               ],
             },
           },
@@ -2440,13 +2589,13 @@ export const protocolV3Schemas = {
       },
       accepted_command_kinds: {
         type: 'array',
-        maxItems: 8,
+        maxItems: 9,
         uniqueItems: true,
         items: {
           $ref: 'common.schema.json#/$defs/command_kind',
         },
         $comment:
-          "maxItems tracks the eight client-sendable kinds in common.schema.json. The published set is the intersection of the mode's accepted kinds with that vocabulary, never a server-issued kind such as spawn or despawn. Sandbox publishes set_thrust, shield and charge.",
+          'Nine client-sendable kinds; availability is the mode mask intersection.',
       },
       npc_controller_kinds: {
         type: 'array',

@@ -75,6 +75,14 @@ multiplies the fixture's own 10000 wu/s ceiling, so a charge in this workload wo
 additive burst; the royale case sends no `charge` command, so what the migration actually arms is
 the shared ability system's charge expiry pass, and that pass is a Step 19 workload change
 belonging to the step, not to this fixture.
+The 2026-09-13 playtest migration adds the required charge active and hit-stun durations and
+explicit zero hazard speed variation. Historical hazard interval numbers are retained, but they
+now supply mean class rates to the capped random scheduler. Hazard births and population therefore
+change deliberately; the JSON records `measured_royale_inputs_unchanged: false` and
+`hazard_schedule: capped_random_class_trials_v1`. The benchmark seeds room tuning through the
+same registered capability owner as production. Compare this workload with an explicit scheduling
+migration, not as an unchanged periodic-spawn baseline.
+
 It is no longer a byte-for-byte historical configuration. Historical workload values remain,
 and the provenance comment and JSON identify these migrations. This migration is not a new
 timing baseline or a claim of native performance certification.

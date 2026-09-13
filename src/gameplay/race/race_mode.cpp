@@ -7,6 +7,7 @@
 #include "race/ordered_checkpoint_trigger.hpp"
 #include "race/standings_recorder_system.hpp"
 #include "shared/ability_system.hpp"
+#include "shared/charge_contact_system.hpp"
 #include "shared/hazard_spawn_system.hpp"
 #include "shared/lifetime_expiry_system.hpp"
 #include "shared/match_reset_system.hpp"
@@ -14,6 +15,7 @@
 #include "shared/status_system.hpp"
 #include "shared/support_loss_trigger.hpp"
 #include "shared/thrust_steering_system.hpp"
+#include "shared/velocity_rotation_system.hpp"
 
 #include <memory>
 #include <utility>
@@ -57,15 +59,16 @@ simulation::SystemPipeline RaceMode::systems() const {
       simulation::SystemStage::kPreKernel, CoursePublisherSystem::create(course, configuration_)});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               ThrustSteeringSystem::create()});
-  // `ability` is last at kPreKernel here for the shared reason -- pulse admission reads the
-  // canonical input lock, so every kPreKernel system that can change what that lock answers has
-  // already run -- and in this mode that reason is load-bearing rather than tidy: the lock reads
-  // the `RaceModeState` block `course_publisher` writes, so a racer who has already completed the
-  // published course is refused a pulse on the very first quantum of a directly seeded world.
+  // The course publisher establishes the finished-racer input lock before either ability or
+  // rotation reads it. Rotation follows ability so a newly admitted burst can turn this tick.
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
                                                               AbilitySystem::create(abilities_)});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPreKernel,
+                                                              VelocityRotationSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{
       simulation::SystemStage::kPostKernel, CheckpointProgressSystem::create(course)});
+  declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
+                                                              ChargeContactSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{simulation::SystemStage::kPostKernel,
                                                               StatusSystem::create()});
   declared.push_back(simulation::SystemPipeline::StagedSystem{

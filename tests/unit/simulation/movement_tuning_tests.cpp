@@ -5,7 +5,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <bit>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <type_traits>
 #include <utility>
 
@@ -59,4 +61,34 @@ TEST_CASE("movement tuning is an independent value across copies moves and tempo
   CHECK(original == simulation::MovementTuning::create(4'000.0, 10'000.0));
   CHECK(moved != original);
   CHECK(simulation::MovementTuning::create(0.0, 1.0).normal_top_speed() == 1.0);
+}
+
+TEST_CASE("charge and crossing rates admit their bounds and reject nonfinite or excess values",
+          "[unit][simulation][movement_tuning][validation]") {
+  for (const double zero : {0.0, -0.0}) {
+    const auto value = simulation::MovementTuning::create(400.0, 600.0, zero, zero, zero);
+    CHECK_FALSE(std::signbit(value.charge_speed_fraction()));
+    CHECK_FALSE(std::signbit(value.lethal_spawn_rate_per_second()));
+    CHECK_FALSE(std::signbit(value.nonlethal_spawn_rate_per_second()));
+  }
+  CHECK_NOTHROW(simulation::MovementTuning::create(400.0, 600.0,
+                                                   simulation::kMaximumChargeSpeedFraction,
+                                                   simulation::kMaximumCrossingSpawnRatePerSecond,
+                                                   simulation::kMaximumCrossingSpawnRatePerSecond));
+  for (const double invalid :
+       {-1.0, std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+    CHECK_THROWS_AS(simulation::MovementTuning::create(400.0, 600.0, invalid),
+                    simulation::SimulationValidationError);
+    CHECK_THROWS_AS(simulation::MovementTuning::create(400.0, 600.0, 0.75, invalid, 0.0),
+                    simulation::SimulationValidationError);
+    CHECK_THROWS_AS(simulation::MovementTuning::create(400.0, 600.0, 0.75, 0.0, invalid),
+                    simulation::SimulationValidationError);
+  }
+  CHECK_THROWS_AS(simulation::MovementTuning::create(400.0, 600.0,
+                                                     simulation::kMaximumChargeSpeedFraction + 1.0),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(simulation::MovementTuning::create(400.0, 600.0, 0.75, 5.01, 0.0),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(simulation::MovementTuning::create(400.0, 600.0, 0.75, 0.0, 5.01),
+                  simulation::SimulationValidationError);
 }

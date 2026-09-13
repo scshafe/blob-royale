@@ -512,7 +512,7 @@ describe('charge protocol', () => {
   }
 
   it.each(ACCEPTED_CHARGE_COMPONENTS)(
-    'accepts $name and publishes its two members unchanged',
+    'accepts $name and publishes all captured members unchanged',
     ({ value }) => {
       const snapshot = validateSessionSnapshotMessage(
         chargeSnapshotDocument(value),
@@ -520,12 +520,12 @@ describe('charge protocol', () => {
       );
       const charge = publishedCharge(snapshot);
       expect(charge).toEqual(value);
-      // The published order is the encoder's, and the pair is closed at two: the activation is the
-      // denominator a cooldown arc needs and the expiry is its end, so a client that dropped or
-      // reordered one would draw an arc against the wrong endpoint. Both are public by contract.
+      // Preserve all four captured facts in the canonical encoder order.
       expect(Object.keys(charge ?? {})).toEqual([
         'activation_tick',
         'cooldown_expiry_tick',
+        'active_expiry_tick',
+        'hit_stun_duration_ticks',
       ]);
       expect(Object.isFrozen(charge)).toBe(true);
     },
@@ -547,9 +547,8 @@ describe('charge protocol', () => {
     // The one case where the two abilities part company, asserted directly rather than only through
     // the corpus so the asymmetry is stated where a reader comparing the two blocks will find it.
     // Shield admits an expiry equal to its activation because a stun cancels protection to zero
-    // length while the cooldown keeps running; charge has no protection window and no cancellation,
-    // so the same shape would describe a one-shot with no cooldown at all -- four hundred bursts a
-    // second, which is exactly why the authored value is validated strictly positive at load.
+    // length while cooldown keeps running. Charge cancellation also preserves its cooldown, so
+    // only its active window may become empty; natural readiness still requires a positive wait.
     expect(() =>
       validateSessionSnapshotMessage(
         chargeSnapshotDocument({
@@ -884,6 +883,45 @@ describe('movement tuning protocol', () => {
       );
       expect(() =>
         validateSessionSnapshotMessage(document, welcomeSequence),
+      ).toThrow();
+    },
+  );
+
+  it.each([
+    'charge_speed_fraction',
+    'lethal_spawn_rate_per_second',
+    'nonlethal_spawn_rate_per_second',
+  ] as const)(
+    'checks current and authored %s against the room maximum',
+    (field) => {
+      for (const source of ['current', 'defaults'] as const) {
+        const document = snapshotDocument();
+        document.data.match.movement.limits[field].maximum = 0.25;
+        document.data.match.movement.current[field] = 0;
+        document.data.match.movement.defaults[field] = 0;
+        document.data.match.movement[source][field] = 0.5;
+        expect(() =>
+          validateSessionSnapshotMessage(document, welcomeSequence),
+        ).toThrow();
+      }
+    },
+  );
+
+  it.each([
+    'charge_speed_fraction',
+    'lethal_spawn_rate_per_second',
+    'nonlethal_spawn_rate_per_second',
+  ] as const)(
+    'requires an applied result to cover the exact requested %s',
+    (field) => {
+      const snapshot = validateSessionSnapshotMessage(
+        tuningSnapshotDocument(),
+        welcomeSequence,
+      );
+      const command = structuredClone(tuningCommand());
+      Reflect.set(command.payload, field, command.payload[field] + 0.25);
+      expect(() =>
+        validateSessionTuningResult(snapshot, command.payload),
       ).toThrow();
     },
   );
@@ -1304,8 +1342,8 @@ describe('validateSessionSnapshotMessage', () => {
 
   it('fails closed on a protocol minor it cannot decode, before shape validation', () => {
     const document = snapshotDocument();
-    // One minor ahead of the active 3.0 contract.
-    document.meta.protocol_version = '3.1';
+    // One minor ahead of the active 3.1 contract.
+    document.meta.protocol_version = '3.2';
     Reflect.deleteProperty(document.data, 'match');
 
     expect(() =>
@@ -1314,7 +1352,7 @@ describe('validateSessionSnapshotMessage', () => {
       expect.objectContaining<Partial<SimulationApiError>>({
         code: 'SIMULATION.SESSION_VERSION_UNSUPPORTED',
         context: {
-          protocol_version: '3.1',
+          protocol_version: '3.2',
           supported_protocol_version: SUPPORTED_PROTOCOL_VERSION,
         },
       }),
@@ -1497,7 +1535,7 @@ describe('validateLobbyDirectoryMessage', () => {
   it('fails closed on a newer protocol minor before shape validation', () => {
     const document = structuredClone(lobbyDirectoryMessageExample);
     // One minor ahead of the supported set, moved with every minor as the session case above is.
-    document.meta.protocol_version = '3.1';
+    document.meta.protocol_version = '3.2';
 
     expect(() => validateLobbyDirectoryMessage(document, requestId)).toThrow(
       expect.objectContaining({
@@ -1578,8 +1616,8 @@ describe('validateSessionHttpErrorResponse', () => {
       ...structuredClone(sessionErrorResponseExample),
       error: {
         code: 'PROTOCOL.SESSION_VERSION_UPGRADE_REQUIRED',
-        details: { required_protocol_version: '3.0' },
-        message: 'This session requires protocol 3.0.',
+        details: { required_protocol_version: '3.1' },
+        message: 'This session requires protocol 3.1.',
         retryable: false,
       },
     };
@@ -1598,7 +1636,7 @@ describe('validateSessionHttpErrorResponse', () => {
       validateSessionHttpErrorResponse(document, 426, requestId),
     ).toThrow();
     document.error.retryable = false;
-    document.error.details.required_protocol_version = '3.1';
+    document.error.details.required_protocol_version = '3.2';
     expect(() =>
       validateSessionHttpErrorResponse(document, 426, requestId),
     ).toThrow();

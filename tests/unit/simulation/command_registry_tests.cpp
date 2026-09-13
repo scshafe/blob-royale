@@ -105,10 +105,11 @@ start_match_command(const simulation::ControllerId::Value controller) {
 
 TEST_CASE("CommandRegistry declares the engine command kinds in a closed ordered variant",
           "[unit][simulation][command_registry]") {
-  // Twelve, because `charge` was registered: the count moves only when a kind joins the variant,
-  // and the alternative order below is what `kCommandKinds` and every name list are derived from.
-  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 12);
-  STATIC_REQUIRE(simulation::kCommandKindCount == 12);
+  // Thirteen, because `rotate_velocity` was registered: the count moves only when a kind joins the
+  // variant, and the alternative order below is what `kCommandKinds` and every name list are
+  // derived from.
+  STATIC_REQUIRE(std::variant_size_v<simulation::Command> == 13);
+  STATIC_REQUIRE(simulation::kCommandKindCount == 13);
   STATIC_REQUIRE(
       std::is_same_v<simulation::Command,
                      std::variant<simulation::SpawnCommand, simulation::DespawnCommand,
@@ -116,7 +117,8 @@ TEST_CASE("CommandRegistry declares the engine command kinds in a closed ordered
                                   simulation::ClearSeatCommand, simulation::SeatNpcCommand,
                                   simulation::StartMatchCommand, simulation::LeaveCommand,
                                   simulation::JoinCommand, simulation::SetMovementTuningCommand,
-                                  simulation::ShieldCommand, simulation::ChargeCommand>>);
+                                  simulation::ShieldCommand, simulation::ChargeCommand,
+                                  simulation::RotateVelocityCommand>>);
 }
 
 TEST_CASE("Every command kind occupies its own bit so a set of kinds is one integer",
@@ -135,6 +137,7 @@ TEST_CASE("Every command kind occupies its own bit so a set of kinds is one inte
   // The twelfth takes the next free bit for the same reason, and every bit above is unchanged: a
   // mask persisted in a mode's accepted set or transmitted in `welcome` still means what it meant.
   STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kCharge) == 2048u);
+  STATIC_REQUIRE(static_cast<std::uint32_t>(simulation::CommandKind::kRotateVelocity) == 4096u);
   STATIC_REQUIRE(
       simulation::command_kind_application_rank(simulation::CommandKind::kThrust) <
       simulation::command_kind_application_rank(simulation::CommandKind::kSetMovementTuning));
@@ -167,6 +170,8 @@ TEST_CASE("Every registered command kind declares its own wire name",
   // intent, and a charge replaces nothing. Carrying a direction does not change that.
   STATIC_REQUIRE(simulation::command_kind_name<simulation::ChargeCommand> ==
                  std::string_view{"charge"});
+  STATIC_REQUIRE(simulation::command_kind_name<simulation::RotateVelocityCommand> ==
+                 std::string_view{"rotate_velocity"});
 
   std::vector<std::string_view> names;
   for (const simulation::CommandKind kind : simulation::kCommandKinds) {
@@ -177,7 +182,8 @@ TEST_CASE("Every registered command kind declares its own wire name",
   // which is the property the derived-from-the-variant order is worth having.
   CHECK(names == std::vector<std::string_view>{"spawn", "despawn", "thrust", "set_seat_count",
                                                "clear_seat", "seat_npc", "start_match", "leave",
-                                               "join", "set_movement_tuning", "shield", "charge"});
+                                               "join", "set_movement_tuning", "shield", "charge",
+                                               "rotate_velocity"});
 }
 
 TEST_CASE("command_kind_of maps every command value to its own declared kind",
@@ -454,7 +460,8 @@ TEST_CASE("The command kind list is derived from the variant rather than typed b
        static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kJoin) |
        static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kSetMovementTuning) |
        static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kShield) |
-       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kCharge)));
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kCharge) |
+       static_cast<simulation::CommandKindMask::Bits>(simulation::CommandKind::kRotateVelocity)));
 }
 
 TEST_CASE("No two command kinds share a phase 0 application rank",
@@ -471,4 +478,16 @@ TEST_CASE("No two command kinds share a phase 0 application rank",
   std::sort(ranks.begin(), ranks.end());
   CHECK(std::adjacent_find(ranks.cbegin(), ranks.cend()) == ranks.cend());
   CHECK(ranks.size() == simulation::kCommandKindCount);
+}
+
+TEST_CASE("velocity rotations address the body and preserve their distinct kind",
+          "[unit][simulation][command_registry]") {
+  const simulation::RotateVelocityCommand left{simulation::EntityId::create(11), false};
+  const simulation::RotateVelocityCommand right{simulation::EntityId::create(11), true};
+  CHECK(simulation::command_kind_of(left) == simulation::CommandKind::kRotateVelocity);
+  CHECK(simulation::command_kind_name_of(simulation::CommandKind::kRotateVelocity) ==
+        "rotate_velocity");
+  CHECK(simulation::addressed_identity_of(left) == simulation::addressed_identity_of(right));
+  CHECK(simulation::addressed_identity_of(left) ==
+        simulation::addressed_identity_of(charge_command(11)));
 }

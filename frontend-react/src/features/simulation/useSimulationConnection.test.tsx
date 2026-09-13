@@ -320,6 +320,7 @@ describe('useSimulationConnection', () => {
       acceptedCommandKinds: [
         'charge',
         'clear_seat',
+        'rotate_velocity',
         'seat_npc',
         'set_movement_tuning',
         'set_seat_count',

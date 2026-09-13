@@ -6,12 +6,39 @@
   "x-status": "Accepted",
   "type": "object",
   "additionalProperties": false,
-  "required": ["tuning_request_id", "expected_revision", "acceleration_world_units_per_second_squared", "normal_top_speed_world_units_per_second"],
+  "required": [
+    "tuning_request_id",
+    "expected_revision",
+    "acceleration_world_units_per_second_squared",
+    "normal_top_speed_world_units_per_second",
+    "charge_speed_fraction",
+    "lethal_spawn_rate_per_second",
+    "nonlethal_spawn_rate_per_second"
+  ],
   "properties": {
-    "tuning_request_id": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
-    "expected_revision": { "$ref": "common.schema.json#/$defs/safe_integer" },
-    "acceleration_world_units_per_second_squared": { "$ref": "movement-tuning.schema.json#/properties/acceleration_world_units_per_second_squared" },
-    "normal_top_speed_world_units_per_second": { "$ref": "movement-tuning.schema.json#/properties/normal_top_speed_world_units_per_second" }
+    "tuning_request_id": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "expected_revision": {
+      "$ref": "common.schema.json#/$defs/safe_integer"
+    },
+    "acceleration_world_units_per_second_squared": {
+      "$ref": "movement-tuning.schema.json#/properties/acceleration_world_units_per_second_squared"
+    },
+    "normal_top_speed_world_units_per_second": {
+      "$ref": "movement-tuning.schema.json#/properties/normal_top_speed_world_units_per_second"
+    },
+    "charge_speed_fraction": {
+      "$ref": "movement-tuning.schema.json#/properties/charge_speed_fraction"
+    },
+    "lethal_spawn_rate_per_second": {
+      "$ref": "movement-tuning.schema.json#/properties/lethal_spawn_rate_per_second"
+    },
+    "nonlethal_spawn_rate_per_second": {
+      "$ref": "movement-tuning.schema.json#/properties/nonlethal_spawn_rate_per_second"
+    }
   },
   "$comment": "No room/controller/entity identity is admitted. Reset sends the published defaults through this same command. Invalid shape/ranges retain the existing malformed command close policy."
 }

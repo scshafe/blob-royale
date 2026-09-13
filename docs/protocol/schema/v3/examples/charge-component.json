@@ -1,4 +1,6 @@
 {
   "activation_tick": 1000,
-  "cooldown_expiry_tick": 1480
+  "cooldown_expiry_tick": 1480,
+  "active_expiry_tick": 1000,
+  "hit_stun_duration_ticks": 0
 }

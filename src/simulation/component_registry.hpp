@@ -5,6 +5,7 @@
 #include "components/charge_component.hpp"
 #include "components/contact_effect_admission_component.hpp"
 #include "components/controllable_component.hpp"
+#include "components/crossing_hazard_component.hpp"
 #include "components/hill_component.hpp"
 #include "components/hill_motion_component.hpp"
 #include "components/hill_presence_component.hpp"
@@ -69,7 +70,7 @@ namespace blob_royale::simulation {
 using ComponentRegistry =
     ComponentList<PhysicsBody, Controllable, Lifetime, Score, Team, Zone, ZoneExposure,
                   LethalOnContact, RespawnTimer, Hill, HillPresence, RaceProgress, HillMotion, Stun,
-                  ContactEffectAdmission, Shield, Charge>;
+                  ContactEffectAdmission, Shield, Charge, CrossingHazard>;
 
 } // namespace blob_royale::simulation
 

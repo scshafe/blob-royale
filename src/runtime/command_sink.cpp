@@ -179,6 +179,11 @@ CommandSink::validate_command_values(const simulation::Command& command) const {
             return CommandSubmissionResult::kRejectedChargeInputGenerationOutOfRange;
           }
           return CommandSubmissionResult::kAccepted;
+        } else if constexpr (std::is_same_v<CommandType, simulation::RotateVelocityCommand>) {
+          if (value.input_generation == simulation::TickSequence::zero()) {
+            return CommandSubmissionResult::kRejectedRotationInputGenerationOutOfRange;
+          }
+          return CommandSubmissionResult::kAccepted;
         } else if constexpr (std::is_same_v<CommandType, simulation::DespawnCommand>) {
           // A despawn naming an id inside the tick's own reservation is the one despawn
           // InputBatch::create rejects outright. The cursor only rises, so an id strictly below the

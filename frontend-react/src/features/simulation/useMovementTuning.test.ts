@@ -60,6 +60,15 @@ describe('useMovementTuning', () => {
     act(() => {
       hook.result.current.editAcceleration('480');
       hook.result.current.editNormalTopSpeed('1250');
+      hook.result.current.editChargeSpeedFraction(
+        String(TUNING_UI_DRAFT.charge_speed_fraction),
+      );
+      hook.result.current.editLethalSpawnRate(
+        String(TUNING_UI_DRAFT.lethal_spawn_rate_per_second),
+      );
+      hook.result.current.editNonlethalSpawnRate(
+        String(TUNING_UI_DRAFT.nonlethal_spawn_rate_per_second),
+      );
     });
     expect(sender).not.toHaveBeenCalled();
     expect(hook.result.current.authoritative?.current).toEqual(
@@ -108,6 +117,7 @@ describe('useMovementTuning', () => {
     act(() => hook.result.current.reviewCurrent());
     act(() => hook.result.current.apply());
     expect(requireCommand(sender).payload).toEqual({
+      ...TUNING_UI_CURRENT,
       acceleration_world_units_per_second_squared: 480,
       normal_top_speed_world_units_per_second: 950,
       tuning_request_id: 1,
@@ -170,6 +180,67 @@ describe('useMovementTuning', () => {
         .acceleration_world_units_per_second_squared,
     ).toBe(0);
   });
+
+  it.each([
+    { edit: 'editChargeSpeedFraction', value: '2.01' },
+    { edit: 'editLethalSpawnRate', value: '5.01' },
+    { edit: 'editNonlethalSpawnRate', value: '-0.01' },
+    { edit: 'editChargeSpeedFraction', value: 'NaN' },
+    { edit: 'editLethalSpawnRate', value: '' },
+    { edit: 'editNonlethalSpawnRate', value: 'Infinity' },
+  ] as const)(
+    'refuses $edit draft $value against the room limits without sending',
+    ({ edit, value }) => {
+      const sender = createSender();
+      const hook = renderControls(movementTuningConnection(sender));
+      act(() => hook.result.current[edit](value));
+      expect(hook.result.current.dirty).toBe(true);
+      expect(hook.result.current.validationMessage).not.toBeNull();
+      act(() => hook.result.current.apply());
+      expect(sender).not.toHaveBeenCalled();
+    },
+  );
+
+  it('submits zero charge and both zero spawn rates atomically without changing current objects locally', () => {
+    const sender = createSender();
+    const hook = renderControls(movementTuningConnection(sender));
+    act(() => {
+      hook.result.current.editChargeSpeedFraction('0');
+      hook.result.current.editLethalSpawnRate('0');
+      hook.result.current.editNonlethalSpawnRate('0');
+    });
+    expect(hook.result.current.validationMessage).toBeNull();
+    expect(hook.result.current.authoritative?.current).toEqual(
+      TUNING_UI_CURRENT,
+    );
+    act(() => hook.result.current.apply());
+    expect(requireCommand(sender).payload).toEqual({
+      ...TUNING_UI_CURRENT,
+      charge_speed_fraction: 0,
+      lethal_spawn_rate_per_second: 0,
+      nonlethal_spawn_rate_per_second: 0,
+      tuning_request_id: 1,
+      expected_revision: TUNING_UI_REVISION,
+    });
+  });
+
+  it.each([
+    { edit: 'editChargeSpeedFraction', field: 'charge_speed_fraction' },
+    { edit: 'editLethalSpawnRate', field: 'lethal_spawn_rate_per_second' },
+    {
+      edit: 'editNonlethalSpawnRate',
+      field: 'nonlethal_spawn_rate_per_second',
+    },
+  ] as const)(
+    'clears dirtiness only after $field returns to its authoritative value',
+    ({ edit, field }) => {
+      const hook = renderControls(movementTuningConnection(createSender()));
+      act(() => hook.result.current[edit](String(TUNING_UI_DRAFT[field])));
+      expect(hook.result.current.dirty).toBe(true);
+      act(() => hook.result.current[edit](String(TUNING_UI_CURRENT[field])));
+      expect(hook.result.current.dirty).toBe(false);
+    },
+  );
 
   it.each<SessionMatchPhase>(['lobby', 'countdown', 'running', 'ended'])(
     'allows a seated bodyless controller in %s',
@@ -333,6 +404,7 @@ describe('useMovementTuning', () => {
     });
     connection = withMovement(fresh, {
       current: {
+        ...TUNING_UI_CURRENT,
         acceleration_world_units_per_second_squared:
           command.payload.acceleration_world_units_per_second_squared,
         normal_top_speed_world_units_per_second:
@@ -376,6 +448,7 @@ describe('useMovementTuning', () => {
   it.each([
     'superseded',
     'stale_revision',
+    'unsupported_tuning',
     'not_seated',
     'revision_exhausted',
     'mailbox_full',
@@ -407,6 +480,44 @@ describe('useMovementTuning', () => {
       expect(sender).toHaveBeenCalledTimes(1);
     },
   );
+
+  it('retains newer spawn-rate edits when an earlier charge-only draft is confirmed', () => {
+    const sender = createSender();
+    const connection = movementTuningConnection(sender);
+    const hook = renderControls(connection);
+    act(() =>
+      hook.result.current.editChargeSpeedFraction(
+        String(TUNING_UI_DRAFT.charge_speed_fraction),
+      ),
+    );
+    act(() => hook.result.current.apply());
+    const command = requireCommand(sender);
+    act(() =>
+      hook.result.current.editNonlethalSpawnRate(
+        String(TUNING_UI_DRAFT.nonlethal_spawn_rate_per_second),
+      ),
+    );
+    hook.rerender({
+      connection: {
+        ...withMovement(connection, {
+          current: {
+            ...TUNING_UI_CURRENT,
+            charge_speed_fraction: TUNING_UI_DRAFT.charge_speed_fraction,
+          },
+          revision: TUNING_UI_REVISION + 1,
+        }),
+        movementTuning: resolvedTuning(command),
+      },
+      lobbyId: 1,
+    });
+    expect(hook.result.current.outcome.kind).toBe('applied');
+    expect(hook.result.current.nonlethalSpawnRate).toBe(
+      String(TUNING_UI_DRAFT.nonlethal_spawn_rate_per_second),
+    );
+    expect(hook.result.current.dirty).toBe(true);
+    expect(hook.result.current.needsReview).toBe(true);
+    expect(sender).toHaveBeenCalledTimes(1);
+  });
 
   it('does not overwrite synchronous resolved feedback and exposes later local refusal separately', async () => {
     vi.useFakeTimers();

@@ -53,6 +53,10 @@ export const entityRendererRegistry = Object.freeze({
     'hill_presence',
     'Progress toward the next point belongs to the HUD, as a ring against the published interval.',
   ),
+  crossing_hazard: nonVisualComponent(
+    'crossing_hazard',
+    'Population membership has no geometry; physics_body and lethal_on_contact draw the object.',
+  ),
   lifetime: nonVisualComponent(
     'lifetime',
     'A remaining-tick count has no geometry; it is reported in the debug panel.',

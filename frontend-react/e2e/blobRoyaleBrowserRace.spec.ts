@@ -186,7 +186,7 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
     // 4.45 s at the accepted 9 wu/s cap. The bot is already leaving to the right, clear of contact.
     await focusSimulationCanvas(page);
     await aimFromPaintedBody(page, displayName, { x: 0, y: 100 }, 20);
-    await page.keyboard.down('Space');
+    await page.mouse.down({ button: 'left' });
     try {
       await expect(matchHudCell(page, 'Thrust')).toHaveText('0.00, 1.00');
       await expect(matchHudCell(page, 'Return')).toHaveText(RETURN_PATTERN, {
@@ -260,12 +260,12 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
           24 * (returnedCameraFrame.height / returnedCameraFrame.cssHeight),
         8,
       );
-      // Space stayed held throughout the bodyless countdown and return. Repeated keydown must
-      // not replay propulsion into the returned body; only a later fresh activation may move it.
-      await page.keyboard.down('Space');
+      // Left mouse stayed held throughout the bodyless countdown and return. Reentry must not
+      // replay propulsion into the returned body; only a fresh up/down activation may move it.
+      await aimFromPaintedBody(page, displayName, { x: 0, y: 100 }, 20);
       await expect(matchHudCell(page, 'Thrust')).toHaveText('idle');
     } finally {
-      await page.keyboard.up('Space');
+      await page.mouse.up({ button: 'left' });
     }
 
     await expect(standingCell(page, BOT_DISPLAY_NAME)).toHaveText('#1', {

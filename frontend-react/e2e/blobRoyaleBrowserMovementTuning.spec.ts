@@ -69,7 +69,7 @@ function latestSnapshot(session: TuningSession) {
 }
 
 function tuningPanel(session: TuningSession) {
-  return session.page.getByRole('region', { name: 'Movement tuning' });
+  return session.page.getByRole('region', { name: 'Room tuning' });
 }
 
 test('a running room commits peer tuning to held cursor input while another room and a dirty draft stay isolated', async ({
@@ -110,6 +110,14 @@ test('a running room commits peer tuning to held cursor input while another room
     await tuningPanel(peer)
       .getByRole('spinbutton', { name: 'Normal top speed (wu/s)', exact: true })
       .fill('9000');
+    const chargeSlider = tuningPanel(peer).getByRole('slider', {
+      name: 'Charge boost slider',
+      exact: true,
+    });
+    await chargeSlider.focus();
+    await chargeSlider.press('End');
+    const chargeSpeedFraction = Number(await chargeSlider.inputValue());
+    expect(chargeSpeedFraction).toBeGreaterThan(0);
     expect(recordedCommands(holder.traffic)).toEqual([
       { kind: 'start_match', payload: {} },
     ]);
@@ -123,7 +131,7 @@ test('a running room commits peer tuning to held cursor input while another room
       { x: 60, y: 0 },
       20,
     );
-    await holder.page.keyboard.down('Space');
+    await holder.page.mouse.down({ button: 'left' });
     await expect
       .poll(() => {
         const snapshot = latestSnapshot(holder);
@@ -146,7 +154,7 @@ test('a running room commits peer tuning to held cursor input while another room
     // Peer input runs in another real context. Any resulting holder blur/cancel is a failure,
     // because this case specifically owes adoption by an already-held activation.
     await tuningPanel(peer)
-      .getByRole('button', { name: 'Apply movement tuning', exact: true })
+      .getByRole('button', { name: 'Apply room tuning', exact: true })
       .click();
     await expect(tuningPanel(peer).getByRole('status')).toHaveText(
       /^Request 1 applied at revision 1, tick [1-9][0-9]*\./,
@@ -156,6 +164,8 @@ test('a running room commits peer tuning to held cursor input while another room
       .toBe(1);
     const committed = latestSnapshot(peer)!.match.movement;
     expect(committed.current).toEqual({
+      ...baseline.match.movement.current,
+      charge_speed_fraction: chargeSpeedFraction,
       acceleration_world_units_per_second_squared: 800,
       normal_top_speed_world_units_per_second: 9000,
     });
@@ -191,7 +201,7 @@ test('a running room commits peer tuning to held cursor input while another room
       .poll(() => latestSnapshot(holder)?.tick_sequence ?? 0)
       .toBeGreaterThan(beforeDistance + 40);
     expect(recordedCommands(holder.traffic)).toEqual(heldCommands);
-    await holder.page.keyboard.up('Space');
+    await holder.page.mouse.up({ button: 'left' });
     await expect
       .poll(() => recordedCommands(holder.traffic).at(-1))
       .toMatchObject({ kind: 'set_thrust', payload: { x: 0, y: 0 } });
@@ -232,7 +242,7 @@ test('a running room commits peer tuning to held cursor input while another room
     ).toHaveValue('650');
     await expect(
       tuningPanel(holder).getByRole('button', {
-        name: 'Apply movement tuning',
+        name: 'Apply room tuning',
         exact: true,
       }),
     ).toBeDisabled();
@@ -250,6 +260,11 @@ test('a running room commits peer tuning to held cursor input while another room
           expected_revision: 0,
           acceleration_world_units_per_second_squared: 800,
           normal_top_speed_world_units_per_second: 9000,
+          charge_speed_fraction: chargeSpeedFraction,
+          lethal_spawn_rate_per_second:
+            baseline.match.movement.current.lethal_spawn_rate_per_second,
+          nonlethal_spawn_rate_per_second:
+            baseline.match.movement.current.nonlethal_spawn_rate_per_second,
         },
       },
     ]);

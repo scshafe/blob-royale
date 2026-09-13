@@ -1046,8 +1046,8 @@ describe('SimulationApi session lifecycle', () => {
     socket.open();
 
     const welcome = welcomeDocument();
-    // One minor ahead of the active 3.0 contract, before ordinary schema validation.
-    welcome.meta.protocol_version = '3.1';
+    // One minor ahead of the active 3.1 contract, before ordinary schema validation.
+    welcome.meta.protocol_version = '3.2';
     socket.receive(JSON.stringify(welcome));
 
     expect(callbacks.onWelcome).not.toHaveBeenCalled();

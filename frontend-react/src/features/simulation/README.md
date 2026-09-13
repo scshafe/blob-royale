@@ -78,7 +78,7 @@ and resuming on a replacement body. Before the first body the view uses map cent
 welcome token or requested room resets the camera, even if numeric IDs repeat; it does not reset
 the viewer's debug disclosure.
 
-**Manual view** freezes the current centre. Drag the map or use the named pan buttons to move the
+**Manual view** freezes the current centre. Right-drag the map or use the named pan buttons to move the
 view independently; **Follow player** returns to tracking. Manual centres stay within world
 bounds, while strict follow never clamps and may show outside-map background. Buttons use
 Tab/Enter/Space, without also activating propulsion. WASD/arrows no longer steer. No camera API
@@ -155,17 +155,17 @@ The tuning section marks `data-gameplay-input="blocked"`, including its buttons.
 `useThrustInput` clears held steering when focus enters that section or a native editing control,
 allows native editing keys, and requires a fresh gameplay press after leaving. Unmarked camera
 buttons retain their native activation bindings. The owner-selected movement control is cursor
-direction plus held Space. Input observation uses the same Canvas projection as rendering;
+direction plus held left mouse on the arena. Space holds authoritative brakes and overrides Go. Input observation uses the same Canvas projection as rendering;
 normalization, go activation, throttling, and cancellation remain in `useThrustInput`. A stationary
-pointer is re-evaluated when the body, camera, or viewport changes. Left drag remains camera panning,
-not propulsion, and WASD/arrows no longer generate thrust. An observed body/session change discards
+pointer is re-evaluated when the body, camera, or viewport changes. Right drag pans the Manual camera,
+while left mouse holds propulsion; WASD/arrows do not generate thrust. An observed body/session change discards
 old activation; the wire cannot reveal same-entity body recreation wholly between snapshots.
 
 `selectThrustInputOptions` is the shared feature/test composition for owned body availability,
 session authority, observed stun containment, persistent `controllable.input_generation`, and, since
 Step 21, the published half of each ability's suppression.
 Stun locks against the authoritative snapshot's `[activation_tick, expiry_tick)` window; elapsed
-browser time cannot unlock it. A fresh non-repeat Space press captures the exact optional
+browser time cannot unlock it. A fresh mouse Go press or Space brake press captures the exact optional
 generation, and every held aim update and zero release retains that activation token. A generation
 change cancels held and pending input even if every stun snapshot was missed, including old zero
 releases. Sender-only replacement retains the old token for its cancellation zero; same-body
@@ -188,17 +188,12 @@ step — and Step 21 is that step: `SimulationApi` is still the only file in the
 a socket, and the shield shape the outbound `SessionCommand` union has carried since Step 18 is now
 constructed, with the explicit `input_generation: null` its schema requires.
 
-`charge` arrived a step later, in protocol 3.0's Step 19, as the second outbound command shape and
-the second to wait until Step 21 for a sender — and it is the one ability component still registered
-non-visually. As of Step 20 that is a settled decision rather than a deferral, and its reason says
-so instead of pointing at the step that would resolve it. The component publishes only
-`activation_tick` and `cooldown_expiry_tick`, and `sessionProtocolValidation` checks the two
-orderings JSON Schema cannot — activation at most the snapshot tick, and `cooldown_expiry_tick`
-**strictly** greater than `activation_tick`. That strictness is the one place a reader must not
-carry shield's rules across: a zero-length shield window is a valid cancelled shield, while a
-zero-length charge cooldown is unreachable by construction, so a frame carrying one is malformed and
-fails closed. Read the interval against the snapshot's own tick; elapsed browser time readies
-nothing.
+`charge` publishes `activation_tick`, `cooldown_expiry_tick`, `active_expiry_tick`, and
+`hit_stun_duration_ticks`. Cooldown must end strictly after activation; active time may be empty after
+cancellation and may outlive cooldown. The first certified incoming player hit consumes an active
+attempt. A shield block ends active time and preserves cooldown; an unshielded hit removes the
+attacker's charge immediately and stuns the target while preserving collision motion. Snapshots
+supply cooldown readiness, so no browser timer invents a hit refund or an ended stun.
 
 Two client-side traps are worth naming because both are ways to draw a confident lie. **The
 direction is not a strength**: the outbound `charge` payload's `x` and `y` are normalized by the
@@ -298,74 +293,24 @@ ratio and resize. It does not say that a cliff reads as a cliff, or that a perfe
 in the eighty milliseconds it exists. That judgement is the owner's, from images, not from this
 suite.
 
-**Ability controls take two keys the arena already gave up.** Step 21 binds shield to
-`SHIELD_KEY_CODE = 'KeyS'` and charge to `CHARGE_KEY_CODE = 'KeyD'`, matched on `event.code` beside
-`THRUST_GO_KEY_CODE` so both are layout-independent rather than letter-independent. The pool is not
-an arbitrary reach: ADR 0008 records of Step 11a that WASD and the arrows no longer steer and that
-those keys are available for later charge and shield bindings, and Step 11a froze exactly that pool
-as `REMOVED_DIRECTION_KEYS` and pinned its inertness in three tests. Spending two of them shrinks
-that pool to `KeyW`, `KeyA` and the four arrow codes, which stay reserved and stay asserted inert,
-and turns the two it spent from stale reserved-key assertions into the binding cases the ability
-tests press. This is not the return of directional steering: neither ability key steers anything,
-and a held ability key is not a held axis. `KeyS` is the home-row key under the middle finger of the
-hand whose thumb holds Space — the fastest key to reach without moving the go hand — and shield is
-the reactive move; `KeyD` is adjacent under the index finger, and S for shield, D for dash is
-ADR 0008's own mnemonic. Both abilities also get ordinary on-screen buttons, which are the
-accessible path rather than a convenience, and both paths run through one activation function.
+**One input owner carries every control.** `useThrustInput` owns mouse Go, Space brakes, shield
+on S, charge on D, and 90-degree velocity turns on Q/E. Turns use the current velocity, including
+mid-charge, and have no gameplay cooldown. Every pulse requires a fresh keydown or button press;
+repeat events never activate it. Native editors and focused buttons retain their keyboard behavior.
+The canvas publishes CSS geometry only, and right-drag captures the pointer for Manual panning.
 
-**Shift was rejected, and not as a matter of taste.** ADR 0008 proposed Shift for shield, and a
-dated amendment supersedes that proposal there rather than leaving two answers on the record. The
-go-key guard filters `altKey`, `ctrlKey` and `metaKey` and deliberately does _not_ filter
-`shiftKey` — the pinned modifier test enumerates exactly those three plus `isComposing` — so
-Shift+Space thrusts today, and a bare-Shift shield would therefore fire on the leading half of every
-Shift+Tab a keyboard user makes. Five presses of Shift is also the Windows Sticky Keys gesture;
-Shift is two codes, `ShiftLeft` and `ShiftRight`, against a one-constant-per-action model; and
-modifier keys do not auto-repeat at all, so the key-repeat rule ADR 0008 requires could only have
-passed vacuously against it.
+Ability and rotation availability live in refs so a changed snapshot cannot rebuild held input.
+Body/session/generation changes discard pending levels and require fresh activation. Remembered aim
+survives stun but is discarded when the body/session changes. Charge reads the current or remembered
+nonzero aim; held Go at exact centre remains zero thrust.
 
-**One input owner, and deliberately not one send path.** The ability bindings live inside
-`useThrustInput`'s one layout effect and inherit its whole lifecycle for free: the editing and
-camera-button guard, the camera-gesture and blur cancellations, and the body, session, welcome and
-`input_generation` lifetime that already decides when held thrust dies. What they do not reuse is
-`flush`, and the distance between "the existing sender" and "the existing send path" is the whole
-point. `flush` implements a _level_: its change-only gate would silently swallow a second identical
-pulse, which for a pulse is not a redundant send but the player's next shield; its 50 ms coalescing
-timer would park that pulse for up to 50 ms against an 80 ms perfect opening; its single parked
-timer can drop a pending send on an effect re-run; its `currentTransmission.direction` bookkeeping
-is level state a pulse does not have; and its shared refusal latch means one refused ability send
-would drop held thrust with it. What an ability reuses is the `sendCommand` reference and the guards
-around it, never the fifty-odd lines of level semantics; the activation path does not even read the
-sender's result, because consulting it would be the first step back toward that shared latch.
-
-**Two seams carry the abilities, and both exist to keep them out of the input lifetime.**
-`ThrustInputOptions` gains `abilityUnavailable`, one boolean per `SimulationAbility`, and
-`ThrustInputControls` gains `activateAbility(ability)` — the stable activation boundary a button
-calls, exactly as `observeAim` is the stable observational boundary the Canvas calls. Availability
-moves with almost every snapshot and the input effect must not be rebuilt when it does: a rebuild
-re-declares `goHeld`, so a cooldown merely _starting_ would drop the thrust a player is holding. So
-availability is written to a ref after every commit and read only from inside an event handler, and
-the effect keeps the narrow dependency list Step 11a gave it. `activateAbility` returns nothing on
-purpose — a successful send is not an activation, only the published component proves the tick
-admitted the pulse — so no caller can manufacture readiness out of having called it. And
-`SimulationAbility` is `Extract<SessionCommandKind, 'charge' | 'shield'>` rather than a fresh string
-union, so a renamed or retired command kind is a compile error here instead of a binding that
-silently sends nothing. `ThrustTransmission` became `InputTransmission` in the same step, because
-what it carries across a rebuild is now the session's input rather than thrust alone: the remembered
-aim and the per-ability last-attempt timestamps are body state, and re-deriving them from nothing on
-every rebuild is exactly the bug described next.
-
-**Rate discipline is mandatory, because the bucket closes the socket rather than refusing.** The
-per-session command budget is a token bucket of capacity 30 refilling at 20 per second, the token is
-charged before any parsing, and an exhausted bucket is `1008 command_rate_exceeded` — a disconnect
-mid-match, not a refused command. Held thrust with a moving cursor already runs at the full 20/s
-refill rate, so two unthrottled ability keys on top of it drain the burst in seconds, and they buy
-nothing doing it: the server's mailbox coalesces same-kind inputs, so several pulses inside one tick
-are at most one attempt. The primary mitigation is therefore published state rather than a timer —
-an activation is suppressed while the client can see a live cooldown for that ability — and
-`ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS`, applied per ability, is the backstop for the gap
-between a press and the snapshot that would show that cooldown. The authored cooldowns are
-`shield_cooldown_seconds=0.9` and `charge_cooldown_seconds=1.2`, so its third of a second costs a
-player nothing they could otherwise have spent.
+**A shared transmission budget is separate from gameplay cooldown.** Steering, brakes, shield,
+charge and rotations share a per-session bucket of eight tokens refilling sixteen per second.
+Steering retains its 50 ms minimum interval and coalesces only the latest level. Pulses are immediate,
+never queued, and reserve the final token for a release. Exhaustion shows “Input limit—try again
+shortly” beside the controls; refill restores transmission availability without changing any
+published cooldown. Body replacement and stun do not refill the bucket. A new session does.
+This replaces the former 300 ms per-ability backstop so a confirmed hit can recharge immediately.
 
 **The two payloads are not the same shape, and the wrong one fails silently.** `charge` carries
 `x`, `y` and an _optional_ `input_generation`, exactly as `set_thrust` does, so it may reuse that
@@ -396,30 +341,10 @@ ability keydown does not inherit the thrust path's `!hasObservation` guard: that
 held-control rule, and applying it here would refuse exactly the off-canvas case the last-nonzero
 fallback exists for.
 
-**A pulse still needs a held latch.** "A one-shot has no release" is true of what it sends and false
-of what it must observe. The thrust path rejects a repeat with `event.repeat || goHeld`, and the
-second half — the one keyup clears — is what makes it robust when a browser or a synthetic event
-omits `repeat`; each ability keeps the same latch in a per-ability `heldAbilityKeys` set, and every
-cancellation source clears it, blur included. Blur is exactly why the release is not left to keyup:
-a blur swallows the keyup, and a latch that outlives its press wedges the key, so the next real
-press reads as a repeat and that ability never fires again for the rest of the match. The latch
-records that the key is physically down rather than that a pulse went out, so it is set on every
-press this owner accepts and not only on one that sends: an activation suppressed by a live cooldown
-still has to refuse the auto-repeat streaming along behind it.
-
-**A button is a second repeat source, and it must not steal the go key.** A focused `<button>`
-activates on Enter _keydown_ and repeats while Enter is held, and it also activates on Space, which
-is propulsion. So each control takes both keys back: Enter and Space are prevented on the way in and
-re-expressed as exactly one activation per press through `event.repeat`, and Space is prevented on
-keyup as well, because keyup is where a space press actually activates a button. Behind both entry
-points is the one `activate` closure, with the same availability check, the same generation token
-and the same per-ability interval, so a button can never activate what a key could not. **And a
-click must hand Space back.** A click leaves the button focused, `blocksGameplayInput` then reads
-that focused button as UI and swallows the ability key, and the browser activates the focused button
-on the next Space — the go key would quietly become the shield key for the rest of the match. A
-click with a real pointer behind it (`event.detail > 0`) therefore blurs; a keyboard activation
-never reaches `onClick` at all, and an assistive technology's synthesized click carries no click
-count, so neither of them loses the focus its user is navigating with.
+**Fresh presses retain native accessibility.** The hook latches each pulse key until keyup and
+clears latches on cancellation or blur. Buttons handle Enter/Space once per fresh press through the
+same activation path; pointer clicks relinquish focus, while keyboard activation preserves it.
+Space on a focused button activates that button and never also applies brakes.
 
 **Availability says why not, and still never says ready.** Step 20's rule is unchanged, and it is
 why every value the `@canonical session_ability_availability` selector publishes

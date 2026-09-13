@@ -2,11 +2,15 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 import { SimulationApiError } from './SimulationApiError';
 import {
-  ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS,
   CHARGE_KEY_CODE,
   SHIELD_KEY_CODE,
+  ROTATE_LEFT_KEY_CODE,
+  ROTATE_RIGHT_KEY_CODE,
   THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS,
-  THRUST_GO_KEY_CODE,
+  THRUST_BRAKE_KEY_CODE,
+  INPUT_COMMAND_BUDGET_CAPACITY,
+  INPUT_COMMAND_BUDGET_REFILL_PER_SECOND,
+  INPUT_COMMAND_PULSE_MINIMUM_TOKENS,
 } from './simulationConstants';
 import type {
   SessionCommand,
@@ -37,8 +41,7 @@ export type SimulationAbility = Extract<
  * cannot supply one ability and silently forget the other.
  *
  * A live published cooldown is the member this hook exists to obey -- it is the contract's primary
- * rate mitigation, and the per-ability minimum interval below is only the backstop for the window
- * between a press and the next snapshot -- but the type is deliberately "cannot act now" rather
+ * gameplay gate; the separate shared token bucket bounds transport traffic. This is "cannot act now" rather
  * than "cooling", because the composition belongs beside the control that also explains it to the
  * player: an unadvertised command kind and active shield protection blocking charge are equally
  * visible client-side, and a key press must never do what the button says is impossible.
@@ -58,6 +61,7 @@ export interface ThrustInputOptions {
   readonly inputGeneration: number | undefined;
   /** Published reasons an ability cannot act now; changing it never disturbs held thrust. */
   readonly abilityUnavailable: AbilityUnavailability;
+  readonly rotationUnavailable: boolean;
   readonly sendCommand: SimulationCommandSender;
 }
 
@@ -82,9 +86,15 @@ export interface ThrustInputControls {
    * proves the tick admitted the pulse -- so no caller can render readiness from having called it.
    */
   readonly activateAbility: (ability: SimulationAbility) => void;
+  readonly rotateVelocity: (direction: 'left' | 'right') => void;
+  readonly braking: boolean;
+  /** Local transmission availability, independent of any gameplay cooldown. */
+  readonly commandBudgetUnavailable: boolean;
 }
 
 interface ThrustInputView {
+  readonly braking: boolean;
+  readonly commandBudgetUnavailable: boolean;
   readonly direction: ThrustDirection;
   readonly aimDirection: ThrustDirection;
   readonly lastNonzeroAimDirection: ThrustDirection | null;
@@ -92,9 +102,8 @@ interface ThrustInputView {
 
 /**
  * What one body's input carries across an effect rebuild. Named for the session's input rather than
- * for thrust alone since Step 21: an ability's rate backstop and the remembered aim a charge reads
- * are body state, not effect state, and re-deriving them from nothing on every rebuild is exactly
- * the bug that made a stun wipe remembered aim.
+ * for thrust alone: remembered aim and the last transmitted level belong to the body, while the
+ * command budget separately belongs to the session and survives respawn.
  */
 interface InputTransmission {
   readonly session: SimulationSessionIdentity | null;
@@ -105,11 +114,13 @@ interface InputTransmission {
   direction: ThrustDirection;
   sentAtMilliseconds: number;
   lastNonzeroAimDirection: ThrustDirection | null;
-  abilitySentAtMilliseconds: Record<SimulationAbility, number>;
+  braking: boolean;
 }
 
 const ZERO_THRUST: ThrustDirection = Object.freeze({ x: 0, y: 0 });
 const EMPTY_INPUT_VIEW: ThrustInputView = Object.freeze({
+  braking: false,
+  commandBudgetUnavailable: false,
   direction: ZERO_THRUST,
   aimDirection: ZERO_THRUST,
   lastNonzeroAimDirection: null,
@@ -183,18 +194,6 @@ function chargeDirection(
     : aimDirection;
 }
 
-/** A fresh mutable record per effect run; a same-body rebuild inherits the attempt timestamps. */
-function abilitySendTimes(
-  inherited: InputTransmission | null,
-): Record<SimulationAbility, number> {
-  return {
-    charge:
-      inherited?.abilitySentAtMilliseconds.charge ?? Number.NEGATIVE_INFINITY,
-    shield:
-      inherited?.abilitySentAtMilliseconds.shield ?? Number.NEGATIVE_INFINITY,
-  };
-}
-
 /** Native UI activation belongs to the focused control, including the camera's Space buttons. */
 function blocksGameplayInput(target: EventTarget | null): boolean {
   return (
@@ -205,45 +204,18 @@ function blocksGameplayInput(target: EventTarget | null): boolean {
   );
 }
 
+interface InputCommandBudget {
+  readonly session: SimulationSessionIdentity | null;
+  tokens: number;
+  updatedAtMilliseconds: number;
+}
+
 /**
- * @canonical thrust_input -- cursor aim, held Space, and the sole change-only thrust sender.
- * @extension-point thrust_aim_observation -- Canvas publishes projected CSS geometry, never commands.
- *
- * Sends `set_thrust` on change and at most once every 50 ms, never once per frame: a thrust is a
- * level that persists on the server until the next command. Aim can change independently of go;
- * remembered nonzero aim is available for later abilities but never substitutes for centre thrust.
- * Null geometry, camera gestures, UI interaction, and blur cancel activation, replacing any queued
- * nonzero with zero through this same timer. Resuming requires a fresh Space press, not key repeat.
- * A locally refused send also cancels go; observation/render feedback never retries it. Only a
- * fresh activation may make another attempt. Throttling uses monotonic elapsed time, not wall time.
- *
- * enabled must include actual physics_body presence. The immutable welcome, owned entity ID, and
- * observed availability delimit input lifetime; fresh snapshot/body objects do not. Replacement
- * or disconnect discards pending work and remembered aim, never replaying it into a new body.
- * Between-snapshot same-entity recreation has no wire identity and cannot be inferred here.
- * A generation change retires held input and every pending command, including zero releases,
- * even if the entire stun was missed. Only a fresh Space press captures the current generation;
- * its aim updates and release retain that token until retirement.
- *
- * The layout effect establishes this owner before Canvas publishes passive-effect geometry;
- * pointer handlers call the stable observer directly. Invalid numeric geometry raises
- * SIMULATION.SESSION_INVARIANT_VIOLATION rather than inventing a usable direction.
- *
- * Step 21 added the two ability pulses to this same owner, and to nothing else: one keyboard, one
- * set of guards, one sender reference. They deliberately do *not* reuse `flush`. A pulse has no
- * level semantics for it to keep, and every part of that timer is wrong for one -- its change-only
- * gate would swallow a second identical press, its 50 ms coalescing would delay a press against an
- * 80 ms perfect opening, its single parked timer could drop one on any effect re-run, and its
- * refusal latch is shared with held thrust, so a refused ability send would drop a player's
- * propulsion. What the two paths share is `sendCommand` and the guards around it.
- *
- * The rate discipline is not optional and is not the thrust throttle: the per-session bucket is
- * capacity 30 refilling 20 per second, its token is charged before parsing, and an empty bucket is
- * a `1008` socket close rather than a refusal. A visible published cooldown suppresses an
- * activation outright, and `ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS` backstops the window before
- * the snapshot that would publish one. The two payloads are encoded separately because their
- * schemas differ: `shield` requires `input_generation` and spells the never-invalidated case as an
- * explicit `null`, where `charge` omits the member exactly as `set_thrust` does.
+ * @canonical thrust_input -- cursor aim, held left mouse Go, Space brakes and pulse commands.
+ * Levels are change-only and coalesce to the latest state. One per-session token bucket bounds
+ * levels and pulses together; pulses reserve a release token and never queue. Session/body/generation
+ * retirement discards pending levels, while only a new session resets the budget. A confirmed hit
+ * may therefore recharge immediately without an artificial per-ability delay.
  */
 export function useThrustInput({
   enabled,
@@ -252,12 +224,16 @@ export function useThrustInput({
   inputLocked,
   inputGeneration,
   abilityUnavailable,
+  rotationUnavailable,
   sendCommand,
 }: ThrustInputOptions): ThrustInputControls {
   const [view, setView] = useState<ThrustInputView>(EMPTY_INPUT_VIEW);
   const observer = useRef<ThrustInputControls['observeAim'] | null>(null);
   const activator = useRef<ThrustInputControls['activateAbility'] | null>(null);
   const transmission = useRef<InputTransmission | null>(null);
+  const rotator = useRef<ThrustInputControls['rotateVelocity'] | null>(null);
+  const budgetReference = useRef<InputCommandBudget | null>(null);
+  const rotationSuppressed = useRef(rotationUnavailable);
   const unavailable = useRef(abilityUnavailable);
   const observeAim = useCallback(
     (observation: ThrustAimObservation | null): void => {
@@ -269,6 +245,10 @@ export function useThrustInput({
     activator.current?.(ability);
   }, []);
 
+  const rotateVelocity = useCallback((direction: 'left' | 'right'): void => {
+    rotator.current?.(direction);
+  }, []);
+
   // Availability moves with almost every snapshot, and the input effect must not be rebuilt when it
   // does: a rebuild re-declares `goHeld`, so a cooldown merely starting would drop the thrust a
   // player is holding. This ref is that seam. It is written after every commit and read only from
@@ -276,6 +256,7 @@ export function useThrustInput({
   // keeps the narrow lifetime dependency list Step 11a gave it.
   useLayoutEffect(() => {
     unavailable.current = abilityUnavailable;
+    rotationSuppressed.current = rotationUnavailable;
   });
 
   useLayoutEffect(() => {
@@ -285,13 +266,14 @@ export function useThrustInput({
     let hasObservation = false;
     let cameraGestureActive = false;
     let goHeld = false;
+    let brakeHeld = false;
     let awaitingFreshActivation = false;
     let sendRequiredAfterRefusal = false;
     let aimDirection = ZERO_THRUST;
     // A pulse has no held state to send, but it has held state to *observe*: `event.repeat` is the
     // browser's claim and a synthetic or non-conforming event may omit it, so the second half of
     // the go key's `event.repeat || goHeld` rule is per-ability here too.
-    const heldAbilityKeys = new Set<SimulationAbility>();
+    const heldPulseKeys = new Set<string>();
     const previousTransmission = transmission.current;
     const sameBody =
       bodyAvailable &&
@@ -327,11 +309,35 @@ export function useThrustInput({
       // last-nonzero fallback exists to cover.
       lastNonzeroAimDirection:
         inheritedTransmission?.lastNonzeroAimDirection ?? null,
-      abilitySentAtMilliseconds: abilitySendTimes(inheritedTransmission),
+      braking:
+        sameGeneration && !inputLocked ? previousTransmission.braking : false,
     };
     transmission.current = currentTransmission;
     let lastNonzeroAimDirection = currentTransmission.lastNonzeroAimDirection;
     let pendingSendTimer: ReturnType<typeof setTimeout> | null = null;
+    let budgetTimer: ReturnType<typeof setTimeout> | null = null;
+    if (
+      budgetReference.current === null ||
+      budgetReference.current.session !== session
+    ) {
+      budgetReference.current = {
+        session,
+        tokens: INPUT_COMMAND_BUDGET_CAPACITY,
+        updatedAtMilliseconds: performance.now(),
+      };
+    }
+    const budget = budgetReference.current;
+    const refillBudget = (): void => {
+      const now = performance.now();
+      budget.tokens = Math.min(
+        INPUT_COMMAND_BUDGET_CAPACITY,
+        budget.tokens +
+          (Math.max(0, now - budget.updatedAtMilliseconds) *
+            INPUT_COMMAND_BUDGET_REFILL_PER_SECOND) /
+            1000,
+      );
+      budget.updatedAtMilliseconds = now;
+    };
 
     const clearPendingSend = (): void => {
       if (pendingSendTimer !== null) {
@@ -341,13 +347,20 @@ export function useThrustInput({
     };
 
     const publishView = (): void => {
-      const desired = goHeld ? aimDirection : ZERO_THRUST;
+      const desired = goHeld && !brakeHeld ? aimDirection : ZERO_THRUST;
+      refillBudget();
       const nextView = {
+        braking: brakeHeld,
+        commandBudgetUnavailable:
+          budget.tokens < INPUT_COMMAND_PULSE_MINIMUM_TOKENS,
         direction: desired,
         aimDirection,
         lastNonzeroAimDirection,
       };
       setView((previous) =>
+        previous.braking === nextView.braking &&
+        previous.commandBudgetUnavailable ===
+          nextView.commandBudgetUnavailable &&
         sameDirection(previous.direction, nextView.direction) &&
         sameDirection(previous.aimDirection, nextView.aimDirection) &&
         sameDirection(
@@ -357,17 +370,32 @@ export function useThrustInput({
           ? previous
           : nextView,
       );
+      if (budgetTimer !== null) clearTimeout(budgetTimer);
+      budgetTimer = null;
+      if (nextView.commandBudgetUnavailable) {
+        budgetTimer = setTimeout(
+          () => {
+            budgetTimer = null;
+            if (active) publishView();
+          },
+          Math.ceil(
+            ((INPUT_COMMAND_PULSE_MINIMUM_TOKENS - budget.tokens) * 1000) /
+              INPUT_COMMAND_BUDGET_REFILL_PER_SECOND,
+          ),
+        );
+      }
     };
 
-    const flush = (): void => {
+    const flush = (beforePulse = false): void => {
       if (!active) return;
-      const desired = goHeld ? aimDirection : ZERO_THRUST;
+      const desired = goHeld && !brakeHeld ? aimDirection : ZERO_THRUST;
       publishView();
       if (
         !canSend ||
         awaitingFreshActivation ||
         (!sendRequiredAfterRefusal &&
           sameDirection(currentTransmission.direction, desired) &&
+          currentTransmission.braking === brakeHeld &&
           currentTransmission.inputGeneration === activationGeneration)
       ) {
         clearPendingSend();
@@ -375,14 +403,20 @@ export function useThrustInput({
       }
 
       const now = performance.now();
-      const millisecondsSinceSend =
-        now - currentTransmission.sentAtMilliseconds;
-      if (millisecondsSinceSend < THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS) {
+      refillBudget();
+      const waitMilliseconds = Math.max(
+        beforePulse
+          ? 0
+          : THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS -
+              (now - currentTransmission.sentAtMilliseconds),
+        ((1 - budget.tokens) * 1000) / INPUT_COMMAND_BUDGET_REFILL_PER_SECOND,
+      );
+      if (waitMilliseconds > 0) {
         if (pendingSendTimer === null) {
           pendingSendTimer = setTimeout(() => {
             pendingSendTimer = null;
             flush();
-          }, THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS - millisecondsSinceSend);
+          }, Math.ceil(waitMilliseconds));
         }
         return;
       }
@@ -391,36 +425,47 @@ export function useThrustInput({
       // closure. A same-body replacement must inherit the attempt's timestamp, even before return.
       const previousSentAtMilliseconds = currentTransmission.sentAtMilliseconds;
       currentTransmission.sentAtMilliseconds = now;
+      budget.tokens -= 1;
+      const brakingPayload =
+        brakeHeld || currentTransmission.braking ? { braking: brakeHeld } : {};
       const submitted = sendCommand({
         kind: 'set_thrust',
         payload:
           activationGeneration === undefined
-            ? desired
-            : { ...desired, input_generation: activationGeneration },
+            ? { ...desired, ...brakingPayload }
+            : {
+                ...desired,
+                ...brakingPayload,
+                input_generation: activationGeneration,
+              },
       });
       // The capability may synchronously replace this welcome/body while reporting its result.
       // A retired closure cannot publish old aim or mutate the replacement lifetime afterward.
       if (!active) return;
       if (submitted) {
         currentTransmission.direction = desired;
+        currentTransmission.braking = brakeHeld;
         currentTransmission.inputGeneration = activationGeneration;
         currentTransmission.sentAtMilliseconds = now;
         sendRequiredAfterRefusal = false;
       } else {
         currentTransmission.sentAtMilliseconds = previousSentAtMilliseconds;
         goHeld = false;
+        brakeHeld = false;
         awaitingFreshActivation = true;
         sendRequiredAfterRefusal = true;
         publishView();
       }
+      publishView();
     };
 
     const cancelActivation = (): void => {
       // Every cancellation source releases the ability latches as well as go. Blur is the reason
       // this is not left to keyup: a blur swallows the release, and a latch that outlives the press
       // wedges the key -- the next real press reads as a repeat and the ability never fires again.
-      heldAbilityKeys.clear();
+      heldPulseKeys.clear();
       goHeld = false;
+      brakeHeld = false;
       flush();
     };
 
@@ -435,7 +480,14 @@ export function useThrustInput({
         lastNonzeroAimDirection = nextAim;
         currentTransmission.lastNonzeroAimDirection = nextAim;
       }
-      if (!hasObservation || cameraGestureActive) goHeld = false;
+      if (!hasObservation || cameraGestureActive) {
+        goHeld = false;
+      }
+      // Braking has no heading requirement. Aim can disappear every paint while the pointer is
+      // outside the arena; only a camera gesture or an explicit cancellation retires the hold.
+      if (cameraGestureActive) {
+        brakeHeld = false;
+      }
       flush();
     };
     observer.current = observe;
@@ -477,59 +529,60 @@ export function useThrustInput({
       };
     };
 
-    /**
-     * @canonical ability_activation -- the one guard an ability pulse passes, whether a key or an
-     * on-screen button asked for it. A button that re-implemented any of this could activate
-     * something a key could not, and the accessible control would be the unguarded one.
-     *
-     * It deliberately does *not* inherit `hasObservation`. That is a held-control rule -- thrust
-     * needs live geometry because it steers with the cursor -- and applying it here would refuse
-     * exactly the cursor-left-the-canvas case the remembered-aim fallback exists for, and would
-     * make shield, which needs no direction at all, unusable for a keyboard-only player.
-     *
-     * The result of `sendCommand` is not consulted, and that is the point: a refusal must not touch
-     * the thrust path's refusal latch, which cancels a player's propulsion and demands a fresh
-     * press. The two paths share the sender, never its bookkeeping.
-     */
+    // Pulses are immediate attempts. Latest held state gets priority, and an exhausted pulse is
+    // visibly unavailable rather than retained for a later frame or disguised as a cooldown.
+    const sendPulse = (command: SessionCommand): void => {
+      // The pulse must observe the latest brake/Go level at the server. Spending from the same
+      // bucket permits this ordered pair without bypassing the session's total traffic bound.
+      flush(true);
+      if (!active || pendingSendTimer !== null || sendRequiredAfterRefusal)
+        return;
+      refillBudget();
+      if (budget.tokens < INPUT_COMMAND_PULSE_MINIMUM_TOKENS) {
+        publishView();
+        return;
+      }
+      budget.tokens -= 1;
+      sendCommand(command);
+      if (active) publishView();
+    };
     const activate = (ability: SimulationAbility): void => {
       if (
         !active ||
         !canSend ||
         cameraGestureActive ||
-        unavailable.current[ability]
-      ) {
+        unavailable.current[ability] ||
+        (ability === 'charge' && brakeHeld)
+      )
         return;
-      }
-      const now = performance.now();
-      const sentAtMilliseconds =
-        currentTransmission.abilitySentAtMilliseconds[ability];
-      if (
-        now - sentAtMilliseconds <
-        ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS
-      ) {
-        return;
-      }
       const command = abilityCommand(ability);
-      if (command === null) {
+      if (command !== null) sendPulse(command);
+    };
+    const rotate = (direction: 'left' | 'right'): void => {
+      if (
+        !active ||
+        !canSend ||
+        cameraGestureActive ||
+        rotationSuppressed.current
+      )
         return;
-      }
-      // Reserved before the call, exactly as the thrust path reserves its interval, because the
-      // capability may synchronously retire this closure while reporting its result; a same-body
-      // replacement then inherits the attempt. It is not restored on a local refusal: a pulse has
-      // no retry to delay, and nothing a refusal here reports -- an unadvertised kind, a closed
-      // socket, an envelope the schema rejects -- clears again within a third of a second.
-      currentTransmission.abilitySentAtMilliseconds[ability] = now;
-      sendCommand(command);
+      sendPulse({
+        kind: 'rotate_velocity',
+        payload:
+          inputGeneration === undefined
+            ? { direction }
+            : { direction, input_generation: inputGeneration },
+      });
     };
     activator.current = activate;
-
-    /** One code, one action: the pool ADR 0008 reserved supplies both, and nothing else binds. */
-    const abilityForCode = (code: string): SimulationAbility | null =>
-      code === SHIELD_KEY_CODE
-        ? 'shield'
-        : code === CHARGE_KEY_CODE
-          ? 'charge'
-          : null;
+    rotator.current = rotate;
+    const pulseForCode = (code: string): (() => void) | null => {
+      if (code === SHIELD_KEY_CODE) return () => activate('shield');
+      if (code === CHARGE_KEY_CODE) return () => activate('charge');
+      if (code === ROTATE_LEFT_KEY_CODE) return () => rotate('left');
+      if (code === ROTATE_RIGHT_KEY_CODE) return () => rotate('right');
+      return null;
+    };
 
     const isUiInteraction = (event: KeyboardEvent): boolean =>
       blocksGameplayInput(event.target) ||
@@ -540,8 +593,8 @@ export function useThrustInput({
         cancelActivation();
         return;
       }
-      const ability = abilityForCode(event.code);
-      if (ability !== null) {
+      const pulse = pulseForCode(event.code);
+      if (pulse !== null) {
         // This list decides whether the key is *ours* to take from the browser, which is why it
         // repeats `canSend` and the camera gesture that `activate` also checks: an ability nobody
         // could activate leaves the code alone, and `activate` still holds the authoritative copy
@@ -558,35 +611,34 @@ export function useThrustInput({
           return;
         }
         event.preventDefault();
-        if (event.repeat || heldAbilityKeys.has(ability)) {
+        if (event.repeat || heldPulseKeys.has(event.code)) {
           return;
         }
         // Latched on every accepted press, not only on one that sends: the latch records that the
         // key is physically down, so a suppressed activation still refuses the repeat behind it.
-        heldAbilityKeys.add(ability);
-        activate(ability);
+        heldPulseKeys.add(event.code);
+        pulse();
         return;
       }
       if (
-        event.code !== THRUST_GO_KEY_CODE ||
+        event.code !== THRUST_BRAKE_KEY_CODE ||
         event.altKey ||
         event.ctrlKey ||
         event.metaKey ||
         event.isComposing ||
         event.defaultPrevented ||
         !canSend ||
-        !hasObservation ||
         cameraGestureActive
       ) {
         return;
       }
       event.preventDefault();
-      if (event.repeat || goHeld) {
+      if (event.repeat || brakeHeld) {
         return;
       }
       awaitingFreshActivation = false;
       activationGeneration = inputGeneration;
-      goHeld = true;
+      brakeHeld = true;
       flush();
     };
 
@@ -595,21 +647,22 @@ export function useThrustInput({
         cancelActivation();
         return;
       }
-      const ability = abilityForCode(event.code);
-      if (ability !== null) {
+      const pulse = pulseForCode(event.code);
+      if (pulse !== null) {
         // A release sends nothing -- the server holds no ability state a client could clear -- so
         // the only work here is dropping the latch, and only for a press this owner actually took.
-        if (!heldAbilityKeys.delete(ability)) {
+        if (!heldPulseKeys.delete(event.code)) {
           return;
         }
         event.preventDefault();
         return;
       }
-      if (event.code !== THRUST_GO_KEY_CODE || !goHeld) {
+      if (event.code !== THRUST_BRAKE_KEY_CODE || !brakeHeld) {
         return;
       }
       event.preventDefault();
-      cancelActivation();
+      brakeHeld = false;
+      flush();
     };
 
     const handleUiInteraction = (event: Event): void => {
@@ -618,11 +671,59 @@ export function useThrustInput({
       }
     };
 
+    const handlePointerDown = (event: globalThis.PointerEvent): void => {
+      handleUiInteraction(event);
+      if (
+        event.button !== 0 ||
+        !event.isPrimary ||
+        event.pointerType !== 'mouse' ||
+        !(event.target instanceof HTMLCanvasElement) ||
+        event.target.dataset.gameplaySurface !== 'arena' ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.defaultPrevented ||
+        blocksGameplayInput(document.activeElement) ||
+        !canSend ||
+        !hasObservation ||
+        cameraGestureActive ||
+        goHeld
+      )
+        return;
+      event.preventDefault();
+      awaitingFreshActivation = false;
+      activationGeneration = inputGeneration;
+      goHeld = true;
+      flush();
+    };
+    const handlePointerUp = (event: globalThis.PointerEvent): void => {
+      if (event.button !== 0 || !goHeld) return;
+      goHeld = false;
+      flush();
+    };
+
+    const handlePointerMove = (event: globalThis.PointerEvent): void => {
+      // Releasing left while right remains held is pointermove, not pointerup. A held-state
+      // observation can release Go but never re-arm it after cancellation or body replacement.
+      if (
+        goHeld &&
+        event.isPrimary &&
+        event.pointerType === 'mouse' &&
+        (event.buttons & 1) === 0
+      ) {
+        goHeld = false;
+        flush();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('blur', cancelActivation);
     window.addEventListener('focusin', handleUiInteraction);
-    window.addEventListener('pointerdown', handleUiInteraction);
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointercancel', cancelActivation);
     window.addEventListener('contextmenu', cancelActivation);
     flush();
 
@@ -632,9 +733,14 @@ export function useThrustInput({
       active = false;
       if (observer.current === observe) observer.current = null;
       if (activator.current === activate) activator.current = null;
+      if (rotator.current === rotate) rotator.current = null;
+      if (budgetTimer !== null) clearTimeout(budgetTimer);
       window.removeEventListener('blur', cancelActivation);
       window.removeEventListener('focusin', handleUiInteraction);
-      window.removeEventListener('pointerdown', handleUiInteraction);
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointercancel', cancelActivation);
       window.removeEventListener('contextmenu', cancelActivation);
       clearPendingSend();
     };
@@ -647,5 +753,5 @@ export function useThrustInput({
     sendCommand,
   ]);
 
-  return { ...view, observeAim, activateAbility };
+  return { ...view, observeAim, activateAbility, rotateVelocity };
 }

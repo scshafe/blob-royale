@@ -97,14 +97,15 @@ inline constexpr std::string_view kSecondProfileSection = "\n[bot_profile.velvet
                                                           "arrival_brake_fraction=0.4375\n"
                                                           "exposure_preference=0.21875\n"
                                                           "minimum_opening=0.65625\n";
-inline constexpr std::string_view kHazardSection = "\n[hazard.porcelain_otter]\n"
-                                                   "radius_world_units=10\n"
-                                                   "mass=1\n"
-                                                   "restitution=1\n"
-                                                   "speed_world_units_per_second=260\n"
-                                                   "spawn_interval_seconds=6\n"
-                                                   "lethal_on_contact=true\n"
-                                                   "contact_effect_policy=closing_impact\n";
+inline constexpr std::string_view kHazardSection =
+    "\n[hazard.porcelain_otter]\n"
+    "radius_world_units=10\n"
+    "mass=1\n"
+    "restitution=1\n"
+    "speed_world_units_per_second=260\n"
+    "spawn_interval_seconds=6\n"
+    "lethal_on_contact=true\n"
+    "contact_effect_policy=closing_impact\nspeed_variation_fraction=0\n";
 
 // Shortest round-trip decimal text for one authored number, so a section this fixture writes and
 // the `Section` value a test compares it against hold the same binary64 *by construction*. Spelling

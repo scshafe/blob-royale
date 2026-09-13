@@ -29,10 +29,12 @@ struct MovementTuningWireStatusFixture final {
   std::string_view status_name;
 };
 
-inline constexpr std::array<MovementTuningWireStatusFixture, 8> kMovementTuningWireStatuses{{
+inline constexpr std::array<MovementTuningWireStatusFixture, 9> kMovementTuningWireStatuses{{
     {{41, MovementTuningWireResultStatus::kApplied, 19, 7, std::nullopt}, "applied"},
     {{41, MovementTuningWireResultStatus::kSuperseded, 19, 7, std::nullopt}, "superseded"},
     {{41, MovementTuningWireResultStatus::kStaleRevision, 19, 0, std::nullopt}, "stale_revision"},
+    {{41, MovementTuningWireResultStatus::kUnsupportedTuning, 19, 0, std::nullopt},
+     "unsupported_tuning"},
     {{41, MovementTuningWireResultStatus::kNotSeated, 19, 0, std::nullopt}, "not_seated"},
     {{41, MovementTuningWireResultStatus::kRevisionExhausted, 19, kMaximumSafeInteger,
       std::nullopt},

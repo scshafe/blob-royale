@@ -338,9 +338,9 @@ test('independent cameras follow and pan a large world without gameplay commands
       y: dragStart.y + CAMERA_FIXTURE.drag.y,
     };
     await first.page.mouse.move(dragStart.x, dragStart.y);
-    await first.page.mouse.down();
+    await first.page.mouse.down({ button: 'right' });
     await first.page.mouse.move(dragEnd.x, dragEnd.y, { steps: 4 });
-    await first.page.mouse.up();
+    await first.page.mouse.up({ button: 'right' });
     const draggedCenter = {
       x: pannedCenter.x - CAMERA_FIXTURE.drag.x,
       y: pannedCenter.y - CAMERA_FIXTURE.drag.y,

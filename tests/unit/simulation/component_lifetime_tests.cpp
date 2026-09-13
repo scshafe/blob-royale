@@ -8,6 +8,7 @@ namespace fixture = blob_royale::testing::component_lifetime_fixture;
 
 TEST_CASE("component lifetimes distinguish body-bound counters from persistent entity state",
           "[unit][simulation][component_lifetime]") {
+  STATIC_REQUIRE(simulation::ComponentLifetime<simulation::CrossingHazard>::bound_to_body);
   STATIC_REQUIRE(simulation::ComponentLifetime<simulation::HillPresence>::bound_to_body);
   STATIC_REQUIRE(simulation::ComponentLifetime<simulation::ZoneExposure>::bound_to_body);
   STATIC_REQUIRE(simulation::ComponentLifetime<simulation::Stun>::bound_to_body);

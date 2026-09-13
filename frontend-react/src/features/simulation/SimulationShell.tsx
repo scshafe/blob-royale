@@ -50,7 +50,11 @@ export function SimulationShell({
           </button>
         )}
       </header>
-      <main className="AppContent">{children}</main>
+      <main
+        className={`AppContent AppContent-${lobbyId === null ? 'directory' : 'room'}`}
+      >
+        {children}
+      </main>
     </>
   );
 }

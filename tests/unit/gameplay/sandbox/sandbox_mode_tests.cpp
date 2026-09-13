@@ -64,21 +64,24 @@ TEST_CASE("SandboxMode declares free play with shared falling and configured ret
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kLeave, simulation::CommandKind::kThrust,
-             simulation::CommandKind::kShield, simulation::CommandKind::kCharge}));
+             simulation::CommandKind::kShield, simulation::CommandKind::kCharge,
+             simulation::CommandKind::kRotateVelocity}));
 
   const simulation::SystemPipeline systems = mode.systems();
-  REQUIRE(systems.size() == 4);
+  REQUIRE(systems.size() == 6);
   CHECK(mode.motion_triggers().size() == 1);
-  // `ability` is last at this stage in every mode that declares it, mirroring `status` at
-  // kPostKernel: pulse admission reads the canonical input lock, so every kPreKernel system that
-  // can change what that lock answers has already run.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 2);
+  // Rotation observes the same input lock and runs after ability so it can turn a fresh burst.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 3);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[1].system->name() ==
         std::string_view{"ability"});
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 1);
-  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() == "status");
+  CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[2].system->name() ==
+        std::string_view{"velocity_rotation"});
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 2);
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() ==
+        "charge_contact");
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() == "status");
   REQUIRE(systems.systems_at(simulation::SystemStage::kLifecycle).size() == 1);
   CHECK(systems.systems_at(simulation::SystemStage::kLifecycle)[0].system->name() == "respawn");
 }

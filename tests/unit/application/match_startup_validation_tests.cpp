@@ -72,27 +72,6 @@ constexpr double kArenaHeight = 640.0;
       std::string{kind}, radius, 40.0, 0.2, speed, interval_seconds, true});
 }
 
-// The standing-hazard term written out from the plan's own words rather than called out of the
-// implementation: "its maximum lifetime in ticks divided by its spawn interval in ticks, rounded
-// up, plus one for the one seated this tick", over the longest crossing this arena admits.
-//
-// It is deliberately a second, independent expression. Calling
-// `gameplay::maximum_standing_hazard_count` here would assert that the function equals itself; the
-// point is to pin the arithmetic to a formula a reviewer can check against the archetype's own
-// documented units.
-[[nodiscard]] std::uint64_t expected_standing_count(const double radius, const double speed,
-                                                    const double interval_seconds) {
-  const double longest_crossing =
-      std::sqrt((kArenaWidth * kArenaWidth) + (kArenaHeight * kArenaHeight)) +
-      (2.0 * (gameplay::kHazardEntryClearanceRadii * radius));
-  const double seconds_per_tick = simulation::FixedDelta::canonical().seconds();
-  const auto lifetime_ticks =
-      static_cast<std::uint64_t>(std::ceil(longest_crossing / speed / seconds_per_tick));
-  const auto interval_ticks = static_cast<std::uint64_t>(
-      std::round(interval_seconds * static_cast<double>(simulation::kSimulationTicksPerSecond)));
-  return ((lifetime_ticks + interval_ticks - 1) / interval_ticks) + 1;
-}
-
 // Everything the worst case counts other than hazards and the map: the admissible session seats,
 // the one entity a mode may create for itself, and the bots every seat of a full lobby could hold
 // -- a floor the roster can only raise past the engine's seat bound.
@@ -150,88 +129,43 @@ TEST_CASE("a modest hazard table still fits the snapshot bound",
                                                   map_with_static_bodies(64), table));
 }
 
-TEST_CASE(
-    "the standing-hazard term is exactly the lifetime over the interval, rounded up, plus one",
-    "[unit][application][match][validation][hazard]") {
-  // The boundary, from both sides, through the public function. A term computed one entity too
-  // small would accept the second case and a term one too large would reject the first, so this
-  // pins the arithmetic rather than merely observing that hazards raise the count.
-  constexpr double kRadius = 10.0;
-  constexpr double kSpeed = 200.0;
-  constexpr double kIntervalSeconds = 1.0;
-  const std::vector<gameplay::HazardArchetype> table{
-      hazard("plaid_meteorite", kRadius, kSpeed, kIntervalSeconds)};
-
-  const std::uint64_t standing = expected_standing_count(kRadius, kSpeed, kIntervalSeconds);
-  REQUIRE(standing > 1);
-  REQUIRE(kNonHazardBase + standing < protocol::kSnapshotEntityLimit);
-  // `maximum_standing_hazard_count` is what the validator sums, so this is where the independently
-  // written expression above meets the shared implementation the spawner also uses.
-  CHECK(gameplay::maximum_standing_hazard_count(
-            table.front(), simulation::ArenaBounds::create(kArenaWidth, kArenaHeight),
-            simulation::FixedDelta::canonical().seconds()) == standing);
-
-  const std::size_t exactly_at_bound = protocol::kSnapshotEntityLimit - kNonHazardBase - standing;
-  CHECK_NOTHROW(require_match_fits_snapshot_bound(match_with_bots(""),
-                                                  map_with_static_bodies(exactly_at_bound), table));
-  require_application_input_error_code(
-      [&] {
-        require_match_fits_snapshot_bound(match_with_bots(""),
-                                          map_with_static_bodies(exactly_at_bound + 1), table);
-      },
-      ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
+TEST_CASE("random crossing admission reserves its shared cap against the motion body bound",
+          "[unit][application][match][validation][hazard]") {
+  // The mean rate cannot bound a random burst. Both a slow dense and a fast sparse table
+  // reserve exactly the same 64 slots; one extra static body must fail admission.
+  constexpr std::size_t kCrossingCap = 64;
+  CHECK(gameplay::kMaximumActiveCrossingHazardCount == kCrossingCap);
+  const std::size_t boundary = simulation::kMaximumMotionBodyCount - kNonHazardBase - kCrossingCap;
+  for (const double speed : {0.5, 200.0}) {
+    for (const double interval : {0.0025, 1000.0}) {
+      const std::vector<gameplay::HazardArchetype> table{
+          hazard("plaid_meteorite", 10.0, speed, interval)};
+      CHECK_NOTHROW(require_match_fits_snapshot_bound(match_with_bots(""),
+                                                      map_with_static_bodies(boundary), table));
+      require_application_input_error_code(
+          [&] {
+            require_match_fits_snapshot_bound(match_with_bots(""),
+                                              map_with_static_bodies(boundary + 1), table);
+          },
+          ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
+    }
+  }
 }
 
-TEST_CASE("a hazard kind slow enough to fill the arena is refused at startup",
+TEST_CASE("a random crossing rejection names the enforceable shared cap",
           "[unit][application][match][validation][hazard]") {
-  // The failure this check exists to prevent, and the reason it had to grow a third parameter: a
-  // hazard crossing at half a world unit a second takes some forty minutes to leave, so one seated
-  // every second stacks up thousands deep and the encoder starts refusing frames -- to every client
-  // at once, mid-match, with nothing having gone wrong at startup.
-  const std::vector<gameplay::HazardArchetype> table{hazard("plaid_meteorite", 10.0, 0.5, 1.0)};
-  REQUIRE(expected_standing_count(10.0, 0.5, 1.0) > protocol::kSnapshotEntityLimit);
-
-  require_application_input_error_code(
-      [&] {
-        require_match_fits_snapshot_bound(match_with_bots(""), map_with_static_bodies(0), table);
-      },
-      ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
-}
-
-TEST_CASE("a hazard kind seated every tick is refused at startup",
-          "[unit][application][match][validation][hazard]") {
-  // The other half of the product. An ordinary hazard on an interval of one tick seats a new body
-  // faster than the old ones leave, so the standing population is the crossing length itself.
-  const std::vector<gameplay::HazardArchetype> table{
-      hazard("plaid_meteorite", 10.0, 200.0, simulation::FixedDelta::canonical().seconds())};
-  REQUIRE(table.front().spawn_interval_ticks() == 1);
-
-  require_application_input_error_code(
-      [&] {
-        require_match_fits_snapshot_bound(match_with_bots(""), map_with_static_bodies(0), table);
-      },
-      ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
-}
-
-TEST_CASE("the rejection names each hazard kind and how many of it it expects",
-          "[unit][application][match][validation][hazard]") {
-  // An operator reading the rejection has to be able to tell which `[hazard.<kind>]` knob to turn,
-  // which a total alone does not say. The kind names are the section instance names as authored, so
-  // the diagnostic can be read straight back onto a line of the configuration file.
   const std::vector<gameplay::HazardArchetype> table{hazard("plaid_meteorite", 10.0, 0.5, 1.0),
                                                      hazard("velvet_boulder", 26.0, 120.0, 4.0)};
   try {
-    require_match_fits_snapshot_bound(match_with_bots(""), map_with_static_bodies(0), table);
+    require_match_fits_snapshot_bound(
+        match_with_bots(""), map_with_static_bodies(simulation::kMaximumMotionBodyCount), table);
     FAIL("expected ApplicationInputError");
   } catch (const ApplicationInputError& error) {
-    REQUIRE(error.error_code() == ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
-    const std::string detail = error.detail();
-    CHECK_THAT(detail,
-               Catch::Matchers::ContainsSubstring(
-                   "plaid_meteorite " + std::to_string(expected_standing_count(10.0, 0.5, 1.0))));
-    CHECK_THAT(detail,
-               Catch::Matchers::ContainsSubstring(
-                   "velvet_boulder " + std::to_string(expected_standing_count(26.0, 120.0, 4.0))));
+    CHECK(error.error_code() == ApplicationInputErrorCode::kMatchEntityBudgetExceeded);
+    CHECK_THAT(error.detail(), Catch::Matchers::ContainsSubstring("64 hazards at once"));
+    CHECK_THAT(error.detail(),
+               Catch::Matchers::ContainsSubstring("shared active crossing-object cap"));
+    CHECK_THAT(error.detail(), Catch::Matchers::ContainsSubstring("snapshot/motion bound of 256"));
   }
 }
 

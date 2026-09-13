@@ -49,39 +49,33 @@ adapter. The encoder and frame oracle enforce snapshot coverage, while the clien
 checks exact pending-request correlation. `set_movement_tuning` decoding uses the same closed
 command path and the mode's published accepted mask.
 
-Step 18 registers `shield` at both v3 extension points named above, which is the whole of this
-domain's share of the feature. `component_encoding.hpp` gains the `Shield` specialization, encoding
-exactly `activation_tick`, `shield_expiry_tick`, `perfect_expiry_tick`, `cooldown_expiry_tick`, then
-`parry_stun_duration_ticks` — that call order is the wire order and `docs/protocol/v3.md`
-§ "Object member order" states it — and `kV3ComponentKindNames` grows to sixteen with `"shield"`
-between `"score"` and `"stun"`, because component keys encode ascending by kind name.
-`command_wire_kind.hpp` gains the `ShieldCommand` specialization answering `"shield"`, which is what
-makes the kind reachable from the decoder at all, and `kV3ClientCommandKindNames` grows from six to
-seven in ascending order, moving `start_match`'s index from five to six. `command_decoding.cpp`
-decodes the closed payload's one required `input_generation`, `null` or a positive safe integer,
-and never an actor identity: the session still stamps its own current body. The protocol version
-constant does not move; `3.0` covers the whole coordinated development release.
+Protocol 3.1 extends these same boundaries; the active routes and session subprotocol remain v3.
+`set_thrust` accepts optional boolean `braking` (absent means false), while `rotate_velocity`
+accepts one left/right pulse with the same optional generation token. Neither command accepts an
+actor, velocity, or speed. Simulation owns brake stopping, exact sign/swap turns, generation
+admission, and the steering → ability → rotation ordering; the decoder owns the closed payload.
+The client vocabulary is nine kinds, with availability narrowed by each mode's published mask.
 
-Step 19 registers `charge` at the same two extension points, and the ordering consequences are the
-part of it worth reading twice. `component_encoding.hpp` gains the `Charge` specialization in
-`components/charge_component_encoding.hpp`, encoding exactly `activation_tick` then
-`cooldown_expiry_tick`; its fail-closed guard is **strict**, `cooldown_expiry_tick >
-activation_tick`, where the shield encoder's corresponding checks admit equality, because the
-authored charge cooldown is validated strictly positive and an empty window is unreachable rather
-than merely unusual. `kV3ComponentKindNames` grows to seventeen with `"charge"` **first**, ahead of
-`"contact_effect_admission"`, because component keys encode ascending by kind name — so a `charge`
-is the first key of every entity that carries one, and it is the first kind this protocol has added
-that did not land at the end.
+The single room-tuning value, request, and current/default publication each contain five fields:
+acceleration, normal top speed, charge gain fraction, lethal birth rate, and nonlethal birth rate.
+The existing JSON names remain canonical. Limits publish a minimum and maximum for every field;
+charge maximum reflects the room's authored safety envelope and an unavailable crossing class has
+rate maximum zero. Intrinsically valid requests outside those room limits receive committed
+`unsupported_tuning` through the existing correlated result path. Apply and Reset each replace all
+five values atomically; no second exchange or command path exists.
 
-`command_wire_kind.hpp` gains the `ChargeCommand` specialization and `kV3ClientCommandKindNames`
-grows from seven to eight, and here the ordering is a hazard rather than a curiosity. That header
-selects names **by index**, `"charge"` sorts before `"clear_seat"` (`h` precedes `l`), and it
-therefore takes index `0` and renumbers **every** existing entry — where Step 18's `shield` moved
-exactly one. The file's two `static_assert`s check the count and surjectivity, both of which a
-consistently wrong permutation would satisfy, so every by-position index in that file was
-re-verified by hand rather than trusted. `command_decoding.cpp` decodes the closed
-`{x, y, input_generation?}` payload: `x` and `y` required and in `[-1, 1]`, the generation
-**optional** as on `set_thrust` rather than required-and-nullable as on `shield`, and no actor
-identity. The decoder does not normalize and does not judge the direction's magnitude — that is the
-ability system's, and this domain's job ends at the closed shape. The protocol version constant
-still does not move.
+`Charge` encodes `activation_tick`, `cooldown_expiry_tick`, `active_expiry_tick`, then
+`hit_stun_duration_ticks`. Cooldown remains strictly later than activation; active expiry may equal
+activation, and a nonempty active window requires positive hit-stun duration. The two expiries are
+independent. Successful first player contact removes the component and refunds cooldown while the
+shared stun retains collision momentum. Shielded contact, braking, and received stun cancel only
+the active attempt. The protocol publishes committed windows and velocity rather than inventing an
+ability receipt. Shield still publishes its five captured fields and Stun its two absolute ticks.
+
+The eighteenth component kind is sparse `crossing_hazard: {}`, identifying an object counted
+against the shared 64-object crossing cap. Body and lifetime components own its motion and expiry.
+Random class trials, weighted kind selection, and sampled speed use the existing hazards stream;
+`random_draw_counts.hazards` therefore changes with running trials, not just successful births.
+The registry, generated types, schema set, and encoder all retain one registered representation
+per kind. See [the current contract](../../docs/protocol/v3.md) for exact member order, limits,
+refusal semantics, and the historical 3.0 implementation record.

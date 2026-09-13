@@ -436,16 +436,18 @@ TEST_CASE("one entity makes at most one activation attempt per tick",
   CHECK(stale_first == before);
 }
 
-TEST_CASE("an admitted charge publishes one cooldown and adds the burst to the body's velocity",
-          "[unit][gameplay][ability][charge]") {
+TEST_CASE(
+    "an admitted charge captures its contact attempt and adds the burst to the body's velocity",
+    "[unit][gameplay][ability][charge]") {
   simulation::GameWorld world = running_world();
   record_charge(world, entity(), east());
   const testing::TickHarness harness{tick()};
   ability()->apply(world, harness.context());
   const simulation::Charge* charge = charge_of(world);
   REQUIRE(charge != nullptr);
-  // One window and no other: charge is one-shot, so there is no active window to publish and no
-  // captured effect parameter. The cooldown is the whole committed state.
+  CHECK(charge->active_window() ==
+        simulation::TickWindow::create(tick(), tuning().charge_active_duration_ticks()));
+  CHECK(charge->hit_stun_duration_ticks() == tuning().charge_hit_stun_duration_ticks());
   CHECK(charge->activation_tick() == tick());
   CHECK(charge->cooldown_window() ==
         simulation::TickWindow::create(tick(), tuning().charge_cooldown_ticks()));
@@ -654,8 +656,7 @@ TEST_CASE("a live charge cooldown refuses the next charge and the sweep clears a
   // Two bursts, both additive, so the body is travelling at twice the gain.
   CHECK(velocity_of(world) == simulation::Vector2::create(2.0 * kBurstSpeed, 0.0));
 
-  // With no pulse at all, an expired cooldown is swept: a `Charge` carries one window and nothing
-  // that has to outlive it.
+  // With no pulse at all, cleanup removes a charge once both cooldown and active time have expired.
   simulation::GameWorld sweeping = running_world();
   record_charge(sweeping, entity(), east());
   ability()->apply(sweeping, first.context());
@@ -840,15 +841,18 @@ TEST_CASE("repeated charges at zero drag converge on the safety envelope rather 
   CHECK(admitted == 16);
   CHECK(greatest_speed == 16.0 * kBurstSpeed);
   CHECK(velocity_of(world) == simulation::Vector2::create(16.0 * kBurstSpeed, 0.0));
-  // The last thirty-four ticks were refusals, so no cooldown was consumed by them and no `Charge`
-  // is left standing once the final one expires.
-  CHECK(charge_of(world) == nullptr);
+  // Refused bursts consume nothing. The last activation remains contact-active after its short
+  // cooldown has elapsed, until its independent attempt window ends.
+  REQUIRE(charge_of(world) != nullptr);
+  CHECK(charge_of(world)->activation_tick() == tick(admitted));
+  CHECK(charge_of(world)->cooldown_window().expired(tick(50)));
+  CHECK(charge_of(world)->active_window().contains(tick(50)));
 }
 
 TEST_CASE("a charge cooldown survives a stun", "[unit][gameplay][ability][charge][stun]") {
   // Being stunned costs the effect, never the wait -- the same rule that keeps a shield's cooldown
-  // running through a cancellation. `StatusSystem` needs no charge arm to make this true: it
-  // zeroes intent and acceleration and never touches velocity or a cooldown.
+  // running through a cancellation. Ability admission consults the same input lock; StatusSystem
+  // separately cancels the active attempt while preserving velocity and cooldown.
   simulation::GameWorld world = running_world();
   record_charge(world, entity(), east());
   const testing::TickHarness activating{tick()};
@@ -872,4 +876,57 @@ TEST_CASE("a charge cooldown survives a stun", "[unit][gameplay][ability][charge
   ability()->apply(world, ready.context());
   REQUIRE(charge_of(world) != nullptr);
   CHECK(charge_of(world)->activation_tick() == tick(kAfterChargeCooldownTick));
+}
+
+TEST_CASE(
+    "charge cleanup retains a naturally ready active attempt and fresh activation replaces it",
+    "[unit][gameplay][ability][charge]") {
+  auto world = running_world();
+  const auto rapid =
+      charge_tuning(kOneTickCooldownSeconds, tuning().charge_safety_envelope_speed());
+  const auto system = ability_with(rapid);
+  record_charge(world, entity(), east());
+  const testing::TickHarness activation{tick()};
+  system->apply(world, activation.context());
+  const auto initial = *charge_of(world);
+  record_pulses(world, entity(), {});
+  const testing::TickHarness ready{tick(kActivation + 1)};
+  system->apply(world, ready.context());
+  REQUIRE(charge_of(world) != nullptr);
+  CHECK(*charge_of(world) == initial);
+  record_charge(world, entity(), east());
+  system->apply(world, ready.context());
+  REQUIRE(charge_of(world) != nullptr);
+  CHECK(charge_of(world)->activation_tick() == tick(kActivation + 1));
+  CHECK(velocity_of(world) == simulation::Vector2::create(2.0 * kBurstSpeed, 0.0));
+  record_pulses(world, entity(), {});
+  const testing::TickHarness expired{charge_of(world)->active_window().expiry_tick()};
+  system->apply(world, expired.context());
+  CHECK(charge_of(world) == nullptr);
+}
+
+TEST_CASE("charge admission reads the live strength and refuses zero strength or held brakes",
+          "[unit][gameplay][ability][charge]") {
+  constexpr double kLiveFraction = 0.25;
+  auto tuned = running_world();
+  tuned.mutable_match().movement.current = simulation::MovementTuning::create(
+      tuned.match().movement.current.acceleration(), kNormalTopSpeed, kLiveFraction);
+  record_charge(tuned, entity(), east());
+  const testing::TickHarness harness{tick()};
+  ability()->apply(tuned, harness.context());
+  CHECK(velocity_of(tuned) == simulation::Vector2::create(kNormalTopSpeed * kLiveFraction, 0.0));
+  REQUIRE(charge_of(tuned) != nullptr);
+
+  auto zero_strength = running_world();
+  zero_strength.mutable_match().movement.current = simulation::MovementTuning::create(
+      zero_strength.match().movement.current.acceleration(), kNormalTopSpeed, 0.0);
+  record_charge(zero_strength, entity(), east());
+  check_refusal_changes_nothing(zero_strength, tick());
+  auto braking = running_world();
+  braking.mutable_store<simulation::Controllable>().mutable_find(entity())->braking_intent = true;
+  record_charge(braking, entity(), east());
+  check_refusal_changes_nothing(braking, tick());
+  record_pulse(braking, entity());
+  ability()->apply(braking, harness.context());
+  CHECK(shield_of(braking) != nullptr);
 }

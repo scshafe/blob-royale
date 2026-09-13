@@ -1,5 +1,6 @@
 #include "shared/status_system.hpp"
 
+#include "components/charge_component.hpp"
 #include "components/controllable_component.hpp"
 #include "components/shield_component.hpp"
 #include "components/stun_component.hpp"
@@ -83,6 +84,7 @@ void StatusSystem::apply(simulation::GameWorld& world,
             world.mutable_store<simulation::Controllable>().mutable_find(entry.entity);
         controllable != nullptr) {
       controllable->normalized_thrust_intent = zero;
+      controllable->braking_intent = false;
     }
     if (auto* body = world.mutable_store<simulation::PhysicsBody>().mutable_find(entry.entity);
         body != nullptr && !body->is_static()) {
@@ -100,6 +102,13 @@ void StatusSystem::apply(simulation::GameWorld& world,
     // that still has work to do, and only `shared/ability_system.hpp` removes one, once both
     // windows have expired. It also belongs here and not in the aggregation loop above, whose
     // stated invariant is that a later invalid request leaves nothing earlier changed.
+    // Stun also ends an unconsumed charge attempt, preserving its incurred cooldown and the
+    // velocity already produced by contact. A successful charge has already been refunded.
+    if (const auto* charge = world.store<simulation::Charge>().find(entry.entity);
+        charge != nullptr) {
+      world.mutable_store<simulation::Charge>().insert_or_assign(entry.entity,
+                                                                 charge->canceled_at(tick));
+    }
     if (const auto* shield = world.store<simulation::Shield>().find(entry.entity);
         shield != nullptr) {
       world.mutable_store<simulation::Shield>().insert_or_assign(entry.entity,

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.blob-royale.invalid/protocol/v3/crossing-hazard-component.schema.json",
+  "title": "Blob Royale spawned crossing marker",
+  "description": "Presence identifies a spawned crossing object counted against the shared active population cap. PhysicsBody and Lifetime own its motion and expiry.",
+  "x-status": "Accepted",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {}
+}

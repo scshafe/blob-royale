@@ -18,6 +18,18 @@ find_registration(const std::string_view mode_name) noexcept {
   return nullptr;
 }
 
+[[nodiscard]] const GameModeRegistry::Registration&
+require_registration(const std::string_view mode_name) {
+  const auto* registration = find_registration(mode_name);
+  if (registration == nullptr) {
+    throw GameplayValidationError(
+        GameplayValidationCode::kGameModeNameUnknown, "game_mode_registry.mode",
+        "mode " + std::string(mode_name) + " is registered by no row; the registered modes are " +
+            GameModeRegistry::registered_names());
+  }
+  return *registration;
+}
+
 } // namespace
 
 std::span<const GameModeRegistry::Registration> GameModeRegistry::registrations() noexcept {
@@ -31,19 +43,47 @@ bool GameModeRegistry::contains(const std::string_view mode_name) noexcept {
 std::unique_ptr<const simulation::GameMode>
 GameModeRegistry::create(const std::string_view mode_name,
                          const GameModeConfiguration& configuration) {
-  const Registration* registration = find_registration(mode_name);
-  if (registration == nullptr) {
-    throw GameplayValidationError(
-        GameplayValidationCode::kGameModeNameUnknown, "game_mode_registry.mode",
-        "mode " + std::string(mode_name) + " is registered by no row; the registered modes are " +
-            registered_names());
-  }
-  return registration->factory(configuration);
+  return require_registration(mode_name).factory(configuration);
 }
 
 std::unique_ptr<const simulation::GameMode>
 GameModeRegistry::create(const std::string_view mode_name) {
   return create(mode_name, GameModeConfiguration::defaults());
+}
+
+std::span<const HazardArchetype>
+GameModeRegistry::active_hazards(const std::string_view mode_name,
+                                 const GameModeConfiguration& configuration) {
+  return require_registration(mode_name).crossing_hazards
+             ? std::span<const HazardArchetype>{configuration.hazards}
+             : std::span<const HazardArchetype>{};
+}
+
+simulation::MovementTuningState
+GameModeRegistry::initial_room_tuning(const std::string_view mode_name,
+                                      const GameModeConfiguration& configuration) {
+  const auto hazards = active_hazards(mode_name, configuration);
+  bool lethal = false;
+  bool nonlethal = false;
+  for (const auto& archetype : hazards) {
+    if (archetype.lethal_on_contact())
+      lethal = true;
+    else
+      nonlethal = true;
+  }
+  const auto& authored = configuration.movement;
+  const auto effective = simulation::MovementTuning::create(
+      authored.acceleration(), authored.normal_top_speed(), authored.charge_speed_fraction(),
+      lethal ? authored.lethal_spawn_rate_per_second() : 0.0,
+      nonlethal ? authored.nonlethal_spawn_rate_per_second() : 0.0);
+  return {.current = effective,
+          .defaults = effective,
+          .charge_speed_fraction_maximum = configuration.abilities.charge_safety_envelope_speed() /
+                                           simulation::kMaximumNormalTopSpeed,
+          .lethal_spawn_rate_per_second_maximum =
+              lethal ? simulation::kMaximumCrossingSpawnRatePerSecond : 0.0,
+          .nonlethal_spawn_rate_per_second_maximum =
+              nonlethal ? simulation::kMaximumCrossingSpawnRatePerSecond : 0.0};
 }
 
 std::string GameModeRegistry::registered_names() {

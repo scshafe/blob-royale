@@ -16,6 +16,9 @@ import type {
 interface MovementTuningDraft {
   readonly acceleration: string;
   readonly normalTopSpeed: string;
+  readonly chargeSpeedFraction: string;
+  readonly lethalSpawnRate: string;
+  readonly nonlethalSpawnRate: string;
   readonly baseRevision: number;
 }
 
@@ -38,6 +41,9 @@ export interface MovementTuningControls {
   readonly authoritative: SessionMovementState | null;
   readonly acceleration: string;
   readonly normalTopSpeed: string;
+  readonly chargeSpeedFraction: string;
+  readonly lethalSpawnRate: string;
+  readonly nonlethalSpawnRate: string;
   readonly dirty: boolean;
   readonly canEdit: boolean;
   readonly needsReview: boolean;
@@ -52,6 +58,9 @@ export interface MovementTuningControls {
   };
   readonly editAcceleration: (value: string) => void;
   readonly editNormalTopSpeed: (value: string) => void;
+  readonly editChargeSpeedFraction: (value: string) => void;
+  readonly editLethalSpawnRate: (value: string) => void;
+  readonly editNonlethalSpawnRate: (value: string) => void;
   readonly reviewCurrent: () => void;
   readonly apply: () => void;
   readonly reset: () => void;
@@ -100,6 +109,9 @@ function draftFrom(
   return {
     acceleration: String(current.acceleration_world_units_per_second_squared),
     normalTopSpeed: String(current.normal_top_speed_world_units_per_second),
+    chargeSpeedFraction: String(current.charge_speed_fraction),
+    lethalSpawnRate: String(current.lethal_spawn_rate_per_second),
+    nonlethalSpawnRate: String(current.nonlethal_spawn_rate_per_second),
     baseRevision: revision,
   };
 }
@@ -108,37 +120,42 @@ function parsedDraft(
   draft: MovementTuningDraft,
   movement: SessionMovementState,
 ): SessionMovementTuning | null {
-  if (draft.acceleration.trim() === '' || draft.normalTopSpeed.trim() === '')
-    return null;
-  const acceleration = Number(draft.acceleration);
-  const speed = Number(draft.normalTopSpeed);
-  const accelerationLimits =
-    movement.limits.acceleration_world_units_per_second_squared;
-  const speedLimits = movement.limits.normal_top_speed_world_units_per_second;
   if (
-    !Number.isFinite(acceleration) ||
-    !Number.isFinite(speed) ||
-    acceleration < accelerationLimits.minimum ||
-    acceleration > accelerationLimits.maximum ||
-    speed < speedLimits.minimum ||
-    speed > speedLimits.maximum
+    [
+      draft.acceleration,
+      draft.normalTopSpeed,
+      draft.chargeSpeedFraction,
+      draft.lethalSpawnRate,
+      draft.nonlethalSpawnRate,
+    ].some((value) => value.trim() === '')
   )
     return null;
-  return {
-    acceleration_world_units_per_second_squared: acceleration,
-    normal_top_speed_world_units_per_second: speed,
+  const values: SessionMovementTuning = {
+    acceleration_world_units_per_second_squared: Number(draft.acceleration),
+    normal_top_speed_world_units_per_second: Number(draft.normalTopSpeed),
+    charge_speed_fraction: Number(draft.chargeSpeedFraction),
+    lethal_spawn_rate_per_second: Number(draft.lethalSpawnRate),
+    nonlethal_spawn_rate_per_second: Number(draft.nonlethalSpawnRate),
   };
+  for (const field of Object.keys(values) as (keyof SessionMovementTuning)[]) {
+    const value = values[field];
+    const limits = movement.limits[field];
+    if (
+      !Number.isFinite(value) ||
+      value < limits.minimum ||
+      value > limits.maximum
+    )
+      return null;
+  }
+  return values;
 }
 
-function samePair(
+function sameTuning(
   left: SessionMovementTuning,
   right: SessionMovementTuning,
 ): boolean {
-  return (
-    left.acceleration_world_units_per_second_squared ===
-      right.acceleration_world_units_per_second_squared &&
-    left.normal_top_speed_world_units_per_second ===
-      right.normal_top_speed_world_units_per_second
+  return (Object.keys(left) as (keyof SessionMovementTuning)[]).every(
+    (field) => left[field] === right[field],
   );
 }
 
@@ -174,6 +191,8 @@ function describeOutcome(
       const reasons = {
         superseded: 'another eligible request won the same tick',
         stale_revision: 'the room revision changed',
+        unsupported_tuning:
+          'one or more values exceed this room’s supported tuning limits',
         not_seated: 'the sender no longer held a seat',
         revision_exhausted: 'the room revision is exhausted',
         rate_limited: `the minimum interval has not elapsed; retry after ${result.retry_after_milliseconds} ms`,
@@ -250,7 +269,7 @@ export function useMovementTuning({
       exchange.result.status === 'applied' &&
       submittedDraft !== null &&
       editor.draft?.baseRevision === exchange.request.expected_revision &&
-      samePair(submittedDraft, exchange.request);
+      sameTuning(submittedDraft, exchange.request);
     editor = {
       ...editor,
       handledResult: exchange.result,
@@ -329,7 +348,7 @@ export function useMovementTuning({
   const draft =
     editor.draft ??
     (movement === null ? null : draftFrom(movement.current, movement.revision));
-  const pair =
+  const values =
     draft === null || movement === null ? null : parsedDraft(draft, movement);
   const unknownReview =
     exchange.status === 'unknown' &&
@@ -356,8 +375,8 @@ export function useMovementTuning({
                 ? 'Waiting for the minimum tuning interval.'
                 : null;
   const validationMessage =
-    pair === null && draft !== null
-      ? 'Enter finite values inside both published limits.'
+    values === null && draft !== null
+      ? 'Enter finite values inside all published room limits.'
       : null;
   const applyDisabledReason =
     unavailableReason ??
@@ -369,7 +388,7 @@ export function useMovementTuning({
     (unknownReview ? 'Review the current room values before resetting.' : null);
 
   const edit = (
-    field: 'acceleration' | 'normalTopSpeed',
+    field: Exclude<keyof MovementTuningDraft, 'baseRevision'>,
     value: string,
   ): void => {
     if (!ready || pending || movement === null) return;
@@ -378,14 +397,10 @@ export function useMovementTuning({
         ...(current.draft ?? draftFrom(movement.current, movement.revision)),
         [field]: value,
       };
-      const clean =
-        edited.baseRevision === movement.revision &&
-        edited.acceleration ===
-          String(
-            movement.current.acceleration_world_units_per_second_squared,
-          ) &&
-        edited.normalTopSpeed ===
-          String(movement.current.normal_top_speed_world_units_per_second);
+      const authoritativeDraft = draftFrom(movement.current, movement.revision);
+      const clean = (
+        Object.keys(edited) as (keyof MovementTuningDraft)[]
+      ).every((key) => edited[key] === authoritativeDraft[key]);
       return {
         ...current,
         draft: clean ? null : edited,
@@ -400,7 +415,7 @@ export function useMovementTuning({
       movement === null ||
       session === null ||
       (reset ? resetDisabledReason : applyDisabledReason) !== null ||
-      (pair === null && !reset)
+      (values === null && !reset)
     )
       return;
     const now = performance.now();
@@ -419,10 +434,10 @@ export function useMovementTuning({
     allocation.current = { session, lastId: id };
     const deadline = now + session.movementTuningMinimumIntervalMilliseconds;
     admission.current = { session, deadline };
-    const selectedPair = reset ? movement.defaults : pair;
-    if (selectedPair === null) return;
+    const selectedValues = reset ? movement.defaults : values;
+    if (selectedValues === null) return;
     const payload = {
-      ...selectedPair,
+      ...selectedValues,
       tuning_request_id: id,
       expected_revision: reset
         ? movement.revision
@@ -452,6 +467,9 @@ export function useMovementTuning({
     authoritative: movement,
     acceleration: draft?.acceleration ?? '',
     normalTopSpeed: draft?.normalTopSpeed ?? '',
+    chargeSpeedFraction: draft?.chargeSpeedFraction ?? '',
+    lethalSpawnRate: draft?.lethalSpawnRate ?? '',
+    nonlethalSpawnRate: draft?.nonlethalSpawnRate ?? '',
     dirty: editor.draft !== null,
     canEdit: ready && !pending,
     needsReview,
@@ -465,6 +483,9 @@ export function useMovementTuning({
     outcome: describeOutcome(exchange, editor.submissionUnavailable),
     editAcceleration: (value) => edit('acceleration', value),
     editNormalTopSpeed: (value) => edit('normalTopSpeed', value),
+    editChargeSpeedFraction: (value) => edit('chargeSpeedFraction', value),
+    editLethalSpawnRate: (value) => edit('lethalSpawnRate', value),
+    editNonlethalSpawnRate: (value) => edit('nonlethalSpawnRate', value),
     reviewCurrent: () => {
       if (!ready || pending || movement === null) return;
       setState((current) => ({

@@ -1,6 +1,7 @@
 #include "shared/hazard_archetype.hpp"
 
 #include "gameplay_validation_error.hpp"
+#include "simulation_limits.hpp"
 #include "simulation_validation_error.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -74,6 +75,7 @@ TEST_CASE("a declared hazard kind becomes the archetype it authored",
   CHECK(archetype.mass() == 1.0);
   CHECK(archetype.restitution() == 1.0);
   CHECK(archetype.speed() == 260.0);
+  CHECK(archetype.speed_variation_fraction() == 0.0);
   CHECK(archetype.lethal_on_contact());
   CHECK(archetype.contact_effect_policy() == simulation::ContactEffectPolicy::kClosingImpact);
   // The one authored duration arrives already in ticks, so no spawner ever sees a value in seconds
@@ -218,4 +220,48 @@ TEST_CASE("two archetypes are equal exactly when every declared value agrees",
         gameplay::HazardArchetype::create(valid_section()));
   CHECK_FALSE(gameplay::HazardArchetype::create(valid_section()) ==
               gameplay::HazardArchetype::create(heavier));
+}
+
+TEST_CASE("hazard speed variation retains a finite positive distribution across its closed range",
+          "[unit][gameplay][hazard][configuration][validation]") {
+  for (const double accepted : {0.0, 0.5, 0.9}) {
+    auto section = valid_section();
+    section.speed_variation_fraction = accepted;
+    CHECK(gameplay::HazardArchetype::create(section).speed_variation_fraction() == accepted);
+  }
+  for (const double refused : {-0.0001, 0.9001}) {
+    auto section = valid_section();
+    section.speed_variation_fraction = refused;
+    CHECK(rejection_code_of(section) == gameplay::GameplayValidationCode::kHazardScalarOutOfRange);
+    CHECK(rejection_context_of(section) == "hazard.comet.speed_variation_fraction");
+  }
+  for (const double refused :
+       {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity()}) {
+    auto section = valid_section();
+    section.speed_variation_fraction = refused;
+    CHECK(rejection_code_of(section) == gameplay::GameplayValidationCode::kHazardScalarNotFinite);
+    CHECK(rejection_context_of(section) == "hazard.comet.speed_variation_fraction");
+  }
+  for (const double refused :
+       {std::numeric_limits<double>::max(), std::numeric_limits<double>::denorm_min()}) {
+    auto section = valid_section();
+    section.speed_world_units_per_second = refused;
+    section.speed_variation_fraction = 0.9;
+    CHECK(rejection_code_of(section) == gameplay::GameplayValidationCode::kHazardScalarOutOfRange);
+  }
+  auto varied = valid_section();
+  varied.speed_variation_fraction = 0.5;
+  CHECK(gameplay::HazardArchetype::create(varied) !=
+        gameplay::HazardArchetype::create(valid_section()));
+}
+
+TEST_CASE("hazard sampled speed maximum is admitted before any random birth",
+          "[unit][gameplay][hazard][configuration][validation]") {
+  auto section = valid_section();
+  section.speed_variation_fraction = 0.5;
+  section.speed_world_units_per_second = simulation::kMaximumPhysicalComponentMagnitude / 1.5;
+  CHECK_NOTHROW(gameplay::HazardArchetype::create(section));
+  section.speed_world_units_per_second = simulation::kMaximumPhysicalComponentMagnitude;
+  CHECK(rejection_code_of(section) == gameplay::GameplayValidationCode::kHazardScalarOutOfRange);
+  CHECK(rejection_context_of(section) == "hazard.comet.speed_variation_fraction");
 }

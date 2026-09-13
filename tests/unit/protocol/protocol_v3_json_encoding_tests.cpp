@@ -59,13 +59,13 @@ void require_members_in_order(const std::string_view encoded,
 }
 
 // One committed frame carrying the supplied charge, encoded through the production path. Named
-// once so the charge cases below differ only in the value under test. There is no `committed_tick`
-// knob beside the shield's: a charge owns no window anything can shorten, so every specimen is
-// simply the state the activation tick produced.
-[[nodiscard]] std::string encoded_charge_frame(const simulation::Charge& charge) {
+// once so the charge cases below differ only in the value and committed observation tick.
+[[nodiscard]] std::string
+encoded_charge_frame(const simulation::Charge& charge,
+                     const std::uint64_t committed_tick = protocol::charge_fixture::kActivation) {
   return protocol::encode_snapshot_message_v3(
-      protocol::charge_fixture::snapshot(charge), fixture::golden_directory(), std::nullopt,
-      fixture::session_request_id(), fixture::kSnapshotMessageSequence,
+      protocol::charge_fixture::snapshot(charge, committed_tick), fixture::golden_directory(),
+      std::nullopt, fixture::session_request_id(), fixture::kSnapshotMessageSequence,
       fixture::kSnapshotTimestamp);
 }
 
@@ -117,7 +117,7 @@ TEST_CASE("Welcome encoder matches the accepted golden example and canonical byt
   fixture::require_json_matches_v3_golden_example(encoded, "welcome-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["charge","clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]},"movement_tuning_minimum_interval_milliseconds":500},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
+      R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale","map":"arena-960x640","accepted_command_kinds":["charge","clear_seat","rotate_velocity","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"],"npc_controller_kinds":["wanderer","chaser"],"lobby_id":1,"seat_count_maximum":32,"terrain":{"bounds":{"width_world_units":960,"height_world_units":640},"ground":"solid","corridors":[],"holes":[]},"movement_tuning_minimum_interval_milliseconds":500},"error":null,"meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/welcome-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})");
 }
 
 TEST_CASE("Snapshot v3 encoder matches the accepted golden example",
@@ -197,7 +197,7 @@ TEST_CASE("Session retirement error is fixed non-retryable v3 guidance with an e
         protocol::V3HttpError::kSessionVersionUpgradeRequiredMessage);
   CHECK(encoded_error.at("details").as_object().size() == 1);
   CHECK(encoded_error.at("details").as_object().at("required_protocol_version").as_string() ==
-        "3.0");
+        "3.1");
   CHECK(encoded ==
         protocol::encode_error_response_v3(error, fixture::session_request_id(), encoded.size()));
   fixture::require_protocol_error_code(
@@ -217,7 +217,7 @@ TEST_CASE("Snapshot v3 encoder emits canonical bytes for the accepted golden wor
 
   CHECK(
       encoded ==
-      R"({"data":{"tick_sequence":12904,"random_draw_counts":{"hazards":0,"hill":0},"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true,"ground_attachment":"floating"}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false,"ground_attachment":"floating"},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false,"ground_attachment":"floating"},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"movement":{"current":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"defaults":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600},"limits":{"acceleration_world_units_per_second_squared":{"minimum":0,"maximum":10000},"normal_top_speed_world_units_per_second":{"minimum":1,"maximum":10000}},"revision":0,"effective_tick":0},"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}},"tuning_result":null},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
+      R"({"data":{"tick_sequence":12904,"random_draw_counts":{"hazards":0,"hill":0},"entities":[{"entity_id":1,"components":{"physics_body":{"position":{"x":480,"y":160},"velocity":{"x":0,"y":0},"acceleration":{"x":0,"y":0},"radius":40,"mass":0,"collision_layer":2,"collision_mask":1,"is_static":true,"ground_attachment":"floating"}}},{"entity_id":7,"components":{"controllable":{"controller_id":3,"controller_kind":"session","display_name":"Cole Shaffer"},"physics_body":{"position":{"x":4.125E2,"y":2.8825E2},"velocity":{"x":1.875E1,"y":-4.25E1},"acceleration":{"x":400,"y":0},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false,"ground_attachment":"floating"},"zone_exposure":{"outside_ticks":0}}},{"entity_id":8,"components":{"controllable":{"controller_id":4,"controller_kind":"wanderer","display_name":"wanderer-1"},"physics_body":{"position":{"x":7.605E2,"y":5.1225E2},"velocity":{"x":-6.25E0,"y":3.15E1},"acceleration":{"x":0,"y":-400},"radius":10,"mass":1,"collision_layer":1,"collision_mask":3,"is_static":false,"ground_attachment":"floating"},"zone_exposure":{"outside_ticks":214}}},{"entity_id":9,"components":{"zone":{"center":{"x":480,"y":320},"radius":2.105E2}}}],"match":{"mode":"royale","phase":"running","phase_started_tick":10904,"seats":[{"kind":"controller","controller_id":3,"npc_kind":null},{"kind":"npc","controller_id":12,"npc_kind":"wanderer"},{"kind":"npc","controller_id":null,"npc_kind":"chaser"},{"kind":"empty","controller_id":null,"npc_kind":null}],"start_requested":true,"movement":{"current":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600,"charge_speed_fraction":7.5E-1,"lethal_spawn_rate_per_second":0,"nonlethal_spawn_rate_per_second":0},"defaults":{"acceleration_world_units_per_second_squared":400,"normal_top_speed_world_units_per_second":600,"charge_speed_fraction":7.5E-1,"lethal_spawn_rate_per_second":0,"nonlethal_spawn_rate_per_second":0},"limits":{"acceleration_world_units_per_second_squared":{"minimum":0,"maximum":10000},"normal_top_speed_world_units_per_second":{"minimum":1,"maximum":10000},"charge_speed_fraction":{"minimum":0,"maximum":100000000},"lethal_spawn_rate_per_second":{"minimum":0,"maximum":5},"nonlethal_spawn_rate_per_second":{"minimum":0,"maximum":5}},"revision":0,"effective_tick":0},"outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[{"entity_id":5,"controller_id":6,"placement":3,"eliminated_tick":12400}],"mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/royale","value":{"previous_phase":"running","elimination_grace_ticks":1200}}},"tuning_result":null},"error":null,"meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2","message_sequence":129,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})");
 }
 
 TEST_CASE("Error response v3 encoder matches the accepted golden example and canonical bytes",
@@ -230,7 +230,7 @@ TEST_CASE("Error response v3 encoder matches the accepted golden example and can
   fixture::require_json_matches_v3_golden_example(encoded, "error-response.json");
   CHECK(
       encoded ==
-      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+      R"({"data":null,"error":{"code":"PROTOCOL.INVALID_FORWARDED_CLIENT","message":"A proxy-forwarded connection must present exactly one canonical forwarded client address.","retryable":false,"details":{"forwarded_client_reason":"multiple_values"}},"meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/error-response","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
 }
 
 TEST_CASE("Snapshot v3 publishes real per-stream counts without exposing random state",
@@ -273,7 +273,7 @@ TEST_CASE("Error response v3 encoder carries the fourteen rows v3 shares with v1
 
   CHECK(encoded.find(R"("code":"PROTOCOL.METHOD_NOT_ALLOWED")") != std::string::npos);
   CHECK(encoded.find(R"("allowed_methods":["GET"])") != std::string::npos);
-  CHECK(encoded.find(R"("protocol_version":"3.0")") != std::string::npos);
+  CHECK(encoded.find(R"("protocol_version":"3.1")") != std::string::npos);
   CHECK(encoded.find(R"("schema_id":"blob-royale://protocol/v3/error-response")") !=
         std::string::npos);
 }
@@ -603,7 +603,7 @@ TEST_CASE("Conformance rejects a frame carrying both data and error",
   constexpr std::string_view kDataAndError =
       R"({"data":{"tick_sequence":1,"entities":[],"match":{}},)"
       R"("error":{"code":"SERVICE.INTERNAL_FAILURE","message":"m","retryable":false,"details":{}},)"
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kDataAndError) ==
@@ -614,7 +614,7 @@ TEST_CASE("Conformance rejects a frame carrying neither data nor error",
           "[unit][protocol][v3][conformance][rejection]") {
   constexpr std::string_view kNeither =
       R"({"data":null,"error":null,)"
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kNeither) ==
@@ -629,7 +629,7 @@ TEST_CASE("Conformance rejects a snapshot carrying an unregistered component kin
       R"("phase_started_tick":1,"outcome":{"kind":"none","winner_entity_id":null,)"
       R"("winner_team_id":null},"placements":[],"mode_state":)"
       R"({"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},"error":null,)"
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kUnknownComponentKind) ==
@@ -646,7 +646,7 @@ TEST_CASE("Conformance rejects a snapshot whose entity ids are not ascending and
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kDescending) ==
@@ -661,7 +661,7 @@ TEST_CASE("Conformance rejects a published entity carrying no component",
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kEmptyComponents) ==
@@ -675,7 +675,7 @@ TEST_CASE("Conformance rejects a frame naming a protocol version this schema set
       R"({"data":{"entity_id":7,"controller_id":3,"display_name":"Cole Shaffer","mode":"royale",)"
       R"("map":"arena-960x640","accepted_command_kinds":["set_thrust"],)"
       R"("npc_controller_kinds":[],"lobby_id":1,"seat_count_maximum":32},"error":null,)"
-      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/welcome-message",)"
+      R"("meta":{"protocol_version":"3.2","schema_id":"blob-royale://protocol/v3/welcome-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:11.500Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kMinorAhead) ==
@@ -690,7 +690,7 @@ TEST_CASE("Conformance rejects a snapshot delivered as message one",
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/none","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":1,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kSnapshotAsFirstFrame) ==
@@ -705,7 +705,7 @@ TEST_CASE("Conformance rejects a snapshot naming an unregistered mode-state sche
       R"("outcome":{"kind":"none","winner_entity_id":null,"winner_team_id":null},"placements":[],)"
       R"("mode_state":{"schema_id":"blob-royale://protocol/v3/mode-state/capture","value":{}}}},)"
       R"("error":null,)"
-      R"("meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
+      R"("meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/snapshot-message",)"
       R"("request_id":"r","message_sequence":2,"sent_at_utc":"2026-09-06T18:04:17.750Z"}})";
 
   CHECK(protocol::check_v3_server_frame(kUnknownModeState) ==
@@ -727,15 +727,11 @@ TEST_CASE("The closed v3 component vocabulary names exactly the registered compo
   CHECK_FALSE(protocol::is_v3_component_kind(""));
   CHECK(std::ranges::is_sorted(protocol::kV3ComponentKindNames));
 
-  // Seventeen since Step 19's `charge`, which sorts ahead of `contact_effect_admission` and so
-  // takes the front of the array; Step 18's `shield` sorts between `score` and `stun`. The count is
-  // written out beside the derived comparison above deliberately: the comparison proves the two
-  // lists agree with each other, and this proves they agree with the number a reader of the
-  // accepted schema set can count for themselves. Sortedness is the other half -- appending
-  // `"charge"` at the end of `kV3ComponentKindNames` would satisfy every compile-time gate,
-  // including the two static_asserts in `component_encoding_registry.hpp`, and only fail here.
-  CHECK(protocol::kV3ComponentKindNames.size() == 17);
+  // The explicit count pins the accepted schema set independently of the derived registry.
+  // crossing_hazard adds the eighteenth kind while sortedness preserves every name's order.
+  CHECK(protocol::kV3ComponentKindNames.size() == 18);
   CHECK(protocol::is_v3_component_kind("charge"));
+  CHECK(protocol::is_v3_component_kind("crossing_hazard"));
   CHECK(protocol::kV3ComponentKindNames.front() == "charge");
   CHECK(protocol::is_v3_component_kind("shield"));
 }
@@ -907,7 +903,7 @@ TEST_CASE("Shield encoding's out-of-range guards have no reachable specimen",
                   simulation::SimulationValidationError);
 }
 
-TEST_CASE("Charge publishes its activation and one absolute cooldown expiry in wire member order",
+TEST_CASE("Charge publishes independent windows and captured stun in wire member order",
           "[unit][protocol][v3][encoding][charge][golden]") {
   namespace charge_fixture = protocol::charge_fixture;
   const simulation::WorldSnapshot published = charge_fixture::snapshot(charge_fixture::activated());
@@ -915,19 +911,18 @@ TEST_CASE("Charge publishes its activation and one absolute cooldown expiry in w
 
   const std::string encoded = encoded_charge_frame(charge_fixture::activated());
 
-  // Exact bytes rather than a parsed comparison: `docs/protocol/v3.md` § "Object member order"
-  // makes the encoder's sink-call order normative, so a reordering that a JSON-value comparison
-  // would call equal is a contract change this test has to fail on. Two numbers and no third: a
-  // one-shot activation has no protection window to publish, and the activation is published
-  // alongside the expiry only because a cooldown arc needs a denominator the client is never told.
-  CHECK(encoded.find(R"("charge":{"activation_tick":100,"cooldown_expiry_tick":580})") !=
-        std::string::npos);
+  // Exact bytes pin the normative sink-call order, including the preserved first two members.
+  CHECK(
+      encoded.find(
+          R"("charge":{"activation_tick":100,"cooldown_expiry_tick":580,"active_expiry_tick":300,"hit_stun_duration_ticks":240})") !=
+      std::string::npos);
   // ...and the component key itself sits in the ascending kind-name order the same section pins,
   // which is why the fixture entity carries a body as well as a charge. `"charge"` lands *before*
   // `"physics_body"` where `"shield"` lands after it, so this is the one ordering an encoder that
   // simply appended the new kind would get wrong.
   require_members_in_order(encoded, {R"("components")", R"("charge")", R"("activation_tick")",
-                                     R"("cooldown_expiry_tick")", R"("physics_body")"});
+                                     R"("cooldown_expiry_tick")", R"("active_expiry_tick")",
+                                     R"("hit_stun_duration_ticks")", R"("physics_body")"});
   CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
 }
 
@@ -939,9 +934,11 @@ TEST_CASE("Charge encoding carries the shortest and the longest admissible coold
   // `charge_cooldown_seconds` is validated strictly positive rather than merely nonnegative. It is
   // the tightest value the encoder's `expiry > activation` rule admits, so it must publish rather
   // than fail closed: the guard refuses `100 == 100`, and `101 > 100` is a tick of real wait.
-  CHECK(encoded_charge_frame(charge_fixture::activated(charge_fixture::kActivation, 1))
-            .find(R"("charge":{"activation_tick":100,"cooldown_expiry_tick":101})") !=
-        std::string::npos);
+  CHECK(
+      encoded_charge_frame(charge_fixture::activated(charge_fixture::kActivation, 1))
+          .find(
+              R"("charge":{"activation_tick":100,"cooldown_expiry_tick":101,"active_expiry_tick":300,"hit_stun_duration_ticks":240})") !=
+      std::string::npos);
 
   // The top of the tick domain: TickWindow refuses to overflow it, and the wire carries the exact
   // safe integer rather than a rounded double.
@@ -955,28 +952,52 @@ TEST_CASE("Charge encoding's out-of-range guards have no reachable specimen",
           "[unit][protocol][v3][encoding][charge][rejection]") {
   namespace charge_fixture = protocol::charge_fixture;
 
-  // The encoder fails closed on a non-positive activation and on a cooldown expiry that does not
-  // strictly exceed it -- and neither can be handed to it, because `Charge::activate` is the only
-  // way to make one and it refuses a zero activation and a zero cooldown duration first. So this
-  // test pins the *reason* the guards are unreachable rather than pretending to reach them: a
-  // `Charge` in an invalid state is not constructible from outside the class, and forging one would
-  // assert against a value the world cannot hold. The guards stay written for the same reason
-  // `decode_seat_npc`'s grammar check sits behind its membership check
-  // (`src/protocol/command_decoding.cpp`): a boundary must not depend on another module's
-  // invariant staying true.
-  //
-  // The zero-duration refusal is the one that carries the strictness. Shield admits an expiry equal
-  // to its activation because `shield_cooldown_seconds` may legally round to zero ticks and because
-  // a stun may cancel protection on the activation tick; charge's cooldown is validated strictly
-  // positive and charge owns no cancellable window, so equality here would be a broken world
-  // published as a permanently ready charge
-  // (`docs/reviews/2026-09-12-charge-contract.md` § "Authored tuning and value ownership").
-  //
-  // If a later step gives `Charge` a second construction path, this is the test that breaks, and
-  // the guards in `charge_component_encoding.hpp` then owe positive specimens here.
+  // Invalid activation/cooldown and active/stun durations cannot reach the encoder through the
+  // production factory. Cancellation is a separate legal path that empties only the active window.
   CHECK_THROWS_AS(charge_fixture::activated(0), simulation::SimulationValidationError);
   CHECK_THROWS_AS(charge_fixture::activated(charge_fixture::kActivation, 0),
                   simulation::SimulationValidationError);
+  CHECK_THROWS_AS(charge_fixture::activated(charge_fixture::kActivation, 1, 0),
+                  simulation::SimulationValidationError);
+  CHECK_THROWS_AS(charge_fixture::activated(charge_fixture::kActivation, 1, 1, 0),
+                  simulation::SimulationValidationError);
+}
+
+TEST_CASE("Charge encoding preserves a canceled active attempt and its captured stun and cooldown",
+          "[unit][protocol][v3][encoding][charge]") {
+  const auto canceled = protocol::charge_fixture::activated().canceled_at(
+      simulation::TickSequence::create(protocol::charge_fixture::kActivation));
+  CHECK(
+      encoded_charge_frame(canceled).find(
+          R"("charge":{"activation_tick":100,"cooldown_expiry_tick":580,"active_expiry_tick":100,"hit_stun_duration_ticks":240})") !=
+      std::string::npos);
+  const auto cooldown_only = simulation::Charge::activate(
+      simulation::TickSequence::create(protocol::charge_fixture::kActivation), 480);
+  CHECK(
+      encoded_charge_frame(cooldown_only)
+          .find(
+              R"("charge":{"activation_tick":100,"cooldown_expiry_tick":580,"active_expiry_tick":100,"hit_stun_duration_ticks":0})") !=
+      std::string::npos);
+}
+
+TEST_CASE("Charge encoding retains an active attempt after natural cooldown readiness",
+          "[unit][protocol][v3][encoding][charge]") {
+  const auto charge = protocol::charge_fixture::activated(100, 1, 200, 240);
+  const auto encoded = encoded_charge_frame(charge, 102);
+  CHECK(encoded.find(R"("tick_sequence":102)") != std::string::npos);
+  CHECK(
+      encoded.find(
+          R"("charge":{"activation_tick":100,"cooldown_expiry_tick":101,"active_expiry_tick":300,"hit_stun_duration_ticks":240})") !=
+      std::string::npos);
+  CHECK(protocol::check_v3_server_frame(encoded) == protocol::V3FrameConformance::kConforms);
+}
+
+TEST_CASE("Charge encoding preserves the maximum exact captured stun duration",
+          "[unit][protocol][v3][encoding][charge]") {
+  const auto charge =
+      protocol::charge_fixture::activated(100, 480, 200, simulation::TickSequence::kMaximumValue);
+  CHECK(encoded_charge_frame(charge).find(R"("hit_stun_duration_ticks":9007199254740991)") !=
+        std::string::npos);
 }
 
 TEST_CASE("Hill motion publication strips private schedule and encodes only committed velocity",
@@ -1427,7 +1448,7 @@ TEST_CASE("Welcome advertises only client-sendable kinds the mode accepts",
   // than last: the encoder walks `kV3ClientCommandKindNames`, and that array is ascending.
   CHECK(
       advertised_all.find(
-          R"("accepted_command_kinds":["charge","clear_seat","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"])") !=
+          R"("accepted_command_kinds":["charge","clear_seat","rotate_velocity","seat_npc","set_movement_tuning","set_seat_count","set_thrust","shield","start_match"])") !=
       std::string::npos);
   CHECK(advertised_all.find("spawn") == std::string::npos);
   CHECK(advertised_all.find("despawn") == std::string::npos);
@@ -1542,7 +1563,7 @@ TEST_CASE("Lobby directory encoder matches the accepted golden example and canon
   fixture::require_json_matches_v3_golden_example(encoded, "lobby-directory-message.json");
   CHECK(
       encoded ==
-      R"({"data":{"lobbies":[{"lobby_id":1,"mode":"royale","map":"arena-960x640","phase":"running","phase_started_tick":10904,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":2,"npc_seat_count":2,"session_count":1,"healthy":true},{"lobby_id":2,"mode":"royale","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":1,"npc_seat_count":1,"session_count":0,"healthy":true}]},"error":null,"meta":{"protocol_version":"3.0","schema_id":"blob-royale://protocol/v3/lobby-directory","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
+      R"({"data":{"lobbies":[{"lobby_id":1,"mode":"royale","map":"arena-960x640","phase":"running","phase_started_tick":10904,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":2,"npc_seat_count":2,"session_count":1,"healthy":true},{"lobby_id":2,"mode":"royale","map":"arena-960x640","phase":"lobby","phase_started_tick":0,"tick_sequence":12904,"seat_count":4,"seat_count_maximum":32,"filled_seat_count":1,"npc_seat_count":1,"session_count":0,"healthy":true}]},"error":null,"meta":{"protocol_version":"3.1","schema_id":"blob-royale://protocol/v3/lobby-directory","request_id":"018f47a4-9c21-7f10-8a55-4b7d1e0c33a2"}})");
 }
 
 TEST_CASE("Lobby directory encoder fails closed on a directory it could not publish",

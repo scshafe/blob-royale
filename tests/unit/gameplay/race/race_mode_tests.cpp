@@ -71,10 +71,11 @@ TEST_CASE("RaceMode declares the fourth game with the shared contact rows and tw
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-             simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
-             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
-             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
-             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kCharge, simulation::CommandKind::kRotateVelocity,
+             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
+             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
+             simulation::CommandKind::kJoin}));
   CHECK(mode.spawn_policy() != nullptr);
   CHECK(mode.objective() != nullptr);
   CHECK(gameplay::GameModeRegistry::contains("race"));
@@ -87,15 +88,16 @@ TEST_CASE("RaceMode declares course before steering and certified progress befor
   const gameplay::RaceMode mode{testing::race_test_configuration()};
   mode.validate_map(testing::race_test_map());
   const auto systems = mode.systems();
-  CHECK(systems.size() == 11);
-  // `course_publisher` first and `ability` last is the whole kPreKernel constraint: the canonical
+  CHECK(systems.size() == 13);
+  // `course_publisher` precedes ability and rotation: the canonical
   // input lock reads the `RaceModeState` block the publisher writes, so a racer who has already
   // finished the published course is refused a shield pulse even on a directly seeded world's very
   // first quantum.
   CHECK(system_names_at(systems, simulation::SystemStage::kPreKernel) ==
-        std::vector<std::string_view>{"course_publisher", "thrust_steering", "ability"});
+        std::vector<std::string_view>{"course_publisher", "thrust_steering", "ability",
+                                      "velocity_rotation"});
   CHECK(system_names_at(systems, simulation::SystemStage::kPostKernel) ==
-        std::vector<std::string_view>{"checkpoint_progress", "status"});
+        std::vector<std::string_view>{"checkpoint_progress", "charge_contact", "status"});
   CHECK(system_names_at(systems, simulation::SystemStage::kLifecycle) ==
         std::vector<std::string_view>{"standings_recorder", "checkpoint_respawn", "respawn",
                                       "match_reset", "lifetime_expiry", "hazard_spawn"});

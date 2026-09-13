@@ -2,6 +2,7 @@
 
 #include "fixtures/status_fixture.hpp"
 #include "fixtures/thrust_steering_fixture.hpp"
+#include "fixtures/velocity_control_fixture.hpp"
 #include "gameplay_test_fixture.hpp"
 
 #include "events/elimination_event.hpp"
@@ -26,6 +27,7 @@ namespace simulation = blob_royale::simulation;
 namespace testing = blob_royale::testing;
 namespace fixture = blob_royale::testing::thrust_steering_fixture;
 namespace status_fixture = blob_royale::testing::status_fixture;
+namespace controls = blob_royale::testing::velocity_control_fixture;
 
 namespace {
 
@@ -461,4 +463,156 @@ TEST_CASE("stale coalesced input does not replace valid held intent or become qu
   controllable->commands_this_tick.clear();
   steering->apply(world, harness.context());
   CHECK(controllable->normalized_thrust_intent == status_fixture::direction());
+}
+
+TEST_CASE(
+    "held brakes stop without reversing through real integration at every allowed drag regime",
+    "[unit][gameplay][thrust_steering][braking][integration]") {
+  for (const double drag : controls::kDragRates) {
+    for (const auto coordinates : controls::kBrakingVelocities) {
+      CAPTURE(drag, coordinates[0], coordinates[1]);
+      const auto initial = simulation::Vector2::create(coordinates[0], coordinates[1]);
+      auto game = controls::game(initial, drag);
+      auto previous = *testing::published_body(game.snapshot(), fixture::kEntity);
+      for (std::uint64_t at = 1; at <= controls::kBrakeObservationTicks; ++at) {
+        // A single press followed by arbitrarily delayed delivery of its release: braking remains
+        // held after speed reaches zero and never turns it into acceleration in the other
+        // direction.
+        controls::step(game, at == 1 ? std::vector<simulation::Command>{controls::brake(
+                                           true, {}, controls::east())}
+                                     : std::vector<simulation::Command>{});
+        const auto published = testing::published_body(game.snapshot(), fixture::kEntity);
+        REQUIRE(published.has_value());
+        const auto current = *published;
+        CHECK(current.acceleration() == controls::zero());
+        CHECK(current.velocity().dot(initial) >= 0.0);
+        CHECK(std::abs(current.velocity().x()) <= std::abs(previous.velocity().x()));
+        CHECK(std::abs(current.velocity().y()) <= std::abs(previous.velocity().y()));
+        const auto travelled =
+            simulation::Vector2::create(current.position().x() - previous.position().x(),
+                                        current.position().y() - previous.position().y());
+        CHECK(travelled.dot(initial) >= 0.0);
+        if (previous.velocity() == controls::zero()) {
+          CHECK(current.position() == previous.position());
+        }
+        previous = current;
+      }
+      CHECK(previous.velocity() == controls::zero());
+    }
+  }
+}
+
+TEST_CASE(
+    "a fresh brake release coasts or resumes requested propulsion on its exact committed tick",
+    "[unit][gameplay][thrust_steering][braking][integration]") {
+  for (const bool go : {false, true}) {
+    auto game = controls::game(simulation::Vector2::create(120.0, 0.0));
+    controls::step(game, {controls::brake()});
+    const auto first = *testing::published_body(game.snapshot(), fixture::kEntity);
+    controls::step(game);
+    const auto held = *testing::published_body(game.snapshot(), fixture::kEntity);
+    REQUIRE(held.velocity().x() < first.velocity().x());
+    controls::step(game, {controls::brake(false, {}, go ? controls::east() : controls::zero())});
+    const auto released = *testing::published_body(game.snapshot(), fixture::kEntity);
+    CHECK(released.acceleration() ==
+          (go ? simulation::Vector2::create(400.0, 0.0) : controls::zero()));
+    CHECK(released.velocity().x() == held.velocity().x() + (go ? 1.0 : 0.0));
+    controls::step(game);
+    const auto later = *testing::published_body(game.snapshot(), fixture::kEntity);
+    CHECK(later.velocity().x() == released.velocity().x() + (go ? 1.0 : 0.0));
+  }
+}
+
+TEST_CASE("brake presses and releases require exact optional input generation equality",
+          "[unit][gameplay][thrust_steering][braking][input_generation]") {
+  const std::array generations{std::optional<simulation::TickSequence>{},
+                               std::optional{controls::tick()},
+                               std::optional{controls::tick(controls::kAfterStunTick)}};
+  const testing::TickHarness harness{controls::tick(controls::kAfterStunTick)};
+  for (const auto held_generation : generations) {
+    for (const auto submitted_generation : generations) {
+      for (const bool press : {false, true}) {
+        auto world = controls::world();
+        auto* held =
+            world.mutable_store<simulation::Controllable>().mutable_find(controls::entity());
+        held->input_generation = held_generation;
+        held->normalized_thrust_intent = controls::zero();
+        held->braking_intent = !press;
+        held->commands_this_tick = {controls::brake(press, submitted_generation)};
+        gameplay::ThrustSteeringSystem::create()->apply(world, harness.context());
+        const bool expected_braking = held_generation == submitted_generation ? press : !press;
+        CHECK(held->braking_intent == expected_braking);
+        const auto velocity =
+            world.store<simulation::PhysicsBody>().find(controls::entity())->velocity();
+        CHECK((velocity.dot(velocity) < controls::velocity().dot(controls::velocity())) ==
+              expected_braking);
+        held->commands_this_tick.clear();
+        gameplay::ThrustSteeringSystem::create()->apply(world, harness.context());
+        CHECK(held->braking_intent == expected_braking);
+        CHECK(held->input_generation == held_generation);
+      }
+    }
+  }
+}
+
+TEST_CASE("stun clears held brakes without stopping momentum and requires a fresh matching press "
+          "after expiry",
+          "[unit][gameplay][thrust_steering][braking][stun]") {
+  auto world = controls::world();
+  auto* held = world.mutable_store<simulation::Controllable>().mutable_find(controls::entity());
+  held->input_generation = controls::tick();
+  held->braking_intent = true;
+  held->commands_this_tick = {controls::brake(true, controls::tick())};
+  world.mutable_store<simulation::Stun>().insert_or_assign(
+      controls::entity(),
+      simulation::Stun{simulation::TickWindow::create(controls::tick(), controls::kStunDuration)});
+  const testing::TickHarness stunned{controls::tick()};
+  const auto system = gameplay::ThrustSteeringSystem::create();
+  system->apply(world, stunned.context());
+  CHECK_FALSE(held->braking_intent);
+  CHECK(world.store<simulation::PhysicsBody>().find(controls::entity())->velocity() ==
+        controls::velocity());
+  held->commands_this_tick.clear();
+  const testing::TickHarness recovered{controls::tick(controls::kAfterStunTick)};
+  system->apply(world, recovered.context());
+  CHECK(world.store<simulation::PhysicsBody>().find(controls::entity())->velocity() ==
+        controls::velocity());
+  held->commands_this_tick = {controls::brake(true, controls::tick())};
+  system->apply(world, recovered.context());
+  CHECK(held->braking_intent);
+  CHECK(world.store<simulation::PhysicsBody>()
+            .find(controls::entity())
+            ->velocity()
+            .dot(controls::velocity()) < controls::velocity().dot(controls::velocity()));
+}
+
+TEST_CASE("braking cancels an active charge attempt while preserving its committed cooldown",
+          "[unit][gameplay][thrust_steering][braking][charge]") {
+  auto world = controls::world();
+  const auto charge = controls::active_charge();
+  world.mutable_store<simulation::Charge>().insert_or_assign(controls::entity(), charge);
+  auto* held = world.mutable_store<simulation::Controllable>().mutable_find(controls::entity());
+  held->commands_this_tick = {controls::brake()};
+  const testing::TickHarness harness{controls::tick()};
+  gameplay::ThrustSteeringSystem::create()->apply(world, harness.context());
+  const auto* canceled = world.store<simulation::Charge>().find(controls::entity());
+  REQUIRE(canceled != nullptr);
+  CHECK_FALSE(canceled->active_window().contains(controls::tick()));
+  CHECK(canceled->cooldown_window() == charge.cooldown_window());
+  CHECK(canceled->hit_stun_duration_ticks() == charge.hit_stun_duration_ticks());
+  CHECK(world.store<simulation::PhysicsBody>().find(controls::entity())->velocity() !=
+        controls::zero());
+}
+
+TEST_CASE("a fresh brake press wins over a same-tick charge in the actual mode pipeline",
+          "[unit][gameplay][thrust_steering][braking][charge][integration]") {
+  auto game = controls::game();
+  controls::step(game, {simulation::ChargeCommand{controls::entity(), controls::east(), {}},
+                        controls::brake(true, {}, controls::east())});
+  const auto snapshot = game.snapshot();
+  CHECK(snapshot.components<simulation::Charge>().empty());
+  const auto body = testing::published_body(snapshot, controls::entity().value());
+  REQUIRE(body.has_value());
+  CHECK(body->acceleration() == controls::zero());
+  CHECK(body->velocity().dot(body->velocity()) < controls::velocity().dot(controls::velocity()));
 }

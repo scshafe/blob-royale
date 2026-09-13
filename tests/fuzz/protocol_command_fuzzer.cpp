@@ -120,7 +120,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
                   command.input_generation->value() > simulation::kMaximumProtocolSafeInteger))) {
               std::abort();
             }
-          } else if constexpr (std::is_same_v<CommandType, simulation::ShieldCommand>) {
+          } else if constexpr (std::is_same_v<CommandType, simulation::ShieldCommand> ||
+                               std::is_same_v<CommandType, simulation::RotateVelocityCommand>) {
             // The pulse's whole oracle: the sender's own body and a token that is either absent or
             // positive and safe. `null` decodes to absence, so an accepted shield with a present
             // zero would mean the wire's minimum-of-one bound had been lost.
@@ -178,7 +179,18 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, const std::size_
                 command.tuning.acceleration() > simulation::kMaximumMovementAcceleration ||
                 !std::isfinite(command.tuning.normal_top_speed()) ||
                 command.tuning.normal_top_speed() < simulation::kMinimumNormalTopSpeed ||
-                command.tuning.normal_top_speed() > simulation::kMaximumNormalTopSpeed) {
+                command.tuning.normal_top_speed() > simulation::kMaximumNormalTopSpeed ||
+                !std::isfinite(command.tuning.charge_speed_fraction()) ||
+                command.tuning.charge_speed_fraction() < 0.0 ||
+                command.tuning.charge_speed_fraction() > simulation::kMaximumChargeSpeedFraction ||
+                !std::isfinite(command.tuning.lethal_spawn_rate_per_second()) ||
+                command.tuning.lethal_spawn_rate_per_second() < 0.0 ||
+                command.tuning.lethal_spawn_rate_per_second() >
+                    simulation::kMaximumCrossingSpawnRatePerSecond ||
+                !std::isfinite(command.tuning.nonlethal_spawn_rate_per_second()) ||
+                command.tuning.nonlethal_spawn_rate_per_second() < 0.0 ||
+                command.tuning.nonlethal_spawn_rate_per_second() >
+                    simulation::kMaximumCrossingSpawnRatePerSecond) {
               std::abort();
             }
           } else {

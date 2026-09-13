@@ -72,9 +72,9 @@ if [[ ! -x "${BENCHMARK_EXECUTABLE}" ]]; then
   fail "BENCHMARK.EXECUTABLE_MISSING" "built benchmark executable is missing"
 fi
 
-# Preserve the historical royale workload independently of the current deployment's selected mode.
-# The reference fixture records its exact source commit; the production loader still reads every
-# measured value, and the executable reports historical provenance rather than live-deployment cost.
+# Use the historical royale reference's authored values independently of the deployment's mode.
+# Current gameplay includes capped random hazard scheduling, so this is not the historical periodic
+# workload. The fixture records its source, and the executable reports that provenance and migration.
 benchmark_output="$("${BENCHMARK_EXECUTABLE}" \
   --royale-reference-config "${REPOSITORY_DIRECTORY}/benchmarks/fixtures/royale-roster.cfg" \
   --maps-directory "${REPOSITORY_DIRECTORY}/maps")"

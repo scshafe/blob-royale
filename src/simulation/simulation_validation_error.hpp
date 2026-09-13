@@ -127,6 +127,7 @@ enum class SimulationValidationCode {
   kShieldActivationInvalid,
   kShieldCancellationBeforeActivation,
   kChargeActivationInvalid,
+  kChargeCancellationBeforeActivation,
 };
 
 [[nodiscard]] constexpr std::string_view
@@ -151,8 +152,9 @@ simulation_validation_code_name(const SimulationValidationCode code) noexcept {
   // The charge's own code, not a shared ability one. The two abilities refuse different shapes --
   // the shield accepts a zero cooldown and the charge does not -- so one code covering both would
   // make the refusal a caller has to decode rather than read
-  // (`components/charge_component.hpp`). There is no charge cancellation twin, because nothing
-  // cancels a cooldown.
+  // (`components/charge_component.hpp`). Cancellation shortens active time, never cooldown.
+  case SimulationValidationCode::kChargeCancellationBeforeActivation:
+    return "SIMULATION.CHARGE_CANCELLATION_BEFORE_ACTIVATION";
   case SimulationValidationCode::kChargeActivationInvalid:
     return "SIMULATION.CHARGE_ACTIVATION_INVALID";
   case SimulationValidationCode::kTickWindowExpiryOverflow:

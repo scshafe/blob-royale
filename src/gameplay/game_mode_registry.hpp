@@ -4,6 +4,7 @@
 #include "game_mode.hpp"
 #include "game_mode_configuration.hpp"
 #include "king_of_the_hill/king_of_the_hill_mode.hpp"
+#include "movement_tuning_state.hpp"
 #include "race/race_mode.hpp"
 #include "royale/royale_mode.hpp"
 #include "sandbox/sandbox_mode.hpp"
@@ -66,6 +67,7 @@ public:
   struct Registration final {
     std::string_view name;
     Factory factory;
+    bool crossing_hazards;
 
     friend bool operator==(const Registration&, const Registration&) = default;
   };
@@ -89,6 +91,13 @@ public:
   [[nodiscard]] static std::unique_ptr<const simulation::GameMode>
   create(std::string_view mode_name);
 
+  // Declared room capabilities, resolved by the same registration as the factory. Inactive
+  // mechanics contribute neither population admission nor editable current/reset values.
+  [[nodiscard]] static std::span<const HazardArchetype>
+  active_hazards(std::string_view mode_name, const GameModeConfiguration& configuration);
+  [[nodiscard]] static simulation::MovementTuningState
+  initial_room_tuning(std::string_view mode_name, const GameModeConfiguration& configuration);
+
   // The registered names, comma separated, for a rejection detail or a diagnostic.
   [[nodiscard]] static std::string registered_names();
 
@@ -97,10 +106,10 @@ public:
 
 // The closed table. One row per game; the row is the whole registration.
 inline constexpr std::array<GameModeRegistry::Registration, 4> kGameModeRegistrations{
-    GameModeRegistry::Registration{SandboxMode::kModeName, &SandboxMode::create},
-    GameModeRegistry::Registration{RoyaleMode::kModeName, &RoyaleMode::create},
-    GameModeRegistry::Registration{KingOfTheHillMode::kModeName, &KingOfTheHillMode::create},
-    GameModeRegistry::Registration{RaceMode::kModeName, &RaceMode::create},
+    GameModeRegistry::Registration{SandboxMode::kModeName, &SandboxMode::create, false},
+    GameModeRegistry::Registration{RoyaleMode::kModeName, &RoyaleMode::create, true},
+    GameModeRegistry::Registration{KingOfTheHillMode::kModeName, &KingOfTheHillMode::create, true},
+    GameModeRegistry::Registration{RaceMode::kModeName, &RaceMode::create, true},
 };
 
 // A mode name is an identity, so two rows may not claim one. Checked over the whole table rather

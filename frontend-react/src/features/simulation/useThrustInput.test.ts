@@ -4,11 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SimulationApiError } from './SimulationApiError';
 import {
-  ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS,
+  INPUT_COMMAND_BUDGET_CAPACITY,
+  INPUT_COMMAND_BUDGET_REFILL_PER_SECOND,
+  ROTATE_LEFT_KEY_CODE,
+  ROTATE_RIGHT_KEY_CODE,
   CHARGE_KEY_CODE,
   SHIELD_KEY_CODE,
   THRUST_COMMAND_MIN_INTERVAL_MILLISECONDS,
 } from './simulationConstants';
+import { aimPointer } from './fixtures/canvasAimObservations';
 import { createThrustInputControls } from './fixtures/thrustInputControls';
 import {
   ABILITIES_AVAILABLE,
@@ -40,6 +44,7 @@ import {
 } from './useThrustInput';
 
 let controls: ReturnType<typeof createThrustInputControls> | null = null;
+let arena: HTMLCanvasElement;
 
 function editingControls(): ReturnType<typeof createThrustInputControls> {
   controls = createThrustInputControls();
@@ -97,11 +102,30 @@ function pressGo(
   target: HTMLElement | Window = window,
   fields: KeyboardEventInit = {},
 ): boolean {
-  return pressKey('Space', target, fields);
+  let defaultAllowed = true;
+  act(() => {
+    const surface = target === window ? arena : target;
+    if (fields.repeat) {
+      // A held mouse sends movement, never a new physical down after retirement.
+      defaultAllowed = fireEvent.pointerMove(
+        surface,
+        aimPointer(680, 370, { buttons: 1 }),
+      );
+    } else {
+      defaultAllowed = fireEvent.pointerDown(surface, {
+        ...aimPointer(680, 370, { buttons: 1 }),
+        cancelable: true,
+        ...fields,
+      });
+    }
+  });
+  return defaultAllowed;
 }
 
 function releaseGo(target: HTMLElement | Window = window): void {
-  releaseKey('Space', target);
+  act(() => {
+    fireEvent.pointerUp(target === window ? arena : target, aimPointer());
+  });
 }
 
 /** The other of the two abilities, so a suppression test cannot pass by blocking everything. */
@@ -123,9 +147,13 @@ async function advance(
 
 beforeEach(() => {
   vi.useFakeTimers();
+  arena = document.createElement('canvas');
+  arena.dataset.gameplaySurface = 'arena';
+  document.body.append(arena);
 });
 
 afterEach(() => {
+  arena.remove();
   controls?.container.remove();
   controls = null;
   vi.useRealTimers();
@@ -313,7 +341,7 @@ describe('useThrustInput', () => {
     },
   );
 
-  it('rejects Space during a camera gesture and never arms when that gesture ends', () => {
+  it('rejects Go during a camera gesture and never arms when that gesture ends', () => {
     const { result, sendCommand } = renderInput();
     act(() => result.current.observeAim(thrustAim(THRUST_RIGHT, 100, true)));
     pressGo();
@@ -434,8 +462,8 @@ describe('useThrustInput', () => {
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
-  it.each(['altKey', 'ctrlKey', 'metaKey', 'isComposing'] as const)(
-    'leaves %s Space to the browser',
+  it.each(['altKey', 'ctrlKey', 'metaKey'] as const)(
+    'leaves modified %s mouse input to the browser',
     (modifier) => {
       const { result, sendCommand } = renderInput();
       act(() => result.current.observeAim(thrustAim()));
@@ -869,7 +897,7 @@ describe('useThrustInput', () => {
       act(() => result.current.observeAim(thrustAim()));
       pressKey(code);
       releaseKey(code);
-      await advance(ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS);
+      await advance();
       pressKey(code);
       expect(sendCommand).toHaveBeenCalledTimes(2);
       expect(sendCommand.mock.calls[0]).toEqual(sendCommand.mock.calls[1]);
@@ -877,20 +905,25 @@ describe('useThrustInput', () => {
   );
 
   it.each(ABILITY_KEY_CASES)(
-    'drops a $ability press inside the minimum interval without parking it',
+    'refuses an exhausted $ability press without queueing it and restores only transmission availability',
     async ({ code }) => {
       const { result, sendCommand } = renderInput();
       act(() => result.current.observeAim(thrustAim()));
+      for (let index = 0; index < INPUT_COMMAND_BUDGET_CAPACITY; index += 1) {
+        pressKey(code);
+        releaseKey(code);
+      }
+      expect(sendCommand).toHaveBeenCalledTimes(
+        INPUT_COMMAND_BUDGET_CAPACITY - 1,
+      );
+      expect(result.current.commandBudgetUnavailable).toBe(true);
+      await advance(Math.ceil(1000 / INPUT_COMMAND_BUDGET_REFILL_PER_SECOND));
+      expect(result.current.commandBudgetUnavailable).toBe(false);
+      expect(sendCommand).toHaveBeenCalledTimes(
+        INPUT_COMMAND_BUDGET_CAPACITY - 1,
+      );
       pressKey(code);
-      releaseKey(code);
-      await advance(ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS - 1);
-      pressKey(code);
-      releaseKey(code);
-      expect(sendCommand).toHaveBeenCalledTimes(1);
-      await advance(1000);
-      expect(sendCommand).toHaveBeenCalledTimes(1);
-      pressKey(code);
-      expect(sendCommand).toHaveBeenCalledTimes(2);
+      expect(sendCommand).toHaveBeenCalledTimes(INPUT_COMMAND_BUDGET_CAPACITY);
     },
   );
 
@@ -1006,22 +1039,22 @@ describe('useThrustInput', () => {
   });
 
   it.each(ABILITY_KEY_CASES)(
-    'activates $ability from a button through the same rate discipline as the key',
-    async ({ ability }) => {
+    'shares one finite budget between $ability buttons and keys without adding a gameplay delay',
+    ({ ability, code }) => {
       const { result, sendCommand } = renderInput();
       act(() => result.current.observeAim(thrustAim()));
       act(() => result.current.activateAbility(ability));
-      expect(sendCommand).toHaveBeenCalledTimes(1);
-      // A focused button fires click on Enter keydown and held Enter repeats, and a button has no
-      // key latch of its own: the shared interval is what refuses the repeat behind it.
-      act(() => {
-        result.current.activateAbility(ability);
-        result.current.activateAbility(ability);
-      });
-      expect(sendCommand).toHaveBeenCalledTimes(1);
-      await advance(ABILITY_COMMAND_MIN_INTERVAL_MILLISECONDS);
-      act(() => result.current.activateAbility(ability));
+      pressKey(code);
+      releaseKey(code);
       expect(sendCommand).toHaveBeenCalledTimes(2);
+      act(() => {
+        for (let index = 0; index < INPUT_COMMAND_BUDGET_CAPACITY; index += 1)
+          result.current.activateAbility(ability);
+      });
+      expect(sendCommand).toHaveBeenCalledTimes(
+        INPUT_COMMAND_BUDGET_CAPACITY - 1,
+      );
+      expect(result.current.commandBudgetUnavailable).toBe(true);
     },
   );
 
@@ -1059,5 +1092,226 @@ describe('useThrustInput', () => {
     }
     await advance(1000);
     expect(sendCommand).toHaveBeenCalledTimes(1);
+  });
+  it('Space brakes override held Go and releasing Space explicitly restores propulsion', async () => {
+    const { result, sendCommand } = renderInput();
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    expect(pressKey('Space')).toBe(false);
+    expect(result.current.braking).toBe(true);
+    expect(result.current.direction).toEqual(THRUST_ZERO);
+    await advance();
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_ZERO, braking: true },
+    });
+    pressKey(CHARGE_KEY_CODE);
+    expect(sendCommand).toHaveBeenCalledTimes(2);
+    releaseKey('Space');
+    await advance();
+    expect(result.current.braking).toBe(false);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_RIGHT, braking: false },
+    });
+    releaseGo();
+    await advance();
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: THRUST_ZERO,
+    });
+  });
+
+  it('orders an immediate charge after the pending brake release without waiting for the level interval', async () => {
+    const { result, sendCommand } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    act(() => result.current.observeAim(thrustAim()));
+    pressKey('Space');
+    releaseKey('Space');
+    expect(sendCommand).toHaveBeenCalledTimes(1);
+    pressKey(CHARGE_KEY_CODE);
+    expect(sendCommand.mock.calls.map(([command]) => command)).toEqual([
+      {
+        kind: 'set_thrust',
+        payload: {
+          ...THRUST_ZERO,
+          braking: true,
+          input_generation: STUN_INPUT_GENERATION,
+        },
+      },
+      {
+        kind: 'set_thrust',
+        payload: {
+          ...THRUST_ZERO,
+          braking: false,
+          input_generation: STUN_INPUT_GENERATION,
+        },
+      },
+      {
+        kind: 'charge',
+        payload: { ...THRUST_RIGHT, input_generation: STUN_INPUT_GENERATION },
+      },
+    ]);
+    await advance();
+    expect(sendCommand).toHaveBeenCalledTimes(3);
+  });
+
+  it('spends the final reserved token on brake release and refuses an immediate charge without queueing it', async () => {
+    const { result, sendCommand } = renderInput();
+    act(() => result.current.observeAim(thrustAim()));
+    pressKey('Space');
+    act(() => {
+      for (let index = 0; index < INPUT_COMMAND_BUDGET_CAPACITY; index += 1)
+        result.current.rotateVelocity('left');
+    });
+    releaseKey('Space');
+    pressKey(CHARGE_KEY_CODE);
+    expect(sendCommand).toHaveBeenCalledTimes(INPUT_COMMAND_BUDGET_CAPACITY);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_ZERO, braking: false },
+    });
+    expect(result.current.commandBudgetUnavailable).toBe(true);
+    await advance(1000);
+    expect(sendCommand).toHaveBeenCalledTimes(INPUT_COMMAND_BUDGET_CAPACITY);
+  });
+
+  it('keeps Space braking through repeated missing aim observations until the physical release', async () => {
+    const { result, sendCommand } = renderInput();
+    pressKey('Space');
+    for (let index = 0; index < 3; index += 1) {
+      act(() => result.current.observeAim(null));
+      await advance();
+      expect(result.current.braking).toBe(true);
+    }
+    expect(sendCommand).toHaveBeenCalledExactlyOnceWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_ZERO, braking: true },
+    });
+    releaseKey('Space');
+    expect(result.current.braking).toBe(false);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: { ...THRUST_ZERO, braking: false },
+    });
+    expect(sendCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it('brakes need no aim and blur releases them through the same generation-stamped level', async () => {
+    const { result, sendCommand } = renderInput({
+      inputGeneration: STUN_INPUT_GENERATION,
+    });
+    pressKey('Space');
+    expect(result.current.braking).toBe(true);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: {
+        ...THRUST_ZERO,
+        braking: true,
+        input_generation: STUN_INPUT_GENERATION,
+      },
+    });
+    await act(() => fireEvent.blur(window));
+    await advance();
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: {
+        ...THRUST_ZERO,
+        braking: false,
+        input_generation: STUN_INPUT_GENERATION,
+      },
+    });
+  });
+
+  it.each([
+    { direction: 'left', code: ROTATE_LEFT_KEY_CODE },
+    { direction: 'right', code: ROTATE_RIGHT_KEY_CODE },
+  ] as const)(
+    'uses one $direction rotation path for fresh keys and buttons even while charge is cooling',
+    ({ direction, code }) => {
+      const { result, sendCommand } = renderInput({
+        abilityUnavailable: abilityUnavailableFor('charge'),
+        inputGeneration: STUN_INPUT_GENERATION,
+      });
+      pressKey(code);
+      pressKey(code, window, { repeat: true });
+      pressKey(code);
+      expect(sendCommand).toHaveBeenCalledExactlyOnceWith({
+        kind: 'rotate_velocity',
+        payload: { direction, input_generation: STUN_INPUT_GENERATION },
+      });
+      releaseKey(code);
+      act(() => result.current.rotateVelocity(direction));
+      expect(sendCommand).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('rotation guards suppress unavailable, stunned and retired-session actions', () => {
+    const { result, rerender, options, sendCommand, unmount } = renderInput({
+      rotationUnavailable: true,
+    });
+    pressKey(ROTATE_LEFT_KEY_CODE);
+    act(() => result.current.rotateVelocity('right'));
+    expect(sendCommand).not.toHaveBeenCalled();
+    rerender({ ...options, rotationUnavailable: false, inputLocked: true });
+    act(() => result.current.rotateVelocity('right'));
+    expect(sendCommand).not.toHaveBeenCalled();
+    const rotate = result.current.rotateVelocity;
+    unmount();
+    act(() => rotate('left'));
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it('reserves a level release token and preserves the same session budget through respawn', async () => {
+    const { result, rerender, options, sendCommand } = renderInput();
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    act(() => {
+      for (let index = 0; index < INPUT_COMMAND_BUDGET_CAPACITY; index += 1)
+        result.current.rotateVelocity('left');
+    });
+    releaseGo();
+    await advance();
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: THRUST_ZERO,
+    });
+    expect(result.current.commandBudgetUnavailable).toBe(true);
+    rerender({ ...options, enabled: false });
+    rerender({ ...options, ownEntityId: THRUST_REPLACEMENT_ENTITY_ID });
+    act(() => result.current.rotateVelocity('right'));
+    expect(sendCommand).toHaveBeenCalledTimes(INPUT_COMMAND_BUDGET_CAPACITY);
+    rerender({ ...options, session: cameraSessionIdentity() });
+    act(() => result.current.rotateVelocity('right'));
+    expect(sendCommand).toHaveBeenCalledTimes(
+      INPUT_COMMAND_BUDGET_CAPACITY + 1,
+    );
+  });
+
+  it('a chorded left release stops Go without requiring the final pointerup', async () => {
+    const { result, sendCommand } = renderInput();
+    act(() => result.current.observeAim(thrustAim()));
+    pressGo();
+    await act(() =>
+      fireEvent.pointerMove(
+        arena,
+        aimPointer(680, 370, { button: 0, buttons: 2 }),
+      ),
+    );
+    await advance();
+    expect(result.current.direction).toEqual(THRUST_ZERO);
+    expect(sendCommand).toHaveBeenLastCalledWith({
+      kind: 'set_thrust',
+      payload: THRUST_ZERO,
+    });
+    await act(() =>
+      fireEvent.pointerMove(
+        arena,
+        aimPointer(680, 370, { button: 0, buttons: 3 }),
+      ),
+    );
+    await advance();
+    expect(sendCommand).toHaveBeenCalledTimes(2);
   });
 });

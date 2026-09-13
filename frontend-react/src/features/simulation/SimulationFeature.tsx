@@ -78,6 +78,9 @@ export function SimulationFeature() {
           lobbyId={navigation.lobbyId}
           movementTuning={movementTuning}
           thrust={thrust.direction}
+          braking={thrust.braking}
+          commandBudgetUnavailable={thrust.commandBudgetUnavailable}
+          onRotateVelocity={thrust.rotateVelocity}
           onActivateAbility={thrust.activateAbility}
           onAimObservation={thrust.observeAim}
         />

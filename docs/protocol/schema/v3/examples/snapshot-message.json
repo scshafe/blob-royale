@@ -138,11 +138,41 @@
       ],
       "start_requested": true,
       "movement": {
-        "current": {"acceleration_world_units_per_second_squared": 400, "normal_top_speed_world_units_per_second": 600},
-        "defaults": {"acceleration_world_units_per_second_squared": 400, "normal_top_speed_world_units_per_second": 600},
+        "current": {
+          "acceleration_world_units_per_second_squared": 400,
+          "normal_top_speed_world_units_per_second": 600,
+          "charge_speed_fraction": 0.75,
+          "lethal_spawn_rate_per_second": 0,
+          "nonlethal_spawn_rate_per_second": 0
+        },
+        "defaults": {
+          "acceleration_world_units_per_second_squared": 400,
+          "normal_top_speed_world_units_per_second": 600,
+          "charge_speed_fraction": 0.75,
+          "lethal_spawn_rate_per_second": 0,
+          "nonlethal_spawn_rate_per_second": 0
+        },
         "limits": {
-          "acceleration_world_units_per_second_squared": {"minimum": 0, "maximum": 10000},
-          "normal_top_speed_world_units_per_second": {"minimum": 1, "maximum": 10000}
+          "acceleration_world_units_per_second_squared": {
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "normal_top_speed_world_units_per_second": {
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "charge_speed_fraction": {
+            "minimum": 0,
+            "maximum": 100000000
+          },
+          "lethal_spawn_rate_per_second": {
+            "minimum": 0,
+            "maximum": 5
+          },
+          "nonlethal_spawn_rate_per_second": {
+            "minimum": 0,
+            "maximum": 5
+          }
         },
         "revision": 0,
         "effective_tick": 0
@@ -172,7 +202,7 @@
   },
   "error": null,
   "meta": {
-    "protocol_version": "3.0",
+    "protocol_version": "3.1",
     "schema_id": "blob-royale://protocol/v3/snapshot-message",
     "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
     "message_sequence": 129,

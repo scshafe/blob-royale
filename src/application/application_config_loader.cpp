@@ -3,6 +3,7 @@
 
 #include "application_input_error.hpp"
 #include "application_text_file_reader.hpp"
+#include "fixed_delta.hpp"
 #include "game_mode_configuration.hpp"
 #include "king_of_the_hill/king_of_the_hill_configuration.hpp"
 #include "lobbies_configuration.hpp"
@@ -59,6 +60,8 @@ enum class ConfigField : std::size_t {
   kAbilitiesChargeCooldownSeconds,
   kAbilitiesChargeSpeedFraction,
   kAbilitiesChargeSafetyEnvelopeSpeed,
+  kAbilitiesChargeActiveDurationSeconds,
+  kAbilitiesChargeHitStunDurationSeconds,
   kRoyaleZoneMinimumRadius,
   kRoyaleZoneShrinkSeconds,
   kRoyaleEliminationGraceSeconds,
@@ -148,6 +151,8 @@ constexpr std::array<ConfigFieldSpec, static_cast<std::size_t>(ConfigField::kCou
          {"abilities", "charge_cooldown_seconds"},
          {"abilities", "charge_speed_fraction"},
          {"abilities", "charge_safety_envelope_speed"},
+         {"abilities", "charge_active_duration_seconds"},
+         {"abilities", "charge_hit_stun_duration_seconds"},
          {"royale", "zone_minimum_radius_world_units"},
          {"royale", "zone_shrink_seconds"},
          {"royale", "elimination_grace_seconds"},
@@ -219,6 +224,7 @@ enum class ConfigFamilyField : std::size_t {
   kHazardSpawnInterval,
   kHazardLethalOnContact,
   kHazardContactEffectPolicy,
+  kHazardSpeedVariation,
   kBotProfileObjectiveSeekProbability,
   kBotProfileReactionDelayTicks,
   kBotProfileAimError,
@@ -286,6 +292,7 @@ constexpr std::array<ConfigFamilyFieldSpec, static_cast<std::size_t>(ConfigFamil
          {ConfigSectionFamily::kHazard, "spawn_interval_seconds"},
          {ConfigSectionFamily::kHazard, "lethal_on_contact"},
          {ConfigSectionFamily::kHazard, "contact_effect_policy"},
+         {ConfigSectionFamily::kHazard, "speed_variation_fraction"},
          {ConfigSectionFamily::kBotProfile, "objective_seek_probability"},
          {ConfigSectionFamily::kBotProfile, "reaction_delay_ticks"},
          {ConfigSectionFamily::kBotProfile, "aim_error"},
@@ -773,9 +780,11 @@ parse_hazard_archetypes(const StrictIniDocument& document) {
             parse_double_family_value(instance, ConfigFamilyField::kHazardSpawnInterval),
         .lethal_on_contact =
             parse_boolean_family_value(instance, ConfigFamilyField::kHazardLethalOnContact),
-        .contact_effect_policy =
-            simulation::parse_contact_effect_policy(*instance.values[static_cast<std::size_t>(
-                ConfigFamilyField::kHazardContactEffectPolicy)])}));
+        .contact_effect_policy = simulation::parse_contact_effect_policy(
+            *instance
+                 .values[static_cast<std::size_t>(ConfigFamilyField::kHazardContactEffectPolicy)]),
+        .speed_variation_fraction =
+            parse_double_family_value(instance, ConfigFamilyField::kHazardSpeedVariation)}));
   }
   return archetypes;
 }
@@ -955,10 +964,15 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       parse_double_config_value(document, ConfigField::kAbilitiesChargeSpeedFraction);
   const double charge_safety_envelope_speed =
       parse_double_config_value(document, ConfigField::kAbilitiesChargeSafetyEnvelopeSpeed);
+  const double charge_active_duration_seconds =
+      parse_double_config_value(document, ConfigField::kAbilitiesChargeActiveDurationSeconds);
+  const double charge_hit_stun_duration_seconds =
+      parse_double_config_value(document, ConfigField::kAbilitiesChargeHitStunDurationSeconds);
   const gameplay::AbilityConfiguration abilities = gameplay::AbilityConfiguration::create(
       shield_duration_seconds, shield_perfect_window_seconds, shield_cooldown_seconds,
       parry_stun_duration_seconds, charge_cooldown_seconds, charge_speed_fraction,
-      charge_safety_envelope_speed);
+      charge_safety_envelope_speed, charge_active_duration_seconds,
+      charge_hit_stun_duration_seconds);
 
   // Validated by the mode that owns the section, so the application never re-derives a balance
   // rule: each section is authored in seconds and world units and comes back in tick counts. The
@@ -1028,6 +1042,17 @@ ApplicationConfigLoader::Result ApplicationConfigLoader::load(const int argument
       gameplay::SandboxConfiguration::create(
           parse_double_config_value(document, ConfigField::kSandboxRespawnDelaySeconds)),
       abilities};
+
+  double lethal_rate = 0.0;
+  double nonlethal_rate = 0.0;
+  for (const auto& archetype : game_mode_configuration.hazards) {
+    const double rate = 1.0 / (static_cast<double>(archetype.spawn_interval_ticks()) *
+                               simulation::FixedDelta::canonical().seconds());
+    (archetype.lethal_on_contact() ? lethal_rate : nonlethal_rate) += rate;
+  }
+  game_mode_configuration.movement = simulation::MovementTuning::create(
+      movement_acceleration, movement_normal_top_speed, abilities.charge_speed_fraction(),
+      lethal_rate, nonlethal_rate);
 
   const LobbiesConfiguration lobbies_configuration = LobbiesConfiguration::create(
       parse_unsigned_config_value(document, ConfigField::kLobbiesCount));

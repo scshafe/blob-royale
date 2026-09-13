@@ -20,9 +20,9 @@ function readPixelRatio(): number {
 }
 
 /**
- * Measures the local CSS viewport, never the map. A zero-width hidden container has no drawable
- * view; the initial maximum is replaced by ResizeObserver's first layout delivery. Resize and
- * display-density changes only resize the backing buffer, not the camera's world-space state.
+ * Measures the local CSS viewport, never the map. A container with either zero dimension has no
+ * drawable view; the initial maximum is replaced by ResizeObserver's first layout delivery. Resize
+ * and display-density changes only resize the backing buffer, not the camera's world-space state.
  */
 export function useCanvasViewport() {
   const containerReference = useRef<HTMLDivElement>(null);
@@ -39,16 +39,31 @@ export function useCanvasViewport() {
       const entry = entries.find((candidate) => candidate.target === container);
       if (entry === undefined) return;
       const availableWidth = entry.contentRect.width;
-      if (!Number.isFinite(availableWidth) || availableWidth < 0) {
+      const availableHeight = entry.contentRect.height;
+      if (
+        !Number.isFinite(availableWidth) ||
+        availableWidth < 0 ||
+        !Number.isFinite(availableHeight) ||
+        availableHeight < 0
+      ) {
         throw new SimulationApiError(
           'SIMULATION.CAMERA_VIEWPORT_INVALID',
-          'Cannot size the camera viewport from an invalid layout width.',
-          { context: { available_width: availableWidth } },
+          'Cannot size the camera viewport from invalid layout dimensions.',
+          {
+            context: {
+              available_width: availableWidth,
+              available_height: availableHeight,
+            },
+          },
         );
       }
       const width = Math.min(
         CANVAS_MAX_WIDTH_PIXELS,
         Math.floor(availableWidth),
+        Math.floor(
+          (availableHeight * CANVAS_MAX_WIDTH_PIXELS) /
+            CANVAS_MAX_HEIGHT_PIXELS,
+        ),
       );
       const height = Math.floor(
         (width * CANVAS_MAX_HEIGHT_PIXELS) / CANVAS_MAX_WIDTH_PIXELS,

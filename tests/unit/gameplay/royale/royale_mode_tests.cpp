@@ -70,10 +70,11 @@ TEST_CASE("RoyaleMode declares the shrinking-zone game as eight answers",
         simulation::CommandKindMask::create(
             {simulation::CommandKind::kSpawn, simulation::CommandKind::kDespawn,
              simulation::CommandKind::kThrust, simulation::CommandKind::kShield,
-             simulation::CommandKind::kCharge, simulation::CommandKind::kSetMovementTuning,
-             simulation::CommandKind::kSetSeatCount, simulation::CommandKind::kClearSeat,
-             simulation::CommandKind::kSeatNpc, simulation::CommandKind::kStartMatch,
-             simulation::CommandKind::kLeave, simulation::CommandKind::kJoin}));
+             simulation::CommandKind::kCharge, simulation::CommandKind::kRotateVelocity,
+             simulation::CommandKind::kSetMovementTuning, simulation::CommandKind::kSetSeatCount,
+             simulation::CommandKind::kClearSeat, simulation::CommandKind::kSeatNpc,
+             simulation::CommandKind::kStartMatch, simulation::CommandKind::kLeave,
+             simulation::CommandKind::kJoin}));
 }
 
 TEST_CASE("royale falling records elimination without delivering the later pair impulse",
@@ -107,28 +108,30 @@ TEST_CASE("royale support loss stays inactive before the running phase",
   }
 }
 
-TEST_CASE("RoyaleMode declares ten systems in the order its rules depend on",
+TEST_CASE("RoyaleMode declares twelve systems in the order its rules depend on",
           "[unit][gameplay][royale]") {
   const simulation::SystemPipeline systems = default_mode().systems();
-  REQUIRE(systems.size() == 10);
+  REQUIRE(systems.size() == 12);
 
-  // `ability` is last at this stage in every mode that declares it, mirroring `status` at
-  // kPostKernel: pulse admission reads the canonical input lock, so every kPreKernel system that
-  // can change what that lock answers has already run.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 2);
+  // Rotation observes the same input lock and runs after ability so it can turn a fresh burst.
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPreKernel).size() == 3);
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[0].system->name() ==
         std::string_view{"thrust_steering"});
   CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[1].system->name() ==
         std::string_view{"ability"});
+  CHECK(systems.systems_at(simulation::SystemStage::kPreKernel)[2].system->name() ==
+        std::string_view{"velocity_rotation"});
 
   // `zone_elimination` reads the radius this tick's `zone_shrink` wrote, so the declared order at
   // this stage is the rule and not a preference.
-  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 3);
+  REQUIRE(systems.systems_at(simulation::SystemStage::kPostKernel).size() == 4);
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[0].system->name() ==
         std::string_view{"zone_shrink"});
   CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[1].system->name() ==
         std::string_view{"zone_elimination"});
-  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[2].system->name() == "status");
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[2].system->name() ==
+        "charge_contact");
+  CHECK(systems.systems_at(simulation::SystemStage::kPostKernel)[3].system->name() == "status");
 
   // Remove, reset, then add, then publish: `placement_recorder` destroys this tick's eliminated
   // entities, `match_reset` wipes every participant on the lobby tick after a match ended, then

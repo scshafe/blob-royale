@@ -140,6 +140,7 @@ TEST_CASE(
 TEST_CASE("movement tuning private intent is removed by the canonical component publication owner",
           "[unit][simulation][movement_tuning][snapshot]") {
   simulation::Controllable source{fixture::controller(1)};
+  source.braking_intent = true;
   source.normalized_thrust_intent = simulation::Vector2::create(0.6, 0.8);
   source.commands_this_tick.push_back(fixture::command(1, 1, 0));
   const auto published = simulation::published_component(source);
@@ -147,4 +148,47 @@ TEST_CASE("movement tuning private intent is removed by the canonical component 
   CHECK(published.commands_this_tick.empty());
   CHECK_FALSE(published.normalized_thrust_intent.has_value());
   CHECK(source.normalized_thrust_intent.has_value());
+  CHECK_FALSE(published.braking_intent);
+  CHECK(source.braking_intent);
+}
+
+TEST_CASE("room tuning applies and resets all five fields atomically",
+          "[unit][simulation][movement_tuning]") {
+  const auto authored = simulation::MovementTuning::create(400.0, 600.0, 0.75, 0.75, 0.35);
+  const auto changed = simulation::MovementTuning::create(800.0, 700.0, 1.5, 2.0, 3.0);
+  const simulation::MovementTuningState initial{authored, authored};
+  auto game = fixture::game(simulation::MatchPhase::kRunning, 0, false, initial);
+  const auto applied = game.step(simulation::FixedDelta::canonical(),
+                                 fixture::batch({fixture::command(1, 1, 0, changed)}));
+  REQUIRE(applied.entries().size() == 1);
+  CHECK(applied.entries()[0].status == Status::kApplied);
+  const auto changed_snapshot = game.snapshot();
+  CHECK(changed_snapshot.match().movement().current == changed);
+  CHECK(changed_snapshot.match().movement().defaults == authored);
+  const auto reset = game.step(simulation::FixedDelta::canonical(),
+                               fixture::batch({fixture::command(1, 2, 1, authored)}));
+  REQUIRE(reset.entries().size() == 1);
+  CHECK(reset.entries()[0].status == Status::kApplied);
+  const auto reset_snapshot = game.snapshot();
+  CHECK(reset_snapshot.match().movement().current == authored);
+  CHECK(reset_snapshot.match().movement().revision == 2);
+}
+
+TEST_CASE("unsupported room tuning refuses the whole value without consuming a revision",
+          "[unit][simulation][movement_tuning]") {
+  simulation::MovementTuningState initial;
+  initial.charge_speed_fraction_maximum = 2.0;
+  initial.lethal_spawn_rate_per_second_maximum = 0.0;
+  initial.nonlethal_spawn_rate_per_second_maximum = 5.0;
+  for (const auto rejected : {simulation::MovementTuning::create(800.0, 700.0, 2.01, 0.0, 0.0),
+                              simulation::MovementTuning::create(800.0, 700.0, 1.0, 0.01, 0.0)}) {
+    auto game = fixture::game(simulation::MatchPhase::kRunning, 0, false, initial);
+    const auto result = game.step(simulation::FixedDelta::canonical(),
+                                  fixture::batch({fixture::command(1, 1, 0, rejected)}));
+    REQUIRE(result.entries().size() == 1);
+    CHECK(result.entries()[0].status == Status::kUnsupportedTuning);
+    CHECK(result.entries()[0].revision == 0);
+    const auto snapshot = game.snapshot();
+    CHECK(snapshot.match().movement() == initial);
+  }
 }

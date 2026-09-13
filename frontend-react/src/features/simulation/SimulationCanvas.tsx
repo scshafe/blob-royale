@@ -190,6 +190,28 @@ export function SimulationCanvas({
     publishAim();
   }
 
+  // PointerEvent emits down/up only for the first/last pressed mouse button. A right-button
+  // transition while Go is held arrives as pointermove, so both paths share this gesture admission.
+  function startDrag(event: PointerEvent<HTMLCanvasElement>): boolean {
+    if (
+      camera.mode !== 'manual' ||
+      event.button !== 2 ||
+      (event.buttons & 2) === 0 ||
+      !event.isPrimary ||
+      dragReference.current !== null
+    )
+      return false;
+    event.preventDefault();
+    expectedCaptureReleaseReference.current = null;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragReference.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
+    return true;
+  }
+
   useEffect(() => {
     const canvas = canvasReference.current;
     function cancelDrag() {
@@ -305,46 +327,35 @@ export function SimulationCanvas({
           className={
             camera.mode === 'manual' ? 'ManualCameraCanvas' : undefined
           }
+          data-gameplay-surface="arena"
           data-camera-mode={camera.mode}
           data-camera-center-x={camera.center.x}
           data-camera-center-y={camera.center.y}
           tabIndex={0}
+          onContextMenu={(event) => event.preventDefault()}
           onPointerEnter={observePointer}
           onPointerLeave={cancelPointer}
           onPointerDown={(event) => {
             if (event.isPrimary && event.button === 0)
               event.currentTarget.focus({ preventScroll: true });
-            if (
-              camera.mode !== 'manual' ||
-              event.button !== 0 ||
-              !event.isPrimary ||
-              dragReference.current !== null
-            ) {
-              observePointer(event);
-              return;
-            }
-            event.preventDefault();
-            expectedCaptureReleaseReference.current = null;
-            event.currentTarget.setPointerCapture(event.pointerId);
-            dragReference.current = {
-              pointerId: event.pointerId,
-              x: event.clientX,
-              y: event.clientY,
-            };
+            startDrag(event);
             observePointer(event);
-            publishAim();
           }}
           onPointerMove={(event) => {
+            // Only a chorded right-button press starts here. Ordinary movement after a cancelled
+            // drag must wait for a fresh down, and a new chord has no pan displacement yet.
+            const startedDrag = (event.buttons & 1) !== 0 && startDrag(event);
             const drag = dragReference.current;
             if (drag === null || drag.pointerId === event.pointerId)
               observePointer(event);
+            if (startedDrag) return;
             if (
               camera.mode !== 'manual' ||
               drag === null ||
               drag.pointerId !== event.pointerId
             )
               return;
-            if ((event.buttons & 1) === 0) {
+            if ((event.buttons & 2) === 0) {
               finishDrag(event);
               return;
             }

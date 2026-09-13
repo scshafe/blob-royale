@@ -1,6 +1,7 @@
 #include "shared/guarded_pair_contact_rule.hpp"
 
 #include "component_store.hpp"
+#include "components/charge_component.hpp"
 #include "components/shield_component.hpp"
 #include "events/elimination_event.hpp"
 #include "events/stun_request_event.hpp"
@@ -8,11 +9,13 @@
 #include "gameplay_validation_error.hpp"
 #include "physics_body.hpp"
 #include "shared/guarded_pair_contact.hpp"
+#include "shared/input_lock.hpp"
 #include "tick_context.hpp"
 #include "tick_sequence.hpp"
 #include "world_event_registry.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <variant>
@@ -74,6 +77,21 @@ captured_parry_duration_ticks(const simulation::GameWorld& world,
   return shield->parry_stun_duration_ticks();
 }
 
+[[nodiscard]] std::optional<simulation::TickSequence>
+charge_activation_of(const simulation::GameWorld& world,
+                     const simulation::ContactRule::Subject& subject,
+                     const simulation::TickSequence tick) {
+  if (subject.body.is_static() || !body_is_player_driven(world, subject.entity) ||
+      input_is_locked(world, subject.entity, tick)) {
+    return std::nullopt;
+  }
+  const auto* charge = world.store<simulation::Charge>().find(subject.entity);
+  if (charge == nullptr || !charge->active_window().contains(tick)) {
+    return std::nullopt;
+  }
+  return charge->activation_tick();
+}
+
 } // namespace
 
 bool body_has_contact_presence(const simulation::GameWorld& world,
@@ -88,10 +106,12 @@ simulation::ContactResponse guarded_pair_response(
   const simulation::TickSequence tick = context.tick_sequence();
   const PairGuardFacts guards{guard_state_of(world, first, tick),
                               guard_state_of(world, second, tick)};
+  const PairChargeFacts charges{charge_activation_of(world, first, tick),
+                                charge_activation_of(world, second, tick)};
   // One call, and the only call: every equation, every window comparison and every disposition is
   // the core's. This function owns the projection in and the translation out, and nothing else.
   const GuardedPairOutcome outcome =
-      compose_guarded_pair(world, first, second, observation, context, guards);
+      compose_guarded_pair(world, first, second, observation, context, guards, charges);
 
   std::vector<simulation::WorldEvent> events;
   events.reserve(outcome.effects.size());
@@ -110,6 +130,11 @@ simulation::ContactResponse guarded_pair_response(
         elimination != nullptr) {
       events.emplace_back(
           simulation::WorldEvent{simulation::EliminationEvent{elimination->entity}});
+      continue;
+    }
+    if (const auto* charge = std::get_if<simulation::ChargeContactCandidate>(&consequence);
+        charge != nullptr) {
+      events.emplace_back(*charge);
       continue;
     }
     const auto& stun = std::get<GuardedPairStunFact>(consequence);

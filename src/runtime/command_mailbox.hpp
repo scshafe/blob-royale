@@ -69,12 +69,13 @@ is_entity_lifecycle_command(const simulation::CommandKind kind) noexcept {
   // and loses nothing but the moment -- and it must never evict a queued spawn or despawn, whose
   // loss nobody can press anything to repair.
   case simulation::CommandKind::kCharge:
+  case simulation::CommandKind::kRotateVelocity:
     return false;
   }
   return false;
 }
 
-static_assert(simulation::kCommandKindCount == 12,
+static_assert(simulation::kCommandKindCount == 13,
               "a new CommandKind must declare in is_entity_lifecycle_command whether losing it "
               "changes whether an entity exists");
 

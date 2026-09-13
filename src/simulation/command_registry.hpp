@@ -6,6 +6,7 @@
 #include "commands/despawn_command.hpp"
 #include "commands/join_command.hpp"
 #include "commands/leave_command.hpp"
+#include "commands/rotate_velocity_command.hpp"
 #include "commands/seat_npc_command.hpp"
 #include "commands/set_movement_tuning_command.hpp"
 #include "commands/set_seat_count_command.hpp"
@@ -56,9 +57,10 @@ namespace blob_royale::simulation {
 // related: command_kind_mask.hpp -- the set of kinds a mode accepts.
 // related: input_batch.hpp -- the one validated command value a tick may read.
 // related: kind_registry.hpp -- the derivation that keeps the kind list honest.
-using Command = std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand,
-                             ClearSeatCommand, SeatNpcCommand, StartMatchCommand, LeaveCommand,
-                             JoinCommand, SetMovementTuningCommand, ShieldCommand, ChargeCommand>;
+using Command =
+    std::variant<SpawnCommand, DespawnCommand, ThrustCommand, SetSeatCountCommand, ClearSeatCommand,
+                 SeatNpcCommand, StartMatchCommand, LeaveCommand, JoinCommand,
+                 SetMovementTuningCommand, ShieldCommand, ChargeCommand, RotateVelocityCommand>;
 
 // A variant is nothrow-move-constructible exactly when every alternative is, so asking the variant
 // asks about every alternative and cannot fall behind the list the way a hand-typed conjunction
@@ -90,6 +92,7 @@ enum class CommandKind : std::uint32_t {
   // persisted in a mode's accepted set and transmitted in `welcome`, so a bit that moved would
   // silently change what an already-written mask means (`commands/charge_command.hpp`).
   kCharge = 1u << 11,
+  kRotateVelocity = 1u << 12,
 };
 
 // canonical: command_kind_of_type -- the enumerator of one command value type.
@@ -144,6 +147,10 @@ template <> struct CommandKindOf<ShieldCommand> {
 
 template <> struct CommandKindOf<ChargeCommand> {
   static constexpr CommandKind value = CommandKind::kCharge;
+};
+
+template <> struct CommandKindOf<RotateVelocityCommand> {
+  static constexpr CommandKind value = CommandKind::kRotateVelocity;
 };
 
 // The closed list of kinds in declared order, **derived from the variant** through CommandKindOf.
@@ -232,6 +239,10 @@ template <> struct CommandKindName<ChargeCommand> {
   static constexpr std::string_view value = "charge";
 };
 
+template <> struct CommandKindName<RotateVelocityCommand> {
+  static constexpr std::string_view value = "rotate_velocity";
+};
+
 // The declared wire name of one command kind, for encoders, diagnostics, and fixtures.
 template <typename CommandType>
 inline constexpr std::string_view command_kind_name = CommandKindName<CommandType>::value;
@@ -271,6 +282,8 @@ inline constexpr std::string_view command_kind_name = CommandKindName<CommandTyp
     return command_kind_name<ShieldCommand>;
   case CommandKind::kCharge:
     return command_kind_name<ChargeCommand>;
+  case CommandKind::kRotateVelocity:
+    return command_kind_name<RotateVelocityCommand>;
   }
   return "command_kind_invalid";
 }
@@ -419,6 +432,8 @@ command_kind_application_rank(const CommandKind kind) noexcept {
   // effect").
   case CommandKind::kCharge:
     return 11;
+  case CommandKind::kRotateVelocity:
+    return 12;
   }
   return static_cast<std::uint32_t>(kCommandKindCount);
 }

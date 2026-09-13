@@ -5,18 +5,24 @@
 #include "fixtures/hazard_stream_frozen_reference.hpp"
 #include "gameplay_test_fixture.hpp"
 
+#include "components/crossing_hazard_component.hpp"
 #include "components/lethal_on_contact_component.hpp"
 #include "components/lifetime_component.hpp"
+#include "components/score_component.hpp"
 #include "contact_effect_admission.hpp"
+#include "shared/hazard_crossing.hpp"
 #include "shared/hazard_spawn_system.hpp"
 #include "simulation_system.hpp"
 #include "simulation_validation_error.hpp"
 #include "system_pipeline.hpp"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -100,6 +106,31 @@ void check_body_bits(const simulation::PhysicsBody& actual,
   CHECK(actual == expected);
 }
 
+// The old constructor remains frozen. The new contract adds one speed draw even at zero
+// variation and one body-bound membership marker; all old geometry/body/lifetime fields stay exact.
+constexpr std::uint64_t kCreatedHazardDrawCount = 4;
+constexpr std::uint64_t kPriorDrawsBeforeCertainBirth = 129;
+
+[[nodiscard]] simulation::EntityId
+adapted_frozen_creation(simulation::GameWorld& world, const simulation::ArenaBounds& bounds,
+                        const gameplay::HazardArchetype& archetype, const double seconds_per_tick) {
+  static_cast<void>(world.random(simulation::RandomStreamKind::kHazards).next_unit_interval());
+  const auto entity = frozen::create_hazard(world, bounds, archetype, seconds_per_tick);
+  world.mutable_store<simulation::CrossingHazard>().insert_or_assign(entity,
+                                                                     simulation::CrossingHazard{});
+  return entity;
+}
+
+void enable_birth(simulation::GameWorld& world) {
+  const auto previous = world.match().movement.current;
+  world.mutable_match().movement.current =
+      simulation::MovementTuning::create(previous.acceleration(), previous.normal_top_speed(),
+                                         previous.charge_speed_fraction(), 5.0, 5.0);
+  for (std::uint64_t draw = 0; draw < kPriorDrawsBeforeCertainBirth; ++draw) {
+    static_cast<void>(world.random(simulation::RandomStreamKind::kHazards).next_bits());
+  }
+}
+
 void prove_creation_sequence(const simulation::GameWorld& initial,
                              const simulation::TickContext& context) {
   auto expected = initial;
@@ -115,7 +146,7 @@ void prove_creation_sequence(const simulation::GameWorld& initial,
   for (std::size_t repetition = 0; repetition < frozen::kSequenceRepetitions; ++repetition) {
     for (const auto& archetype : frozen::archetypes()) {
       CAPTURE(repetition, archetype.kind_name());
-      const auto expected_entity = frozen::create_hazard(
+      const auto expected_entity = adapted_frozen_creation(
           expected, context.map().bounds(), archetype, context.fixed_delta().seconds());
       const auto actual_entity = gameplay::create_crossing_hazard(
           actual, context.map().bounds(), archetype, context.fixed_delta().seconds());
@@ -135,7 +166,7 @@ void prove_creation_sequence(const simulation::GameWorld& initial,
             archetype.lethal_on_contact());
       CHECK(actual.entity_id_reservation().count() == frozen::kReservationSize - births);
       CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
-            frozen::kPriorHazardDrawCount + births * frozen::kCreatedHazardDrawCount);
+            frozen::kPriorHazardDrawCount + births * kCreatedHazardDrawCount);
       CHECK(actual.random(simulation::RandomStreamKind::kHill) == unchanged_hill);
     }
   }
@@ -150,6 +181,7 @@ void prove_independent_frozen_crossing(const simulation::GameWorld& initial,
   auto random = frozen_random::DeterministicRandom::create(frozen_crossing::kSeed);
   const auto archetype = frozen::archetypes().front();
   for (std::uint64_t birth = 0; birth < frozen::kReservationSize; ++birth) {
+    static_cast<void>(random.next_unit_interval());
     const auto expected = frozen_crossing::draw_crossing(random);
     const auto entity = gameplay::create_crossing_hazard(actual, context.map().bounds(), archetype,
                                                          context.fixed_delta().seconds());
@@ -171,23 +203,33 @@ void prove_independent_frozen_crossing(const simulation::GameWorld& initial,
   CHECK(actual_random.next_bits() == random.next_bits());
 }
 
-// The test-side proposed schedule remains independent of the now-delegating production spawner;
-// the frozen old schedule never calls the promoted constructor.
-void candidate_spawn_due(simulation::GameWorld& world, const simulation::TickContext& context,
-                         const std::span<const gameplay::HazardArchetype> archetypes) {
-  if (world.match().phase != simulation::MatchPhase::kRunning) {
-    return;
-  }
-  for (const auto& archetype : archetypes) {
-    if (context.tick_sequence().value() % archetype.spawn_interval_ticks() != 0) {
-      continue;
-    }
-    if (world.entity_id_reservation().empty() ||
-        world.store<simulation::PhysicsBody>().size() >= simulation::kMaximumEntityCount) {
-      return;
-    }
-    static_cast<void>(gameplay::create_crossing_hazard(world, context.map().bounds(), archetype,
-                                                       context.fixed_delta().seconds()));
+void prove_sampled_speed_lifetime(const simulation::GameWorld& initial,
+                                  const simulation::TickContext& context) {
+  auto actual = initial;
+  auto random = frozen_random::DeterministicRandom::create(frozen_crossing::kSeed);
+  const auto archetype = gameplay::HazardArchetype::create(
+      {"varied_meteorite", frozen_crossing::kRadius, frozen_crossing::kMass,
+       frozen_crossing::kRestitution, frozen_crossing::kSpeed,
+       frozen_crossing::kFirstIntervalSeconds, true,
+       simulation::ContactEffectPolicy::kClosingImpact, 0.5});
+  for (std::uint64_t birth = 0; birth < frozen::kReservationSize; ++birth) {
+    const double sampled_speed = frozen_crossing::kSpeed * (0.5 + random.next_unit_interval());
+    const auto expected = frozen_crossing::draw_crossing(random);
+    const auto entity = gameplay::create_crossing_hazard(actual, context.map().bounds(), archetype,
+                                                         context.fixed_delta().seconds());
+    const auto* body = actual.store<simulation::PhysicsBody>().find(entity);
+    const auto* lifetime = actual.store<simulation::Lifetime>().find(entity);
+    REQUIRE(body != nullptr);
+    REQUIRE(lifetime != nullptr);
+    check_bits(body->position().x(), expected.position.x);
+    check_bits(body->position().y(), expected.position.y);
+    CHECK(std::hypot(body->velocity().x(), body->velocity().y()) == Catch::Approx(sampled_speed));
+    CHECK(lifetime->ticks_remaining ==
+          static_cast<std::uint64_t>(std::ceil(expected.travel_distance / sampled_speed /
+                                               frozen_crossing::kSecondsPerTick)));
+    CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
+          random.draw_count());
+    REQUIRE(actual.store<simulation::CrossingHazard>().find(entity) != nullptr);
   }
 }
 
@@ -202,28 +244,25 @@ void prove_schedule(const simulation::GameWorld& initial, const simulation::Tick
   for (const auto phase : phases) {
     for (const auto remaining : remaining_counts) {
       for (const auto tick : ticks) {
-        auto before = initial;
-        before.mutable_match().phase = phase;
-        while (before.entity_id_reservation().count() > remaining) {
-          static_cast<void>(before.create_entity());
+        auto actual = initial;
+        enable_birth(actual);
+        actual.mutable_match().phase = phase;
+        while (actual.entity_id_reservation().count() > remaining) {
+          static_cast<void>(actual.create_entity());
         }
-        auto expected = before;
-        auto actual = before;
-        auto old_reader = before;
+        const auto before = actual;
         const testing::TickHarness harness(simulation::TickSequence::create(tick));
-        frozen::spawn_due(expected, harness.context(), archetypes);
-        candidate_spawn_due(actual, harness.context(), archetypes);
-        production.apply(old_reader, harness.context());
+        production.apply(actual, harness.context());
         CAPTURE(phase, remaining, tick);
-        CHECK(actual == expected);
-        CHECK(old_reader == expected);
-        const auto births =
-            phase == simulation::MatchPhase::kRunning && tick == frozen::kCommonDueTick
-                ? (remaining < archetypes.size() ? remaining : archetypes.size())
-                : 0;
+        const std::uint64_t births =
+            phase == simulation::MatchPhase::kRunning && remaining != 0 ? 1 : 0;
         CHECK(actual.store<simulation::PhysicsBody>().size() == births);
+        CHECK(actual.store<simulation::CrossingHazard>().size() == births);
+        CHECK(actual.entity_id_reservation().count() == remaining - births);
         CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
-              births * frozen::kCreatedHazardDrawCount);
+              kPriorDrawsBeforeCertainBirth + births * 6);
+        if (births == 0)
+          CHECK(actual == before);
       }
     }
   }
@@ -238,8 +277,8 @@ void prove_exhausted_creation(const simulation::GameWorld& initial,
   auto expected = before;
   auto actual = before;
   const auto archetype = frozen::archetypes().front();
-  REQUIRE_THROWS_AS(frozen::create_hazard(expected, context.map().bounds(), archetype,
-                                          context.fixed_delta().seconds()),
+  REQUIRE_THROWS_AS(adapted_frozen_creation(expected, context.map().bounds(), archetype,
+                                            context.fixed_delta().seconds()),
                     simulation::SimulationValidationError);
   try {
     static_cast<void>(gameplay::create_crossing_hazard(actual, context.map().bounds(), archetype,
@@ -251,38 +290,156 @@ void prove_exhausted_creation(const simulation::GameWorld& initial,
   }
   CHECK(actual == expected);
   CHECK(actual.entities().empty());
-  // The old inner operation draws first. Its caller owns the pre-draw check, and changing this
-  // failure boundary during promotion would be a behavior change rather than a pure extraction.
+  // The caller still owns the pre-draw reservation check; direct creation samples speed and
+  // geometry before the missing reservation fails.
   CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
-        frozen::kCreatedHazardDrawCount);
+        kCreatedHazardDrawCount);
 }
 
 void prove_body_capacity(const simulation::GameWorld& initial, const simulation::TickContext&) {
-  const auto archetypes = frozen::archetypes();
-  const gameplay::HazardSpawnSystem production(archetypes);
+  const gameplay::HazardSpawnSystem production(frozen::archetypes());
   const testing::TickHarness harness(simulation::TickSequence::create(frozen::kCommonDueTick));
   constexpr std::array available_slots{std::size_t{0}, std::size_t{1}};
   for (const auto available : available_slots) {
-    auto before = initial;
-    for (std::size_t index = 0; index < simulation::kMaximumEntityCount - available; ++index) {
-      before.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+    auto actual = initial;
+    enable_birth(actual);
+    for (std::size_t index = 0; index < simulation::kMaximumMotionBodyCount - available; ++index) {
+      actual.mutable_store<simulation::PhysicsBody>().insert_or_assign(
           simulation::EntityId::create(frozen::kFirstCapacityFixtureEntity + index),
           frozen::capacity_fixture_body());
     }
-    auto expected = before;
-    auto actual = before;
-    auto old_reader = before;
-    frozen::spawn_due(expected, harness.context(), archetypes);
-    candidate_spawn_due(actual, harness.context(), archetypes);
-    production.apply(old_reader, harness.context());
+    const auto before = actual;
+    production.apply(actual, harness.context());
     CAPTURE(available);
-    CHECK(actual == expected);
-    CHECK(old_reader == expected);
-    CHECK(actual.store<simulation::PhysicsBody>().size() == simulation::kMaximumEntityCount);
+    CHECK(actual.store<simulation::PhysicsBody>().size() == simulation::kMaximumMotionBodyCount);
     CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
-          available * frozen::kCreatedHazardDrawCount);
+          kPriorDrawsBeforeCertainBirth + available * 6);
     CHECK(actual.entity_id_reservation().count() == frozen::kReservationSize - available);
-    CHECK(actual.store<simulation::LethalOnContact>().size() == available);
+    CHECK(actual.store<simulation::CrossingHazard>().size() == available);
+    if (available == 0)
+      CHECK(actual == before);
+  }
+}
+
+void prove_crossing_capacity(const simulation::GameWorld& initial,
+                             const simulation::TickContext& context) {
+  const gameplay::HazardSpawnSystem production(frozen::archetypes());
+  for (const std::size_t available : {std::size_t{0}, std::size_t{1}}) {
+    auto actual = initial;
+    enable_birth(actual);
+    for (std::size_t index = 0; index < gameplay::kMaximumActiveCrossingHazardCount - available;
+         ++index) {
+      const auto entity = simulation::EntityId::create(frozen::kFirstCapacityFixtureEntity + index);
+      actual.mutable_store<simulation::PhysicsBody>().insert_or_assign(
+          entity, frozen::capacity_fixture_body());
+      actual.mutable_store<simulation::CrossingHazard>().insert_or_assign(
+          entity, simulation::CrossingHazard{});
+    }
+    const auto before = actual;
+    production.apply(actual, context);
+    CHECK(actual.store<simulation::CrossingHazard>().size() ==
+          gameplay::kMaximumActiveCrossingHazardCount);
+    CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
+          kPriorDrawsBeforeCertainBirth + available * 6);
+    if (available == 0) {
+      CHECK(actual == before);
+      const auto removed = simulation::EntityId::create(frozen::kFirstCapacityFixtureEntity);
+      actual.mutable_store<simulation::PhysicsBody>().erase(removed);
+      actual.erase_body_bound_components_without_body();
+      REQUIRE(actual.store<simulation::CrossingHazard>().size() ==
+              gameplay::kMaximumActiveCrossingHazardCount - 1);
+      production.apply(actual, context);
+      CHECK(actual.store<simulation::CrossingHazard>().size() ==
+            gameplay::kMaximumActiveCrossingHazardCount);
+      CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
+            kPriorDrawsBeforeCertainBirth + 6);
+    }
+  }
+}
+
+void prove_entity_capacity(const simulation::GameWorld& initial,
+                           const simulation::TickContext& context) {
+  const gameplay::HazardSpawnSystem production(frozen::archetypes());
+  for (const std::size_t available : {std::size_t{0}, std::size_t{1}}) {
+    auto actual = initial;
+    enable_birth(actual);
+    for (std::size_t index = 0; index < simulation::kMaximumEntityCount - available; ++index) {
+      actual.mutable_store<simulation::Score>().insert_or_assign(
+          simulation::EntityId::create(frozen::kFirstCapacityFixtureEntity + index),
+          simulation::Score{});
+    }
+    const auto before = actual;
+    production.apply(actual, context);
+    CHECK(actual.entities().size() == simulation::kMaximumEntityCount);
+    CHECK(actual.store<simulation::PhysicsBody>().size() == available);
+    CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
+          kPriorDrawsBeforeCertainBirth + available * 6);
+    if (available == 0)
+      CHECK(actual == before);
+  }
+}
+
+void prove_disabled_classes(const simulation::GameWorld& initial,
+                            const simulation::TickContext& context) {
+  const auto table = frozen::archetypes();
+  const auto defaults = simulation::MovementTuning::defaults();
+  for (const auto& declared :
+       std::vector<std::vector<gameplay::HazardArchetype>>{{}, {table[0]}, {table[1]}, table}) {
+    for (const auto rates :
+         std::array{std::array{0.0, 0.0}, std::array{5.0, 0.0}, std::array{0.0, 5.0}}) {
+      bool eligible = false;
+      for (const auto& archetype : declared) {
+        eligible = eligible || rates[archetype.lethal_on_contact() ? 0 : 1] > 0.0;
+      }
+      if (eligible)
+        continue;
+      auto actual = initial;
+      actual.mutable_match().movement.current =
+          simulation::MovementTuning::create(defaults.acceleration(), defaults.normal_top_speed(),
+                                             defaults.charge_speed_fraction(), rates[0], rates[1]);
+      const auto before = actual;
+      gameplay::HazardSpawnSystem(declared).apply(actual, context);
+      CHECK(actual == before);
+    }
+  }
+  auto actual = initial;
+  static_cast<void>(gameplay::create_crossing_hazard(actual, context.map().bounds(), table.front(),
+                                                     context.fixed_delta().seconds()));
+  const auto before = actual;
+  gameplay::HazardSpawnSystem(table).apply(actual, context);
+  CHECK(actual == before); // Zero rates preserve the existing body's sampled motion and lifetime.
+}
+
+void prove_class_and_kind_selection(const simulation::GameWorld& initial,
+                                    const simulation::TickContext& context) {
+  const auto defaults = simulation::MovementTuning::defaults();
+  const auto table = frozen::archetypes();
+  for (const bool lethal : {false, true}) {
+    auto actual = initial;
+    enable_birth(actual);
+    actual.mutable_match().movement.current = simulation::MovementTuning::create(
+        defaults.acceleration(), defaults.normal_top_speed(), defaults.charge_speed_fraction(),
+        lethal ? 5.0 : 0.0, lethal ? 0.0 : 5.0);
+    gameplay::HazardSpawnSystem(table).apply(actual, context);
+    REQUIRE(actual.store<simulation::CrossingHazard>().size() == 1);
+    CHECK(actual.store<simulation::LethalOnContact>().size() == (lethal ? 1 : 0));
+    CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
+          kPriorDrawsBeforeCertainBirth + 6);
+  }
+  // The independently pinned kind draw is 0.9152873011755797. Equal weights select the second;
+  // a 20:380 tick interval mixture makes the first kind's share 95%, so the very same draw selects
+  // it.
+  for (const double second_interval : {0.05, 0.95}) {
+    auto actual = initial;
+    enable_birth(actual);
+    const auto second = gameplay::HazardArchetype::create(
+        {"rare_meteorite", 7.0, 40.0, 0.2, 200.0, second_interval, true});
+    gameplay::HazardSpawnSystem({table.front(), second}).apply(actual, context);
+    REQUIRE(actual.store<simulation::PhysicsBody>().size() == 1);
+    CHECK(actual.store<simulation::PhysicsBody>().entries().front().value.radius() ==
+          (second_interval == 0.05 ? 7.0 : table.front().radius()));
+    CHECK(actual.random(simulation::RandomStreamKind::kHazards).draw_count() ==
+          kPriorDrawsBeforeCertainBirth + 6);
   }
 }
 
@@ -293,7 +450,7 @@ void prove_instance_policy(const simulation::GameWorld& initial,
   for (const auto archetype_policy : policy_fixture::kPolicies) {
     const auto archetype = policy_fixture::archetype(archetype_policy);
     for (const auto instance : policy_fixture::kOverrides) {
-      const auto expected_entity = frozen::create_hazard(
+      const auto expected_entity = adapted_frozen_creation(
           expected, context.map().bounds(), archetype, context.fixed_delta().seconds());
       const auto entity = gameplay::create_crossing_hazard(
           actual, context.map().bounds(), archetype, context.fixed_delta().seconds(), instance);
@@ -318,13 +475,16 @@ void prove_instance_policy(const simulation::GameWorld& initial,
 void prove_scheduled_policy(const simulation::GameWorld& initial, const simulation::TickContext&) {
   for (const auto policy : policy_fixture::kPolicies) {
     auto actual = initial;
-    auto expected = initial;
+    enable_birth(actual);
+    auto expected = actual;
     const auto archetype = policy_fixture::archetype(policy);
     const testing::TickHarness harness(simulation::TickSequence::create(frozen::kCommonDueTick));
     const gameplay::HazardSpawnSystem production({archetype});
     production.apply(actual, harness.context());
-    const auto entity = frozen::create_hazard(expected, harness.map().bounds(), archetype,
-                                              harness.context().fixed_delta().seconds());
+    static_cast<void>(expected.random(simulation::RandomStreamKind::kHazards).next_unit_interval());
+    static_cast<void>(expected.random(simulation::RandomStreamKind::kHazards).next_unit_interval());
+    const auto entity = adapted_frozen_creation(expected, harness.map().bounds(), archetype,
+                                                harness.context().fixed_delta().seconds());
     if (policy == simulation::ContactEffectPolicy::kAnyTouch) {
       expected.mutable_store<simulation::ContactEffectAdmission>().insert_or_assign(
           entity, simulation::ContactEffectAdmission{});
@@ -336,7 +496,8 @@ void prove_scheduled_policy(const simulation::GameWorld& initial, const simulati
 
 } // namespace
 
-TEST_CASE("crossing hazard creation preserves full old worlds across mixed archetypes and seeds",
+TEST_CASE("crossing hazard creation preserves frozen physics with explicit speed draw and "
+          "population marker",
           "[unit][gameplay][shared][create_crossing_hazard][promotion]") {
   for (const auto seed : frozen::kSeeds) {
     CAPTURE(seed);
@@ -349,8 +510,9 @@ TEST_CASE("crossing hazard creation matches the independent frozen seed2026 cros
   run_proof(prove_independent_frozen_crossing, frozen_crossing::kSeed);
 }
 
-TEST_CASE("crossing hazard creation preserves declaration order and pre-draw reservation skips",
-          "[unit][gameplay][shared][create_crossing_hazard][promotion]") {
+TEST_CASE(
+    "random crossing births ignore old cadence and preserve pre-draw phase and reservation skips",
+    "[unit][gameplay][shared][create_crossing_hazard][promotion]") {
   run_proof(prove_schedule, frozen_crossing::kSeed);
 }
 
@@ -359,7 +521,7 @@ TEST_CASE("crossing hazard creation preserves the old exhausted-reservation fail
   run_proof(prove_exhausted_creation, frozen_crossing::kSeed);
 }
 
-TEST_CASE("crossing hazard creation preserves pre-draw full-body skips and the final body slot",
+TEST_CASE("crossing hazard creation respects pre-draw motion capacity and the final body slot",
           "[unit][gameplay][shared][create_crossing_hazard][promotion]") {
   run_proof(prove_body_capacity, frozen_crossing::kSeed);
 }
@@ -373,4 +535,59 @@ TEST_CASE(
 TEST_CASE("scheduled hazards inherit their archetype contact effect admission",
           "[unit][gameplay][shared][create_crossing_hazard][contact_effect_admission]") {
   run_proof(prove_scheduled_policy, frozen_crossing::kSeed);
+}
+
+TEST_CASE("crossing hazard lifetime uses its independently sampled speed without resampling",
+          "[unit][gameplay][shared][create_crossing_hazard][hazard_crossing]") {
+  run_proof(prove_sampled_speed_lifetime, frozen_crossing::kSeed);
+}
+
+TEST_CASE("hazard speed sampling is bounded varied and consumes one draw at zero variation",
+          "[unit][gameplay][shared][hazard_crossing][determinism]") {
+  for (const double variation : {0.0, 0.5, 0.9}) {
+    const auto archetype = gameplay::HazardArchetype::create(
+        {"varied_meteorite", frozen_crossing::kRadius, frozen_crossing::kMass,
+         frozen_crossing::kRestitution, frozen_crossing::kSpeed,
+         frozen_crossing::kFirstIntervalSeconds, true,
+         simulation::ContactEffectPolicy::kClosingImpact, variation});
+    auto random = simulation::DeterministicRandom::create(frozen_crossing::kSeed);
+    double minimum = archetype.speed();
+    double maximum = archetype.speed();
+    constexpr std::uint64_t kSamples = 1000;
+    for (std::uint64_t sample = 0; sample < kSamples; ++sample) {
+      const double speed = gameplay::draw_hazard_speed(random, archetype);
+      CHECK(speed >= archetype.speed() * (1.0 - variation));
+      CHECK(speed <= archetype.speed() * (1.0 + variation));
+      minimum = std::min(minimum, speed);
+      maximum = std::max(maximum, speed);
+    }
+    CHECK(random.draw_count() == kSamples);
+    if (variation == 0.0) {
+      CHECK(minimum == archetype.speed());
+      CHECK(maximum == archetype.speed());
+    } else {
+      CHECK(minimum < archetype.speed() * (1.0 - variation * 0.9));
+      CHECK(maximum > archetype.speed() * (1.0 + variation * 0.9));
+    }
+  }
+}
+
+TEST_CASE("random hazard bursts stop at the explicit crossing cap and body cleanup frees capacity",
+          "[unit][gameplay][shared][hazard_spawn][capacity]") {
+  run_proof(prove_crossing_capacity, frozen_crossing::kSeed);
+}
+
+TEST_CASE("random hazard births respect the total entity cap even when bodies have headroom",
+          "[unit][gameplay][shared][hazard_spawn][capacity]") {
+  run_proof(prove_entity_capacity, frozen_crossing::kSeed);
+}
+
+TEST_CASE("zero rates and absent classes consume no random draws and preserve existing hazards",
+          "[unit][gameplay][shared][hazard_spawn]") {
+  run_proof(prove_disabled_classes, frozen_crossing::kSeed);
+}
+
+TEST_CASE("random hazard births select enabled classes and authored reciprocal interval weights",
+          "[unit][gameplay][shared][hazard_spawn][determinism]") {
+  run_proof(prove_class_and_kind_selection, frozen_crossing::kSeed);
 }

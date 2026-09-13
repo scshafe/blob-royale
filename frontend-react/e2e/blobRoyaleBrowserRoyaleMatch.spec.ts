@@ -404,7 +404,7 @@ test('two browsers and a bot play one royale match', async ({
     await pageA.bringToFront();
     await focusSimulationCanvas(pageA);
     await aimFromPaintedBody(pageA, displayNameA, { x: 100, y: 0 }, 20);
-    await pageA.keyboard.down('Space');
+    await pageA.mouse.down({ button: 'left' });
     await expect(matchHudCell(pageA, 'Thrust')).toHaveText('1.00, 0.00');
     await expect(matchHudCell(pageB, 'Thrust')).toHaveText('idle');
     await expect
@@ -413,7 +413,7 @@ test('two browsers and a bot play one royale match', async ({
         timeout: MOTION_TIMEOUT_MILLISECONDS,
       })
       .toBeGreaterThan(beforeThrustOwnA.x + MOTION_THRESHOLD_CANVAS_PIXELS);
-    await pageA.keyboard.up('Space');
+    await pageA.mouse.up({ button: 'left' });
     await expect(matchHudCell(pageA, 'Thrust')).toHaveText('idle');
 
     // The other session pressed nothing, its blob was seated at rest, and nothing has touched it:
@@ -439,7 +439,7 @@ test('two browsers and a bot play one royale match', async ({
     await pageB.bringToFront();
     await focusSimulationCanvas(pageB);
     await aimFromPaintedBody(pageB, displayNameB, { x: -100, y: 0 }, 20);
-    await pageB.keyboard.down('Space');
+    await pageB.mouse.down({ button: 'left' });
     await expect(matchHudCell(pageB, 'Thrust')).toHaveText('-1.00, 0.00');
     await expect(matchHudCell(pageA, 'Thrust')).toHaveText('idle');
     await expect
@@ -448,7 +448,7 @@ test('two browsers and a bot play one royale match', async ({
         timeout: MOTION_TIMEOUT_MILLISECONDS,
       })
       .toBeLessThan(beforeThrustOwnB.x - MOTION_THRESHOLD_CANVAS_PIXELS);
-    await pageB.keyboard.up('Space');
+    await pageB.mouse.up({ button: 'left' });
 
     // A released blob decays geometrically rather than stopping, so this one is bounded instead of
     // exact: it was drawn at rest and must still be within half a pixel of there.

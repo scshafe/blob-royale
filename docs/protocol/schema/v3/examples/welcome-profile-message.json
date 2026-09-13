@@ -5,13 +5,34 @@
     "display_name": "Cole Shaffer",
     "mode": "royale",
     "map": "arena-960x640",
-    "accepted_command_kinds": ["charge", "clear_seat", "seat_npc", "set_movement_tuning", "set_seat_count", "set_thrust", "shield", "start_match"],
-    "npc_controller_kinds": ["wanderer", "chaser"],
-    "npc_profiles": [{ "npc_kind": "tactical", "profile_name": "steady" }],
+    "accepted_command_kinds": [
+      "charge",
+      "clear_seat",
+      "rotate_velocity",
+      "seat_npc",
+      "set_movement_tuning",
+      "set_seat_count",
+      "set_thrust",
+      "shield",
+      "start_match"
+    ],
+    "npc_controller_kinds": [
+      "wanderer",
+      "chaser"
+    ],
+    "npc_profiles": [
+      {
+        "npc_kind": "tactical",
+        "profile_name": "steady"
+      }
+    ],
     "lobby_id": 1,
     "seat_count_maximum": 32,
     "terrain": {
-      "bounds": { "width_world_units": 960, "height_world_units": 640 },
+      "bounds": {
+        "width_world_units": 960,
+        "height_world_units": 640
+      },
       "ground": "solid",
       "corridors": [],
       "holes": []
@@ -20,7 +41,7 @@
   },
   "error": null,
   "meta": {
-    "protocol_version": "3.0",
+    "protocol_version": "3.1",
     "schema_id": "blob-royale://protocol/v3/welcome-message",
     "request_id": "018f47a4-9c21-7f10-8a55-4b7d1e0c33a2",
     "message_sequence": 1,

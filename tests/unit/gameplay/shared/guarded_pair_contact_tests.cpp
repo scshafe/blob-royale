@@ -48,6 +48,18 @@ impact_observation(const simulation::PlayerPairContact& contact) {
           contact.is_contact(), contact.is_contact()};
 }
 
+// These continuous-motion fixtures exercise guard response only. Supply the frozen absence of
+// charge attempts explicitly while keeping the solver's six-argument response signature.
+[[nodiscard]] gameplay::GuardedPairOutcome
+compose_guard_only(const simulation::GameWorld& world,
+                   const simulation::ContactRule::Subject& first,
+                   const simulation::ContactRule::Subject& second,
+                   const simulation::PairContactObservation& observation,
+                   const simulation::TickContext& context, const gameplay::PairGuardFacts& guards) {
+  return gameplay::compose_guarded_pair(world, first, second, observation, context, guards,
+                                        gameplay::PairChargeFacts{});
+}
+
 // The pair is exactly touching in its authored orientation. Every pure-core test below uses these
 // named bodies; integration into a live mode is deliberately deferred by the Step 4 boundary.
 [[nodiscard]] simulation::PhysicsBody moving_body(const double x, const double speed,
@@ -525,7 +537,7 @@ TEST_CASE("the continuous driver resolves moving and mutual perfects without zer
     const std::array subjects{fixture.first, fixture.second};
     const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,
                                                             gameplay::PairGuardFacts>(
-        fixture.world, subjects, fixture.harness.context(), guards, gameplay::compose_guarded_pair);
+        fixture.world, subjects, fixture.harness.context(), guards, compose_guard_only);
     REQUIRE(result.motion.bodies.size() == 2);
     CHECK(result.motion.bodies[0].result.body.velocity() == vector(0.0));
     CHECK(result.motion.bodies[1].result.body.velocity() == vector(0.0));
@@ -646,8 +658,8 @@ TEST_CASE("continuous mixed touch policies use the hazard instance rather than t
                                   simulation::MotionContactEffectPolicy{victim, victim_policy}};
         const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,
                                                                 gameplay::PairGuardFacts>(
-            fixture.world, subjects, fixture.harness.context(), {}, gameplay::compose_guarded_pair,
-            {}, {}, policies);
+            fixture.world, subjects, fixture.harness.context(), {}, compose_guard_only, {}, {},
+            policies);
         const bool lethal = hazard_policy == simulation::ContactEffectPolicy::kAnyTouch;
         REQUIRE(result.motion.bodies.size() == 2);
         for (const auto& body : result.motion.bodies) {
@@ -683,8 +695,8 @@ TEST_CASE("continuous tangent lethality terminates a recipient without impulse o
     const gameplay::PairGuardFacts guards{gameplay::GuardState::kNone, guard};
     const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,
                                                             gameplay::PairGuardFacts>(
-        fixture.world, subjects, fixture.harness.context(), guards, gameplay::compose_guarded_pair,
-        {}, {}, policies);
+        fixture.world, subjects, fixture.harness.context(), guards, compose_guard_only, {}, {},
+        policies);
     REQUIRE(result.motion.bodies.size() == 2);
     CHECK(result.motion.bodies[0].result.body.velocity() == fixture.first.body.velocity());
     CHECK(result.motion.bodies[0].result.body.acceleration() == fixture.first.body.acceleration());
@@ -739,8 +751,8 @@ TEST_CASE("center support loss terminates before a tied any-touch pair regardles
   const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,
                                                           gameplay::PairGuardFacts>(
       fixture.world, subjects, harness.context(),
-      {gameplay::GuardState::kPerfect, gameplay::GuardState::kPerfect},
-      gameplay::compose_guarded_pair, triggers, {}, policies);
+      {gameplay::GuardState::kPerfect, gameplay::GuardState::kPerfect}, compose_guard_only,
+      triggers, {}, policies);
   REQUIRE(result.motion.bodies.size() == 2);
   CHECK(result.motion.bodies[0].result.disposition == simulation::MotionDisposition::kTerminate);
   CHECK(result.motion.bodies[1].result.disposition == simulation::MotionDisposition::kContinue);

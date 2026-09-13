@@ -69,6 +69,11 @@ const protocolVersions = [
       ['shield-component.json', 'shield-component.schema.json'],
       ['charge-component.json', 'charge-component.schema.json'],
       [
+        'crossing-hazard-component.json',
+        'crossing-hazard-component.schema.json',
+      ],
+      ['rotate-velocity-command.json', 'rotate-velocity-command.schema.json'],
+      [
         'contact-effect-admission-component.json',
         'contact-effect-admission-component.schema.json',
       ],

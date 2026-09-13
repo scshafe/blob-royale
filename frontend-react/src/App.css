@@ -1,6 +1,10 @@
 .App {
-  min-height: 100vh;
-  padding: clamp(1rem, 3vw, 2rem);
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding: clamp(0.5rem, 2vw, 1.5rem);
 }
 
 /* The persistent frame: identity on the left, where the player is in the middle, up on the right. */
@@ -8,10 +12,28 @@
   align-items: center;
   border-bottom: 1px solid #cbd5e1;
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   gap: 0.75rem 1.5rem;
-  margin-block-end: 1.5rem;
+  margin-block-end: clamp(0.5rem, 2vh, 1.5rem);
   padding-block-end: 0.75rem;
+}
+
+.AppContent {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.AppContent-directory {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.AppContent-room {
+  overflow: hidden;
 }
 
 .AppTitle {
@@ -44,7 +66,7 @@
 .LobbyList {
   display: grid;
   gap: 1rem;
-  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
   list-style: none;
   margin: 0;
   padding: 0;
@@ -96,15 +118,34 @@
   padding: 0.75rem 1rem;
 }
 
+.SimulationViewer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.SimulationViewer > h2 {
+  flex: none;
+  margin-block: 0 0.5rem;
+}
+
+.SimulationViewer > p {
+  flex: none;
+  margin-block: 0 0.75rem;
+}
+
 .SimulationLayout {
   display: grid;
-  gap: 1.5rem;
+  flex: 1;
+  gap: clamp(0.5rem, 2vw, 1.5rem);
   grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+  min-height: 0;
 }
 
 .SimulationStage {
-  align-self: start;
   max-width: 960px;
+  min-height: 0;
   min-width: 0;
   position: relative;
 }
@@ -180,7 +221,17 @@
 }
 
 .SimulationCanvas {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
   margin: 0;
+  min-height: 0;
+}
+
+.SimulationCanvas figcaption {
+  flex: none;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
 }
 
 .MatchOverlay {
@@ -215,7 +266,18 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  min-height: 0;
   min-width: 0;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-inline-end: 0.25rem;
+  scrollbar-gutter: stable;
+}
+
+.SimulationSidebar > * {
+  flex: none;
 }
 
 .MatchHud {
@@ -453,7 +515,13 @@ button.SeatButton {
 }
 
 .SimulationViewport {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  justify-content: center;
   max-width: 960px;
+  min-height: 0;
+  min-width: 0;
   width: 100%;
 }
 
@@ -516,6 +584,29 @@ button.SeatButton {
 
 @media (max-width: 56rem) {
   .SimulationLayout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+
+  .SimulationSidebar {
+    font-size: 0.875rem;
+  }
+
+  .SimulationSidebar button {
+    max-width: 100%;
+  }
+
+  .CameraControls,
+  .LobbyPanel,
+  .MovementTuningPanel,
+  .AbilityControls {
+    padding: 0.5rem;
+  }
+
+  .SeatGrid {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr));
+  }
+
+  .SeatCountControl {
+    flex-wrap: wrap;
   }
 }

@@ -71,8 +71,8 @@ WorldSnapshot::WorldSnapshot(const TickSequence tick_sequence, std::vector<Entit
                              const RandomDrawCounts random_draw_counts,
                              std::shared_ptr<const TerrainDefinition> terrain) noexcept
     : tick_sequence_(tick_sequence), entities_(std::move(entities)), stores_(std::move(stores)),
-      players_(std::move(players)), match_(std::move(match)), random_draw_counts_(random_draw_counts),
-      terrain_(std::move(terrain)) {}
+      players_(std::move(players)), match_(std::move(match)),
+      random_draw_counts_(random_draw_counts), terrain_(std::move(terrain)) {}
 
 bool operator==(const WorldSnapshot& left, const WorldSnapshot& right) {
   return left.tick_sequence_ == right.tick_sequence_ && left.entities_ == right.entities_ &&

@@ -101,10 +101,10 @@ draw_crossing(deterministic_random_reference::DeterministicRandom& random) {
   const double travel_distance = length + (2.0 * (2.0 * kRadius));
   const double ticks = std::ceil(travel_distance / kSpeed / kSecondsPerTick);
   constexpr std::uint64_t kOldMaximumSafeInteger = 9'007'199'254'740'991ULL;
-  const std::uint64_t lifetime =
-      !(ticks >= 1.0) ? 1
-      : ticks >= static_cast<double>(kOldMaximumSafeInteger) ? kOldMaximumSafeInteger
-                                                            : static_cast<std::uint64_t>(ticks);
+  const std::uint64_t lifetime = !(ticks >= 1.0) ? 1
+                                 : ticks >= static_cast<double>(kOldMaximumSafeInteger)
+                                     ? kOldMaximumSafeInteger
+                                     : static_cast<std::uint64_t>(ticks);
   return {point(entry.x + (normal.x * clearance), entry.y + (normal.y * clearance)),
           point(direction.x * kSpeed, direction.y * kSpeed), travel_distance, lifetime};
 }

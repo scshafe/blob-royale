@@ -38,15 +38,17 @@ static_assert(values_are_distinct(projected_values(
     kRandomStreamRegistry, [](const RandomStreamDefinition stream) { return stream.kind; })));
 static_assert(values_are_distinct(projected_values(
     kRandomStreamRegistry, [](const RandomStreamDefinition stream) { return stream.name; })));
-static_assert([] {
-  for (std::size_t index = 0; index < kRandomStreamCount; ++index) {
-    if (static_cast<std::size_t>(kRandomStreamRegistry[index].kind) != index ||
-        !is_wire_kind_name(kRandomStreamRegistry[index].name)) {
-      return false;
-    }
-  }
-  return true;
-}(), "random streams have valid names and contiguous stable ordinal order");
+static_assert(
+    [] {
+      for (std::size_t index = 0; index < kRandomStreamCount; ++index) {
+        if (static_cast<std::size_t>(kRandomStreamRegistry[index].kind) != index ||
+            !is_wire_kind_name(kRandomStreamRegistry[index].name)) {
+          return false;
+        }
+      }
+      return true;
+    }(),
+    "random streams have valid names and contiguous stable ordinal order");
 
 // Full uint64 counts belong to simulation. The protocol alone rejects counts outside its safe
 // integer range; this value neither rounds nor narrows them and carries no seed or hidden state.
@@ -57,10 +59,9 @@ using RandomDrawCounts = std::array<std::uint64_t, kRandomStreamCount>;
 [[nodiscard]] inline std::size_t random_stream_index(const RandomStreamKind kind) {
   const auto index = static_cast<std::size_t>(kind);
   if (index >= kRandomStreamCount || kRandomStreamRegistry[index].kind != kind) {
-    throw SimulationValidationError(SimulationValidationCode::kRandomStreamKindInvalid,
-                                    "random_stream.kind",
-                                    "random stream ordinal " + std::to_string(index) +
-                                        " is not registered");
+    throw SimulationValidationError(
+        SimulationValidationCode::kRandomStreamKindInvalid, "random_stream.kind",
+        "random stream ordinal " + std::to_string(index) + " is not registered");
   }
   return index;
 }

@@ -38,10 +38,11 @@ constexpr std::uint64_t kHillNoiseDrawsPerTick = 7;
 // changes only world-owned hill randomness, not any feature or the frozen hazard inputs.
 class HillNoiseSystem final : public simulation::SimulationSystem {
 public:
-  explicit HillNoiseSystem(const std::uint64_t draws_per_tick)
-      : draws_per_tick_(draws_per_tick) {}
+  explicit HillNoiseSystem(const std::uint64_t draws_per_tick) : draws_per_tick_(draws_per_tick) {}
 
-  [[nodiscard]] std::string_view name() const noexcept override { return "hazard_proof_hill_noise"; }
+  [[nodiscard]] std::string_view name() const noexcept override {
+    return "hazard_proof_hill_noise";
+  }
 
   void apply(simulation::GameWorld& world, const simulation::TickContext&) const override {
     for (std::uint64_t draw = 0; draw < draws_per_tick_; ++draw) {
@@ -60,18 +61,18 @@ private:
   world.mutable_match().phase = simulation::MatchPhase::kRunning;
   std::vector<gameplay::HazardArchetype> table{
       gameplay::HazardArchetype::create({"plaid_meteorite", frozen::kRadius, frozen::kMass,
-                                        frozen::kRestitution, frozen::kSpeed,
-                                        frozen::kFirstIntervalSeconds, true}),
+                                         frozen::kRestitution, frozen::kSpeed,
+                                         frozen::kFirstIntervalSeconds, true}),
       gameplay::HazardArchetype::create({"velvet_boulder", frozen::kRadius, frozen::kMass,
-                                        frozen::kRestitution, frozen::kSpeed,
-                                        frozen::kSecondIntervalSeconds, false})};
+                                         frozen::kRestitution, frozen::kSpeed,
+                                         frozen::kSecondIntervalSeconds, false})};
   std::vector<simulation::SystemPipeline::StagedSystem> systems;
   if (hill_draws_per_tick != 0) {
     systems.push_back({simulation::SystemStage::kPreKernel,
                        std::make_unique<const HillNoiseSystem>(hill_draws_per_tick)});
   }
-  systems.push_back({simulation::SystemStage::kLifecycle,
-                     gameplay::HazardSpawnSystem::create(std::move(table))});
+  systems.push_back(
+      {simulation::SystemStage::kLifecycle, gameplay::HazardSpawnSystem::create(std::move(table))});
   return simulation::GameSimulation::create(
       configuration, std::move(world),
       simulation::GameSimulationSetup::engine_defaults()
@@ -91,7 +92,7 @@ void check_bits(const double actual, const double expected) {
 }
 
 void check_newborn(const simulation::PhysicsBody& body, const frozen::Crossing& expected,
-                    const simulation::Lifetime& lifetime) {
+                   const simulation::Lifetime& lifetime) {
   check_bits(body.position().x(), expected.position.x);
   check_bits(body.position().y(), expected.position.y);
   check_bits(body.velocity().x(), expected.velocity.x);
@@ -110,7 +111,7 @@ void check_newborn(const simulation::PhysicsBody& body, const frozen::Crossing& 
 }
 
 void check_production_births(const bool omit_reservation,
-                              const std::uint64_t hill_draws_per_tick = 0) {
+                             const std::uint64_t hill_draws_per_tick = 0) {
   auto game = hazard_game(hill_draws_per_tick);
   auto random = frozen_random::DeterministicRandom::create(frozen::kSeed);
   std::vector<std::uint64_t> expected_entities;
@@ -141,12 +142,12 @@ void check_production_births(const bool omit_reservation,
 
     // Literal zero-command reservation policy: tick N owns id N, even when that slot is unused.
     // Omitting tick140 never compacts or recycles the subsequent allocator sequence.
-    const auto reservation = omit_reservation && tick == frozen::kSkippedReservationTick
-                                 ? simulation::EntityIdReservation::none()
-                                 : simulation::EntityIdReservation::create(
-                                       simulation::EntityId::create(tick), 1);
+    const auto reservation =
+        omit_reservation && tick == frozen::kSkippedReservationTick
+            ? simulation::EntityIdReservation::none()
+            : simulation::EntityIdReservation::create(simulation::EntityId::create(tick), 1);
     game.step(testing::kGameplayFixedDelta,
-               simulation::InputBatch::create({}, game.accepted_command_kinds(), reservation));
+              simulation::InputBatch::create({}, game.accepted_command_kinds(), reservation));
     const auto snapshot = game.snapshot();
     REQUIRE(snapshot.tick_sequence().value() == tick);
     REQUIRE(snapshot.match().phase() == simulation::MatchPhase::kRunning);

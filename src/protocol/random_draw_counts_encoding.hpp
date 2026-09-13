@@ -30,10 +30,10 @@ inline void encode_random_draw_counts(const simulation::RandomDrawCounts& counts
   for (const simulation::RandomStreamDefinition stream : simulation::kRandomStreamRegistry) {
     const std::uint64_t count = counts[simulation::random_stream_index(stream.kind)];
     if (count > kMaximumSafeInteger) {
-      throw ProtocolEncodingError{
-          ProtocolEncodingErrorCode::kRandomDrawCountOutOfRange,
-          "snapshot_message.data.random_draw_counts." + std::string(stream.name),
-          "random draw count must be in the inclusive range 0 to 2^53-1"};
+      throw ProtocolEncodingError{ProtocolEncodingErrorCode::kRandomDrawCountOutOfRange,
+                                  "snapshot_message.data.random_draw_counts." +
+                                      std::string(stream.name),
+                                  "random draw count must be in the inclusive range 0 to 2^53-1"};
     }
     sink.set_unsigned(stream.name, count);
   }

@@ -11,6 +11,7 @@ add_executable(blob_controllers_unit_tests
   racer_controller_tests.cpp
   racer_projection_promotion_tests.cpp
   scripted_replay_controller_tests.cpp
+  tactical_arrival_brake_dynamics_tests.cpp
   tactical_controller_tests.cpp
   tactical_objective_candidates_tests.cpp
   tactical_profile_tests.cpp

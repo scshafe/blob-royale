@@ -1,7 +1,7 @@
 #include "components/score_component.hpp"
+#include "fixed_delta.hpp"
 #include "fixtures/deterministic_random_frozen_reference.hpp"
 #include "fixtures/random_stream_world_fixture.hpp"
-#include "fixed_delta.hpp"
 #include "game_simulation.hpp"
 #include "game_world.hpp"
 #include "input_batch.hpp"
@@ -39,15 +39,17 @@ static_assert(!HasTemporaryRandom<const simulation::GameWorld>);
 static_assert(!HasLegacyCount<simulation::WorldSnapshot>);
 static_assert(std::is_nothrow_move_constructible_v<simulation::GameWorld>);
 static_assert(std::is_nothrow_move_assignable_v<simulation::GameWorld>);
-static_assert(std::same_as<decltype(std::declval<const simulation::WorldSnapshot&>().random_draw_counts()),
-                           simulation::RandomDrawCounts>);
-static_assert(std::same_as<decltype(std::declval<simulation::WorldSnapshot&&>().random_draw_counts()),
-                           simulation::RandomDrawCounts>);
+static_assert(
+    std::same_as<decltype(std::declval<const simulation::WorldSnapshot&>().random_draw_counts()),
+                 simulation::RandomDrawCounts>);
+static_assert(
+    std::same_as<decltype(std::declval<simulation::WorldSnapshot&&>().random_draw_counts()),
+                 simulation::RandomDrawCounts>);
 static_assert(noexcept(std::declval<const simulation::WorldSnapshot&>().random_draw_counts()));
 static_assert(noexcept(std::declval<simulation::WorldSnapshot&&>().random_draw_counts()));
 
 [[nodiscard]] std::uint64_t observed_bits(const simulation::WorldSnapshot& snapshot,
-                                         const simulation::EntityId::Value entity) {
+                                          const simulation::EntityId::Value entity) {
   for (const auto& entry : snapshot.components<simulation::Score>()) {
     if (entry.entity.value() == entity) {
       return std::bit_cast<std::uint64_t>(entry.value.points);
@@ -81,8 +83,10 @@ TEST_CASE("GameWorld initializes all named streams and owns their copied state",
 
   for (const auto& invalid : blob_royale::testing::random_stream_fixture::kInvalidKinds) {
     simulation::GameWorld copy = seeded;
-    CHECK_THROWS_AS(copy.random(static_cast<Kind>(invalid.ordinal)), simulation::SimulationValidationError);
-    CHECK_THROWS_AS(seeded.random(static_cast<Kind>(invalid.ordinal)), simulation::SimulationValidationError);
+    CHECK_THROWS_AS(copy.random(static_cast<Kind>(invalid.ordinal)),
+                    simulation::SimulationValidationError);
+    CHECK_THROWS_AS(seeded.random(static_cast<Kind>(invalid.ordinal)),
+                    simulation::SimulationValidationError);
     CHECK(copy == seeded);
   }
 
@@ -103,8 +107,10 @@ TEST_CASE("GameSimulation rolls back both streams and retries the same full-bit 
           "[unit][simulation][game_simulation][random_streams][rollback]") {
   simulation::GameSimulation retried = fixture::drawing_simulation();
   simulation::GameSimulation control = fixture::drawing_simulation();
-  frozen::DeterministicRandom hazard_reference = frozen::DeterministicRandom::create(fixture::kMatchSeed);
-  frozen::DeterministicRandom hill_reference = frozen::DeterministicRandom::create(fixture::kHillGolden.hill_seed);
+  frozen::DeterministicRandom hazard_reference =
+      frozen::DeterministicRandom::create(fixture::kMatchSeed);
+  frozen::DeterministicRandom hill_reference =
+      frozen::DeterministicRandom::create(fixture::kHillGolden.hill_seed);
 
   for (std::uint64_t tick = 1; tick <= fixture::kContinuationTicks; ++tick) {
     INFO("tick " << tick);
@@ -114,7 +120,8 @@ TEST_CASE("GameSimulation rolls back both streams and retries the same full-bit 
         retried.step(simulation::FixedDelta::canonical(), simulation::InputBatch::empty());
         FAIL("draw-then-reserve tick accepted an absent reservation");
       } catch (const simulation::SimulationValidationError& error) {
-        CHECK(error.validation_code() == simulation::SimulationValidationCode::kEntityIdReservationExhausted);
+        CHECK(error.validation_code() ==
+              simulation::SimulationValidationCode::kEntityIdReservationExhausted);
         CHECK(error.context() == "entity_id_reservation.draw_next");
       }
       CHECK(retried.snapshot() == before);
@@ -150,21 +157,27 @@ TEST_CASE("WorldSnapshot retains owned named counts across later ticks and simul
   check_counts(retained, 1, 1);
   simulation::RandomDrawCounts local = retained.random_draw_counts();
   local[simulation::random_stream_index(Kind::kHill)] = std::numeric_limits<std::uint64_t>::max();
-  CHECK(local[simulation::random_stream_index(Kind::kHill)] == std::numeric_limits<std::uint64_t>::max());
+  CHECK(local[simulation::random_stream_index(Kind::kHill)] ==
+        std::numeric_limits<std::uint64_t>::max());
   check_counts(retained, 1, 1);
-  CHECK(fixture::drawing_simulation().snapshot().random_draw_counts() == simulation::RandomDrawCounts{});
+  CHECK(fixture::drawing_simulation().snapshot().random_draw_counts() ==
+        simulation::RandomDrawCounts{});
 }
 
-TEST_CASE("WorldSnapshot equality observes each named stream count without publishing hidden RNG state",
-          "[unit][simulation][snapshot][random_streams]") {
-  const simulation::WorldSnapshot original = fixture::simulation_from_world(fixture::world()).snapshot();
-  CHECK(original == fixture::simulation_from_world(fixture::world(
-                        blob_royale::testing::random_stream_fixture::kDifferentSeed)).snapshot());
+TEST_CASE(
+    "WorldSnapshot equality observes each named stream count without publishing hidden RNG state",
+    "[unit][simulation][snapshot][random_streams]") {
+  const simulation::WorldSnapshot original =
+      fixture::simulation_from_world(fixture::world()).snapshot();
+  CHECK(original == fixture::simulation_from_world(
+                        fixture::world(blob_royale::testing::random_stream_fixture::kDifferentSeed))
+                        .snapshot());
   for (const simulation::RandomStreamDefinition stream : simulation::kRandomStreamRegistry) {
     INFO(stream.name);
     simulation::GameWorld drawn = fixture::world();
     static_cast<void>(drawn.random(stream.kind).next_bits());
-    const simulation::WorldSnapshot changed = fixture::simulation_from_world(std::move(drawn)).snapshot();
+    const simulation::WorldSnapshot changed =
+        fixture::simulation_from_world(std::move(drawn)).snapshot();
     CHECK(changed.tick_sequence() == original.tick_sequence());
     CHECK(changed.match() == original.match());
     CHECK_FALSE(changed == original);

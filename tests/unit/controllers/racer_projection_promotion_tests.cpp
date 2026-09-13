@@ -183,7 +183,8 @@ private:
 }
 
 // Publication intentionally separates race objectives from explicit terrain authoring. The frozen
-// course facts/reference above remain independent of the canonical projection and production reader.
+// course facts/reference above remain independent of the canonical projection and production
+// reader.
 [[nodiscard]] simulation::RaceModeState published_course(const FrozenCourse& frozen) {
   auto published = testing::straight_racer_course();
   published.checkpoints = frozen.checkpoints;
@@ -289,8 +290,9 @@ TEST_CASE("racer projection promotion preserves frozen old racer command bits af
        1.0}};
   for (const auto& entry : cases) {
     DYNAMIC_SECTION(entry.name) {
-      const auto observation = testing::racer_observation(testing::racer_observation_world(
-          entry.position, entry.checkpoint, published_course(entry.course)),
+      const auto observation = testing::racer_observation(
+          testing::racer_observation_world(entry.position, entry.checkpoint,
+                                           published_course(entry.course)),
           published_terrain(entry.course));
       const auto* corridor = observation.terrain().find_corridor("road");
       REQUIRE(corridor != nullptr);
@@ -327,7 +329,7 @@ TEST_CASE("racer projection promotion preserves complete old lifecycle and ident
     world.mutable_match().mode_state = simulation::NoModeState{};
   }
   check_decisions(testing::racer_observation(std::move(world), published_terrain(course)), course,
-                   0.75);
+                  0.75);
 }
 
 TEST_CASE(
@@ -340,6 +342,6 @@ TEST_CASE(
                                                                    simulation::RaceProgress{2});
   world.mutable_store<simulation::RaceProgress>().insert_or_assign(simulation::EntityId::create(2),
                                                                    simulation::RaceProgress{1});
-  check_decisions(testing::racer_observation(std::move(world), published_terrain(course), 2), course,
-                   0.5);
+  check_decisions(testing::racer_observation(std::move(world), published_terrain(course), 2),
+                  course, 0.5);
 }

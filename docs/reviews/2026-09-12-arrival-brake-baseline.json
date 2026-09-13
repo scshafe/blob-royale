@@ -1,0 +1,136 @@
+{
+  "parent_commit": "0cb3511701243d25c720b03d0492ce64fcfbd109",
+  "authority": "advisory",
+  "host": "Darwin/arm64",
+  "docker_engine": "linux/aarch64",
+  "toolchain": "Linux/x86_64 ubuntu-24.04-amd64-20260804",
+  "contract": "2026-09-12-arrival-brake-contract.md",
+  "production_algorithm_and_values_changed": false,
+  "gates": [
+    {
+      "command": "./scripts/verify-focused 'unit|integration|fixtures'",
+      "passed": 1896
+    },
+    {
+      "command": "./scripts/verify-focused 'unit|integration|fixtures' linux-clang-asan-ubsan",
+      "passed": 1896
+    },
+    {
+      "command": "./scripts/run-linux-toolchain -- ./scripts/verify-fuzz-regressions",
+      "fixed_inputs": 99,
+      "harnesses": 7
+    },
+    {
+      "command": "./scripts/run-linux-toolchain -- ./scripts/verify-web",
+      "passed_tests": 986,
+      "schemas": 83,
+      "examples": 33
+    },
+    {
+      "command": "./scripts/run-linux-toolchain -- ./scripts/verify-browser-e2e",
+      "passed_tests": 24,
+      "retries": 0,
+      "skipped": 0,
+      "flakes": 0
+    },
+    {
+      "command": "pinned clang-format --dry-run --Werror over main.cpp, src, tests, benchmarks C++ files",
+      "source_files": 716,
+      "status": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "dynamics": {
+    "new_cases": 7,
+    "reaction_delays_ticks": [
+      0,
+      21,
+      40
+    ],
+    "observation_spacing_ticks": 20,
+    "drags": [
+      0,
+      2,
+      40
+    ],
+    "brake_fractions": [
+      0.5,
+      1
+    ],
+    "component_bound_tolerance_wu_per_second": 1e-10,
+    "settled_speed_wu_per_second": 0.01,
+    "settling_blocks": 80,
+    "max_settling_seconds_after_first_decision": 8,
+    "first_zero_delay_limitation": {
+      "initial_vx": 0.25,
+      "vx_after_20_ticks": -4.75
+    }
+  },
+  "log_sha256": {
+    "gcc": "b3bfa2afe49fbd7bdbe67d839507c53973cf0b00d0422360cc6ea3b10080cfc4",
+    "asan_ubsan": "bc7b05eb705d9711281f6568892d8cf3ea4694d10ff7d5975772012518d778c9",
+    "fixed_corpus": "6610bd1d44eef0438ceaf3245b97d542f325e46826c8b5e67e76cb46e70dc802",
+    "web": "af7f667de8a1bc436bc5e203084a645a7cfbd08b4d4169e9aae90117747c4b96",
+    "browser": "1540f4bf335036b2719e4bed5e81cb9dd89ccacb8d8dd66918b3d3cbda0b50d7",
+    "format": "f02e30cc31c9c5ecf2b3b4073225a5e654ea6e81d7ce8e2e079e641fc70c21c3"
+  },
+  "input_sha256": {
+    "config/blob-royale.cfg": "832abe7caa2b953f4af4100c630ebb537328dc38d4d3048f9ebc913d2dbb4ffd",
+    "frontend-react/e2e/blobRoyaleBrowserDynamicTerrain.spec.ts": "ce346eddb0cd8ae5285709307dbd4b343282ebe8ce13a216a97a733d5cbcca89",
+    "src/controllers/README.md": "227b86aa171e632ac63b93a1094298b7b7c2209aed345c3ca43609f996aee03a",
+    "src/controllers/tactical_controller.cpp": "d0d122b2f170080365f88cf061da460969fd4f1bb07eacd0304e21c7e38ade6e",
+    "src/controllers/tactical_controller.hpp": "61c6f9583b7580f67abba1b248cd115ca8030e87d516e393369062933cd85c5a",
+    "src/gameplay/race/race_mode_state.hpp": "0b962e9be8eee789697bde82b2946f35fa27b7fa6a11ff875325e3dcb53a4ef0",
+    "src/protocol/random_draw_counts_encoding.hpp": "ccec062780a58479eeeba0784657b3fea6fc2f984771681d06fb1620c8f063ad",
+    "src/simulation/deterministic_random.hpp": "23f439a9c65e603e702580f5c5ab006dedb8325de26fdd030ea48e43cce45cb9",
+    "src/simulation/random_stream_registry.hpp": "248a293d3021f21db2d892bdba61f502fffb653afd94a30fc20bf6655d326d5a",
+    "src/simulation/random_streams.hpp": "f6a1215546f4a5a48f0daa22f4b8ec0d0a2255a2abafe1086341b2d1763bc84d",
+    "src/simulation/world_snapshot.cpp": "093e19abd6c9bfd2ab462a5413d35ba85a14e3703b7b13720a6512a41dda1d4f",
+    "tests/unit/controllers/CMakeLists.txt": "21bedbbadec15238266fa63fa6898508a6345d18ae31066ce4ee0701e449e2c1",
+    "tests/unit/controllers/fixtures/racer_observation_fixture.hpp": "eecde62528bf7be0fcef8f5ef79d1505c8ac86e770234a8a793b605a887ebdfd",
+    "tests/unit/controllers/racer_controller_tests.cpp": "74bad98b62fe72523ffed57d71cc02ca7119c1a021aa53980bb9ea390fad99fa",
+    "tests/unit/controllers/racer_projection_promotion_tests.cpp": "e851139011d3019299412ab146351f13e66140c6d9e4cac3a0e018fa368ff8f5",
+    "tests/unit/controllers/tactical_arrival_brake_dynamics_tests.cpp": "d36368b9ded3a13ed92b108c128ef06e23c850e17dde3f249117825255ee5e4e",
+    "tests/unit/controllers/tactical_controller_tests.cpp": "d9e5c1c5e70ff94c80a341862e58b1343725b0636c31c0c427db8841222bd590",
+    "tests/unit/gameplay/fixtures/hazard_stream_frozen_reference.hpp": "258441b3f0c0897401da8d5cb5f298b1a8bbd6aff76bb35aa83d9cefb997b609",
+    "tests/unit/gameplay/shared/hazard_stream_promotion_tests.cpp": "b312f0fb2721e949207b0dc21613524dfc9700045a38d711ce6a365b33a26bda",
+    "tests/unit/protocol/random_draw_counts_encoding_tests.cpp": "1c4be28de251fd1ee5c839af892e8d84b8acd4e7a3cdf561dfbfbaeb540f0181",
+    "tests/unit/simulation/fixtures/random_stream_fixture.hpp": "917034f0008910168a86455bc70d3b0f45065a6bddb60eb2fdce714395642f02",
+    "tests/unit/simulation/fixtures/random_stream_world_fixture.hpp": "93cef785889dd15aa14d72ca32864f1223d69210fcc415930e0daf355e2c2f0a",
+    "tests/unit/simulation/random_stream_world_tests.cpp": "e1bc377e5895e0df46fb721b1c7b9a9847cd93321123230c8315204379802936",
+    "tests/unit/simulation/random_streams_promotion_tests.cpp": "3b3e6c64e128bfbbe4fd160f89523205b6b96bb2aa81070a4f715fc381f9b948"
+  },
+  "input_scope": "Changed Step 23a implementation/configuration/test inputs. All C++/production inputs remained unchanged through both lanes and final browser; subsequent repair changes only the browser spec, reverified by full web/browser. The controller unit CMake registration is not a fixed-fuzzer input. Documentation/evidence metadata excluded.",
+  "failed_browser_run": {
+    "passed": 23,
+    "failed": 1,
+    "cause": "race-fall observed the running transition before RaceProgress initialization",
+    "repair": "one published-initialization barrier shared by both race witnesses; exact oracles retained",
+    "log_sha256": "fe8b10119a1592849fe263471ecc12af8c12f05df2141b7993baeaf553cf9ee5"
+  },
+  "formatting_only_paths": [
+    "src/gameplay/race/race_mode_state.hpp",
+    "src/protocol/random_draw_counts_encoding.hpp",
+    "src/simulation/deterministic_random.hpp",
+    "src/simulation/random_stream_registry.hpp",
+    "src/simulation/random_streams.hpp",
+    "src/simulation/world_snapshot.cpp",
+    "tests/unit/controllers/fixtures/racer_observation_fixture.hpp",
+    "tests/unit/controllers/racer_controller_tests.cpp",
+    "tests/unit/controllers/racer_projection_promotion_tests.cpp",
+    "tests/unit/gameplay/fixtures/hazard_stream_frozen_reference.hpp",
+    "tests/unit/gameplay/shared/hazard_stream_promotion_tests.cpp",
+    "tests/unit/protocol/random_draw_counts_encoding_tests.cpp",
+    "tests/unit/simulation/fixtures/random_stream_fixture.hpp",
+    "tests/unit/simulation/fixtures/random_stream_world_fixture.hpp",
+    "tests/unit/simulation/random_stream_world_tests.cpp",
+    "tests/unit/simulation/random_streams_promotion_tests.cpp"
+  ],
+  "native_release_gate": "not run; native Linux/amd64 still required",
+  "native_benchmarks": "not run; native Linux/amd64 still required",
+  "pushed": false,
+  "deployed": false
+}

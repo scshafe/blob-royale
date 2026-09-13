@@ -20,8 +20,8 @@ class RandomStreams final {
 public:
   [[nodiscard]] static RandomStreams create(const std::uint64_t match_seed) noexcept {
     return [&]<std::size_t... Indices>(std::index_sequence<Indices...>) {
-      return RandomStreams(std::array{
-          DeterministicRandom::create(initial_seed(match_seed, kRandomStreamRegistry[Indices]))...});
+      return RandomStreams(std::array{DeterministicRandom::create(
+          initial_seed(match_seed, kRandomStreamRegistry[Indices]))...});
     }(std::make_index_sequence<kRandomStreamCount>{});
   }
 
@@ -55,13 +55,12 @@ private:
   // mix64(match_seed + golden_gamma * n), with every operation unsigned modulo 2^64. This is seed
   // derivation, not a draw from hazards or an extra advancement of the destination generator.
   [[nodiscard]] static std::uint64_t initial_seed(const std::uint64_t match_seed,
-                                                 const RandomStreamDefinition stream) noexcept {
+                                                  const RandomStreamDefinition stream) noexcept {
     if (stream.kind == RandomStreamKind::kHazards) {
       return match_seed;
     }
-    return DeterministicRandom::mix_bits(
-        match_seed + DeterministicRandom::kGoldenGammaIncrement *
-                         static_cast<std::uint64_t>(stream.kind));
+    return DeterministicRandom::mix_bits(match_seed + DeterministicRandom::kGoldenGammaIncrement *
+                                                          static_cast<std::uint64_t>(stream.kind));
   }
 
   explicit RandomStreams(std::array<DeterministicRandom, kRandomStreamCount> streams) noexcept

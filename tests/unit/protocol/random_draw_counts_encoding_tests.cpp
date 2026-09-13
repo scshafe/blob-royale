@@ -52,8 +52,8 @@ TEST_CASE("random count writer publishes zero and exact safe ceilings in registr
       const simulation::RandomDrawCounts counts{hazards, hill};
       RandomDrawCountSink sink;
       protocol::encode_random_draw_counts(counts, sink);
-      CHECK(sink.members == std::vector<std::pair<std::string, std::uint64_t>>{
-                                {"hazards", hazards}, {"hill", hill}});
+      CHECK(sink.members == std::vector<std::pair<std::string, std::uint64_t>>{{"hazards", hazards},
+                                                                               {"hill", hill}});
     }
   }
 }
@@ -61,8 +61,8 @@ TEST_CASE("random count writer publishes zero and exact safe ceilings in registr
 TEST_CASE("random count writer rejects unsafe uint64 values with the exact stream context",
           "[unit][protocol][v3][random_draw_counts][rejection]") {
   for (const simulation::RandomStreamDefinition stream : simulation::kRandomStreamRegistry) {
-    for (const std::uint64_t invalid : {protocol::kMaximumSafeInteger + 1,
-                                       std::numeric_limits<std::uint64_t>::max()}) {
+    for (const std::uint64_t invalid :
+         {protocol::kMaximumSafeInteger + 1, std::numeric_limits<std::uint64_t>::max()}) {
       simulation::RandomDrawCounts counts{};
       counts[simulation::random_stream_index(stream.kind)] = invalid;
       RandomDrawCountSink sink;
@@ -70,9 +70,11 @@ TEST_CASE("random count writer rejects unsafe uint64 values with the exact strea
         protocol::encode_random_draw_counts(counts, sink);
         FAIL("an unsafe random draw count reached the unsigned sink");
       } catch (const protocol::ProtocolEncodingError& error) {
-        CHECK(error.error_code() == protocol::ProtocolEncodingErrorCode::kRandomDrawCountOutOfRange);
+        CHECK(error.error_code() ==
+              protocol::ProtocolEncodingErrorCode::kRandomDrawCountOutOfRange);
         CHECK(error.code() == "PROTOCOL.ENCODING.RANDOM_DRAW_COUNT_OUT_OF_RANGE");
-        CHECK(error.context() == "snapshot_message.data.random_draw_counts." + std::string(stream.name));
+        CHECK(error.context() ==
+              "snapshot_message.data.random_draw_counts." + std::string(stream.name));
         CHECK(error.detail() == "random draw count must be in the inclusive range 0 to 2^53-1");
       }
     }

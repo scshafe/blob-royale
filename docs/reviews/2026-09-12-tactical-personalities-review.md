@@ -1,5 +1,13 @@
 # Step 22c verification review
 
+> **Superseded braking claim (2026-09-12):** The no-overshoot/all-drag stability and
+> deadbeat trajectory claims below were disproved by release review. They remain
+> here as historical reasoning. The owner chose current controls with accepted
+> velocity reversal; [the current contract](2026-09-12-arrival-brake-contract.md)
+> defines the conditional bound and its first-observation/timing limitations.
+> The old single-command unit assertions did not prove a held trajectory.
+
+
 The four named tactical personalities. Parent checkpoint `ee763c7`. Implementation contract:
 [`2026-09-12-tactical-personalities-contract.md`](2026-09-12-tactical-personalities-contract.md).
 

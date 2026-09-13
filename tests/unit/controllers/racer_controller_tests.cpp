@@ -61,7 +61,8 @@ TEST_CASE("RacerController requests a body only when its entity is absent",
   simulation::GameWorld world =
       testing::racer_observation_world(simulation::Vector2::create(200.0, 320.0));
   world.destroy_entity(simulation::EntityId::create(1));
-  const controllers::Observation observation = testing::straight_racer_observation(std::move(world));
+  const controllers::Observation observation =
+      testing::straight_racer_observation(std::move(world));
   const std::unique_ptr<controllers::Controller> bot = racer();
 
   const std::vector<simulation::Command> commands = bot->decide(observation);
@@ -134,7 +135,8 @@ TEST_CASE("RacerController reads its own body and progress after another racer i
                                                                    simulation::RaceProgress{2});
   world.mutable_store<simulation::RaceProgress>().insert_or_assign(simulation::EntityId::create(2),
                                                                    simulation::RaceProgress{0});
-  const controllers::Observation observation = testing::straight_racer_observation(std::move(world), 2);
+  const controllers::Observation observation =
+      testing::straight_racer_observation(std::move(world), 2);
   const std::unique_ptr<controllers::Controller> bot =
       controllers::RacerController::create(simulation::ControllerId::create(2), 0);
 
@@ -172,10 +174,10 @@ TEST_CASE("RacerController personality changes the recovery threshold",
 }
 
 TEST_CASE("RacerController recovers to the nearest leg of a bend", "[unit][controllers][racer]") {
-  const controllers::Observation observation =
-      testing::racer_observation(testing::racer_observation_world(
-          simulation::Vector2::create(550.0, 440.0), 1, testing::bent_racer_course()),
-          testing::bent_racer_terrain());
+  const controllers::Observation observation = testing::racer_observation(
+      testing::racer_observation_world(simulation::Vector2::create(550.0, 440.0), 1,
+                                       testing::bent_racer_course()),
+      testing::bent_racer_terrain());
   const std::unique_ptr<controllers::Controller> bot =
       racer(0, controllers::RacerController::Personality{.caution_fraction = 0.5});
 
@@ -184,10 +186,10 @@ TEST_CASE("RacerController recovers to the nearest leg of a bend", "[unit][contr
 
 TEST_CASE("RacerController chooses the first declared segment at an equal-distance bend",
           "[unit][controllers][racer]") {
-  const controllers::Observation observation =
-      testing::racer_observation(testing::racer_observation_world(
-          simulation::Vector2::create(450.0, 370.0), 1, testing::bent_racer_course()),
-          testing::bent_racer_terrain());
+  const controllers::Observation observation = testing::racer_observation(
+      testing::racer_observation_world(simulation::Vector2::create(450.0, 370.0), 1,
+                                       testing::bent_racer_course()),
+      testing::bent_racer_terrain());
   const std::unique_ptr<controllers::Controller> bot =
       racer(0, controllers::RacerController::Personality{.caution_fraction = 0.5});
 
@@ -219,15 +221,15 @@ TEST_CASE("RacerController resolves the selected named corridor independently of
                                            testing::alternate_racer_course()),
           testing::alternate_racer_terrain(selected_first));
       check_direction(sole_thrust(racer()->decide(observation)), 2.0 / std::sqrt(5.0),
-                        -1.0 / std::sqrt(5.0));
+                      -1.0 / std::sqrt(5.0));
     }
   }
 }
 
 TEST_CASE("RacerController rejects missing road bindings without selecting another corridor",
           "[unit][controllers][racer][terrain]") {
-  const auto world = testing::racer_observation_world(simulation::Vector2::create(200.0, 370.0),
-                                                      0, testing::alternate_racer_course());
+  const auto world = testing::racer_observation_world(simulation::Vector2::create(200.0, 370.0), 0,
+                                                      testing::alternate_racer_course());
   auto terrain = testing::straight_racer_terrain();
   SECTION("a different road exists") {}
   SECTION("solid ground has no corridors") {

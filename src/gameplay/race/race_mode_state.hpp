@@ -29,7 +29,7 @@ race_standings_of(const simulation::GameWorld& world) noexcept {
 // The course has already validated exact terrain membership. Initializing here preserves the
 // recorder-before-publisher lifecycle order without an empty or inferred road-name sentinel.
 [[nodiscard]] inline simulation::RaceModeState& race_mode_state_in(simulation::GameWorld& world,
-                                                                  const RaceCourse& course) {
+                                                                   const RaceCourse& course) {
   simulation::ModeMatchState& mode_state = world.mutable_match().mode_state;
   if (auto* held = std::get_if<simulation::RaceModeState>(&mode_state); held != nullptr) {
     return *held;

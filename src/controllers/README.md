@@ -286,7 +286,7 @@ the kind it is weighting and an omitted one is the parser's own `KEY_MISSING` na
 | `charge_screen_diagonal_fraction` | finite `0..1` | Charge screen ray length, in arena diagonals |
 | `shield_anticipation_ticks` | integer `0..40` | Ticks of lead on a predicted closing contact |
 | `road_caution_fraction` | finite **`(0..1]`** | Race recovery threshold, in road half-widths |
-| `arrival_brake_fraction` | finite `0..1` | Share of the null-the-motion thrust spent on arrival |
+| `arrival_brake_fraction` | finite `0..1` | Share of the relative-velocity brake requested on arrival; reversal is permitted |
 | `exposure_preference` | finite `0..1` | How far a shove candidate's opening may scale its preference |
 | `minimum_opening` | finite `0..1` | Opening below which a fight is abandoned rather than held |
 
@@ -411,7 +411,7 @@ neutral reference, authored at whichever end of each new key reproduces its prev
 
 | Profile | What it is | The settings that make it that |
 |---|---|---|
-| `keeper` | Takes one hill and stays on it; never hunts | `objective_weight_hill=1`, **`objective_weight_shove_setup=0`** (the one endorsed zero — it skips the opponent provider), **`arrival_brake_fraction=1.0`**, `minimum_opening=1.0` |
+| `keeper` | Seeks a hill and brakes within its full radius; never hunts | `objective_weight_hill=1`, **`objective_weight_shove_setup=0`** (the one endorsed zero — it skips the opponent provider), **`arrival_brake_fraction=1.0`**, `minimum_opening=1.0` |
 | `bully` | Fights whoever is nearest | `objective_weight_shove_setup=1`, `exposure_preference=0` (nearest, not most exposed), `charge_screen_diagonal_fraction=0.25`, `minimum_opening=0` |
 | `opportunist` | The fastest reflexes, and the only profile that scores exposure | `reaction_delay_ticks=20`, **`exposure_preference=1.0`**, **`minimum_opening=0.5`**, `objective_weight_shove_setup=0.75` |
 | `cautious_racer` | Lowest risk tolerance; avoids *expensive* fights, not all of them | `risk_tolerance=0.125`, `objective_weight_race_gate=1`, `road_caution_fraction=0.6`, a deliberately **non-zero** `objective_weight_shove_setup=0.125` with `minimum_opening=0.75` |
@@ -424,9 +424,9 @@ veto — see "The shove provider" below.
 
 **Bully needed no new mechanism.** It is numbers alone over Step 22b's shipped behaviours, which is
 what makes it the control against which the other three's mechanisms are read. Its
-`charge_screen_diagonal_fraction=0.25` screens about 288 wu of the shipped map's 1154 wu diagonal,
-just past the 253 wu a from-rest burst needs to stop at that file's acceleration and zero drag —
-ADR 0008's "acceptable recovery path" written as the nearest number the published state supports.
+`charge_screen_diagonal_fraction=0.25` screens about 288 wu of the shipped map's 1154 wu diagonal
+for forward clearance. It does not establish stopping or recovery; ADR 0008 records the
+acceptable recovery path as deferred.
 And Cautious Racer's `road_caution_fraction=0.6` sits above a real floor at 0.5714, the shipped
 `[race] checkpoint_radius_world_units` over the 70 wu half-width of `maps/circuit-960x640`: below
 it the recovery threshold falls *inside* the gate radius and pulls a bot off a gate it is standing
@@ -562,8 +562,8 @@ invalid, or arrived targets, bodyless state, non-running phases, and active stun
 ## The arrival brake
 
 Arrival used to be one thing — coast, an explicit zero thrust. A profile authoring
-`arrival_brake_fraction > 0` gets a second thing on that same branch: **a deadbeat, division-free
-hold against the objective's own motion.**
+`arrival_brake_fraction > 0` gets a second thing on that same branch: **a relative-velocity brake
+that permits reversal.**
 
 ```
 brake = clamp_componentwise( -v_relative / (published_acceleration * hold_seconds)
@@ -593,24 +593,23 @@ the same way and never with an epsilon — `hold_seconds` is strictly positive b
 published acceleration of zero, which `simulation_limits.hpp` admits, takes the coast, because a
 body that cannot thrust has no brake to spend.
 
-**It cannot overshoot, so it is stable at every drag without reading drag.** The unscaled quotient
-is exactly the thrust that nulls the relative velocity over one command hold in the drag-free case,
-and the componentwise clamp caps it at full thrust where more would be needed. Drag only removes
-*more* speed than that arithmetic accounted for, so a nonzero `drag_per_second` — unpublished, and
-unreadable here — makes the bot undershoot, and an undershoot is corrected by the next pass's
-smaller brake. Overshoot is the unstable direction and this law never takes it, which is why the
-fraction's bound is 1.0: above one the law would ask for more than the null.
+**Velocity reversal is permitted within a conditional velocity envelope.** For a stationary
+selected hill, continued arrival, constant movement tuning, established regular observation spacing,
+next-tick command application, no external forces, and an inactive propulsion limiter, each velocity
+component stays within its magnitude at the decision, subject to the simulation's numerical
+tolerance. This bounds speed during a hold, not stopping distance or retention inside the hill.
+Moving hills, retargeting, live tuning, missed observations, delayed commands, and the first
+zero-delay decision are outside that envelope. The assumptions and proof belong to
+[`arrival-brake-contract.md`](../../docs/reviews/2026-09-12-arrival-brake-contract.md).
 
-**`hold_seconds` is what makes the law deadbeat rather than a gain someone has to tune**, and it is
-*measured* rather than read. This controller re-decides only when its reaction window expires and
-returns no command at all in between, and `PhysicsBody::acceleration` persists until a later thrust
-replaces it, so one command is held for the profile's `reaction_delay_ticks` or for the observed
-snapshot spacing, whichever is longer — no profile can decide twice inside one published snapshot.
-`snapshots_per_second` is a `welcome` field and not a snapshot field, so `Observation` does not
-carry it, while the tick difference between two accepted observations is the same number and *is*
-published; `accepts_observation` refuses a repeated or older tick, so that difference is at least
-one committed tick. Taking the larger of the two can only lengthen the hold, which can only weaken
-the brake, which is the self-correcting direction.
+**`hold_seconds` is a denominator estimate, not the scheduled command duration.** With established
+regular observation spacing S and reaction delay R, the estimate is `max(R, S)` ticks; the next
+decision instead arrives after `ceil(R / S) * S` ticks, or S when R is zero. Past spacing cannot
+bound future runtime scheduling. A first zero-delay decision has no previous observation and uses
+one tick, so its command can amplify velocity before replacement even under subsequently regular
+observations. Repeated qualifying brake holds contract in the ideal arithmetic model with positive
+acceleration and brake fraction; exact-zero stopping and universal binary64 convergence are not
+promised. Production-loop cases evaluate numerical settling under the contract's explicit envelope.
 
 **Calibrating against the published top speed was rejected on real numbers.** The drafted
 `min(1, |v_relative| / normal_top_speed)` measures against a ceiling the body cannot reach: the
@@ -1290,8 +1289,10 @@ non-vacuous weight proof in the tree.
 Step 22c's coverage is the four personalities and the three mechanisms they needed: each of the four
 selecting differently from the other three on one identical observation, with the profile **name**
 held constant so `tactical_seed_for` cannot make the proof vacuous; `arrival_brake_fraction=0`
-bit-identical to Step 22b at `kArrived`, and the brake nulling a relative velocity without overshoot
-while emitting exactly `(0,0)` at rest; `exposure_preference=0` scoring identically to Step 22b with
+bit-identical to Step 22b at `kArrived`, and the brake emitting bounded relative commands and exactly
+`(0,0)` at rest. Those command-shape assertions do not prove stopping or motion without overshoot;
+the arrival-brake contract defines the separate production-loop envelope. Other cases cover
+`exposure_preference=0` scoring identically to Step 22b with
 a raw mode candidate unchanged, and exposure reordering two equidistant shove candidates;
 `minimum_opening` dropping a closed opening and firing `kLost`, releasing the lease and re-arming
 the reaction window; a zero shove weight skipping the provider rather than producing an unselectable

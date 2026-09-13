@@ -58,24 +58,12 @@ namespace {
   return policy;
 }
 
-// canonical: tactical_command_hold -- the committed seconds one thrust command stays in force,
-// which is the brake's denominator and the whole reason that law is deadbeat rather than a gain
-// somebody has to tune.
-//
-// This controller re-decides only when its reaction window expires and returns no command at all on
-// the passes in between, and `PhysicsBody::acceleration` persists until a later thrust replaces it,
-// so one command is held for the profile's own `reaction_delay_ticks` -- or for the snapshot
-// spacing this controller is actually observed at, whichever is longer, because no profile can
-// decide twice inside one published snapshot. That spacing is measured rather than read:
-// `snapshots_per_second` is a `welcome` field and not a snapshot field, so it is not the
-// observation's to hand over, while the tick difference below is the same number and is published.
-//
-// **Strictly positive by construction**, which is one of the three guards keeping the brake off a
-// NaN and therefore keeping a braking profile off the permanently-inert path a throw out of
-// `decide_next` would put it on: `accepts_observation` refuses a repeated or older tick, so the
-// difference is at least one committed tick. An absent `previous` is the first pass of a
-// zero-delay profile and nothing else, because any positive reaction delay spends that pass on
-// `kAwaitingReaction`.
+// canonical: tactical_command_hold -- positive hold estimate used as the brake denominator.
+// With established regular spacing S and reaction delay R, max(R, S) can be shorter than the
+// ceil(R / S) * S ticks before the next decision. Past spacing is not a future scheduling bound.
+// An absent previous observation uses one tick: a first zero-delay brake can therefore amplify
+// velocity before its replacement and is outside the stationary-target envelope.
+// related: docs/reviews/2026-09-12-arrival-brake-contract.md -- acceptable reversal and exclusions.
 [[nodiscard]] double
 tactical_command_hold_seconds(const TacticalProfile& profile, const simulation::TickSequence now,
                               const std::optional<simulation::TickSequence>& previous) noexcept {
@@ -85,14 +73,14 @@ tactical_command_hold_seconds(const TacticalProfile& profile, const simulation::
 }
 
 // canonical: tactical_arrival_brake -- the whole `kArrived` thrust: Step 22b's coast, or the
-// deadbeat hold-still command a profile that authored `arrival_brake_fraction` gets instead.
+// relative-velocity brake a profile that authored `arrival_brake_fraction` gets instead.
 //
 // One function with the coast inside it rather than a brake behind a caller's `if`, because each
 // guard that returns the coast -- a zero fraction, a kind whose objective publishes no motion, a
 // room whose acceleration is zero -- is a reason this pass has no brake to compute, and keeping
 // them in one place is what makes "zero reproduces the coast bit for bit" checkable in one read
-// rather than argued. The law itself, and why it has no NaN path, no deadband and no overshoot,
-// is in `tactical_controller.hpp`.
+// rather than argued. The divisor guards and the conditional overshoot envelope are documented
+// in `tactical_controller.hpp`; a brake is not a guarantee of stopping or remaining on the hill.
 //
 // Written in the law's own order -- negate, divide, scale, clamp -- and never reassociated into one
 // premultiplied scale, for the reason `tactical_candidate_score` gives about its own order: two
@@ -373,7 +361,7 @@ std::vector<simulation::Command> TacticalController::decide_next(const Observati
     }
   } else {
     // Arrived. A profile that authored no brake coasts exactly as it did before this step; one that
-    // did holds itself against the objective's own motion. Same branch, same reason, and no draw
+    // did brakes relative to the objective's own motion. Same branch, same reason, and no draw
     // either way -- the seek draw sits in the not-arrived branch above and this one has never
     // consumed randomness.
     next.reason = TacticalDecisionReason::kArrived;

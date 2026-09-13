@@ -36,9 +36,8 @@ template <typename Value>
 concept HasMutableTemporaryStream = requires(Value value) { std::move(value).get(Kind::kHazards); };
 
 template <typename Value>
-concept HasConstTemporaryStream = requires(const Value value) {
-  std::move(value).get(Kind::kHazards);
-};
+concept HasConstTemporaryStream =
+    requires(const Value value) { std::move(value).get(Kind::kHazards); };
 
 static_assert(!std::is_default_constructible_v<Streams>);
 static_assert(std::is_copy_constructible_v<Streams>);
@@ -70,7 +69,8 @@ static_assert(simulation::kRandomStreamRegistry[1].name == "hill");
 
 // Unit draws are compared as binary64 bits, never with approximate numeric equality. The same
 // operation specimen drives the production RNG, independent frozen RNG, and the extracted
-// finalizer through frozen distributions, so promotion cannot hide behind two live callers changing.
+// finalizer through frozen distributions, so promotion cannot hide behind two live callers
+// changing.
 template <typename Generator>
 [[nodiscard]] std::uint64_t draw_result(Generator& generator, const fixture::Draw draw) {
   switch (draw.operation) {
@@ -108,7 +108,8 @@ void check_invalid_kind(const fixture::InvalidKind& invalid, const Invoke& invok
     invoke();
     FAIL("unregistered stream kind was accepted");
   } catch (const simulation::SimulationValidationError& error) {
-    CHECK(error.validation_code() == simulation::SimulationValidationCode::kRandomStreamKindInvalid);
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kRandomStreamKindInvalid);
     CHECK(error.code() == "SIMULATION.RANDOM_STREAM_KIND_INVALID");
     CHECK(error.context() == "random_stream.kind");
     CHECK(error.detail() == invalid.detail);
@@ -124,7 +125,8 @@ template <typename Generator> void check_rejection_specimen(Generator& generator
     static_cast<void>(generator.next_below(0));
     FAIL("zero bound was accepted");
   } catch (const simulation::SimulationValidationError& error) {
-    CHECK(error.validation_code() == simulation::SimulationValidationCode::kDeterministicRandomBoundEmpty);
+    CHECK(error.validation_code() ==
+          simulation::SimulationValidationCode::kDeterministicRandomBoundEmpty);
     CHECK(error.code() == "SIMULATION.DETERMINISTIC_RANDOM_BOUND_EMPTY");
     CHECK(error.context() == "deterministic_random.next_below.bound");
     CHECK(error.detail() == "a draw below zero names no value");
@@ -188,15 +190,18 @@ TEST_CASE("random stream initialization draws nothing and pins hill seed and seq
     INFO("match seed " << golden.match_seed);
     Streams streams = Streams::create(golden.match_seed);
     CHECK(streams.draw_counts() == simulation::RandomDrawCounts{});
-    CHECK(streams.get(Kind::kHazards) == simulation::DeterministicRandom::create(golden.match_seed));
+    CHECK(streams.get(Kind::kHazards) ==
+          simulation::DeterministicRandom::create(golden.match_seed));
     CHECK(streams.get(Kind::kHill).seed() == golden.hill_seed);
-    frozen::DeterministicRandom hill_reference = frozen::DeterministicRandom::create(golden.hill_seed);
+    frozen::DeterministicRandom hill_reference =
+        frozen::DeterministicRandom::create(golden.hill_seed);
     for (const std::uint64_t expected : golden.draws) {
       CHECK(streams.get(Kind::kHill).next_bits() == expected);
       CHECK(hill_reference.next_bits() == expected);
     }
     CHECK(streams.get(Kind::kHill).draw_count() == golden.draws.size());
-    CHECK(streams.get(Kind::kHazards) == simulation::DeterministicRandom::create(golden.match_seed));
+    CHECK(streams.get(Kind::kHazards) ==
+          simulation::DeterministicRandom::create(golden.match_seed));
   }
 }
 
@@ -265,8 +270,10 @@ TEST_CASE("random stream count values retain registry order without borrowing ge
   CHECK(streams.draw_counts()[simulation::random_stream_index(Kind::kHazards)] == 2);
 
   simulation::RandomDrawCounts full_width{};
-  full_width[simulation::random_stream_index(Kind::kHill)] = std::numeric_limits<std::uint64_t>::max();
-  CHECK(full_width[simulation::random_stream_index(Kind::kHill)] == std::numeric_limits<std::uint64_t>::max());
+  full_width[simulation::random_stream_index(Kind::kHill)] =
+      std::numeric_limits<std::uint64_t>::max();
+  CHECK(full_width[simulation::random_stream_index(Kind::kHill)] ==
+        std::numeric_limits<std::uint64_t>::max());
 }
 
 TEST_CASE("random stream runtime lookup rejects unknown kinds without mutating any generator",
@@ -276,14 +283,17 @@ TEST_CASE("random stream runtime lookup rejects unknown kinds without mutating a
   for (const fixture::InvalidKind& invalid : fixture::kInvalidKinds) {
     INFO("ordinal " << static_cast<unsigned>(invalid.ordinal));
     const Kind kind = static_cast<Kind>(invalid.ordinal);
-    check_invalid_kind(invalid, [kind] { static_cast<void>(simulation::random_stream_index(kind)); });
-    check_invalid_kind(invalid, [kind] { static_cast<void>(simulation::random_stream_name(kind)); });
+    check_invalid_kind(invalid,
+                       [kind] { static_cast<void>(simulation::random_stream_index(kind)); });
+    check_invalid_kind(invalid,
+                       [kind] { static_cast<void>(simulation::random_stream_name(kind)); });
     check_invalid_kind(invalid, [&streams, kind] { static_cast<void>(streams.get(kind)); });
     check_invalid_kind(invalid, [&before, kind] { static_cast<void>(before.get(kind)); });
     CHECK(streams == before);
   }
   for (const simulation::RandomStreamDefinition stream : simulation::kRandomStreamRegistry) {
     CHECK(simulation::random_stream_name(stream.kind) == stream.name);
-    CHECK(simulation::kRandomStreamRegistry[simulation::random_stream_index(stream.kind)].kind == stream.kind);
+    CHECK(simulation::kRandomStreamRegistry[simulation::random_stream_index(stream.kind)].kind ==
+          stream.kind);
   }
 }

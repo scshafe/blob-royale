@@ -20,7 +20,8 @@ namespace blob_royale::simulation {
 // Each named generator is owned by GameWorld through RandomStreams, so a draw is part of the
 // committed world and a replay of `(map, mode configuration, seed, command log)` reproduces it
 // exactly. Each stream's draw_count is committed in every snapshot, so two runs that diverge in
-// **how many** draws they took diverge visibly at the first differing tick instead of silently later.
+// **how many** draws they took diverge visibly at the first differing tick instead of silently
+// later.
 //
 // Every operation is a pure function of the generator's own state: no clock, no global, and no
 // per-worker storage of any kind, so the only way two runs differ is by drawing a different number

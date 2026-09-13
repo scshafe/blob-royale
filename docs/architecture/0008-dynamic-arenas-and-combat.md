@@ -1836,3 +1836,25 @@ its parameters" forbids. It is therefore an `arrival_brake_fraction`, with zero 
 previous coast exactly. It applies to the hill and to no other objective: a zone candidate's arrival
 radius is the zone's own radius and a full zone is the arena half-diagonal, so a brake there would be
 a permanent parking brake on every bot in the default configuration.
+
+
+## 2026-09-12 amendment: arrival braking permits reversal
+
+The owner chose to keep current held-thrust controls and define/test acceptable
+overshoot. This supersedes Step 22c's no-overshoot/all-drag stability claims without
+changing the algorithm, command authority, observation fields, or tuning values.
+
+Under an established regular observation cadence, immediate next-tick application,
+stationary selected hill, constant movement tuning, and an inactive normal speed
+limiter, each velocity component stays within its magnitude at the start of the
+brake hold, within simulation tolerance. The arrived branch must remain selected;
+contacts, abilities, walls, stun, and body replacement must not intervene. Reversal
+is allowed, including nearly the full incoming speed for nondivisible reaction
+cadence. This does not bound stopping distance or guarantee hill retention.
+
+The [accepted contract](../reviews/2026-09-12-arrival-brake-contract.md) gives the
+conditional proof and production-loop verification requirements. First zero-delay
+decisions lack an established cadence and can amplify velocity. Irregular delivery,
+moving hills, and live tuning changes are outside the bound. No finite-time exact
+rest or universal binary64 convergence is promised. Keeper's stable interior and
+Bully's recovery path/ordinary-thrust shove remain deferred as recorded above.

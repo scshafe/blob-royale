@@ -58,13 +58,17 @@ struct HillGolden final {
 // Literal modulo-2^64 SplitMix64 results, calculated independently of production code. The last
 // match seed specifically wraps the seed-plus-gamma addition; none are obtained from live RNGs.
 inline constexpr std::array kHillGoldens{
-    HillGolden{0, 0xE220'A839'7B1D'CDAFULL,
+    HillGolden{0,
+               0xE220'A839'7B1D'CDAFULL,
                {0xA706'DD2F'4D19'7E6FULL, 0xB382'A305'F441'4F5EULL, 0x631A'9154'FBAB'F717ULL}},
-    HillGolden{1, 0x910A'2DEC'8902'5CC1ULL,
+    HillGolden{1,
+               0x910A'2DEC'8902'5CC1ULL,
                {0x5E41'AB08'7439'611EULL, 0xF18D'6CE9'3D6C'F1EEULL, 0x0B95'F66D'327E'8D78ULL}},
-    HillGolden{2026, 0xDB9C'5598'9194'8D23ULL,
+    HillGolden{2026,
+               0xDB9C'5598'9194'8D23ULL,
                {0x6E75'7253'23D4'929EULL, 0x07B3'89BA'CFD8'F970ULL, 0x2926'7FA0'40AE'73FFULL}},
-    HillGolden{0xFFFF'FFFF'FFFF'FFFFULL, 0xE4D9'7177'1B65'2C20ULL,
+    HillGolden{0xFFFF'FFFF'FFFF'FFFFULL,
+               0xE4D9'7177'1B65'2C20ULL,
                {0x5DC2'0AA7'B2A2'7137ULL, 0xBDA5'668A'01D7'049CULL, 0x82B4'3276'ABB8'0226ULL}}};
 
 struct InvalidKind final {

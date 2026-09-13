@@ -148,6 +148,23 @@ async function startAndObserve(
   );
 }
 
+async function startRaceAndObserveProgress(
+  session: DynamicSession,
+): Promise<SessionWorldSnapshot> {
+  const running = await startAndObserve(session);
+  // The running transition can be published before the next lifecycle pass initializes
+  // RaceProgress. Both race witnesses require its actual pre-charge value, then assert zero.
+  return awaitSnapshot(
+    session,
+    (snapshot) =>
+      snapshot.tick_sequence >= running.tick_sequence &&
+      snapshot.match.phase === 'running' &&
+      entityForController(snapshot, session.controllerId)?.components
+        .race_progress !== undefined,
+    'the running race must initialize progress before the charge witness begins',
+  );
+}
+
 /** No steering acceleration exists in these fixtures: the body stays at its authored start. */
 async function aimCharge(
   session: DynamicSession,
@@ -471,7 +488,7 @@ test.describe('chronological race support loss', () => {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     const session = await openSession(page);
-    const baseline = await startAndObserve(session);
+    const baseline = await startRaceAndObserveProgress(session);
     expect(
       requireOwnEntity(session, baseline).components.race_progress
         ?.next_checkpoint,
@@ -540,18 +557,7 @@ test.describe('supported swept race finish', () => {
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     const session = await openSession(page);
-    const running = await startAndObserve(session);
-    // The transition to running is committed before the next lifecycle pass initializes
-    // RaceProgress. A 20 Hz frame may expose that valid transition tick; wait for the actual
-    // pre-charge progress value, keeping the zero-gates assertion below exact.
-    const baseline = await awaitSnapshot(
-      session,
-      (snapshot) =>
-        snapshot.tick_sequence >= running.tick_sequence &&
-        entityForController(snapshot, session.controllerId)?.components
-          .race_progress !== undefined,
-      'the running race must initialize progress before the charge witness begins',
-    );
+    const baseline = await startRaceAndObserveProgress(session);
     expect(
       requireOwnEntity(session, baseline).components.physics_body?.position,
     ).toEqual(DYNAMIC.start);

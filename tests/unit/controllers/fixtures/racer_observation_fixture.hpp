@@ -49,15 +49,15 @@ racer_observation_terrain(std::vector<simulation::TerrainCorridor> corridors) {
 
 [[nodiscard]] inline simulation::TerrainDefinition straight_racer_terrain() {
   return racer_observation_terrain({simulation::TerrainCorridor::create(
-      "road", 80.0, {simulation::Vector2::create(100.0, 320.0),
-                      simulation::Vector2::create(800.0, 320.0)})});
+      "road", 80.0,
+      {simulation::Vector2::create(100.0, 320.0), simulation::Vector2::create(800.0, 320.0)})});
 }
 
 [[nodiscard]] inline simulation::TerrainDefinition bent_racer_terrain() {
   return racer_observation_terrain({simulation::TerrainCorridor::create(
-      "road", 80.0, {simulation::Vector2::create(100.0, 320.0),
-                      simulation::Vector2::create(500.0, 320.0),
-                      simulation::Vector2::create(500.0, 560.0)})});
+      "road", 80.0,
+      {simulation::Vector2::create(100.0, 320.0), simulation::Vector2::create(500.0, 320.0),
+       simulation::Vector2::create(500.0, 560.0)})});
 }
 
 [[nodiscard]] inline simulation::RaceModeState alternate_racer_course() {
@@ -71,11 +71,11 @@ racer_observation_terrain(std::vector<simulation::TerrainCorridor> corridors) {
 [[nodiscard]] inline simulation::TerrainDefinition
 alternate_racer_terrain(const bool selected_first) {
   const auto selected = simulation::TerrainCorridor::create(
-      "outer_lane", 80.0, {simulation::Vector2::create(100.0, 320.0),
-                            simulation::Vector2::create(800.0, 320.0)});
+      "outer_lane", 80.0,
+      {simulation::Vector2::create(100.0, 320.0), simulation::Vector2::create(800.0, 320.0)});
   const auto decoy = simulation::TerrainCorridor::create(
-      "road", 20.0, {simulation::Vector2::create(100.0, 100.0),
-                      simulation::Vector2::create(800.0, 100.0)});
+      "road", 20.0,
+      {simulation::Vector2::create(100.0, 100.0), simulation::Vector2::create(800.0, 100.0)});
   return racer_observation_terrain(selected_first ? std::vector{selected, decoy}
                                                   : std::vector{decoy, selected});
 }
@@ -98,7 +98,7 @@ racer_observation_world(const simulation::Vector2 position, const std::uint64_t 
 // the selected road binding is absent. Invalid-binding tests need that mismatch to survive.
 [[nodiscard]] inline controllers::Observation
 racer_observation(simulation::GameWorld world, simulation::TerrainDefinition terrain,
-                   const std::uint64_t controller = 1) {
+                  const std::uint64_t controller = 1) {
   const simulation::SimulationConfig configuration = gameplay_configuration();
   simulation::MapDefinition map = simulation::MapDefinition::create(
       "racer_observation", std::move(terrain), {}, {}, simulation::MapMetadata::none());

@@ -107,9 +107,8 @@ enum class TacticalTargetHold : std::uint8_t {
 // search, no replanning loop and no iteration over ticks: `objective_work()` publishes the
 // collector's counts and `kMaximumTacticalPredictionStepCount` is the ceiling they cannot pass.
 //
-// **The arrival brake is one division by a positive scalar, and every property it needs follows
-// from that shape.** A profile authoring `arrival_brake_fraction > 0` replaces the `kArrived` coast
-// with
+// **The arrival brake divides relative velocity by a positive scalar.** A profile authoring
+// `arrival_brake_fraction > 0` replaces the `kArrived` coast with
 //
 //   clamp_componentwise( -v_relative / (published_acceleration * hold_seconds)
 //                        * arrival_brake_fraction )
@@ -132,13 +131,12 @@ enum class TacticalTargetHold : std::uint8_t {
 //   same way and never by an epsilon: `hold_seconds` is strictly positive by construction, and a
 //   published acceleration of zero -- which `simulation_limits.hpp` admits -- takes the coast,
 //   because a body that cannot thrust has no brake to spend.
-// * **It cannot overshoot, so it is stable at every drag without reading drag.** The law asks for
-//   exactly the thrust that nulls `v_relative` over one hold in the drag-free case, and the
-//   componentwise clamp caps it at full thrust where more than full thrust would be needed. Drag
-//   only removes *more* speed than that arithmetic accounted for, so a nonzero `drag_per_second` --
-//   which reaches no snapshot and cannot be read here -- makes the bot undershoot, and an
-//   undershoot is corrected by the next pass's smaller brake. Overshoot is the unstable direction
-//   and this law never takes it.
+// * **Velocity reversal is permitted.** The stationary-target envelope bounds each component's
+//   magnitude over one hold only under established regular observation spacing, next-tick command
+//   application, constant tuning, continued arrival, no external forces, and an inactive propulsion
+//   limiter. It guarantees neither stopping distance nor hill retention. Moving hills, live tuning,
+//   delayed commands and the first zero-delay decision are outside that envelope.
+//   related: docs/reviews/2026-09-12-arrival-brake-contract.md -- assumptions and numerical bound.
 // * **It calibrates against a speed the body can actually reach**, which a fraction of
 //   `normal_top_speed` does not. The reachable ceiling is `min(V, A / D)` and `D` is unpublished:
 //   at both browser fixtures' published ceiling of 10000 with acceleration 400 and drag 40 the
@@ -152,18 +150,13 @@ enum class TacticalTargetHold : std::uint8_t {
 // re-normalised, the wire bound is per-component, and `ChaserController` already emits
 // `unit * aggression_weight`.
 //
-// **`hold_seconds` is the committed time one thrust command stays in force**, which is what makes
-// the law deadbeat rather than a gain someone has to tune. This controller re-decides only when its
-// reaction window expires and returns no command at all on the passes in between, and
-// `PhysicsBody::acceleration` persists until a later thrust replaces it, so one command is held for
-// the profile's own `reaction_delay_ticks` -- or for the snapshot spacing this controller is
-// actually observed at, whichever is longer, because no profile can decide twice inside one
-// published snapshot. **That cadence is measured, not read.** `snapshots_per_second` is a `welcome`
-// field rather than a snapshot field and `Observation` does not carry it, while the tick spacing
-// between this controller's own accepted observations is the same number, published, and at least
-// one committed tick because `accepts_observation` refuses a repeated or older tick. Taking the
-// larger of the two can only lengthen the hold, which can only weaken the brake, which is the
-// undershoot direction the paragraph above calls self-correcting.
+// **`hold_seconds` estimates the hold for the brake denominator; it does not schedule
+// replacement.** For established regular observation spacing S and reaction delay R, its tick count
+// is max(R, S), while decisions are separated by ceil(R / S) * S ticks, or S when R is zero.
+// Retained intent acts until a later command replaces it. Past spacing does not bound future
+// delivery or publication. With no previous observation, the first zero-delay decision uses one
+// tick, so its next hold can exceed the envelope and amplify velocity. No exact-zero or universal
+// convergence claim follows.
 //
 // **`kHill` only -- and the zone is the reason, not computability.** "Relative to the objective's
 // motion" is perfectly computable for `kShoveSetup`, whose subject is the opponent's `EntityId` and

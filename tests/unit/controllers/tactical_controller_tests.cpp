@@ -189,8 +189,8 @@ void require_same_bits(const simulation::Vector2& actual, const simulation::Vect
 // because it is a magnitude clamp and not a normaliser, and which `ChaserController` already ships
 // as `unit * aggression_weight`. Loosening either of the two above to accept one would have
 // weakened every movement assertion in this file at once, so the subunit case comes through here
-// instead -- and at the strictest tolerance of the three, because a deadbeat law's whole claim is
-// that two toolchains compute the same binary64.
+// instead -- and at the strictest tolerance of the three, to preserve exact command arithmetic
+// across toolchains. This helper makes no claim about motion after the command is applied.
 void require_thrust_bits(const std::vector<simulation::Command>& commands,
                          const simulation::Vector2& expected) {
   require_same_bits(thrust(commands).direction, expected);
@@ -390,9 +390,9 @@ const double kShoveStandoff = kSelfRadius + kOpponentRadius + kShoveMargin;
 // the aim-error case re-derives its own rotation: an expectation that called production's own
 // function at the one line that matters would be a tautology.
 //
-// `held_ticks` is the committed time one thrust stays in force: the profile's reaction delay, or
-// the spacing between this controller's observations, whichever is longer. Every case below is a
-// controller's first decision, where that spacing is one tick.
+// `held_ticks` is the brake denominator's estimate, not the actual command duration. These
+// command-shape cases use a first decision, whose absent prior observation supplies one tick.
+// Production motion and replacement timing require the separate arrival-brake contract's proof.
 [[nodiscard]] simulation::Vector2
 expected_brake(const controllers::Observation& observation, const double objective_velocity_x,
                const double objective_velocity_y, const double body_velocity_x,
@@ -1235,7 +1235,7 @@ TEST_CASE("Tactical shove weight and not the seed chooses between an opponent an
   CHECK(bully->decision_reason() == Reason::kChargeGroundEndsFirst);
 }
 
-TEST_CASE("Tactical arrival brake nulls a relative velocity without overshoot and a zero fraction "
+TEST_CASE("Tactical arrival brake emits bounded relative commands and a zero fraction "
           "coasts bit for bit",
           "[unit][controllers][tactical][arrival]") {
   // The bot stands exactly on the published hill centre, so it is arrived by any radius and the
@@ -1295,11 +1295,10 @@ TEST_CASE("Tactical arrival brake nulls a relative velocity without overshoot an
     CHECK(expected.x() < 0.0);
     CHECK(expected.y() > 0.0);
   }
-  // **It cannot overshoot.** The unscaled quotient is exactly the thrust that nulls the relative
-  // velocity over one command hold in the drag-free case, so where more than full thrust would be
-  // needed the componentwise clamp caps it at full thrust rather than asking for more. Drag only
-  // removes further speed, so a nonzero drag makes this undershoot, and an undershoot corrects
-  // itself on the next pass.
+  // A large relative velocity saturates the emitted component at full thrust. This observes only
+  // command shape; actual motion may reverse under drag or a longer command hold.
+  // related: docs/reviews/2026-09-12-arrival-brake-contract.md -- production-loop velocity
+  // envelope.
   {
     const auto observation =
         combat_observation(standing(simulation::kDefaultNormalTopSpeed, 0.0, 0.0));
@@ -1432,7 +1431,7 @@ TEST_CASE("Tactical four authored personalities decide four different objectives
     }
   }
   // Keeper weights the shove kind at zero, so the opponent provider never ran and the hill is the
-  // only thing it could have chosen -- "defend a stable interior", literally.
+  // only thing it could have chosen. Selection does not prove stable-interior defense.
   CHECK(chosen[0] == Key{Kind::kHill, frame_fixture::kFirstObjective});
   // Bully scores no exposure and floors nothing, so all three fights are on offer and it takes the
   // nearest. This is precisely what separates it from the opportunist below.

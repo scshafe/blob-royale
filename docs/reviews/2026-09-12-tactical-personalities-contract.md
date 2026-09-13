@@ -1,5 +1,13 @@
 # Step 22c: the four named tactical personalities
 
+> **Superseded braking claim (2026-09-12):** The no-overshoot/all-drag stability and
+> deadbeat trajectory claims below were disproved by release review. They remain
+> here as historical reasoning. The owner chose current controls with accepted
+> velocity reversal; [the current contract](2026-09-12-arrival-brake-contract.md)
+> defines the conditional bound and its first-observation/timing limitations.
+> The old single-command unit assertions did not prove a held trajectory.
+
+
 Implementation contract, written after a read-only preflight against `ee763c7` (Step 22b). **No
 source was changed.** The preflight corrected all nine drafted decisions, found one blocker against
 already-committed work, and replaced root's central mechanism with a smaller one.

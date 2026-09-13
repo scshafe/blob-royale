@@ -84,9 +84,8 @@ public:
                            std::make_unique<const DrawThenReserveSystem>()));
   return simulation::GameSimulation::create(
       configuration(), world(),
-      simulation::GameSimulationSetup::engine_defaults()
-          .with_map(map())
-          .with_systems(simulation::SystemPipeline::create(std::move(systems))));
+      simulation::GameSimulationSetup::engine_defaults().with_map(map()).with_systems(
+          simulation::SystemPipeline::create(std::move(systems))));
 }
 
 [[nodiscard]] inline simulation::InputBatch input_for_tick(const std::uint64_t tick) {

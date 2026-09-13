@@ -54,22 +54,22 @@ per host. Workers own named files and must preserve concurrent edits.
 - [x] **Step 1: Keep the arena inside the viewport**
   - Verify: full web verification and browser viewport/sidebar-scroll scenarios at wide, short, and narrow dimensions.
   - Notes: Complete. Full web checks passed (1,033 tests); Chromium passed all 27 scenarios with zero retries/skips, including wide, short, and narrow viewport/sidebar checks.
-- [ ] **Step 2: Resolve charge hits through shared status**
+- [x] **Step 2: Resolve charge hits through shared status**
   - Verify: GCC debug and ASan/UBSan charge/status/contact tests plus cross-mode replay fixtures.
   - Notes: Preserve frozen contact decisions, motion momentum, shields, and explicit effect-budget failure.
-- [ ] **Step 3: Add authoritative braking and quarter-turns**
+- [x] **Step 3: Add authoritative braking and quarter-turns**
   - Verify: both C++ lanes for command admission, generation invalidation, exact rotations, brake stopping, and charge ordering.
-- [ ] **Step 4: Randomize bounded crossing births and speeds**
+- [x] **Step 4: Randomize bounded crossing births and speeds**
   - Verify: both C++ lanes for deterministic replay/draw order, class rates, speed bounds, zero rate, capacity, lifetime, and startup guards.
-- [ ] **Step 5: Extend the single room-tuning exchange**
+- [x] **Step 5: Extend the single room-tuning exchange**
   - Verify: both C++ lanes for authoring, validation, atomic revision/results, live charge/rate application and reset; full protocol schema/example checks.
-- [ ] **Step 6: Publish protocol and browser controls**
+- [x] **Step 6: Publish protocol and browser controls**
   - Verify: generate/check protocol artifacts, full web tests, browser Go/brake/turn/charge/slider flows, and fixed fuzz corpus.
   - Notes: Additive protocol 3.1; migrate exact fixtures for deliberately changed behavior with explicit reasons.
-- [ ] **Step 7: Review and verify the complete implementation**
+- [x] **Step 7: Review and verify the complete implementation**
   - Verify: full GCC debug and ASan/UBSan CTest, full web and Chromium, fixed and bounded fuzz, pinned formatting, native benchmarks, and `git diff --check`.
   - Specialist: proofreader
-- [ ] **Step 8: Publish and verify the native release**
+- [x] **Step 8: Publish and verify the native release**
   - Verify: push final source, exact-source GitHub quality, canonical `./scripts/deploy-tailnet` native release, independent installed-image/files/all-room health, and browser verification.
   - Notes: The owner's ongoing push/deploy authorization covers this requested playtest iteration. Preserve unrelated Tailscale handlers and publish the exact deployed identity.
 
@@ -86,8 +86,8 @@ production build, and Chromium checks passed on the local pinned Linux toolchain
 development run passed 1,952 of 1,957 cases; its five obsolete fixtures were repaired, and all seven
 selected cases (including integration setup/cleanup) then passed.
 The native clean release profile remains the owner of complete GCC debug/release, ASan/UBSan, TSan,
-fixed and bounded fuzz, and publication evidence. Steps 2–8 remain open until those checks and
-deployment finish. Local Docker on this Darwin/arm64 workstation is advisory.
+fixed and bounded fuzz, and publication evidence. All steps are complete; final native release, exact-source CI and independent installed-site
+observations passed. The release receipt below records the exact deployed identity. Local Docker on this Darwin/arm64 workstation is advisory.
 
 Source review corrected Sandbox advertising a crossing rate without an installed spawner and
 off-canvas aim loss incorrectly releasing held brakes. Both have regression coverage. Final
@@ -107,3 +107,12 @@ remaining verification was deliberately canceled and installation prevented afte
 The corrected source requires fresh complete release and exact-source CI gates before completion.
 The corrected local Chromium gate passed all 27 cases with zero retries or skips
 (`/tmp/blob-playtest-browser-4.log`).
+
+On corrected source `4eadbc8`, the native benchmark, all four clean builds, all four
+1,957-case CTest suites (7,828 executions), and native process smoke passed. The final
+web checks (1,033 tests), Chromium (27 cases, zero retries/skips), fixed fuzz corpus (111 harness-input executions)
+and seven 30-second fuzz campaigns also passed. Release packaging and exact-source GitHub CI passed. Installation then completed, followed by
+independent image/files/Serve/all-room verification and live Chromium UI/scroll/snapshot observations.
+The final evidence is recorded in [the release receipt](../../docs/reviews/2026-09-13-playtest-controls-release-review.md)
+and its machine-readable baseline. Deployed source is `4eadbc8023437bee6a030950e3341d2792ebc3cd`;
+the later documentation commit does not change the running release.

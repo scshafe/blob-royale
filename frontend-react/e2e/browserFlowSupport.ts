@@ -369,7 +369,7 @@ export async function aimFromPaintedBody(
       'Cursor steering requires the actual visible canvas.',
     );
   }
-  const frame = await requireCanvasFrame(page);
+  const frame = await waitForPaintedLabel(page, displayName);
   const body = requirePaintedBody(frame, displayName, radiusWorldUnits);
   const point = {
     x: box.x + (body.x * box.width) / frame.width + offset.x,
@@ -651,6 +651,32 @@ export async function readCanvasFrame(
       .blobRoyaleCanvasRecorder as CanvasRecorderState | undefined;
     return recorder?.completed ?? null;
   });
+}
+
+/** Wait for snapshot-backed paint; a complete welcome-terrain frame has no participant labels. */
+export async function waitForPaintedLabel(
+  page: Page,
+  displayName: string,
+  readFrame: (page: Page) => Promise<RecordedFrame | null> = readCanvasFrame,
+): Promise<RecordedFrame> {
+  let frame: RecordedFrame | null = null;
+  await expect
+    .poll(
+      async () => {
+        frame = await readFrame(page);
+        return frame !== null && findLabel(frame, displayName) !== null;
+      },
+      { message: `the completed canvas frame must paint ${displayName}` },
+    )
+    .toBe(true);
+  if (frame === null) {
+    throw new BrowserE2EError(
+      'BROWSER_E2E.CANVAS_FRAME_UNAVAILABLE',
+      'The painted-label observation must retain its completed canvas frame.',
+      { page_url: page.url(), display_name: displayName },
+    );
+  }
+  return frame;
 }
 
 /** The newest whole frame, insisting there is one. */

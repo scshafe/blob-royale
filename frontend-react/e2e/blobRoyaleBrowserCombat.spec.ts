@@ -26,6 +26,7 @@ import {
   aimFromPaintedBody,
   connectionStatus,
   entityForController,
+  findLabel,
   focusSimulationCanvas,
   installCanvasRecorder,
   matchHudCell,
@@ -228,7 +229,8 @@ async function expectParticipantRing(
     .poll(
       async () => {
         const frame = await readCanvasFrame(session.page);
-        if (frame === null) return 0;
+        if (frame === null || findLabel(frame, displayName) === null)
+          return null;
         const body = requirePaintedBody(frame, displayName, COMBAT.bodyRadius);
         return frame.strokedArcs.filter(
           (arc) =>

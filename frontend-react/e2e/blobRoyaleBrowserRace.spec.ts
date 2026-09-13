@@ -24,6 +24,7 @@ import {
   requireWorldCanvasFrame as requireCanvasFrame,
   requireLabel,
   startMatchFromLobby,
+  waitForPaintedLabel,
   waitForReadyServer,
   type RecordedFrame,
   type RecordedPath,
@@ -150,19 +151,11 @@ test('a racer finishes while a browser leaves the road and returns to its checkp
     await expect(matchHudCell(page, 'Phase')).toHaveText('lobby');
     const displayName = await readOwnDisplayName(page);
 
-    await expect
-      .poll(
-        async () => {
-          const frame = await readCanvasFrame(page);
-          return (
-            frame?.paths.filter((path) => path.strokeStyle === COURSE_STROKE)
-              .length ?? 0
-          );
-        },
-        { message: 'the lobby must paint its declared corridor exactly once' },
-      )
-      .toBe(1);
-    const lobbyFrame = await requireCanvasFrame(page);
+    const lobbyFrame = await waitForPaintedLabel(
+      page,
+      displayName,
+      readCanvasFrame,
+    );
     expectCourse(lobbyFrame);
     expect(requireLabel(lobbyFrame, displayName)).toMatchObject({
       x: 400,

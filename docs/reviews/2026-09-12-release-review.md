@@ -165,3 +165,36 @@ profile. Every individual test deadline, sanitizer setting, clean serial build, 
 and no-retry/skip rule remains unchanged. Independent source review found no contract
 requiring the former aggregate 60-minute ceiling. The native deployment gate continues
 on the unchanged runtime source at `62e6879`.
+
+
+## Native browser paint observation finding
+
+The canonical release at `62e6879` passed four clean builds and all four CTest suites,
+each 1,896/1,896, plus process smoke and full web verification. Chromium passed 23/24.
+The legacy race scenario failed its initial exact gate geometry assertion because the
+recorded frame had a course corridor but no gate arcs. The failure occurred before any
+installation; the prior deployed service remained running.
+
+`SimulationCanvas` paints welcome terrain before returning when no snapshot is available.
+Its recorder exposes the previous complete frame at the next clear operation. Therefore
+a current HUD and a recorded corridor do not establish participant or gate paint. This
+is a complete earlier frame, not a partially recorded draw. The failure screenshot already
+shows gates by capture time, consistent with this observation gap.
+
+The repair adds one shared wait for a participant label in completed paint and returns
+that qualifying frame. Race retains all exact corridor, gate, color, draw-order, and
+player-position assertions. Shared aiming waits for participant paint before its one
+pointer placement and exact body selection. The dynamic race gate observation uses the
+same captured frame barrier. Combat ring polling returns no observation until the named
+participant is painted, so zero rings cannot pass on an absent participant. Independent
+source audit identified those related gaps; only the legacy race failure was reproduced.
+Renderer, recorder, production transport, geometry, test deadlines, and test retry/skip
+policy remain unchanged. Full web/browser and a fresh canonical native release are required.
+
+
+The repaired inputs passed pinned E2E type checking, formatting/lint, full web 986/986,
+and Chromium 24/24 with zero retries/skips (4.4 minutes on the advisory host). An advisory
+bounded-fuzz preflight passed the fixed corpus and all seven 30-second campaigns. Independent
+testineer review confirmed captured-frame consistency, unchanged one-shot pointer placement,
+and preserved exact oracles. Native publication still requires a fresh full canonical chain;
+these advisory results do not replace it.

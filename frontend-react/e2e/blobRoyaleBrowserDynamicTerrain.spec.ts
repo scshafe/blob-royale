@@ -17,6 +17,7 @@ import {
   focusSimulationCanvas,
   installCanvasRecorder,
   matchHudCell,
+  readWorldCanvasFrame,
   recordedCommands,
   recordedSnapshots,
   recordedWelcome,
@@ -24,6 +25,7 @@ import {
   requireCanvasFrame,
   requireWorldCanvasFrame,
   startMatchFromLobby,
+  waitForPaintedLabel,
   waitForReadyServer,
   type RecordedSessionTraffic,
 } from './browserFlowSupport';
@@ -493,7 +495,11 @@ test.describe('chronological race support loss', () => {
       requireOwnEntity(session, baseline).components.race_progress
         ?.next_checkpoint,
     ).toBe(0);
-    const painted = await requireWorldCanvasFrame(page);
+    const painted = await waitForPaintedLabel(
+      page,
+      session.displayName,
+      readWorldCanvasFrame,
+    );
     expect(
       painted.arcs
         .filter((arc) => arc.radius === 1)

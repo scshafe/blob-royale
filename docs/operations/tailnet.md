@@ -86,12 +86,13 @@ presses Start. The shipped value is four seats. `[match] bots` declares NPCs int
 that lobby and the server creates a bot for every declared seat, so the roster is part of the field
 the lobby waits for and a person who joins a full lobby takes an NPC's seat. `[lobbies] count` is
 how many rooms the process runs, each playing that match on its own thread with its own seed; the
-shipped value is four, and the directory route that lists them arrives with protocol 2.4.
+shipped value is four, and the current directory route is `GET /api/v3/lobbies`.
 
 ## Verify
 
 ```sh
 curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v1/health/ready
+curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v3/lobbies
 # On the Ubuntu host, bypassing tailscale serve requires the same forwarded-client header:
 curl -fsS --max-time 1 --header 'X-Forwarded-For: 127.0.0.1' \
   http://127.0.0.1:8000/api/v1/health/ready
@@ -99,8 +100,10 @@ docker ps --filter name=^blob-royale$
 docker inspect blob-royale --format '{{index .Config.Labels "blob-royale.deployed-commit"}}'
 ```
 
-Open `https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/` from any tailnet device. The page must
-report "Connected to the read-only snapshot stream." and advance its tick counter.
+Check the directory twice and require all four rooms to report `healthy: true` with advancing
+`tick_sequence` values; readiness alone checks only the first room. Open
+`https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/` from any tailnet device and join a room.
+The room page must report "Connected to the match session." and advance its tick counter.
 
 ## Roll back
 
@@ -150,7 +153,7 @@ be supplied in `X-Forwarded-For`. A missing value returns HTTP 400 with
 `PROTOCOL.INVALID_REQUEST` and reason `forwarded_client_absent` on a v1 route, even when the
 server is ready. Both deployment scripts supply the local probe's address explicitly; ordinary
 HTTP readiness GETs need no `Origin` header. Protocol v1 does not use `Tailscale-User-*` identity
-headers; the v2 session uses the validated `Tailscale-User-Name` for its display name.
+headers; the v3 session uses the validated `Tailscale-User-Name` for its display name.
 
 ## Limits behind the proxy
 

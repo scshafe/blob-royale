@@ -2,8 +2,9 @@
 
 Reviewed during Step 23 verification, against parent `0bb089b` and the new acceptance changes.
 The proofreader inspected source and contracts; it ran no native gates. Root owns verification.
-Step 24 is **not complete**. Native release evidence remains outstanding. The braking dynamics pass both advisory C++ lanes;
-Step 23a is verified at this local checkpoint.
+Step 24 is **complete** at deployed commit `8b2e9ac`; the
+[native release receipt](2026-09-12-native-release-review.md) records the passing final
+gates and live verification. The findings and intermediate checkpoints below are historical.
 
 ## Resolved contract choice: arrival braking overshoots
 
@@ -112,11 +113,11 @@ across seven harnesses, and pinned whole-tree formatting passed 716 files. Final
 24/24 without retries, skips, or flakes. `git diff --check` passed. The [evidence artifact](2026-09-12-arrival-brake-baseline.json)
 records exact input and log hashes, the failed browser observation, and the verified repair. All
 24 implementation inputs remained unchanged after their final applicable gates. Step 23a is complete;
-Step 24 remains unchecked because native release/benchmark evidence is absent.
+Step 24 remained unchecked at that checkpoint; the linked native receipt now closes it.
 
-## Remaining release evidence
+## Native release requirements (subsequently completed)
 
-Run the remaining gates on native Linux/amd64:
+The final native Linux/amd64 run completed these required gates:
 
 ```
 ./scripts/verify-linux release

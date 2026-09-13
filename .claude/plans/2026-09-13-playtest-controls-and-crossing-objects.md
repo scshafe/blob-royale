@@ -94,3 +94,16 @@ off-canvas aim loss incorrectly releasing held brakes. Both have regression cove
 acceptance audit found no remaining production mismatch. Historical hazard fixture geometry and
 charge-hit expectations were migrated for the deliberately changed behavior; deadlines, zero-retry
 policy, and the accepted conditional bot arrival-brake contract remain intact.
+
+Exact-source CI for `9578dfa` later rejected the tactical-offense browser predicate requiring the
+moving victim to be faster than the attacker. That relationship holds immediately after an impact,
+but a refunded bot can charge again before the independently timed snapshot is delivered. The log
+establishes a timeout, not the exact intervening motion. The repaired observer requires positive
+target motion, an active charge-hit stun, and the target spatially ahead. It retains charge-window,
+stun-duration/generation, pre-cooldown refund, hole elimination, safe-attacker, zero-human-input,
+geometry, and deadline assertions. Independent review approved this test-only correction.
+The native `9578dfa` run passed all four clean builds and all four 1,957-case CTest suites; its
+remaining verification was deliberately canceled and installation prevented after the CI rejection.
+The corrected source requires fresh complete release and exact-source CI gates before completion.
+The corrected local Chromium gate passed all 27 cases with zero retries or skips
+(`/tmp/blob-playtest-browser-4.log`).

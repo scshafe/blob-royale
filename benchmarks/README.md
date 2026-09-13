@@ -96,9 +96,9 @@ is edited, no mode is silently overridden, and a missing/invalid reference remai
 
 Each sample builds a fresh simulation, spawns and joins eight controllers and presses Start on tick
 1, carries the match through the reference countdown with empty ticks, and then times **each
-`step` individually** for 6,400 running ticks -- sixteen seconds, which crosses every spawn tick of
-both reference hazard kinds. Every tick carries the reservation the runtime would give it, so the
-zone entity and the hazards are created exactly as in production; the reference comet is lethal,
+`step` individually** for 6,400 running ticks -- sixteen seconds of capped random crossing trials
+at the reference's authored mean rates. Every tick carries the reservation the runtime would give
+it, so the zone entity and the hazards are created exactly as in production; the reference comet is lethal,
 so the field thins as comets cross it, and the output carries the player count at both ends of the
 window. The per-sample mean, median,
 p99, and maximum are reported as raw samples and as robust summaries across the nine samples; the

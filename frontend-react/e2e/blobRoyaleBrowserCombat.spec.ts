@@ -1053,18 +1053,25 @@ test('at deployed drag a tactical charge transfers momentum and knocks its untou
       const pushed = await waitSnapshot(
         human,
         (snapshot) => {
-          const target = entityForController(snapshot, human.controllerId)
-            ?.components.physics_body;
+          const targetEntity = entityForController(
+            snapshot,
+            human.controllerId,
+          );
+          const target = targetEntity?.components.physics_body;
+          const stun = targetEntity?.components.stun;
           const attacker = entityForController(snapshot, botId)?.components
             .physics_body;
           return (
             target !== undefined &&
             attacker !== undefined &&
+            stun !== undefined &&
+            stun.activation_tick <= snapshot.tick_sequence &&
+            snapshot.tick_sequence < stun.expiry_tick &&
             target.velocity.x > 0 &&
-            target.velocity.x > attacker.velocity.x
+            target.position.x > attacker.position.x
           );
         },
-        'the untouched human must receive charge momentum and separate ahead of the bot',
+        'the untouched human must move ahead of the bot under an active charge-hit stun',
       );
       const pushedTarget = requireEntity(pushed, human.controllerId);
       const pushedBot = requireEntity(pushed, botId);
@@ -1072,7 +1079,8 @@ test('at deployed drag a tactical charge transfers momentum and knocks its untou
       const botBody = requireBody(pushedBot);
       expect(targetBody.position.x).toBeGreaterThan(900);
       expect(targetBody.position.x).toBeLessThan(940);
-      expect(targetBody.velocity.x).toBeGreaterThan(botBody.velocity.x);
+      expect(targetBody.velocity.x).toBeGreaterThan(0);
+      expect(targetBody.position.x).toBeGreaterThan(botBody.position.x);
       expect(botBody.velocity.x).toBeGreaterThanOrEqual(0);
       expect(targetBody.velocity.y).toBe(0);
       expect(botBody.velocity.y).toBe(0);
@@ -1092,9 +1100,11 @@ test('at deployed drag a tactical charge transfers momentum and knocks its untou
       expect(pushed.tick_sequence).toBeLessThan(
         firstCharge.cooldown_expiry_tick,
       );
-      // A successful hit immediately permits another tactical burst. Repeated equal-mass impacts
-      // can leave the bot moving with the target's earlier momentum; the target still separates
-      // ahead with zero propulsion. The original activation must already have been consumed.
+      // A successful hit immediately permits another tactical burst. The independent bot and
+      // publication timers can deliver a frame after that burst and before its next impact, when
+      // the bot is closing again. Spatial order and the moving target's stun witness the push;
+      // relative velocity at publication need not match the instant after collision. The original
+      // activation must already have been consumed.
       if (pushedBot.components.charge !== undefined) {
         expect(pushedBot.components.charge.activation_tick).toBeGreaterThan(
           firstCharge.activation_tick,

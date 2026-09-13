@@ -152,3 +152,16 @@ Root reproduced the failure with the pinned compiler and confirmed the same tran
 compiles with the repair and identical optimized warning flags. The focused fixture passes in
 GCC debug and Clang ASan/UBSan, and the pinned formatter and `git diff --check` pass. Full native
 release verification and deployment remain pending. The previously deployed service is still running.
+
+
+## CI aggregate duration finding
+
+GitHub run 34735526010 at `62e68797557bdeaa74d7eba6509d1a6b42f89013` completed all four
+clean builds from 03:30:53 to 04:22:55 UTC on 2026-09-13, then passed GCC debug
+1,896/1,896. GitHub canceled the progressing ASan/UBSan test lane at the one-hour job
+ceiling; its annotation explicitly reports the maximum execution time. This run remains
+incomplete, not passing. The workflow now allocates 120 minutes to the same complete
+profile. Every individual test deadline, sanitizer setting, clean serial build, lane,
+and no-retry/skip rule remains unchanged. Independent source review found no contract
+requiring the former aggregate 60-minute ceiling. The native deployment gate continues
+on the unchanged runtime source at `62e6879`.

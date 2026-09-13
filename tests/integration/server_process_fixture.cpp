@@ -59,7 +59,9 @@ constexpr auto kShutdownDeadline = 10s;
 constexpr auto kCleanupResultDeadline = 12s;
 constexpr auto kTransportOperationTimeout = 1s;
 constexpr std::size_t kMaximumPortAcquisitionAttempts = 8;
-constexpr std::size_t kBackpressureFixturePlayerCount = 512;
+// The live continuous solver admits 256 bodies. This transport fixture must fit that accepted
+// bound; its oracle still requires an actual 1013 slow-consumer close at the original cadence.
+constexpr std::size_t kBackpressureFixturePlayerCount = 256;
 
 enum class FixtureOperation {
   kSetup,

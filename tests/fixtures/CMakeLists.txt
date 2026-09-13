@@ -1,4 +1,5 @@
 add_executable(blob_royale_fixture_tests
+  cross_mode_production_replay_fixture_tests.cpp
   deployment_fixture_tests.cpp
   king_of_the_hill_replay_fixture_tests.cpp
   map_fixture_tests.cpp

@@ -1,0 +1,4 @@
+marker_kind,position_x_world_units,position_y_world_units,team_id
+spawn,300,640,
+spawn,1600,640,
+hill,310,800,

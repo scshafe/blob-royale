@@ -22,17 +22,23 @@ CTest runs two independent ordered fixtures through the same exact-process super
    the server process group and publishes its exact `waitpid` result. Cleanup requires a
    bounded, unforced exit status of zero.
 
-The second fixture uses 512 stationary players and the maximum 60 Hz presentation cadence. Its
+The second fixture uses 256 stationary players and the maximum 60 Hz presentation cadence. Its
 abuse/soak phase completes 128 TCP connect/EOF/close lifecycles, proves a raw obsolete-folded
 header is rejected before HTTP routing, and leaves one WebSocket peer completely unread with a
 constrained receive buffer. While that peer reaches the five-second write deadline, a second peer
-must continuously drain bounded text frames for ten seconds. Fixed interval samples validate the
-complete 512-player schema, exact message sequence, and monotonic tick while later sampled
+must continuously drain bounded text frames for twelve seconds. Fixed interval samples validate the
+complete 256-player schema, exact message sequence, and monotonic tick while later sampled
 sequences prove the intervening drained frames contained no transport gaps. Readiness must remain
 true throughout. The stalled peer must then produce the structured `1013` slow-consumer terminal
 observation while the client remains completely unread. A separate fixture cleanup again requires
 exact SIGTERM exit zero, proving the abuse run leaves no process or session that can obstruct
 bounded shutdown.
+
+The Step 23 production gate exposed an omitted Step 16 input migration: the old 512-body fixture
+cannot start under the accepted 256-body continuous-motion bound. Its population now fits that
+bound; its 60 Hz cadence, 1,024-byte receive buffer, twelve-second observation, mandatory actual
+1013 close, complete sampled payload checks, and healthy-peer/readiness assertions are unchanged.
+This is transport saturation evidence, not a native simulation-capacity certification.
 
 Each fixture directory is build-local and contains generated inputs plus separate server and
 supervisor logs. Setup refuses to overwrite it while either recorded process is alive. CTest's

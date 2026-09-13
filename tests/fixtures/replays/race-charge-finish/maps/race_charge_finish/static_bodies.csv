@@ -1,0 +1,2 @@
+position_x_world_units,position_y_world_units,collision_layer,collision_mask,contact_effect_policy
+318,320,2,1,closing_impact

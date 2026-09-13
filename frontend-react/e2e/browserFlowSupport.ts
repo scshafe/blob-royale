@@ -7,6 +7,13 @@ import {
 
 import type { BlobRoyaleServerProcess } from './BlobRoyaleServerProcess';
 import { BrowserE2EError } from './BrowserE2EError';
+import type {
+  SessionCommand,
+  SessionEntitySnapshot,
+  SessionSnapshotMessage,
+  SessionWelcomeMessage,
+  SessionWorldSnapshot,
+} from '../src/features/simulation/simulationProtocolTypes';
 
 export const PRODUCTION_ORIGIN = 'http://127.0.0.1:5173';
 
@@ -173,6 +180,19 @@ export interface RecordedArc {
   readonly y: number;
 }
 
+/** One stroked arc, including the gaps that distinguish a stun from a complete shield ring. */
+export interface RecordedStrokedArc {
+  readonly drawOrder: number;
+  readonly strokeStyle: string;
+  readonly lineWidth: number;
+  readonly startAngle: number;
+  readonly endAngle: number;
+  readonly anticlockwise: boolean;
+  readonly radius: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 /** One `fillText`: a participant's display name or a course gate's label. */
 export interface RecordedLabel {
   readonly drawOrder: number;
@@ -199,6 +219,7 @@ export interface RecordedPath {
 /** One completed canvas frame: everything drawn between two `clearRect` calls. */
 export interface RecordedFrame {
   readonly arcs: readonly RecordedArc[];
+  readonly strokedArcs: readonly RecordedStrokedArc[];
   readonly cssHeight: number;
   readonly cssWidth: number;
   readonly height: number;
@@ -241,6 +262,50 @@ export function recordSessionTraffic(page: Page): RecordedSessionTraffic {
     });
   });
   return traffic;
+}
+
+/** @canonical browser_session_snapshots -- decode observations of the real production transport. */
+export function recordedSnapshots(
+  traffic: RecordedSessionTraffic,
+): readonly SessionWorldSnapshot[] {
+  return traffic.receivedFrames
+    .map((encoded) => JSON.parse(encoded) as SessionSnapshotMessage)
+    .filter(
+      (message) =>
+        message.meta.schema_id === 'blob-royale://protocol/v3/snapshot-message',
+    )
+    .map((message) => message.data);
+}
+
+/** First observed welcome; never constructs or replaces a server message. */
+export function recordedWelcome(
+  traffic: RecordedSessionTraffic,
+): SessionWelcomeMessage | undefined {
+  return traffic.receivedFrames
+    .map((encoded) => JSON.parse(encoded) as SessionWelcomeMessage)
+    .find(
+      (message) =>
+        message.meta.schema_id === 'blob-royale://protocol/v3/welcome-message',
+    );
+}
+
+/** Commands sent by the production client, without any injected sender. */
+export function recordedCommands(
+  traffic: RecordedSessionTraffic,
+): readonly SessionCommand[] {
+  return traffic.sentFrames.map(
+    (encoded) => JSON.parse(encoded) as SessionCommand,
+  );
+}
+
+/** Resolve the current published body owner, including bodyless lifecycle intervals. */
+export function entityForController(
+  snapshot: SessionWorldSnapshot,
+  controllerId: number,
+): SessionEntitySnapshot | undefined {
+  return snapshot.entities.find(
+    (entity) => entity.components.controllable?.controller_id === controllerId,
+  );
 }
 
 /** A body's painted centre, not the display-name baseline below it. */
@@ -375,6 +440,7 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
     const state: { completed: RecordedFrame | null } = { completed: null };
     let pending: {
       arcs: RecordedArc[];
+      strokedArcs: RecordedStrokedArc[];
       cssHeight: number;
       cssWidth: number;
       height: number;
@@ -384,7 +450,14 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
       width: number;
       worldBoundary: RecordedFrame['worldBoundary'];
     } | null = null;
-    let pendingArc: { radius: number; x: number; y: number } | null = null;
+    let pendingArc: {
+      radius: number;
+      x: number;
+      y: number;
+      startAngle: number;
+      endAngle: number;
+      anticlockwise: boolean;
+    } | null = null;
     let pendingPath: { kind: 'move' | 'line'; x: number; y: number }[] = [];
     let pendingPathClosed = false;
     let nextDrawOrder = 0;
@@ -411,6 +484,7 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
       const rectangle = this.canvas.getBoundingClientRect();
       pending = {
         arcs: [],
+        strokedArcs: [],
         cssHeight: rectangle.height,
         cssWidth: rectangle.width,
         height: this.canvas.height,
@@ -490,6 +564,16 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
     };
 
     surface.stroke = function patchedStroke(this, ...strokeArguments) {
+      if (pending !== null && pendingArc !== null) {
+        const transform = this.getTransform();
+        pending.strokedArcs.push({
+          ...pendingArc,
+          drawOrder: nextDrawOrder,
+          strokeStyle: String(this.strokeStyle),
+          lineWidth: this.lineWidth * Math.hypot(transform.a, transform.b),
+        });
+        nextDrawOrder += 1;
+      }
       if (pending !== null && pendingPath.length > 0) {
         const transform = this.getTransform();
         pending.paths.push({
@@ -513,6 +597,9 @@ export async function installCanvasRecorder(page: Page): Promise<void> {
         y: arcArguments[1] as number,
       });
       pendingArc = {
+        startAngle: arcArguments[3] as number,
+        endAngle: arcArguments[4] as number,
+        anticlockwise: (arcArguments[5] as boolean | undefined) ?? false,
         radius:
           (arcArguments[2] as number) * Math.hypot(transform.a, transform.b),
         x: point.x,
@@ -611,6 +698,12 @@ function worldCoordinates(frame: RecordedFrame): RecordedFrame {
       ...arc,
       ...point(arc),
       radius: arc.radius / horizontalRatio,
+    })),
+    strokedArcs: frame.strokedArcs.map((arc) => ({
+      ...arc,
+      ...point(arc),
+      radius: arc.radius / horizontalRatio,
+      lineWidth: arc.lineWidth / horizontalRatio,
     })),
     labels: frame.labels.map((label) => ({ ...label, ...point(label) })),
     paths: frame.paths.map((path) => ({

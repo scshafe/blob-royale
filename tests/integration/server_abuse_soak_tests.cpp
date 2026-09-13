@@ -27,7 +27,9 @@ namespace http = boost::beast::http;
 
 constexpr auto kTransportOperationTimeout = std::chrono::seconds{3};
 constexpr std::size_t kConnectionChurnCount = 128;
-constexpr std::size_t kExpectedPlayerCount = 512;
+// Pin the migrated fixture's complete payload independently. Keep the real slow-consumer close,
+// healthy-stream checks, receive buffer and observation deadline unchanged.
+constexpr std::size_t kExpectedPlayerCount = 256;
 constexpr auto kBackpressureObservationDuration = std::chrono::seconds{12};
 constexpr auto kReadinessObservationInterval = std::chrono::seconds{3};
 constexpr std::size_t kFullSnapshotValidationInterval = 60;

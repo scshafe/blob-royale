@@ -1,0 +1,4 @@
+marker_kind,position_x_world_units,position_y_world_units,team_id
+spawn,300,640,
+checkpoint,304,640,
+checkpoint,316,640,

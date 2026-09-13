@@ -29,27 +29,38 @@ struct ReplayMapCase final {
   double height;
   std::size_t marker_count;
   bool corridor_ground;
+  std::size_t static_body_count;
+  std::size_t hole_count;
 };
 
-// Frozen map identities, bounds and retained marker counts from ba75500, before Step 6.
-// Existing replay tests independently pin committed motion, lifecycle and race mirrors.
+// Historical identities, bounds and marker counts stay frozen from before Step 6; newer
+// ability/chronology maps declare their own counts. Every old empty terrain/body count stays zero.
 constexpr std::array kReplayMaps{
-    ReplayMapCase{"hill-contested", "hill_contested_arena", 960.0, 640.0, 3, false},
-    ReplayMapCase{"hill-scripted-match", "hill_scripted_arena", 960.0, 640.0, 4, false},
-    ReplayMapCase{"hill-threshold", "hill_threshold_arena", 960.0, 640.0, 3, false},
-    ReplayMapCase{"hill-time-limit-draw", "hill_draw_arena", 960.0, 640.0, 3, false},
-    ReplayMapCase{"race-finish-window", "race_finish_window", 960.0, 640.0, 5, true},
-    ReplayMapCase{"race-off-track-return", "race_off_track_return", 960.0, 640.0, 4, true},
-    ReplayMapCase{"race-scripted-course", "race_scripted_course", 960.0, 640.0, 4, true},
-    ReplayMapCase{"race-shared-finish", "race_shared_finish", 960.0, 640.0, 5, true},
-    ReplayMapCase{"race-time-limit", "race_time_limit", 960.0, 640.0, 5, true},
-    ReplayMapCase{"royale-drag-decay", "royale_drag_corridor", 40000.0, 4000.0, 3, false},
-    ReplayMapCase{"royale-elimination-timing", "royale_boundary_arena", 960.0, 640.0, 3, false},
-    ReplayMapCase{"royale-scripted-match", "royale_scripted_arena", 960.0, 640.0, 4, false},
-    ReplayMapCase{"royale-simultaneous-draw", "royale_draw_arena", 960.0, 640.0, 4, false},
-    ReplayMapCase{"royale-spawn-order", "royale_spawn_arena", 960.0, 640.0, 4, false},
-    ReplayMapCase{"royale-thrust-integration", "royale_thrust_arena", 960.0, 640.0, 3, false},
-    ReplayMapCase{"royale-transition-per-tick", "royale_cycle_arena", 960.0, 640.0, 1, false},
+    ReplayMapCase{"hill-contested", "hill_contested_arena", 960.0, 640.0, 3, false, 0, 0},
+    ReplayMapCase{"hill-scripted-match", "hill_scripted_arena", 960.0, 640.0, 4, false, 0, 0},
+    ReplayMapCase{"hill-threshold", "hill_threshold_arena", 960.0, 640.0, 3, false, 0, 0},
+    ReplayMapCase{"hill-time-limit-draw", "hill_draw_arena", 960.0, 640.0, 3, false, 0, 0},
+    ReplayMapCase{"race-charge-fall", "race_charge_fall", 960.0, 640.0, 5, true, 0, 1},
+    ReplayMapCase{"race-charge-finish", "race_charge_finish", 960.0, 640.0, 4, true, 1, 0},
+    ReplayMapCase{"race-finish-window", "race_finish_window", 960.0, 640.0, 5, true, 0, 0},
+    ReplayMapCase{"race-off-track-return", "race_off_track_return", 960.0, 640.0, 4, true, 0, 0},
+    ReplayMapCase{"race-scripted-course", "race_scripted_course", 960.0, 640.0, 4, true, 0, 0},
+    ReplayMapCase{"race-shared-finish", "race_shared_finish", 960.0, 640.0, 5, true, 0, 0},
+    ReplayMapCase{"race-time-limit", "race_time_limit", 960.0, 640.0, 5, true, 0, 0},
+    ReplayMapCase{"royale-charge-burst", "royale_charge_arena", 960.0, 640.0, 2, false, 0, 0},
+    ReplayMapCase{"royale-charge-contact", "royale_charge_contact", 960.0, 640.0, 2, false, 0, 0},
+    ReplayMapCase{"royale-charge-hole", "royale_charge_hole", 960.0, 640.0, 2, false, 0, 1},
+    ReplayMapCase{"royale-drag-decay", "royale_drag_corridor", 40000.0, 4000.0, 3, false, 0, 0},
+    ReplayMapCase{"royale-elimination-timing", "royale_boundary_arena", 960.0, 640.0, 3, false, 0,
+                  0},
+    ReplayMapCase{"royale-scripted-match", "royale_scripted_arena", 960.0, 640.0, 4, false, 0, 0},
+    ReplayMapCase{"royale-shield-boundaries", "royale_shield_boundaries", 40000.0, 4000.0, 6, false,
+                  0, 0},
+    ReplayMapCase{"royale-shield-parry", "royale_shield_arena", 960.0, 640.0, 2, false, 0, 0},
+    ReplayMapCase{"royale-simultaneous-draw", "royale_draw_arena", 960.0, 640.0, 4, false, 0, 0},
+    ReplayMapCase{"royale-spawn-order", "royale_spawn_arena", 960.0, 640.0, 4, false, 0, 0},
+    ReplayMapCase{"royale-thrust-integration", "royale_thrust_arena", 960.0, 640.0, 3, false, 0, 0},
+    ReplayMapCase{"royale-transition-per-tick", "royale_cycle_arena", 960.0, 640.0, 1, false, 0, 0},
 };
 
 } // namespace
@@ -67,8 +78,8 @@ TEST_CASE("every replay uses its canonical bundled map without legacy track mark
     CHECK(loaded.bounds().width() == expected.width);
     CHECK(loaded.bounds().height() == expected.height);
     CHECK(loaded.markers().size() == expected.marker_count);
-    CHECK(loaded.static_bodies().empty());
-    CHECK(loaded.terrain().holes().empty());
+    CHECK(loaded.static_bodies().size() == expected.static_body_count);
+    CHECK(loaded.terrain().holes().size() == expected.hole_count);
     CHECK(loaded.terrain().ground() == (expected.corridor_ground
                                             ? simulation::TerrainGround::kCorridors
                                             : simulation::TerrainGround::kSolid));

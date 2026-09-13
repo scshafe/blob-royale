@@ -3,7 +3,6 @@ import type {
   SessionComponentOfKind,
   SessionEntitySnapshot,
   SessionPhysicsBodyComponent,
-  SessionSnapshotMessage,
   SessionVector2,
   SessionWorldSnapshot,
 } from '../src/features/simulation/simulationProtocolTypes';
@@ -15,6 +14,7 @@ import {
   lobbyStartButton,
   matchHudCell,
   recordSessionTraffic,
+  recordedSnapshots as snapshots,
   startMatchFromLobby,
   waitForReadyServer,
   type RecordedSessionTraffic,
@@ -68,19 +68,6 @@ interface MovementFrame {
   readonly coaster: ObservedBody;
   readonly human: ObservedBody;
   readonly hill: SessionComponentOfKind<'hill'>;
-}
-
-/** Observe the real WebSocket stream also consumed by the production schema/sequence boundary. */
-function snapshots(
-  traffic: RecordedSessionTraffic,
-): readonly SessionWorldSnapshot[] {
-  return traffic.receivedFrames
-    .map((encoded) => JSON.parse(encoded) as SessionSnapshotMessage)
-    .filter(
-      (message) =>
-        message.meta.schema_id === 'blob-royale://protocol/v3/snapshot-message',
-    )
-    .map((message) => message.data);
 }
 
 function observedBody(

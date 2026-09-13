@@ -193,9 +193,15 @@ if (
   );
 }
 
-const tests = (report.suites ?? []).flatMap((suite) =>
-  (suite.specs ?? []).flatMap((spec) => spec.tests ?? []),
-);
+// Playwright nests describe groups beneath each file suite. Every declared test must reach the
+// same no-retry/no-skip checks, whether it is declared at file scope or inside a fixture group.
+function suiteTests(suite) {
+  return [
+    ...(suite.specs ?? []).flatMap((spec) => spec.tests ?? []),
+    ...(suite.suites ?? []).flatMap(suiteTests),
+  ];
+}
+const tests = (report.suites ?? []).flatMap(suiteTests);
 const results = tests.flatMap((test) => test.results ?? []);
 if (
   tests.length < 1 ||

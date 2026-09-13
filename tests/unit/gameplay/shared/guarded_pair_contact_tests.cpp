@@ -24,6 +24,7 @@
 #include <optional>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace gameplay = blob_royale::gameplay;
 namespace simulation = blob_royale::simulation;
@@ -730,7 +731,9 @@ TEST_CASE("center support loss terminates before a tied any-touch pair regardles
                                 fixture.first.entity, simulation::ContactEffectPolicy::kAnyTouch},
                             simulation::MotionContactEffectPolicy{
                                 fixture.second.entity, simulation::ContactEffectPolicy::kAnyTouch}};
-  const std::array triggers{
+  // Match the other trigger fixtures: GCC 13 -O3 misdiagnoses the disengaged
+  // facts override in a singleton array as an uninitialized reference.
+  const std::vector triggers{
       simulation::MotionTrigger<gameplay::GuardedPairConsequence, gameplay::PairGuardFacts>{
           fixture.first.entity, 1, 0, 1, query, response}};
   const auto result = simulation::solve_continuous_motion<gameplay::GuardedPairConsequence,

@@ -126,4 +126,29 @@ git diff --check
 
 The release chain includes GCC debug/release, ASan/UBSan, TSan, process smoke, full web/browser,
 bounded fuzzing, and host-orchestrated dependency evidence. Record source hashes and host/toolchain
-provenance. Mac-hosted Docker is advisory and cannot certify this chain. No push or deployment.
+provenance. Mac-hosted Docker is advisory and cannot certify this chain. The owner subsequently authorized push and deployment; the canonical deployment script runs this complete release chain before installation.
+
+
+## Native publication attempt and compiler finding
+
+The owner explicitly requested push and deployment on 2026-09-12. Commit
+`ffabf92f0858f0cde071fc7aa424f5dd6f62facf` was pushed to main and checked out cleanly on
+`cole-ubuntu-pc` (Linux/x86_64 host and Docker daemon). The native benchmark passed all eight
+cases and the delivery workload. Its result SHA256 is
+`e58923ba8734777d362e082723a4d283020fa639427d0ca23ed946a95439dbb3`.
+Correctness and deterministic work match the committed baselines; historical Royale timing
+remains advisory and does not establish current hill-room capacity.
+
+The first canonical deployment attempt stopped during optimized GCC compilation, before
+installation. GitHub quality run 34733941214 independently reported the same GCC 13
+`-O3 -Werror=maybe-uninitialized` diagnostic in the guarded-contact support-loss fixture.
+The trigger's optional reference defaults to disengaged, and both solver access sites guard
+engagement; the global facts temporary lives through the synchronous call. Independent source
+review found no uninitialized read. The narrow repair uses vector trigger storage, consistent
+with other solver fixtures, while retaining the absent override, callbacks, and all seven
+assertions. No production code or warning policy changes.
+
+Root reproduced the failure with the pinned compiler and confirmed the same translation unit
+compiles with the repair and identical optimized warning flags. The focused fixture passes in
+GCC debug and Clang ASan/UBSan, and the pinned formatter and `git diff --check` pass. Full native
+release verification and deployment remain pending. The previously deployed service is still running.

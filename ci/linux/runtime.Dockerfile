@@ -4,7 +4,7 @@
 FROM --platform=linux/amd64 ubuntu@sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG UBUNTU_SNAPSHOT=20260804T000000Z
+ARG UBUNTU_SNAPSHOT=20261001T000000Z
 ARG BLOB_ROYALE_RELEASE_ID
 
 LABEL org.opencontainers.image.title="Blob Royale server" \
@@ -19,10 +19,12 @@ RUN sed -i -E \
       ca-certificates=20260601~24.04.1 \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-      libc6=2.39-0ubuntu8.8 \
+      libc6=2.39-0ubuntu8.9 \
       libgcc-s1=14.2.0-4ubuntu2~24.04.1 \
       libstdc++6=14.2.0-4ubuntu2~24.04.1 \
       libboost-json1.83.0=1.83.0-2.1ubuntu3.2 \
+      libssl3t64=3.0.13-0ubuntu3.16 \
+      openssl=3.0.13-0ubuntu3.16 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN test -n "${BLOB_ROYALE_RELEASE_ID}"

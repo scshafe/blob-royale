@@ -74,6 +74,19 @@ else
   readonly VERIFICATION_AUTHORITY="advisory"
 fi
 
+# Rootful Docker: run as the host user so files written to the bind mount stay owned by it.
+# Rootless Docker: the host user is uid 0 inside the container namespace and any other uid maps
+# to a subordinate id that cannot write the bind mount, so run as 0:0 (still the host user).
+# Captured, not piped into grep -q: under pipefail, grep exiting on the match
+# would SIGPIPE docker and fail the test.
+security_options="$(docker info --format '{{.SecurityOptions}}')"
+if [[ "${security_options}" == *name=rootless* ]]; then
+  CONTAINER_USER="0:0"
+else
+  CONTAINER_USER="$(id -u):$(id -g)"
+fi
+readonly CONTAINER_USER
+
 docker build \
   --platform linux/amd64 \
   --file "${REPOSITORY_DIRECTORY}/ci/linux/Dockerfile" \
@@ -84,7 +97,7 @@ docker run \
   --rm \
   --init \
   --platform linux/amd64 \
-  --user "$(id -u):$(id -g)" \
+  --user "${CONTAINER_USER}" \
   --env BLOB_ROYALE_TOOLCHAIN_IMAGE="${TOOLCHAIN_IMAGE}" \
   --env BLOB_ROYALE_VERIFICATION_AUTHORITY="${VERIFICATION_AUTHORITY}" \
   --env BLOB_ROYALE_VERIFICATION_HOST_OS="${HOST_OPERATING_SYSTEM}" \

@@ -60,7 +60,7 @@ using blob_royale::application::ApplicationConfigLoader;
 
 } // namespace
 
-TEST_CASE("deployment configuration for the blob-royale node loads through the application boundary",
+TEST_CASE("the blob-royale node configuration loads through the application boundary",
           "[fixtures][deployment]") {
   const ApplicationConfigLoader::Result result = load_deployment_inputs();
   REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));

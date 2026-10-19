@@ -4,12 +4,18 @@
 # loopback, images either built here (through the pin) or pinned by digest.
 # `dev check` runs the same validator (DEPLOY-04) and lists what it can see
 # (DEPLOY-05).
+#
+# Three containers share the sidecar's network namespace: the simulation server
+# (127.0.0.1:8000, /api) and the static web server (127.0.0.1:8081, everything
+# else). Both images are built from this repository at the merged commit; the
+# configuration and maps are in the server image, so nothing is bind-mounted
+# but the node identity.
 name: blob-royale
 
 services:
   ts-blob-royale:
-    # TODO: pin the digest: docker buildx imagetools inspect tailscale/tailscale:<tag>
-    image: tailscale/tailscale@sha256:0000000000000000000000000000000000000000000000000000000000000000
+    # tailscale/tailscale:v1.102.5 (as lost-footing), multi-arch index digest
+    image: tailscale/tailscale:v1.102.5@sha256:c507f3a2a6ab1cabd8d809b98edeb41edbd5c3fb6ad9632ffd098b4c7d0b4065
     container_name: ts-blob-royale
     init: true
     restart: unless-stopped
@@ -30,13 +36,53 @@ services:
     image: ${BLOB_ROYALE_IMAGE}
     container_name: blob-royale
     init: true
-    user: "65532:65532"  # not root; the deploy gives each ./state/<sub> it binds to this uid
+    user: "65532:65532"  # not root; the server writes nothing, so there is no ./state bind
     restart: unless-stopped
     network_mode: service:ts-blob-royale
     depends_on: [ts-blob-royale]
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    # The app listens on 127.0.0.1:8080 in the sidecar's namespace, which
-    # serve.json proxies to the tailnet. Add a healthcheck and its own state:
-    #   volumes: ["./state/data:/data"]
+    mem_limit: 1g
+    cpus: 2
+    pids_limit: 256
+    # The server listens on 127.0.0.1:8000 (deploy/config/blob-royale.cfg) in the
+    # sidecar's namespace. Its HTTP routes want the proxy's dialect, one canonical
+    # X-Forwarded-For, so the probe speaks it; the image has no curl, so bash's
+    # /dev/tcp does the request.
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -c
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/8000 &&
+          printf 'GET /api/v1/health/ready HTTP/1.1\r\nHost: 127.0.0.1:8000\r\nX-Forwarded-For: 127.0.0.1\r\nConnection: close\r\n\r\n' >&3 &&
+          head -n 1 <&3 | grep -q ' 200 '
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  web:
+    image: ${BLOB_ROYALE_WEB_IMAGE}
+    container_name: blob-royale-web
+    init: true
+    user: "65532:65532"
+    restart: unless-stopped
+    network_mode: service:ts-blob-royale
+    depends_on: [ts-blob-royale]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    pids_limit: 64
+    # nginx keeps its pid file and temporary files here (deploy/web/nginx.conf).
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

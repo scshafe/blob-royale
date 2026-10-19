@@ -131,7 +131,7 @@ accepts is not zero, so a zero there would be exercising the rejection rather th
 **The shipped `config/blob-royale.cfg` now declares five profiles, not one.** `steady` stays the
 neutral reference, authored at whichever end of each new key reproduces its previous behaviour, and
 `keeper`, `bully`, `opportunist` and `cautious_racer` are ADR 0008's four named personalities. They
-ship in that file **only**: `deploy/ubuntu-pc/blob-royale.cfg` declares no `[bot_profile]` section
+ship in that file **only**: `deploy/config/blob-royale.cfg` declares no `[bot_profile]` section
 at all, and the tactical-profiles browser spec pins its own fixture's exact two-element list three
 ways. Both e2e fixtures still had to gain all four new keys in all four of their existing sections,
 or neither server starts.

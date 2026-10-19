@@ -856,7 +856,7 @@ directory counts and remain additional work; `src/gameplay/README.md` gives the 
   is the honest fix and is listed.
 * **Operational:** Two new maps, two new fixture families, two new browser flows, two new bots, and
   a 2.5 schema republish. The deployed `[match] mode` still selects one game per process; playing a
-  different one on the tailnet is `./scripts/reconfigure-tailnet` with a different section, or the
+  different one on the tailnet is a configuration change merged to `main` with a different section, or the
   per-room extension.
 * **Reversibility:** The mode directories, registry/configuration entries, and client paths can be
   removed, retaining the shared framework amendments. Removing published wire kinds from a

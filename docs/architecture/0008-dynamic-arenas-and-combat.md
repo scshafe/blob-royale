@@ -226,7 +226,7 @@ selected — what the owner accepted at Step 1 is *that such an envelope exists*
 seventeen of the eighteen checked in at this step, `royale-charge-burst` among them. At zero drag
 ADR 0003's phase 1 damping factor is exactly `1.0` and multiplication by `1.0` is the identity, so
 a charge burst is **permanent**, not decaying. The claim holds only where drag is authored nonzero:
-`deploy/ubuntu-pc/blob-royale.cfg` (2.0) and the `royale-drag-decay` replay (2). What bounds
+`deploy/config/blob-royale.cfg` (2.0) and the `royale-drag-decay` replay (2). What bounds
 repeated charges is therefore the envelope, not drag, and that is the whole reason the envelope is
 a required key rather than an incidental representability check — see § "Charge" below for the
 arithmetic at the authored ceiling. "Do not emulate the speed setting by changing drag" below is

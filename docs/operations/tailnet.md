@@ -1,84 +1,62 @@
-<!-- canonical: tailnet_operations -- deploying and operating the tailnet game host -->
+<!-- canonical: tailnet_operations -- deploying and operating the tailnet game node -->
 
 # Tailnet operations runbook
 
-The playable Blob Royale deployment runs on `cole-ubuntu-pc` and is reachable only inside the
-tailnet at `https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/`. This runbook is the operating
-contract for that host. [`linux.md`](linux.md) remains the general Linux contract, and
+The playable Blob Royale deployment is the `blob-royale` stack on the scshafe-dev **runner lane**
+(`dev.toml [deploy]`, `deploy/stack/`). It has its own tailnet node and is reachable only inside the
+tailnet at `https://blob-royale.colobus-stargazer.ts.net/`, with no port. [`linux.md`](linux.md)
+remains the general Linux contract, and
 [`../architecture/0001-linux-runtime-contract.md`](../architecture/0001-linux-runtime-contract.md)
-records the accepted host facts.
+records the accepted runtime facts and the 2026-10-18 amendment that moved the deployment here.
 
-## Host facts
+This replaces the hand-made container on `cole-ubuntu-pc` behind `tailscale serve --https=8444`,
+which `scripts/deploy-tailnet` and `scripts/reconfigure-tailnet` operated. Both scripts are gone.
+
+## What runs
 
 | Concern | Value |
 |---|---|
-| Host | `cole-ubuntu-pc`, Ubuntu 24.04.4 LTS, x86_64, Docker Engine 29.6.1 (containerd image store), Tailscale 1.102.2 |
-| Access | `ssh ubuntu-tailscale` from the maintainer's Mac (alias in `~/.ssh/config`); user `cole` is in the `docker` group and has non-interactive sudo |
-| Repository | `~/Projects/blob-royale`, an HTTPS clone of `origin`; deployments run from a clean checkout of a pushed commit |
-| Authority | Docker client and daemon are both native Linux/x86_64, so `./scripts/verify-linux release` on this host is authoritative and publishes `out/release/current` |
-| Runtime | Versioned release image under Docker with host networking, read-only root, all capabilities dropped, `no-new-privileges`, 1 GiB memory, 2 CPUs, `--restart unless-stopped` |
-| Listener | `127.0.0.1:8000` in the host network namespace; never published beyond loopback |
-| Proxy | `tailscale serve` on HTTPS port 8444, tailnet only; Funnel is never enabled |
-| Inputs | `/srv/blob-royale/config/blob-royale.cfg` (mode 0444) from `deploy/ubuntu-pc/` plus `/srv/blob-royale/config/maps/` rsynced from the repository's `maps/`, all mounted read-only at `/run/blob-royale`; the deployed configuration names `[match] maps_directory=/run/blob-royale/maps` |
-| Web | `/srv/blob-royale/web/`, the staged `web/` deployable, served by `tailscale serve` at `/` |
-| Sanitizer prerequisite | `/etc/sysctl.d/60-blob-royale-sanitizers.conf` sets `vm.mmap_rnd_bits = 28` so the TSan lane runs inside the pinned container |
+| Lane | `runner`, host `pc`, stack `blob-royale`, door `none`, verify on a GitHub-hosted runner |
+| Containers | `ts-blob-royale` (Tailscale sidecar, node `blob-royale`), `blob-royale` (simulation server), `blob-royale-web` (static web server), all in the sidecar's network namespace |
+| Server image | The root `Dockerfile`: the server built from source (GCC, Release) on the pinned Ubuntu 24.04 base, with `deploy/config/blob-royale.cfg` at `/etc/blob-royale/` and `maps/` at `/usr/share/blob-royale/maps` baked in. Runs as 65532 on a read-only root, all capabilities dropped, 1 GiB, 2 CPUs |
+| Web image | `deploy/web/Dockerfile`: `npm ci && npm run build` of `frontend-react/`, served by `nginxinc/nginx-unprivileged` pinned by digest, on `127.0.0.1:8081` |
+| Routing | `deploy/stack/serve.json`: `/api` to `http://127.0.0.1:8000/api` (serve strips the mount prefix, so the target carries `/api`), `/` to `http://127.0.0.1:8081`. HTTPS on 443 only; Funnel is never enabled |
+| State | None. The only bind is `./state/tailscale` (the node identity) |
+| Secret | `TS_AUTHKEY`, placed on the host by the owner's provisioning; never in the repository |
 
-Ports 443 and 8443 on this host belong to unrelated `tailscale serve` handlers; Blob Royale must
-stay on 8444. The tailnet also exposes an alternate MagicDNS name for this host; only the
-`colobus-stargazer.ts.net` name is in the server allowlists, so always use the URL above.
+The host builds both images at the merged commit; nothing is mounted from `/srv/blob-royale`.
 
 ## Deploy
 
+A merge to `main` deploys. `.github/workflows/deploy.yml` (rendered from `dev.toml`; change that, not
+the workflow) runs `./scripts/verify-linux pr` on a GitHub-hosted runner, then the host's deploy
+entrypoint on the `blob-royale-prod` self-hosted runner builds both images, validates
+`deploy/stack/` against the platform allowlist (`dev check .` runs the same validator), starts a
+candidate, probes `/api/v1/health/ready` through the tailnet name, and keeps or rolls back. Then a
+health job checks the live commit and that the node is tailnet-only.
+
 ```sh
-ssh ubuntu-tailscale
-cd ~/Projects/blob-royale
-git pull --ff-only
-./scripts/deploy-tailnet
+gh run list -w deploy
+gh run watch <id>
 ```
 
-`scripts/deploy-tailnet` is the only deployment path and is idempotent. In order it:
+Merge one change at a time and watch its run. A deploy takes as long as the hosted gate plus the two
+image builds; there is no separate deployment-host verification.
 
-1. refuses any host other than `cole-ubuntu-pc`, a dirty checkout, or missing `sudo`/`docker`/
-   `rsync`/`tailscale`;
-2. runs `./scripts/verify-linux release`, which must publish an `authoritative` record at
-   `out/release/current/publication.env`;
-3. installs the configuration under `/srv/blob-royale/config`, rsyncs the repository's
-   `maps/` to `/srv/blob-royale/config/maps` after checking that the directory named by
-   `[match] map=` exists, and syncs the staged web deployable to `/srv/blob-royale/web`;
-4. replaces the `blob-royale` container with the published `runtime_image_reference` and waits up
-   to ten seconds for `GET http://127.0.0.1:8000/api/v1/health/ready`, supplying
-   `X-Forwarded-For: 127.0.0.1` because the listener treats loopback as its trusted proxy;
-5. applies the two `tailscale serve` handlers (`/api` to `http://127.0.0.1:8000/api`, `/` to the
-   web directory) and checks liveness and the site root through the tailnet URL.
-
-It prints `deploy_tailnet.step=<name> status=<running|passed>` lines and ends with
-`deploy_tailnet.release_id`, `deploy_tailnet.runtime_image`, `deploy_tailnet.deployed_commit`,
-`deploy_tailnet.url`, and `deploy_tailnet.status=passed`. A failure prints
-`deploy_tailnet.error_code` and leaves the previous container running only if the failure happened
-before the container step; treat any failure as an incident and rerun at a known-good commit.
-
-The release profile rebuilds and re-verifies everything, so a deployment takes tens of minutes on
-this host. Fresh Grype databases and npm advisories can fail the dependency-evidence step for a
-commit that passed yesterday; fix the pin in a separate commit and redeploy, never bypass the gate.
-
-## Change balance without redeploying
+## Change balance
 
 Bot roster, lobby seat count, drag, zone shrink, and every other match number live in
-`deploy/ubuntu-pc/blob-royale.cfg`, not in code. Editing one and running the full deploy would
-re-verify the entire tree, which is right for a code change and far too slow for a number. Use:
+`deploy/config/blob-royale.cfg`, not in code. There is no live reconfiguration any more: a balance
+change is a pull request like any other, merged and deployed. Try the value first on a local server:
 
 ```sh
-ssh ubuntu-tailscale
-cd ~/Projects/blob-royale
-git pull --ff-only          # or edit deploy/ubuntu-pc/blob-royale.cfg in place to try a value
-./scripts/reconfigure-tailnet
+out/build/linux-gcc-debug/blob-royale --config deploy/config/blob-royale.cfg
 ```
 
-It reuses the image the current publication already certified, refuses to run if none is published,
-and cannot change code. The process validates every value at startup and fails closed, so a bad
-number stops the container with a diagnostic naming the key rather than serving a broken match.
-Restart takes seconds. Commit whatever value you settle on, so the running arena and the repository
-agree.
+The process validates every value at startup and fails closed, so a bad number fails the candidate
+container's health probe and the deploy rolls back instead of serving a broken match. The hosted gate
+parses this file through the production loader (`tests/fixtures/deployment_fixture_tests.cpp`), so
+most mistakes fail before the merge.
 
 The number that decides who a match waits for is `[match] lobby_seat_count`: it is how many seats
 the pre-match lobby is created with, and a match starts only when every seat is filled and somebody
@@ -91,92 +69,94 @@ shipped value is four, and the current directory route is `GET /api/v3/lobbies`.
 ## Verify
 
 ```sh
-curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v1/health/ready
-curl -fsS https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/api/v3/lobbies
-# On the Ubuntu host, bypassing tailscale serve requires the same forwarded-client header:
-curl -fsS --max-time 1 --header 'X-Forwarded-For: 127.0.0.1' \
-  http://127.0.0.1:8000/api/v1/health/ready
-docker ps --filter name=^blob-royale$
-docker inspect blob-royale --format '{{index .Config.Labels "blob-royale.deployed-commit"}}'
+curl -fsS https://blob-royale.colobus-stargazer.ts.net/api/v1/health/ready
+curl -fsS https://blob-royale.colobus-stargazer.ts.net/api/v3/lobbies
+curl -fsSI https://blob-royale.colobus-stargazer.ts.net/
 ```
 
 Check the directory twice and require all four rooms to report `healthy: true` with advancing
 `tick_sequence` values; readiness alone checks only the first room. Open
-`https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444/` from any tailnet device and join a room.
-The room page must report "Connected to the match session." and advance its tick counter.
+`https://blob-royale.colobus-stargazer.ts.net/` from any tailnet device and join a room. The room
+page must report "Connected to the match session." and advance its tick counter.
 
 ## Roll back
 
-Check out the previously certified commit and redeploy; the script re-verifies that commit and
-replaces the container and web tree:
+Merge a revert, or dispatch the deploy workflow at an older commit on `main`:
 
 ```sh
-git checkout <previous-certified-commit>
-./scripts/deploy-tailnet
-git checkout main
+gh workflow run deploy.yml -f sha=<older commit on main> -f allow_rollback=true
 ```
 
-There is no durable state to migrate; the configuration is versioned in `deploy/ubuntu-pc/`. A
-scenario seeds exactly one world, so a deployment that runs more than one room passes none; the
-loader refuses the pair with `APPLICATION.LOBBIES.SCENARIO_REQUIRES_ONE_LOBBY`.
+There is no durable state to migrate; the configuration is in the image. A scenario seeds exactly
+one world, so the deployment, which runs more than one room, passes none; the loader refuses the
+pair with `APPLICATION.LOBBIES.SCENARIO_REQUIRES_ONE_LOBBY`.
 
 ## Logs and diagnostics
 
-Application logs are JSON lines on the container's standard error, retained by the json-file driver
-as five 50 MiB files:
+Application logs are JSON lines on the server container's standard error, collected by the host's
+Docker. On the host (owner only; the agent account has no Docker route to it):
 
 ```sh
 docker logs --since 10m blob-royale
-sudo tailscale serve status
+docker logs --since 10m blob-royale-web
+docker exec ts-blob-royale tailscale serve status
 ```
 
 Index `severity`, `event`, `error_code`, lifecycle state, `lobby_id`, and request ID as described in
 [`linux.md`](linux.md). A repeatable nonzero startup exit is a configuration error to fix, not a
 crash loop for the restart policy to absorb.
 
-## Serve configuration
+## Proxy behavior
 
-The two handlers persist in the tailscaled preferences across reboots. To remove them, repeat each
-enabling command with `off` appended:
-
-```sh
-sudo tailscale serve --https=8444 --set-path=/api http://127.0.0.1:8000/api off
-sudo tailscale serve --https=8444 /srv/blob-royale/web off
-```
-
-`tailscale serve` strips the mount prefix before proxying, which is why the backend target carries
-`/api`. It preserves the browser `Host` header, so the deployment configuration allowlists
-`cole-ubuntu-pc.colobus-stargazer.ts.net:8444` and the matching `https://` origin. It also adds
+The sidecar preserves the browser `Host` header, so the deployment configuration allowlists
+`blob-royale.colobus-stargazer.ts.net` (no port) and the matching `https://` origin. It adds
 `X-Forwarded-For` and `Tailscale-User-*` headers. Trusted-proxy client-address validation and
 accounting apply to v1 routes too, including health checks: exactly one canonical IP address must
-be supplied in `X-Forwarded-For`. A missing value returns HTTP 400 with
-`PROTOCOL.INVALID_REQUEST` and reason `forwarded_client_absent` on a v1 route, even when the
-server is ready. Both deployment scripts supply the local probe's address explicitly; ordinary
-HTTP readiness GETs need no `Origin` header. Protocol v1 does not use `Tailscale-User-*` identity
-headers; the v3 session uses the validated `Tailscale-User-Name` for its display name.
+be supplied in `X-Forwarded-For`. A missing value returns HTTP 400 with `PROTOCOL.INVALID_REQUEST`
+and reason `forwarded_client_absent` on a v1 route, even when the server is ready. The server
+container's healthcheck in `deploy/stack/compose.yaml` supplies the local probe's address
+explicitly; ordinary HTTP readiness GETs need no `Origin` header. Protocol v1 does not use
+`Tailscale-User-*` identity headers; the v3 session uses the validated `Tailscale-User-Name` for its
+display name.
 
 ## Limits behind the proxy
 
-Every tailnet client reaches the server from the proxy's loopback address. The deployment names that
-proxy in `[server] trusted_proxy_addresses=127.0.0.1`, so the server credits the `X-Forwarded-For`
-that `tailscale serve` adds and accounts each tailnet client as its own principal: at most 8
-concurrent WebSocket sessions, 4 upgrades per burst refilling one every 5 seconds, and 20 HTTP
-requests per burst refilling 2 per second, **per client** rather than shared by everyone. Without
-that line every player would be one loopback principal and a lobby directory that four people poll
-would rate-limit all of them at once.
+Every tailnet client reaches the server from the sidecar's loopback address. The deployment names
+that proxy in `[server] trusted_proxy_addresses=127.0.0.1`, so the server credits the
+`X-Forwarded-For` that the sidecar adds and accounts each tailnet client as its own principal: at
+most 8 concurrent WebSocket sessions, 4 upgrades per burst refilling one every 5 seconds, and 20
+HTTP requests per burst refilling 2 per second, **per client** rather than shared by everyone.
+Without that line every player would be one loopback principal and a lobby directory that four
+people poll would rate-limit all of them at once.
 
 The residual is the one protocol v2 § "Abuse cases" accepts for a single-operator host: the trusted
-proxy *is* loopback, so any local process on the host can set the same header, mint principals, and
-appear under any name. That is acceptable here because nobody but the operator runs processes on
-this host; it is the reason this protocol is not safe on a shared machine. Do not widen the server
-bounds, and do not add a second address to the trusted list without reading that section.
+proxy *is* loopback, so any process in the same network namespace can set the same header, mint
+principals, and appear under any name. Here that namespace holds only the sidecar, the server, and
+the static web server, not every process on the host, so the exposure is smaller than on the old
+host-network deployment. Do not widen the server bounds, do not add a container to the stack that
+runs third-party code, and do not add a second address to the trusted list without reading that
+section.
 
-## Stop
+## Stop and retire
 
-```sh
-docker stop blob-royale
-docker rm blob-royale
-```
+Stopping is the owner's host operation (`docker compose` on the stack, or removing the stack through
+the platform's tools). `docker stop` delivers `SIGTERM`; the process exits zero within its
+five-second shutdown deadline. To take the game off the tailnet, remove the node in the Tailscale
+admin console as well.
 
-`docker stop` delivers `SIGTERM`; the process exits zero within its five-second shutdown deadline.
-Removing the serve handlers is separate and optional.
+## What the move gave up
+
+- **Live reconfiguration.** `scripts/reconfigure-tailnet` restarted the server with a new config in
+  seconds, without a merge. A balance change now costs a pull request, the hosted gate, and a deploy.
+- **A release gate on the deployment host.** `scripts/deploy-tailnet` ran `verify-linux release`
+  on the host that served the game and refused to run elsewhere. The deploy now trusts the hosted
+  `verify-linux pr` gate plus the platform's candidate health probe and rollback.
+- **A scripted pre-flight** of the snapshot mirror and the readiness loop. The platform's
+  `ready_attempts` and rollback replace the readiness loop.
+- **Editing a value in place on the host** to try it. Try it locally instead.
+- **The port-less URL's old companion facts:** the `cole-ubuntu-pc` ssh alias, the
+  `vm.mmap_rnd_bits` sysctl note, and the host-wide `tailscale serve` handlers no longer apply to the
+  game. The sysctl still matters to anyone running the TSan lane natively on that host
+  ([`../architecture/0001-linux-runtime-contract.md`](../architecture/0001-linux-runtime-contract.md)).
+- **The old URL.** `https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444` stops working when the owner
+  retires the old container; its Host and Origin are no longer in the server allowlists.

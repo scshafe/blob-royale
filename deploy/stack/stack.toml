@@ -10,17 +10,19 @@ image = "blob-royale"                  # the image built from this repository's 
 pin = "BLOB_ROYALE_IMAGE"                      # the .env variable stack deploy writes (name:tag)
 pin_style = "ref"
 dockerfile = "Dockerfile"
-containers = ["blob-royale"]           # all must be ready on the candidate
-health = "/healthz"                  # probed through the tailnet name
+# The static web server for the built client: the simulation server serves only /api.
+extra_images = ["web:deploy/web/Dockerfile:BLOB_ROYALE_WEB_IMAGE"]
+containers = ["blob-royale", "blob-royale-web"]   # all must be ready on the candidate
+health = "/api/v1/health/ready"      # probed through the tailnet name (the sidecar adds X-Forwarded-For)
 ready_attempts = 20
-rollback_services = ["blob-royale"]
+rollback_services = ["blob-royale", "web"]
 
 [check]
-required_health_services = ["blob-royale"]
+required_health_services = ["blob-royale", "web"]
 
 [backup]
 tailscale = true                     # the node identity (always, with a sidecar)
-paths = []                           # app data under state/, e.g. ["state/data"]
+paths = []                           # no app data: the server keeps no state
 
 [env]
 required = ["TS_AUTHKEY"]

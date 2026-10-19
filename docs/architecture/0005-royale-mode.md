@@ -817,7 +817,7 @@ discharged by the framework, not by this game.
   unknown kind once per connection at `warn` (ADR 0004 § "Snapshots and protocol shape"), so a
   client with no `Zone` renderer skips it visibly rather than drawing nonsense.
 * **Operational:** `[royale]` and `[simulation] drag_per_second` must be added to
-  `config/blob-royale.cfg`, `deploy/ubuntu-pc/blob-royale.cfg`,
+  `config/blob-royale.cfg`, `deploy/config/blob-royale.cfg`,
   `frontend-react/e2e/fixtures/blob-royale-browser-e2e.cfg`, and the fuzz corpus configurations
   under `tests/fuzz/corpus/application/`, with `drag_per_second=0` everywhere except the deployment
   file (plan Steps 25 and 31). A missing section is a startup rejection, not a default.

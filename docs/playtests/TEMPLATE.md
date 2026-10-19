@@ -53,8 +53,9 @@ If the page recovered on its own, say so, because bounded reconnect is meant to 
 
 The one that decides who a match waits for is `[match] lobby_seat_count`, the number of seats the
 lobby is created with; a match starts when every seat is filled and somebody presses Start. Feel is mostly `drag_per_second`, the thrust maximum, and
-the zone shrink. Apply a change in seconds with `./scripts/reconfigure-tailnet` on the host, then
-commit whichever value you keep so the running arena and the repository agree.
+the zone shrink. Try a value on a local server (`out/build/linux-gcc-debug/blob-royale --config <cfg>`), then merge
+the one you keep: the deploy rebuilds the image from the repository, so the running arena and the
+repository always agree.
 
 | Value | From | To | Why |
 |---|---|---|---|

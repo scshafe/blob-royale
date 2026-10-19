@@ -1321,7 +1321,7 @@ a tactical bot.
 **Correction, 2026-09-12: this file previously said `fixtures` "carries the only C++ lane that reads
 `config/blob-royale.cfg`". That was false, and Step 22b's three keys shipped on it.** The lane's
 `deployment_fixture_tests.cpp` loads `BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY`, which
-`tests/fixtures/CMakeLists.txt` defines as `deploy/ubuntu-pc` — a file that declares no
+`tests/fixtures/CMakeLists.txt` defines as `deploy/config` — a file that declares no
 `[bot_profile]` section at all. Until Step 22c, **nothing in the tree parsed the shipped
 configuration**: it is referenced only by `scripts/verify-linux` and `scripts/assemble-release-linux`,
 so the `steady` section since Step 15, Step 22a's six keys and Step 22b's three all shipped with zero

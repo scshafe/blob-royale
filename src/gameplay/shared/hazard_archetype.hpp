@@ -56,7 +56,7 @@ public:
 
   // The `[hazard.<kind>]` section as authored, one member per key plus the section's own open
   // instance name. Units are in the names because the value alone cannot carry them, which is the
-  // convention of `deploy/ubuntu-pc/blob-royale.cfg`.
+  // convention of `deploy/config/blob-royale.cfg`.
   struct Section final {
     // The instance name of the `[hazard.<kind>]` section, which no C++ file may name.
     std::string kind_name;

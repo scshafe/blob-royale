@@ -27,10 +27,10 @@ namespace {
 
 using blob_royale::application::ApplicationConfigLoader;
 
-// Loads the committed cole-ubuntu-pc deployment inputs through the exact production parsers, in
-// the shape `scripts/deploy-tailnet` launches the container: the configuration alone. A scenario
-// seeds exactly one world and the deployment runs four rooms, so it passes none; the loader refuses
-// the pair, and a fixture that passed one would be proving a launch the script does not make.
+// Loads the committed deployment inputs through the exact production parsers, in the shape the
+// root Dockerfile's entrypoint launches the container: the configuration alone. A scenario seeds
+// exactly one world and the deployment runs four rooms, so it passes none; the loader refuses the
+// pair, and a fixture that passed one would be proving a launch the image does not make.
 [[nodiscard]] ApplicationConfigLoader::Result load_deployment_inputs() {
   const std::filesystem::path deployment_directory{BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY};
   const std::string configuration_path = (deployment_directory / "blob-royale.cfg").string();
@@ -42,7 +42,7 @@ using blob_royale::application::ApplicationConfigLoader;
 // Loads the SHIPPED `config/blob-royale.cfg` through the same production parser, in the same shape
 // `scripts/verify-linux` launches it: the configuration alone, no scenario.
 //
-// **Nothing else in this tree parses that file.** The fixture above loads `deploy/ubuntu-pc`, which
+// **Nothing else in this tree parses that file.** The fixture above loads `deploy/config`, which
 // declares no `[bot_profile]` section at all; the two browser fixtures pin their own configurations
 // and their own two profiles; and the shipped one was referenced only by `scripts/verify-linux` and
 // `scripts/assemble-release-linux`, neither of which is a C++ gate. Every `[bot_profile.steady]`
@@ -60,7 +60,7 @@ using blob_royale::application::ApplicationConfigLoader;
 
 } // namespace
 
-TEST_CASE("deployment configuration for cole-ubuntu-pc loads through the application boundary",
+TEST_CASE("the blob-royale node configuration loads through the application boundary",
           "[fixtures][deployment]") {
   const ApplicationConfigLoader::Result result = load_deployment_inputs();
   REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
@@ -70,12 +70,25 @@ TEST_CASE("deployment configuration for cole-ubuntu-pc loads through the applica
   CHECK(server_config.bind_address() == "127.0.0.1");
   CHECK(server_config.port() == 8000);
   CHECK(server_config.allows_host("127.0.0.1:8000"));
-  CHECK(server_config.allows_host("cole-ubuntu-pc.colobus-stargazer.ts.net:8444"));
+  // The node is served at https://blob-royale.<tailnet>/ with no port, so the Host header carries
+  // none and the old port-specific names are no longer admitted.
+  // The router normalizes a request's Host with the listener's port as the default; so do we.
+  const auto normalized_host = [&server_config](const std::string_view host) {
+    return blob_royale::server::normalize_host_authority(host, server_config.port());
+  };
+  CHECK(server_config.allows_host(normalized_host("blob-royale.colobus-stargazer.ts.net")));
+  CHECK_FALSE(
+      server_config.allows_host(normalized_host("blob-royale.colobus-stargazer.ts.net:8444")));
+  CHECK_FALSE(
+      server_config.allows_host(normalized_host("cole-ubuntu-pc.colobus-stargazer.ts.net:8444")));
   CHECK(server_config.allows_origin(blob_royale::server::normalize_serialized_origin(
-      "https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444")));
+      "https://blob-royale.colobus-stargazer.ts.net")));
   CHECK_FALSE(server_config.allows_origin(blob_royale::server::normalize_serialized_origin(
-      "http://cole-ubuntu-pc.colobus-stargazer.ts.net:8444")));
-  // `tailscale serve` is the one proxy, on loopback, so every tailnet client is its own principal.
+      "http://blob-royale.colobus-stargazer.ts.net")));
+  CHECK_FALSE(server_config.allows_origin(blob_royale::server::normalize_serialized_origin(
+      "https://cole-ubuntu-pc.colobus-stargazer.ts.net:8444")));
+  // The stack's Tailscale sidecar is the one proxy, on loopback, so every tailnet client is its own
+  // principal.
   REQUIRE(server_config.trusted_proxy_addresses().size() == 1);
   CHECK(server_config.trusted_proxy_addresses()[0] == "127.0.0.1");
   CHECK(server_config.snapshots_per_second() == 20);
@@ -110,9 +123,9 @@ TEST_CASE("the deployment runs four hill rooms and seeds no scenario", "[fixture
   // Four rooms is the count ADR 0006 measured a budget for
   // (`docs/architecture/0006-lobbies-as-rooms.md` § "The tick-loop decision"), and a scenario seeds
   // exactly one world, so a deployment with more than one room passes none. The pair is refused at
-  // load with `APPLICATION.LOBBIES.SCENARIO_REQUIRES_ONE_LOBBY`, which is what the deploy script
-  // used to trip over at readiness after the count went to four; this pins the launch shape the
-  // script makes now.
+  // load with `APPLICATION.LOBBIES.SCENARIO_REQUIRES_ONE_LOBBY`, which is what the old deploy
+  // script tripped over at readiness after the count went to four; this pins the launch shape the
+  // image's entrypoint makes.
   const ApplicationConfigLoader::Result result = load_deployment_inputs();
   REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
   const ApplicationConfigLoader::RunRequest& run_request =
@@ -124,25 +137,20 @@ TEST_CASE("the deployment runs four hill rooms and seeds no scenario", "[fixture
   CHECK(run_request.application_config().match_configuration().map_name() == "hills-960x640");
 }
 
-TEST_CASE("both tailnet scripts identify their localhost readiness client to the trusted proxy",
-          "[fixtures][deployment][script-contract]") {
+TEST_CASE("the stack's healthcheck identifies its localhost client to the trusted proxy",
+          "[fixtures][deployment][stack-contract]") {
   // Router tests prove this request is admitted and the headerless one is refused. This source
-  // guard ties that behavior to BOTH callers: parser/configuration fixtures alone cannot catch a
-  // deployment script reporting NOT_READY after it has already replaced a healthy container.
+  // guard ties that behavior to the one caller that cannot be exercised here: a healthcheck
+  // reporting the server unhealthy after the host has already replaced a working container would
+  // roll the deploy back for a probe that never spoke the proxy's dialect.
   const std::filesystem::path repository_directory =
       std::filesystem::path{BLOB_ROYALE_DEPLOYMENT_FIXTURE_DIRECTORY}.parent_path().parent_path();
-  constexpr std::string_view expected_probe =
-      "if curl --fail --silent --show-error --max-time 1 \\\n"
-      "    --header 'X-Forwarded-For: 127.0.0.1' \\\n"
-      "    \"http://${APPLICATION_ADDRESS}:${APPLICATION_PORT}/api/v1/health/ready\" 2>/dev/null |";
-  for (const std::string_view script_name : {"deploy-tailnet", "reconfigure-tailnet"}) {
-    INFO(script_name);
-    std::ifstream source{repository_directory / "scripts" / script_name};
-    REQUIRE(source.is_open());
-    const std::string script{std::istreambuf_iterator<char>{source},
-                             std::istreambuf_iterator<char>{}};
-    CHECK(script.find(expected_probe) != std::string::npos);
-  }
+  std::ifstream source{repository_directory / "deploy" / "stack" / "compose.yaml"};
+  REQUIRE(source.is_open());
+  const std::string compose{std::istreambuf_iterator<char>{source},
+                            std::istreambuf_iterator<char>{}};
+  CHECK(compose.find("GET /api/v1/health/ready HTTP/1.1") != std::string::npos);
+  CHECK(compose.find("X-Forwarded-For: 127.0.0.1") != std::string::npos);
 }
 
 TEST_CASE("the deployed hazard table is the one intended and fits the snapshot entity bound",
@@ -154,7 +162,7 @@ TEST_CASE("the deployed hazard table is the one intended and fits the snapshot e
   // build rather than a match that degrades once people are in it.
   //
   // The map comes from the repository rather than from `[match] maps_directory`, which names the
-  // container's read-only mount at `/run/blob-royale` and does not exist on a build machine.
+  // image's copy at `/usr/share/blob-royale/maps` and does not exist on a build machine.
   const ApplicationConfigLoader::Result result = load_deployment_inputs();
   REQUIRE(std::holds_alternative<ApplicationConfigLoader::RunRequest>(result));
   const blob_royale::application::ApplicationConfig& application_config =
@@ -164,7 +172,7 @@ TEST_CASE("the deployed hazard table is the one intended and fits the snapshot e
 
   // Two kinds, and the names are configuration rather than code: no C++ file contains either,
   // which is the whole acceptance bar for hazards being data. Adding a third is one section in
-  // `deploy/ubuntu-pc/blob-royale.cfg` and one number here.
+  // `deploy/config/blob-royale.cfg` and one number here.
   REQUIRE(hazards.size() == 2);
 
   // Looked up by name rather than by index, because the order the loader returns instances in is

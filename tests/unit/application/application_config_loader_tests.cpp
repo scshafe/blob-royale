@@ -1263,7 +1263,7 @@ TEST_CASE("a configuration that declares no hazard section has no hazards",
           "[unit][application][config][hazard]") {
   // Zero instances is legal, and it is what every configuration in this tree looked like before
   // hazards existed. `[hazards]` is not a required section because there is no `[hazards]` section
-  // at all, so `deploy/ubuntu-pc/blob-royale.cfg` and every fixture load exactly as they did.
+  // at all, so `deploy/config/blob-royale.cfg` and every fixture load exactly as they did.
   TemporaryApplicationInputWorkspace workspace;
 
   const gameplay::GameModeConfiguration configuration =

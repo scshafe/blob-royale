@@ -172,8 +172,9 @@ current values are reviewed.
 - `tests` — unit, real-process integration, replay fixtures, and browser specifications
 - `benchmarks` — deterministic Linux simulation and delivery measurements
 - `docs/operations/linux.md` — deployment, shutdown, diagnostics, and incident guidance
-- `docs/operations/tailnet.md` — deploying and operating the tailnet game host `cole-ubuntu-pc`
-- `deploy/ubuntu-pc` — committed configuration for that host
+- `docs/operations/tailnet.md` — deploying and operating the `blob-royale` tailnet node (runner-lane stack)
+- `deploy/config` — the production configuration baked into the server image
+- `deploy/stack`, `deploy/web` — the stack's compose, serve and stack files and the web image
 
 Commands arrive over protocol v3 (`docs/protocol/v3.md`) on its own versioned route, `GET
 /api/v3/lobbies/<lobby_id>/session`, and never over v1's read-only snapshot stream. Network code still holds only

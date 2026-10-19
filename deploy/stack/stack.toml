@@ -12,7 +12,9 @@ pin_style = "ref"
 dockerfile = "Dockerfile"
 # The static web server for the built client: the simulation server serves only /api.
 extra_images = ["web:deploy/web/Dockerfile:BLOB_ROYALE_WEB_IMAGE"]
-containers = ["blob-royale", "blob-royale-web"]   # all must be ready on the candidate
+# Only containers running the MAIN image: the tool checks each against its id. The
+# web container (extra_images, default name blob-royale-web) is checked against its own image.
+containers = ["blob-royale"]
 health = "/api/v1/health/ready"      # probed through the tailnet name (the sidecar adds X-Forwarded-For)
 ready_attempts = 20
 rollback_services = ["blob-royale", "web"]

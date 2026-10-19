@@ -72,9 +72,15 @@ TEST_CASE("the blob-royale node configuration loads through the application boun
   CHECK(server_config.allows_host("127.0.0.1:8000"));
   // The node is served at https://blob-royale.<tailnet>/ with no port, so the Host header carries
   // none and the old port-specific names are no longer admitted.
-  CHECK(server_config.allows_host("blob-royale.colobus-stargazer.ts.net"));
-  CHECK_FALSE(server_config.allows_host("blob-royale.colobus-stargazer.ts.net:8444"));
-  CHECK_FALSE(server_config.allows_host("cole-ubuntu-pc.colobus-stargazer.ts.net:8444"));
+  // The router normalizes a request's Host with the listener's port as the default; so do we.
+  const auto normalized_host = [&server_config](const std::string_view host) {
+    return blob_royale::server::normalize_host_authority(host, server_config.port());
+  };
+  CHECK(server_config.allows_host(normalized_host("blob-royale.colobus-stargazer.ts.net")));
+  CHECK_FALSE(
+      server_config.allows_host(normalized_host("blob-royale.colobus-stargazer.ts.net:8444")));
+  CHECK_FALSE(
+      server_config.allows_host(normalized_host("cole-ubuntu-pc.colobus-stargazer.ts.net:8444")));
   CHECK(server_config.allows_origin(blob_royale::server::normalize_serialized_origin(
       "https://blob-royale.colobus-stargazer.ts.net")));
   CHECK_FALSE(server_config.allows_origin(blob_royale::server::normalize_serialized_origin(

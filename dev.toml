@@ -54,3 +54,4 @@ host = "pc"
 tailnet_node = "blob-royale"
 door = "none"
 verify_on = "hosted"
+verify_timeout_minutes = 150

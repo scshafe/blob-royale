@@ -20,7 +20,8 @@ jobs:
     name: quality/linux-authoritative
     runs-on: ubuntu-24.04
     # Four serial clean builds take about 52 minutes before the required test gates.
-    timeout-minutes: 120
+    # The whole gate takes 1h45m-1h50m and ran into 120 minutes once, so 180 leaves room.
+    timeout-minutes: 180
 
     steps:
       - name: Check out repository

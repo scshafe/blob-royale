@@ -151,11 +151,12 @@ RUN apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::http
       xvfb=2:21.1.12-1ubuntu1.6 \
     && rm -rf /var/lib/apt/lists/*
 
-# Git defines the tracked-plus-unignored source set used by deterministic release evidence. Keep
-# it after the expensive compiler/test/browser layers so changes to evidence tooling do not force
-# third-party rebuilds.
+# Git defines the tracked-plus-unignored source set used by deterministic release evidence. ccache
+# restores compiled objects keyed on exact preprocessed input and command line (never a reused build
+# tree); scripts/run-linux-toolchain points CMake at it. Keep both after the expensive
+# compiler/test/browser layers so changes to evidence tooling do not force third-party rebuilds.
 RUN apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 -o APT::Update::Error-Mode=any update \
-    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 install -y --no-install-recommends git=1:2.43.0-1ubuntu7.3 \
+    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 install -y --no-install-recommends ccache=4.9.1-1 git=1:2.43.0-1ubuntu7.3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace

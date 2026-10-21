@@ -2,7 +2,8 @@
 
 # Runs one command inside Blob Royale's pinned Linux/amd64 toolchain.
 # Inputs: `--` followed by the command and its arguments.
-# Side effects: builds/caches a local OCI image and may write to the mounted repo.
+# Side effects: builds/caches a local OCI image and may write to the mounted repo, including the
+# ccache directory out/cache/ccache. VERIFY_BUILD_JOBS, if set, is passed through to the command.
 # Idempotent: yes; Docker layer caching and command behavior determine repeated cost.
 
 set -euo pipefail
@@ -109,6 +110,11 @@ docker run \
   --env PLAYWRIGHT_BROWSERS_PATH=/workspace/out/cache/playwright \
   --env XDG_CACHE_HOME=/tmp/blob-royale-cache \
   --env npm_config_cache=/workspace/out/cache/npm \
+  --env CCACHE_DIR=/workspace/out/cache/ccache \
+  --env CCACHE_MAXSIZE=2G \
+  --env CCACHE_COMPILERCHECK=content \
+  --env CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+  --env "VERIFY_BUILD_JOBS=${VERIFY_BUILD_JOBS:-}" \
   --volume "${REPOSITORY_DIRECTORY}:/workspace" \
   --workdir /workspace \
   "${TOOLCHAIN_IMAGE}" \

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # Replays every versioned parser fuzz input once under Clang libFuzzer, ASan, and UBSan.
-# Inputs: none. Side effects: clean-configures out/build/linux-clang-fuzz. Idempotent: yes.
+# Inputs: none; VERIFY_BUILD_JOBS (default nproc) sets build parallelism.
+# Side effects: clean-configures out/build/linux-clang-fuzz. Idempotent: yes.
 
 set -euo pipefail
 
@@ -32,7 +33,7 @@ done
 
 cd "${REPOSITORY_DIRECTORY}"
 cmake --fresh --preset "${BUILD_PRESET}"
-cmake --build --preset "${BUILD_PRESET}" --parallel 1
+cmake --build --preset "${BUILD_PRESET}" --parallel "${VERIFY_BUILD_JOBS:-$(nproc)}"
 
 run_corpus() {
   local target_name="$1"

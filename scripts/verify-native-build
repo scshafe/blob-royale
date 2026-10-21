@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 
 # Clean-builds every native target with the canonical GCC and Clang presets.
-# Inputs: none; run from the repository root inside the pinned Linux toolchain.
-# Side effects: replaces native outputs under out/build for each verified preset.
+# Inputs: none; run from the repository root inside the pinned Linux toolchain. VERIFY_BUILD_JOBS
+# (default: nproc) sets the build parallelism; Ninja output does not depend on it.
+# Side effects: replaces native outputs under out/build for each verified preset, and reads and
+# writes the ccache directory when the toolchain exports CMAKE_CXX_COMPILER_LAUNCHER=ccache.
 # Idempotent: yes.
+#
+# The clean build boundary is unchanged: `--clean-first` still deletes every output of the preset
+# and every object is rebuilt or restored. ccache only restores an object whose preprocessed source,
+# compiler identity (by content) and exact command line match a prior compile, so a hit is the
+# object the compiler would have produced; it is never a reused build directory.
 
 set -euo pipefail
 
@@ -37,6 +44,12 @@ for required_command in clang++ clang-format cmake find g++ ninja sort; do
   fi
 done
 
+build_jobs="${VERIFY_BUILD_JOBS:-$(nproc)}"
+if [[ ! "${build_jobs}" =~ ^[1-9][0-9]*$ ]]; then
+  fail "VERIFY_BUILD_JOBS must be a positive integer, got: ${build_jobs}"
+fi
+readonly build_jobs
+
 cd "${REPOSITORY_DIRECTORY}"
 
 mapfile -d '' first_party_sources < <(
@@ -49,11 +62,18 @@ fi
 clang-format --dry-run --Werror "${first_party_sources[@]}"
 printf 'native_build.format.status=passed\n'
 
+use_ccache=0
+if [[ "${CMAKE_CXX_COMPILER_LAUNCHER:-}" == "ccache" ]] && command -v ccache >/dev/null 2>&1; then
+  use_ccache=1
+  ccache --zero-stats >/dev/null
+fi
+printf 'native_build.jobs=%s ccache=%s\n' "${build_jobs}" "${use_ccache}"
+
 for build_preset in "${BUILD_PRESETS[@]}"; do
   build_directory="${REPOSITORY_DIRECTORY}/out/build/${build_preset}"
 
   cmake --fresh --preset "${build_preset}"
-  cmake --build --preset "${build_preset}" --clean-first --parallel 1
+  cmake --build --preset "${build_preset}" --clean-first --parallel "${build_jobs}"
 
   if [[ ! -x "${build_directory}/blob-royale" ]]; then
     fail "${build_preset} did not produce blob-royale"
@@ -65,6 +85,17 @@ for build_preset in "${BUILD_PRESETS[@]}"; do
 
   printf 'native_build.%s.status=passed\n' "${build_preset}"
 done
+
+if [[ "${use_ccache}" -eq 1 ]]; then
+  ccache --show-stats --verbose | sed 's/^/native_build.ccache: /'
+  ccache --print-stats | awk -F'\t' '
+    $1 == "direct_cache_hit" || $1 == "preprocessed_cache_hit" { hits += $2 }
+    $1 == "cache_miss" { misses += $2 }
+    END {
+      total = hits + misses
+      printf "native_build.ccache.hits=%d misses=%d hit_rate_percent=%.1f\n", hits, misses, total ? 100 * hits / total : 0
+    }'
+fi
 
 printf '%s\n' \
   "native_build.compiler_count=2" \

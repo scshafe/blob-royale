@@ -44,6 +44,14 @@ jobs:
           ref: ${{ inputs.sha || github.sha }}
           persist-credentials: false
       # scshafe-dev:begin toolchain (project-owned: the setup steps the [verify] command needs; keep equal to ci.yml's)
+      - name: Cache ccache objects
+        # Compiled objects keyed on exact inputs; --clean-first still wipes every build output.
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: out/cache/ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/linux/Dockerfile', 'CMakePresets.json') }}-${{ github.sha }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('ci/linux/Dockerfile', 'CMakePresets.json') }}-
       # scshafe-dev:end toolchain
       - name: Verify (dev.toml [verify] command)
         run: |

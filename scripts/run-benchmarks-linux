@@ -63,7 +63,7 @@ if ! cmake --preset "${BUILD_PRESET}" --fresh >"${CONFIGURE_LOG_FILE}" 2>&1; the
 fi
 
 if ! cmake --build --preset "${BUILD_PRESET}" --target "${BENCHMARK_TARGET}" --clean-first \
-  --parallel 1 >"${BUILD_LOG_FILE}" 2>&1; then
+  --parallel "${VERIFY_BUILD_JOBS:-$(nproc)}" >"${BUILD_LOG_FILE}" 2>&1; then
   cat "${BUILD_LOG_FILE}" >&2
   fail "BENCHMARK.BUILD_FAILED" "blob_simulation_benchmarks release build failed"
 fi

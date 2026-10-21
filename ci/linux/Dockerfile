@@ -18,17 +18,20 @@ ARG GRYPE_LINUX_AMD64_SHA256=acb14a030010fe9bdb9594b4ae108d9d14ef2f926d936aa0916
 ENV BLOB_ROYALE_TOOLCHAIN_ID=ubuntu-24.04-amd64-20260804 \
     BLOB_ROYALE_BASE_IMAGE_DIGEST=sha256:019e8eb29a85e74d64925745884f2ec79aa27e3feab36353d24656f4d6b89467
 
+# Every apt-get retries and times out generously, and `apt-get update` fails the build on any
+# index error (snapshot.ubuntu.com intermittently answers 502/503), so a partial index is retried
+# instead of surfacing later as a missing-version error.
 # Ubuntu's minimal image omits CA roots. Repository metadata remains archive-key
 # signed while ca-certificates is bootstrapped, after which TLS verification is
 # mandatory for every subsequent download.
 RUN sed -i -E \
       "s#http://(archive|security).ubuntu.com/ubuntu/#https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/#" \
       /etc/apt/sources.list.d/ubuntu.sources \
-    && apt-get -o Acquire::https::Verify-Peer=false update \
-    && apt-get -o Acquire::https::Verify-Peer=false install -y --no-install-recommends \
+    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 -o APT::Update::Error-Mode=any -o Acquire::https::Verify-Peer=false update \
+    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 -o Acquire::https::Verify-Peer=false install -y --no-install-recommends \
       ca-certificates=20260601~24.04.1 \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends \
+    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 -o APT::Update::Error-Mode=any update \
+    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 install -y --no-install-recommends \
       clang=1:18.0-59~exp2 \
       clang-format=1:18.0-59~exp2 \
       clang-format-18=1:18.1.3-1ubuntu1 \
@@ -111,8 +114,8 @@ RUN install -d \
 # These names are the Chromium dependency closure declared by exact
 # @playwright/test 1.62.1 for Ubuntu 24.04. The immutable Ubuntu snapshot pins
 # their resolved versions; browser bytes remain a separately cached download.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+RUN apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 -o APT::Update::Error-Mode=any update \
+    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 install -y --no-install-recommends \
       fonts-freefont-ttf=20211204+svn4273-2 \
       fonts-ipafont-gothic=00303-21ubuntu1 \
       fonts-liberation=1:2.1.5-3 \
@@ -151,8 +154,8 @@ RUN apt-get update \
 # Git defines the tracked-plus-unignored source set used by deterministic release evidence. Keep
 # it after the expensive compiler/test/browser layers so changes to evidence tooling do not force
 # third-party rebuilds.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends git=1:2.43.0-1ubuntu7.3 \
+RUN apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 -o APT::Update::Error-Mode=any update \
+    && apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 install -y --no-install-recommends git=1:2.43.0-1ubuntu7.3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace

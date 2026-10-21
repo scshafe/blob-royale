@@ -20,8 +20,8 @@ jobs:
     name: quality/linux-authoritative
     runs-on: ubuntu-24.04
     # Four serial clean builds take about 52 minutes before the required test gates.
-    # The whole gate takes 1h45m-1h50m and ran into 120 minutes once, so 180 leaves room.
-    timeout-minutes: 180
+    # The gate takes about 1h with a cold ccache (measured 1h00m-1h02m hosted), so 100 leaves margin.
+    timeout-minutes: 100
 
     steps:
       - name: Check out repository

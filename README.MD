@@ -89,6 +89,13 @@ For a focused clean native build inside the same image:
 ./scripts/run-linux-toolchain -- ./scripts/verify-native-build
 ```
 
+The four presets build with `VERIFY_BUILD_JOBS` jobs (default `nproc`). The toolchain image carries
+ccache and `run-linux-toolchain` points CMake at it, with the cache in `out/cache/ccache`. The clean
+build boundary is unchanged: `--clean-first` still deletes every build output. ccache restores only
+an object whose preprocessed source, compiler (by content) and command line all match a prior
+compile, so a hit is the object the compiler would have produced. The script prints
+`native_build.ccache.hits=… misses=… hit_rate_percent=…`.
+
 Record a deterministic advisory performance report with `./scripts/run-benchmarks-linux`. Only a
 dedicated native Linux runner is suitable for accepting future regression budgets.
 

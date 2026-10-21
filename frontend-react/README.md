@@ -91,7 +91,7 @@ objectives and entities with the same camera projection.
 
 ## Toolchain
 
-- Node.js 22.23.1
+- Node.js 22.23.4
 - npm 10.9.8
 - Vite for development and production builds
 - strict TypeScript

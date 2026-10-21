@@ -8,7 +8,7 @@
 # the server, both on loopback inside the sidecar's network namespace.
 # Build:  docker build -f deploy/web/Dockerfile -t blob-royale-web .
 
-FROM node:22.23.1-trixie-slim@sha256:e6d9a389d34ff9678438af985c9913fbd1eb6ed36e80fea56644f4b4f6dd70ba AS build
+FROM node:22.23.4-trixie-slim@sha256:817bd9409161864cc85fcda5febd87a26f2d47c9fe5af355d327aeddfa11602c AS build
 WORKDIR /web
 COPY frontend-react/package.json frontend-react/package-lock.json ./
 RUN npm ci --no-audit --no-fund
